@@ -4,7 +4,7 @@
 
 Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **A — Full**. Базовая точка: `main` = `9ba4a37` (в main уже влиты #552 — revisioned evidence head и lifecycle, #557/#563 — freshness/provenance readiness и fail-closed intervention, #564/#565 — интервенционное evidence и guard отката `training_readiness`).
 
-Ревизия документа: v1.5 (plan-only; раунд 1 — `4ae3f4b`, раунд 2 — `20f9dcb`; решения владельца D4/D5/D8 применены). Код, API, UI и схема на этом этапе **не менялись**: артефакт этапа — этот план и Class A slice-spec `docs/recovery_snapshot_capture_parity_slice_spec.md`, которые выносятся на ревью владельцу.
+Ревизия документа: v1.6 (реализация: M1 закрыт — provider-neutral capture и run identity; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Код, API, UI и схема на этом этапе **не менялись**: артефакт этапа — этот план и Class A slice-spec `docs/recovery_snapshot_capture_parity_slice_spec.md`, которые выносятся на ревью владельцу.
 
 ## Purpose / Big Picture
 
@@ -17,7 +17,7 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 ## Progress
 
 - [x] (2026-09-12) Plan-only этап: создан этот ExecPlan и Class A slice-spec, зафиксированы решения, RED→GREEN матрица и контур milestones. Код/API/UI/схема не менялись.
-- [ ] M1. Provider-neutral capture-контракт и run identity — **новая ветка от обновлённого `main`, собственный review budget** (D8; план-ветка для реализации не переиспользуется) (`services/recovery_analytics.py`): структурированный результат + пять состояний + явный `provider`; RED→GREEN.
+- [x] (2026-09-12) M1. Provider-neutral capture-контракт и run identity — ветка `codex/issue-562-recovery-capture-parity` от обновлённого `main` (`facc2b4`), собственный review budget (D8). `capture_post_sync_recovery_state(...)` в `services/recovery_analytics.py`, правило пяти состояний — `capture_verdict` в `models/recovery_response.py`, дурабельный `capture_provider` в провенансе, общая граница дня `daily_activity_cutoff`. RED `13 failed` → GREEN `13 passed`; focused-контур `180 passed`; подробности — `Artifacts and Notes`.
 - [ ] M2. Garmin-путь использует общий контракт без двойной записи (`services/sync.py`).
 - [ ] M3. Intervals parity: тот же контракт в `services/intervals_sync.py`, fail-open как в Garmin.
 - [ ] M4. Additive API↔web контракт: `recovery_capture` в payload обоих провайдеров, `web/lib/types.ts`, регенерация `tests/contracts/ts_contract.json`, инвентарь.
@@ -41,6 +41,12 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 - **Observed**: `SyncJobManager` — process-local: новый процесс инициализируется idle-снимком (`api/sync_jobs.py::_idle_snapshot`), то есть терминальный `result` (а с ним и `recovery_capture`) не переживает рестарт API; `capture_failed` при этом не пишет ни одной строки в журнал, поэтому восстановить его из базы нельзя.
   **Inferred**: терминальный readback capture-статуса **эфемерен**; дурабельна только сама запись снимка (её строка и provenance). Значит «переживает рестарт» нельзя заявлять как покрытое свойство — это надо честно объявить эфемерным, а персистенцию исходов (включая провалы) вынести за scope.
   **Verified by**: чтение `api/sync_jobs.py` (`_idle_snapshot`, `start_or_get`, `_public_snapshot_locked`) и структуры `readiness_snapshots` (поля исхода capture там нет) на `9ba4a37`.
+- **Observed**: активности нужно читать **по дате самой ревизии**, а не окном от текущего момента: `db.get_activities(days=N)` отсчитывает окно от сегодня, поэтому backfilled-захват прошлого дня не видел бы активности этого дня и вердикт стал бы `saved_before_load` вместо `saved_too_late`.
+  **Inferred**: граница дня относится к дате capture, а не к моменту запуска; выборка обязана быть детерминированной и не зависеть от того, когда захват выполнен.
+  **Verified by**: первый прогон RED-тестов дал ровно этот симптом (`assert 'saved_before_load' == 'saved_too_late'` на исторической дате `2026-07-16`); после перехода на `db.get_activities_between(local_date − 1 день, local_date)` тест зелёный, и это же покрывает backfilled-режим.
+- **Observed**: активность дня добавляет фактор TSB, поэтому снимок, который без активности был бы непригоден (`low_confidence`), становится `eligible` — фикстура «непригодный снимок + нечитаемый старт» сначала дала `eligibility_status == "eligible"`.
+  **Inferred**: при проверке приоритета предикатов нельзя опираться на «рядом есть активность» как на признак непригодности: непригодность нужно создавать независимо (в тесте — один сигнал readiness, 0.2–0.4 < 0.60 даже с TSB).
+  **Verified by**: `test_capture_activity_start_missing_wins_over_ineligible` после правки фикстуры: статус `activity_start_missing`, `eligibility_status == "ineligible"`.
 - **Observed**: словарь состояний уже частично существует: `models/recovery_response.py::select_daily_anchor` возвращает `reason ∈ {invalid_timezone, activity_start_missing, no_eligible_pre_anchor_snapshot}`, а `evaluate_snapshot_eligibility` — причины `missing_as_of`, `missing_score`, `low_confidence` (<0.60), `stale_snapshot`, `stale_factor`, `future_factor`; cutoff = минимальный старт активности дня, иначе локальный полдень.
   **Inferred**: новые пять состояний capture — это проекция уже существующих примитивов, а не новая научная логика; расхождение с `select_daily_anchor` было бы дефектом, поэтому инвариант «capture-статус ⇔ дневной anchor» попадает в RED-матрицу.
   **Verified by**: чтение `models/recovery_response.py:66-140` на `9ba4a37`.
@@ -72,6 +78,12 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 - Decision (D6): **UI-слайс — граница ролей**: план описывает требуемое поведение и контракт, но правки `web/components/sync/SyncControl.tsx` выполняет UI / Design Specialist (по `AGENTS.md`), а не автор этого плана. Если владелец назначает роль иначе, это фиксируется отдельной строкой в `Change log`.
   Rationale: `AGENTS.md` разделяет Spec/Architecture Owner, Domain/API Implementer и UI/Design Specialist; «заодно поправить рендер» внутри backend-слайса нарушило бы границу и сделало бы ревью слайса смешанным.
   Date/Author: 2026-09-12 / agent.
+- Decision (M1): **правило пяти состояний живёт в `models/recovery_response.py`, а не в сервисе**: `capture_verdict(...)` — чистая функция рядом с `evaluate_snapshot_eligibility` и `daily_activity_cutoff`; сервис только оркестрирует (сохранение ревизии, чтение активностей, сборка блока).
+  Rationale: вердикт — это правило (как eligibility и anchor), а модуль объявлен как «pure rules … no database, provider, FastAPI, or UI imports», поэтому он тестируется без БД и без провайдера; кроме того так исключается вторая реализация правила, за которую предыдущие раунды ревью справедливо снижали оценку (приоритет предикатов, граница дня).
+  Date/Author: 2026-09-12 / agent (M1).
+- Decision (M1): **граница дня считается по дате ревизии**: активности читаются `db.get_activities_between(local_date − 1 день, local_date)`, а не окном от «сейчас».
+  Rationale: `capture_mode` допускает `backfilled`, и тогда окно от текущего момента даёт неверный вердикт; запас в один день покрывает границу тайм-зоны, не расширяя чтение на историю.
+  Date/Author: 2026-09-12 / agent (M1).
 - Decision (D8): **plan-PR мержится отдельно и не переиспользуется под реализацию** (подтверждено владельцем, 2026-09-12): после принятия плана PR плана закрывается своим мержем, а M1–M6 идут **новой веткой от обновлённого `main`** и с собственным review budget.
   Rationale: смешивание плана и реализации в одной ветке сделало бы head одним объектом для двух разных бюджетов ревью и смазало бы evidence bundle: правки плана и правки кода имеют разные критерии приёмки. Побочный эффект: `docs/recovery_snapshot_capture_parity_execplan.md` живёт в main и обновляется уже веткой реализации.
   Date/Author: 2026-09-12 / agent (по решению владельца).
@@ -153,6 +165,14 @@ Browser contract/UX acceptance (D5): **параметризованные сце
 ## Artifacts and Notes
 
 Plan-only этап: артефакты — этот файл и `docs/recovery_snapshot_capture_parity_slice_spec.md`. Прогоны и выводы будут дополнены в M1–M6 (RED-падения, GREEN-прогоны, браузерные снимки текста, evidence bundle).
+
+### M1 — provider-neutral capture и run identity (2026-09-12)
+
+Новый файл тестов `tests/smoke/test_recovery_capture_contract.py` (13 тестов). RED: `13 failed` — обёртки `capture_post_sync_recovery_state` не существовало. GREEN: `13 passed`.
+
+Покрыто: `saved_before_load` без активностей (граница — локальный полдень); `saved_too_late` при активности раньше наблюдения и при наблюдении после полудня; вердикт **по ревизии**, а не по дню (05:00 → before_load, 11:00 после активности 10:00 → too_late, дневной anchor остаётся у ранней ревизии); приоритет предикатов (`activity_start_missing` побеждает `ineligible`); `ineligible` с безопасной причиной `low_confidence`; пустая база → `ineligible`/`missing_score` вместо падения; провал derived capture → `capture_failed` с ошибкой и без исключения наружу; провайдер в `provenance` журнальной строки и в `snapshot.input_provenance`; идемпотентность рана (тот же id → `created: false`, одна ревизия; новый id → `revision 2`); локальное время атлета в блоке; явное окно активностей как параметр.
+
+Совместимость: `record_post_sync_recovery_state(..., capture_provider: str | None = None)` — аддитивно, без аргумента поведение прежнее; `select_daily_anchor` переведён на общий `daily_activity_cutoff` без изменения возвращаемого словаря (focused-контур `180 passed`).
 
 ## Interfaces and Dependencies
 
@@ -238,3 +258,4 @@ Plan-only этап: артефакты — этот файл и `docs/recovery_s
 - v1.3 (2026-09-12): правки по раунду независимого ревью плана (6 находок: 1 P1 + 5 P2). Состояние capture привязано к конкретной ревизии, а не ко дню (P1); идентичность рана — полный UUID вместо усечённого `job_id` (32-битное пространство и глобальный дедуп по `capture_run_id`); терминальный readback объявлен эфемерным, а персистенция исходов вынесена в non-goals; провайдер стал дурабельным через `input_provenance` без миграции; ASR-маппинг исправлен на REL-3/REL-2/MOD-2/3 вместо REL-1; браузерная приёмка расширена до всех пяти состояний. Код не менялся.
 - v1.4 (2026-09-12): по решению владельца D4 переформулирован (сбой capture сохраняет `sync_state="partial"` и warning; предложение понижать его отклонено), D5 подтверждён и переименован в browser contract/UX acceptance (не provider E2E), добавлено D8 (plan-PR мержится отдельно и не переиспользуется под реализацию; M1–M6 — новая ветка от обновлённого `main` со своим бюджетом). Код не менялся.
 - v1.5 (2026-09-12): правки по раунду 2 (**9 находок: 8 P2 + 1 P3**). Задан явный приоритет предикатов статуса (`capture_failed` → `activity_start_missing` → `ineligible` → before/too_late), снят двойной идентификатор `capture_run_id_full` из TS-контракта (единственная идентичность — полный `capture_run_id`, короткий `job_id` только display), закрыт D5 без условных формулировок, зафиксированы неизменяемые reviewed SHA (`4ae3f4b`, `20f9dcb`), ревизия плана синхронизирована с change log. В slice-spec: несогласованность D2 устранена, `capture_provider` помечен как аддитивное persistent state, исправлен путь `tests/contracts/conformance.py`, M6 расщеплён по ролям (M6a/M6b/M6c). Код не менялся.
+- v1.6 (2026-09-12): M1 реализации закрыт. Правило пяти состояний вынесено в `models/recovery_response.py::capture_verdict`, общая граница дня — `daily_activity_cutoff` (используется и `select_daily_anchor`), сервис получил `capture_post_sync_recovery_state`, рекордер — аддитивный `capture_provider` с дурабельной записью в провенанс. RED `13 failed` → GREEN `13 passed`, focused-контур `180 passed`. Две находки: активности читаются по дате ревизии (иначе backfilled-захват получает неверный вердикт) и активность добавляет фактор TSB, меняя eligibility снимка.
