@@ -1,22 +1,22 @@
 {
   "job_id": "job-00000001",
-  "sync_state": "succeeded",
-  "status": "succeeded",
+  "sync_state": "partial",
+  "status": "partial",
   "started_at": "2026-07-23T05:00:00",
   "finished_at": "2026-07-23T05:00:05",
   "days": 1,
   "source": "intervals",
   "progress": {
     "percent": 100,
-    "message": "Синхронизация Intervals.icu завершена",
+    "message": "Синхронизация Intervals.icu завершена частично",
     "step_text": null,
-    "stats_message": "Загружены свежие активности и показатели восстановления. Теперь можно перейти к интерпретации формы и ближайшей нагрузки."
+    "stats_message": "За запрошенный период удалось получить не все данные. Проверьте замечания ниже, затем решите, нужен ли повторный запуск."
   },
   "result": {
-    "sync_state": "succeeded",
-    "severity": "success",
-    "title": "Синхронизация Intervals.icu завершена",
-    "summary": "Загружены свежие активности и показатели восстановления. Теперь можно перейти к интерпретации формы и ближайшей нагрузки.",
+    "sync_state": "partial",
+    "severity": "warning",
+    "title": "Синхронизация Intervals.icu завершена частично",
+    "summary": "За запрошенный период удалось получить не все данные. Проверьте замечания ниже, затем решите, нужен ли повторный запуск.",
     "synced_at": "2026-07-23T05:00:05",
     "days": 1,
     "counts": {
@@ -32,7 +32,9 @@
       "skipped": 0
     },
     "highlights": [],
-    "notices": [],
+    "notices": [
+      "⚠️ Recovery snapshot capture: snapshot_capture_failed"
+    ],
     "source": "intervals",
     "window_start": "",
     "window_end": "",
@@ -65,7 +67,7 @@
       "empty": true,
       "stale": false,
       "latest_data_at": null,
-      "sync_state": "succeeded",
+      "sync_state": "partial",
       "error": null
     },
     "session_quality_forecast": {
@@ -84,7 +86,7 @@
     "empty": true,
     "stale": false,
     "latest_data_at": null,
-    "sync_state": "succeeded",
+    "sync_state": "partial",
     "error": null
   }
 }

@@ -121,12 +121,25 @@ def _isolated(monkeypatch):
     app.dependency_overrides.pop(get_database, None)
 
 
+CAPTURE_WARNING_TEMPLATE = "⚠️ Recovery snapshot capture: {reason}"
+
+
+def _capture_warnings(block: dict) -> list[str]:
+    """D4: отказ capture в продакшене добавляет warning → ответ становится `partial`."""
+    if str(block.get("status")) != "capture_failed":
+        return []
+    reason = str(block.get("reason") or "snapshot_capture_failed")
+    return [CAPTURE_WARNING_TEMPLATE.format(reason=reason)]
+
+
 def _install_garmin(monkeypatch, db: Database, block: dict) -> None:
     from api.routers import system as system_mod
     from services import sync as sync_service
 
     def fake_sync(_state, days=None, on_progress=None, capture_run_id=None):
-        return sync_service.GarminSyncResult(recovery_capture=block)
+        return sync_service.GarminSyncResult(
+            recovery_capture=block, warnings=_capture_warnings(block)
+        )
 
     monkeypatch.setattr(system_mod.Settings, "GARMIN_EMAIL", "user@example.com", raising=False)
     monkeypatch.setattr(system_mod.Settings, "GARMIN_PASSWORD", "secret", raising=False)
@@ -140,7 +153,9 @@ def _install_intervals(monkeypatch, db: Database, block: dict) -> None:
 
     def fake_sync(_database, *, days=None, now=None, on_progress=None, client=None,
                   chunk_days=None, capture_run_id=None):
-        return IntervalsSyncResult(new=1, recovery_capture=block)
+        return IntervalsSyncResult(
+            new=1, recovery_capture=block, warnings=_capture_warnings(block)
+        )
 
     monkeypatch.setattr(system_mod, "real_database", lambda: db)
     monkeypatch.setattr(
@@ -410,6 +425,10 @@ def _fixture_path(provider: str, status: str) -> Path:
     return FIXTURE_DIR / f"{provider}_{status}.json"
 
 
+def _fixture_payload(provider: str, status: str) -> dict:
+    return json.loads(_fixture_path(provider, status).read_text(encoding="utf-8"))
+
+
 def _normalized(payload: dict) -> dict:
     """Стабилизировать волатильные значения: пинится форма, а не момент запуска."""
     normalized = json.loads(json.dumps(payload))
@@ -461,6 +480,43 @@ def test_fixture_shape_matches_the_real_terminal_payload(
     )
     assert fixture["source"] == provider
     assert fixture["result"]["recovery_capture"]["status"] == status
+
+
+@pytest.mark.parametrize("fixture_name", FIXTURE_NAMES)
+def test_fixture_cross_field_invariants(fixture_name):
+    """Pinning не только формы: поля обязаны быть согласованы между собой (D4)."""
+    payload = json.loads((FIXTURE_DIR / fixture_name).read_text(encoding="utf-8"))
+    block = payload["result"]["recovery_capture"]
+
+    if block["status"] == "capture_failed":
+        assert payload["sync_state"] == "partial", payload["sync_state"]
+        assert payload["result"]["sync_state"] == "partial"
+        assert payload["result"]["severity"] == "warning"
+        assert block["reason"] == block["error"] == "snapshot_capture_failed"
+        assert block["local_date"] is None and block["observed_at_utc"] is None
+        assert any(
+            "snapshot_capture_failed" in notice for notice in payload["result"]["notices"]
+        ), payload["result"]["notices"]
+    else:
+        assert payload["sync_state"] == "succeeded", payload["sync_state"]
+        assert payload["result"]["sync_state"] == "succeeded"
+        assert block["error"] is None
+        assert not any(
+            "Recovery snapshot capture" in notice for notice in payload["result"]["notices"]
+        ), payload["result"]["notices"]
+
+
+@pytest.mark.parametrize("provider", PROVIDERS)
+def test_real_path_agrees_with_the_capture_failed_fixture(tmp_path, monkeypatch, provider):
+    """Реальный путь для capture_failed тоже `partial` + warning (межполевое согласие)."""
+    real = _terminal_payload(tmp_path, monkeypatch, provider, "capture_failed")
+    fixture = _fixture_payload(provider, "capture_failed")
+
+    assert real["sync_state"] == fixture["sync_state"] == "partial"
+    assert real["result"]["severity"] == fixture["result"]["severity"] == "warning"
+    assert any(
+        "snapshot_capture_failed" in notice for notice in real["result"]["notices"]
+    ), real["result"]["notices"]
 
 
 @pytest.mark.parametrize("fixture_name", FIXTURE_NAMES)
