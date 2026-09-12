@@ -1,0 +1,90 @@
+{
+  "job_id": "job-00000001",
+  "sync_state": "succeeded",
+  "status": "succeeded",
+  "started_at": "2026-07-23T05:00:00",
+  "finished_at": "2026-07-23T05:00:05",
+  "days": 1,
+  "source": "intervals",
+  "progress": {
+    "percent": 100,
+    "message": "Синхронизация Intervals.icu завершена",
+    "step_text": null,
+    "stats_message": "Загружены свежие активности и показатели восстановления. Теперь можно перейти к интерпретации формы и ближайшей нагрузки."
+  },
+  "result": {
+    "sync_state": "succeeded",
+    "severity": "success",
+    "title": "Синхронизация Intervals.icu завершена",
+    "summary": "Загружены свежие активности и показатели восстановления. Теперь можно перейти к интерпретации формы и ближайшей нагрузки.",
+    "synced_at": "2026-07-23T05:00:05",
+    "days": 1,
+    "counts": {
+      "new": 1,
+      "updated": 0,
+      "skipped": 0
+    },
+    "activity_changes": 1,
+    "recovery_changes": 0,
+    "recovery_counts": {
+      "new": 0,
+      "updated": 0,
+      "skipped": 0
+    },
+    "highlights": [],
+    "notices": [],
+    "source": "intervals",
+    "window_start": "",
+    "window_end": "",
+    "bootstrapped": false,
+    "halted": false,
+    "cursor_value": null,
+    "wellness_halted": false,
+    "wellness_cursor_value": null,
+    "recovery_capture": {
+      "provider": "intervals",
+      "capture_run_id": "3f1c0f4e-6a1b-4c2d-9e30-8a7b6c5d4e3f",
+      "status": "activity_start_missing",
+      "reason": "activity_start_missing",
+      "eligibility_status": "eligible",
+      "eligibility_reasons": [],
+      "local_date": "2026-07-23",
+      "observed_at_utc": "2026-07-23T05:00:00Z",
+      "observed_at_local": "2026-07-23T08:00:00+03:00",
+      "cutoff_at_utc": null,
+      "snapshot_id": 17,
+      "revision": 1,
+      "created": true,
+      "error": null,
+      "job_id": "job-00000001"
+    },
+    "operational_state": {
+      "status": "empty",
+      "mode": "live",
+      "demo": false,
+      "empty": true,
+      "stale": false,
+      "latest_data_at": null,
+      "sync_state": "succeeded",
+      "error": null
+    },
+    "session_quality_forecast": {
+      "prediction": null,
+      "reason": "no_active_plan"
+    },
+    "session_quality_forecast_error": null
+  },
+  "error": null,
+  "reused": false,
+  "latest_data_at": null,
+  "operational_state": {
+    "status": "empty",
+    "mode": "live",
+    "demo": false,
+    "empty": true,
+    "stale": false,
+    "latest_data_at": null,
+    "sync_state": "succeeded",
+    "error": null
+  }
+}
