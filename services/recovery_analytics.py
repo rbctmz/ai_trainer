@@ -27,6 +27,8 @@ from services.readiness_snapshot import build_readiness_snapshot
 # прошлого дня обязан видеть активности того дня, поэтому активности читаются
 # диапазоном по дате ревизии, а не окном от текущего момента.
 CAPTURE_ACTIVITY_LOOKBACK_DAYS = 1
+CAPTURE_REASON_SNAPSHOT_FAILED = "snapshot_capture_failed"
+CAPTURE_REASON_ACTIVITY_LOOKUP_FAILED = "activity_lookup_failed"
 
 
 def _fingerprint(payload: dict[str, Any]) -> str:
@@ -215,7 +217,7 @@ def capture_post_sync_recovery_state(
             capture_mode=capture_mode,
             capture_provider=provider,
         )
-    except Exception as exc:  # derived analytics stay retryable, sync stays valid
+    except Exception:  # derived analytics stay retryable, sync stays valid
         return {
             "snapshot": None,
             "created": False,
@@ -225,8 +227,8 @@ def capture_post_sync_recovery_state(
                 provider=provider,
                 capture_run_id=capture_run_id,
                 status=CAPTURE_STATUS_FAILED,
-                reason=str(exc),
-                error=str(exc),
+                reason=CAPTURE_REASON_SNAPSHOT_FAILED,
+                error=CAPTURE_REASON_SNAPSHOT_FAILED,
                 eligibility=None,
                 snapshot=None,
                 boundary=None,
@@ -244,7 +246,20 @@ def capture_post_sync_recovery_state(
                 local_date,
             )
         except Exception:
-            activities = []
+            return {
+                **recorded,
+                "recovery_capture": _capture_block(
+                    provider=provider,
+                    capture_run_id=capture_run_id,
+                    status=CAPTURE_STATUS_FAILED,
+                    reason=CAPTURE_REASON_ACTIVITY_LOOKUP_FAILED,
+                    error=CAPTURE_REASON_ACTIVITY_LOOKUP_FAILED,
+                    eligibility=eligibility,
+                    snapshot=snapshot,
+                    boundary=None,
+                    created=bool(recorded.get("created")),
+                ),
+            }
     boundary = daily_activity_cutoff(
         activities,
         local_date=local_date,
