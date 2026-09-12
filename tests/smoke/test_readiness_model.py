@@ -531,6 +531,102 @@ def _dedup_hrv_frame(*, history_days: int = 6):
     return _observations_frame("rmssd", rows, "rmssd_observed_at")
 
 
+# ---------------------------------------------------------------------------
+# Issue #564: текст интервенционного evidence описывает ту же серию, что и вход
+# ---------------------------------------------------------------------------
+
+
+def _dedup_inputs():
+    inputs = _verified_full_inputs()
+    inputs["hrv_df"] = _dedup_hrv_frame()
+    return inputs
+
+
+def test_intervention_evidence_describes_the_deduplicated_series():
+    """#564: текст цитирует дедуплицированный базлайн, а не описательный."""
+    result = compute_readiness_today(**_dedup_inputs(), today=TODAY)
+
+    hrv = _factor(result, "hrv")
+    # Описательный канал заморожен и не меняется.
+    assert hrv["evidence"] == "HRV 40.0 мс против базовых 42.5 (−5.9%)"
+    assert hrv["baseline"] == 42.5
+    assert hrv["deviation"] == -5.9
+    assert hrv["score"] == 55.0
+
+    # Интервенционный текст описывает серию, по которой посчитан вход гейта.
+    assert hrv["intervention_score_input"] == 40.0
+    assert "45.7" in hrv["intervention_evidence"]
+    assert "−12.5%" in hrv["intervention_evidence"]
+    assert hrv["intervention_evidence"] != hrv["evidence"]
+
+
+def test_intervention_evidence_defaults_to_the_descriptive_text():
+    """Без дубликатов интервенционный текст совпадает с описательным."""
+    result = compute_readiness_today(**_verified_full_inputs(), today=TODAY)
+
+    for factor in result["factors"]:
+        assert factor["intervention_evidence"] == factor["evidence"]
+
+
+def test_intervention_evidence_keeps_the_descriptive_text_without_a_dedup_baseline():
+    """Мало данных после дедупликации → вход остаётся описательным, текст тоже."""
+    result = compute_readiness_today(
+        sleep_df=None,
+        hrv_df=_dedup_hrv_frame(history_days=2),
+        health_df=None,
+        training_df=None,
+        activities_df=None,
+        today=TODAY,
+        max_value_age_days=None,
+    )
+
+    hrv = _factor(result, "hrv")
+    assert hrv["intervention_score_input"] == hrv["score"]
+    assert hrv["intervention_evidence"] == hrv["evidence"]
+
+
+def test_driver_payload_carries_intervention_evidence():
+    """Драйверы — отдельная проекция: поле должно доходить и до них."""
+    result = compute_readiness_today(**_dedup_inputs(), today=TODAY)
+
+    hrv_factor = _factor(result, "hrv")
+    hrv_driver = next(d for d in result["drivers"] if d["key"] == "hrv")
+    assert hrv_driver["intervention_evidence"] == hrv_factor["intervention_evidence"]
+    assert "−12.5%" in hrv_driver["intervention_evidence"]
+
+
+def test_conflict_text_quotes_the_intervention_series_end_to_end():
+    """#564: сквозной путь модель → гейт — карточка цитирует дедуплицированную серию."""
+    from models.readiness_conflicts import detect_readiness_conflicts
+
+    inputs = _dedup_inputs()
+    # Остальные факторы низкие, чтобы интервенционный агрегат открыл гейт.
+    inputs["sleep_df"] = _observations_frame(
+        "sleep_score", [(0, 30.0, 0)], "sleep_score_observed_at"
+    )
+    inputs["health_df"] = _observations_frame(
+        "resting_hr", [(0, 70.0, 0), *_history_rows(70.0)], "resting_hr_observed_at"
+    )
+    readiness = compute_readiness_today(**inputs, today=TODAY)
+    session = {
+        "date": TODAY.isoformat(),
+        "days_until": 0,
+        "role": "quality",
+        "tss": 60.0,
+        "name": "Качество • вело",
+        "sport_label": "вело",
+        "phase": "Build",
+    }
+
+    report = detect_readiness_conflicts(readiness, [session], today=TODAY)
+
+    assert report["conflicts"], "гейт должен сработать на этом наборе"
+    evidence = " | ".join(report["conflicts"][0]["evidence"])
+    assert "−12.5%" in evidence, evidence
+    assert "−5.9%" not in evidence, evidence
+    assert "HRV: HRV" not in evidence, evidence
+
+
 def test_intervention_score_input_equals_score_without_duplicates():
     result = compute_readiness_today(**_verified_full_inputs(), today=TODAY)
 

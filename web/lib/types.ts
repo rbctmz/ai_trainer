@@ -55,6 +55,8 @@ export interface ReadinessSnapshotFactor {
   evidence_kind?: ReadinessEvidenceKind | string | null;
   /** Human-readable evidence string produced by the server. */
   evidence?: string | null;
+  /** Issue #564: evidence of the intervention channel (deduplicated series). */
+  intervention_evidence?: string | null;
 }
 
 export interface SubjectiveWellness {
@@ -1596,6 +1598,8 @@ export interface TodayReadinessDriver {
   label: string;
   score: number | null;
   evidence: string;
+  /** Issue #564: evidence of the intervention channel (deduplicated series). */
+  intervention_evidence?: string | null;
   intervention_score_input?: number | null;
   as_of?: string | null;
   observation_as_of?: string | null;

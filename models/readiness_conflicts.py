@@ -520,10 +520,26 @@ def _readiness_evidence(
     bits = []
     for factor in ordered[:3]:
         label = str(factor.get("label") or factor.get("key") or "фактор")
-        detail = str(factor.get("evidence") or "").strip()
-        bits.append(f"{label}: {detail}" if detail else label)
+        # Issue #564: цитируем текст того канала, по которому гейт принял решение
+        # (дедуплицированная серия), а не описательный базлайн.
+        detail = str(
+            factor.get("intervention_evidence") or factor.get("evidence") or ""
+        ).strip()
+        bits.append(_labelled_detail(label, detail))
     drivers_text = "; ".join(bits) or "пригодные факторы не описаны"
     return f"Готовность {score}/100 ({status}): {drivers_text}"
+
+
+def _labelled_detail(label: str, detail: str) -> str:
+    """Склейка «лейбл: текст» без дублирования, если текст уже начинается с лейбла.
+
+    До issue #564 получалось `HRV: HRV 40.0 мс …` и `Сон: Сон: оценка …`.
+    """
+    if not detail:
+        return label
+    if detail.casefold().startswith(label.casefold()):
+        return detail
+    return f"{label}: {detail}"
 
 
 def _session_evidence(session: dict[str, Any]) -> str:
