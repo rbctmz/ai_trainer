@@ -201,7 +201,7 @@ def test_capture_failure_is_reported_not_raised(tmp_path, monkeypatch):
     _seed_full_day(db)
 
     def _boom(*_args, **_kwargs):
-        raise RuntimeError("derived analytics unavailable")
+        raise RuntimeError("derived analytics unavailable: /private/athlete.db")
 
     monkeypatch.setattr(recovery_analytics, "record_post_sync_recovery_state", _boom)
 
@@ -211,12 +211,37 @@ def test_capture_failure_is_reported_not_raised(tmp_path, monkeypatch):
     block = result["recovery_capture"]
 
     assert block["status"] == "capture_failed"
-    assert block["error"] == "derived analytics unavailable"
-    assert block["reason"] == "derived analytics unavailable"
+    assert block["error"] == "snapshot_capture_failed"
+    assert block["reason"] == "snapshot_capture_failed"
+    assert "athlete.db" not in str(block)
     assert block["snapshot_id"] is None
     assert block["revision"] is None
     assert block["provider"] == "intervals"
     assert result["created"] is False
+
+
+def test_capture_activity_lookup_failure_fails_closed_with_safe_reason(
+    tmp_path, monkeypatch
+):
+    """A saved revision must not become a false pre-load success on read failure."""
+    db = Database(str(tmp_path / "lookup-failure.db"))
+    _seed_full_day(db)
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("sqlite failure at /private/athlete.db")
+
+    monkeypatch.setattr(db, "get_activities_between", _boom)
+
+    result = _capture(db, run_id="run-lookup-failed", observed=MOSCOW_OBSERVED)
+    block = result["recovery_capture"]
+
+    assert result["created"] is True
+    assert block["snapshot_id"] is not None
+    assert block["revision"] == 1
+    assert block["status"] == "capture_failed"
+    assert block["reason"] == "activity_lookup_failed"
+    assert block["error"] == "activity_lookup_failed"
+    assert "athlete.db" not in str(block)
 
 
 def test_capture_provider_is_persisted_in_provenance(tmp_path):
