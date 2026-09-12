@@ -233,6 +233,21 @@ const RECOVERY_CAPTURE_REASON_LABELS: Record<string, string> = {
   unparsable_observed_at: "нечитаемое время наблюдения",
 };
 
+// Серверное предупреждение о сбое capture приходит как
+// «⚠️ Recovery snapshot capture: <код>». В UI показываем человеко-читаемую
+// причину; устойчивый код остаётся в payload и в notices контракта.
+const RECOVERY_CAPTURE_NOTICE_PREFIX = "⚠️ Recovery snapshot capture:";
+const RECOVERY_CAPTURE_NOTICE_LABEL = "⚠️ Снимок готовности:";
+
+function formatSyncNotice(notice: string): string {
+  const text = notice.trim();
+  if (!text.startsWith(RECOVERY_CAPTURE_NOTICE_PREFIX)) return text;
+  const code = text.slice(RECOVERY_CAPTURE_NOTICE_PREFIX.length).trim();
+  const label = RECOVERY_CAPTURE_REASON_LABELS[code];
+  // Неизвестный код не прячем и не выдумываем причину — оставляем текст как есть.
+  return label ? `${RECOVERY_CAPTURE_NOTICE_LABEL} ${label}` : text;
+}
+
 function formatRecoveryCaptureTime(value: RecoveryCapture["observed_at_local"]): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     return RECOVERY_CAPTURE_UNKNOWN_TIME;
@@ -302,7 +317,10 @@ function formatSyncJob(job: SyncJobResponse, fallbackSource: SyncSource): string
 }
 
 function formatSyncNotices(notices: string[] | undefined): string {
-  const actionable = (notices ?? []).filter((notice) => notice.trim()).slice(0, 2);
+  const actionable = (notices ?? [])
+    .map(formatSyncNotice)
+    .filter((notice) => notice.length > 0)
+    .slice(0, 2);
   return actionable.length > 0 ? ` · ${actionable.join(" · ")}` : "";
 }
 

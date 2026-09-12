@@ -101,6 +101,19 @@ def test_m5_capture_readback_hides_internal_identifiers() -> None:
         assert forbidden not in control
 
 
+def test_m5_capture_failure_notice_is_not_a_machine_code() -> None:
+    """D4-предупреждение приходит из API машинным кодом, в UI — человеко-читаемо."""
+    control = SYNC_CONTROL.read_text(encoding="utf-8")
+
+    assert "formatSyncNotice" in control
+    assert "RECOVERY_CAPTURE_NOTICE_PREFIX" in control
+    # Код переводится через уже существующую карту причин, а не подставляется в текст.
+    assert "RECOVERY_CAPTURE_REASON_LABELS[code]" in control
+    assert '`${RECOVERY_CAPTURE_NOTICE_LABEL} ${label}`' in control
+    # notices проходят через локализацию до обрезки списка и показа.
+    assert ".map(formatSyncNotice)" in control
+
+
 def test_m5_existing_sync_states_survive_the_readback() -> None:
     """running/failed/partial, счётчики, notices и responsive-контур не ломаются."""
     control = SYNC_CONTROL.read_text(encoding="utf-8")

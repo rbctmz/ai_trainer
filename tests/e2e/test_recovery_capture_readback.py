@@ -234,6 +234,11 @@ def test_recovery_capture_readback_is_visible_and_honest(web_stack, provider, st
         # Человеко-читаемый статус.
         assert STATUS_TEXTS[status] in text, text
 
+        # D4: отказ capture делает терминальный ответ частичным — UI обязан это показать.
+        if status == "capture_failed":
+            assert "частично" in text, text
+            assert terminal["sync_state"] == terminal["result"]["sync_state"] == "partial"
+
         # Время: локальное атлета, либо честный fallback при null.
         if capture["observed_at_local"]:
             assert "23.07" in text and "08:00" in text, text
