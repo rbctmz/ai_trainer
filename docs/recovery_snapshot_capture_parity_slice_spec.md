@@ -5,7 +5,7 @@
 - Issue / PR: [#562](https://github.com/rbctmz/ai_trainer/issues/562) (PR: plan-only этап — см. ветку плана)
 - Author / checker / merge owner: agent (Spec / Architecture Owner на plan-only этапе; реализация M1–M4 — Domain / API Implementer, M5 — UI / Design Specialist) / независимый checker на PR (`@codex review`) / rbctmz
 - Date: 2026-09-12
-- Candidate head SHA: `3a4a39d` (ветка плана; код не изменён — диф состоит только из этого файла и ExecPlan)
+- Candidate head SHA: актуальный head ветки плана — в PR (код не изменён: диф состоит только из этого файла и ExecPlan; правки по раунду 1 — `3a4a39d`)
 
 ## Change Class
 
@@ -20,7 +20,7 @@
   - новый cross-module public contract или архитектурная граница — **да**: `recovery_capture` в ответе синхронизации и в `web/lib/types.ts`; новая архитектурная граница не создаётся (провайдер-нейтральный владелец capture уже существует в `services/recovery_analytics.py`).
 - Review budget used: **1 / 2 rounds** (раунд 1 на `4ae3f4b`: 6 находок — 1 P1 + 5 P2, все `fixed-in 3a4a39d`)
 - Review trigger mode: automatic (`@codex review` на PR)
-- Review acceptance head SHA: TBD — ожидается scoped delta-раунд 2 на `3a4a39d`
+- Review acceptance head SHA: TBD — ожидается scoped delta-раунд 2 на текущем head ветки плана (диапазон since `4ae3f4b`)
 - Review budget exception: N/A — бюджет не превышен
 
 **Устаревшая зависимость issue.** В теле issue сказано «Related but deliberately separate from **open** #557». На дату плана #557 **закрыт** (смержен PR #563, merge-коммит `a82be7b`), и в main уже живут его семантики: metric-scoped provenance (`sleep_score_observed_at`, `total_sleep_observed_at`, `rmssd_observed_at`, `resting_hr_observed_at`, `training_readiness_observed_at`), аддитивный канал `freshness`/`intervention_*`, fail-closed гейт и athlete-local (а не серверные) anchor'ы дат. План **опирается** на эти семантики и не дублирует их: capture по-прежнему строит канонический snapshot через `services/readiness_snapshot.py`, а `freshness`/`intervention_*` — часть этого snapshot'а. Разделение из issue сохраняется: #562 отвечает за *паритет и видимость capture*, а не за свежесть входов readiness.
@@ -143,7 +143,7 @@
 
 ## Evidence Bundle
 
-- Head SHA плана: `3a4a39d` (ветка плана; реализация идёт отдельной веткой от обновлённого `main` — D8, там же будет её собственный evidence bundle)
+- Head SHA плана: актуальный head ветки плана — в PR (правки по раунду 1 — `3a4a39d`; реализация идёт отдельной веткой от обновлённого `main` — D8, там же будет её собственный evidence bundle)
 - Changed invariants: capture выполняется обоими провайдерами через один контракт; идентичность рана стабильна на job; пять состояний выводимы и согласованы с дневным anchor'ом; ошибка capture не откатывает основной sync.
 - Focused and broad tests: N/A на plan-этапе — заполняется в M1–M6 на ветке реализации (D8)
 - CI checks/reruns/flakes: N/A на plan-этапе; проверки плана — `pytest tests/smoke/test_dev_workflow_v2_docs.py` (`6 passed`), `ruff check .` (чисто), диф только из двух docs-файлов; прогоны реализации — в её PR
@@ -168,7 +168,7 @@
 | Round | Reviewed head SHA | Trigger | Findings disposition | Stop / exception decision |
 | ---: | --- | --- | --- | --- |
 | 1 | `4ae3f4b` | automatic (`@codex review` при открытии PR) | 6 находок (1 P1 + 5 P2), все `fixed-in 3a4a39d`, 6/6 тредов закрыто | continue: запрошен scoped delta-раунд 2 |
-| 2 | `3a4a39d` | verification (scoped delta since `4ae3f4b`) | ожидается: проверка шести правок, решений D4/D5 и closure-метаданных | stop при чистом результате; иначе — правки и решение владельца |
+| 2 | текущий head ветки плана (см. PR) | verification (scoped delta since `4ae3f4b`) | ожидается: проверка шести правок, решений D4/D5 и closure-метаданных | stop при чистом результате; иначе — правки и решение владельца |
 
 ## Final Verdict
 
