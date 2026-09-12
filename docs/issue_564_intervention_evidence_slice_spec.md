@@ -4,10 +4,10 @@
 живым ExecPlan `docs/readiness_input_freshness_execplan.md` (раздел
 `Follow-up #564`) и не дублирует формат `.agent/PLANS.md`.
 
-- Issue / PR: [#564](https://github.com/rbctmz/ai_trainer/issues/564) (PR: [#569](https://github.com/rbctmz/ai_trainer/pulls/569), merged as `43984fa`)
+- Issue / PR: [#564](https://github.com/rbctmz/ai_trainer/issues/564) (PR: [#569](https://github.com/rbctmz/ai_trainer/pull/569), merged as `43984fa`)
 - Author / checker / merge owner: agent (Domain / API Implementer) / независимый checker на PR (`@codex review`) / rbctmz
 - Date: 2026-09-12
-- Candidate head SHA: ветка `codex/issue-564-intervention-evidence` (актуальный head — в PR; отдельные коммиты на дизайн и реализацию)
+- Candidate head SHA: `565a6d3` (отревьюенный и смерженный head; merge-коммит `43984fa`, ветка `codex/issue-564-intervention-evidence` удалена после мержа)
 
 ## Change Class
 
@@ -20,7 +20,7 @@
   - live-provider write, платные вызовы — нет;
   - security/permissions/secrets — нет;
   - irreversible action — нет: откат = revert коммита; деплойное следствие (инвалидация pending-карточек) описано ниже и совпадает по классу с #557.
-- Review budget used: 0 / 2 rounds
+- Review budget used: 1 / 2 rounds (раунд 1 на `565a6d3d06` — чистый, находок нет)
 - Review trigger mode: automatic (`@codex review` на PR)
 - Review acceptance head SHA: `565a6d3` (чистый нативный раунд; смержен merge-коммитом `43984fa`)
 - Review budget exception: N/A — бюджет не превышен
@@ -113,21 +113,21 @@
 
 ## Evidence Bundle
 
-- Head SHA: ветка `codex/issue-564-intervention-evidence` (актуальный head — в PR)
+- Head SHA: `565a6d3` (merge-коммит `43984fa`; в main попало ровно отревьюенное дерево — `git diff 565a6d3 43984fa` пуст)
 - Changed invariants: текст evidence интервенционного канала описывает ту же серию, что и `intervention_score_input`; описательный канал байт-идентичен.
 - RED: 7 падений — 4 модельных на отсутствии `intervention_evidence` (`KeyError`), 2 потребительских на цитировании описательного числа и дублировании лейбла, 1 сквозной. Characterization-тест фолбэка на legacy-payload был зелёным до изменения и остался зелёным.
 - GREEN: `test_readiness_model.py` + `test_readiness_conflicts.py` — `71 passed`; focused-контур (readiness/конфликты/снапшот/приёмка/версия evidence/loop/today/коуч/briefing/дрейф контракта/экстрактор/инвентарь/UI-контракт/purity/response) — `432 passed`; `ruff check .` чисто; web `lint` — без предупреждений, `build` — успешно, `contract:extract -- --check` — артефакт актуален.
 - Broad Python contour: см. запись `Change log` ExecPlan (contributor-safe прогон).
 - Lifecycle/probe evidence: один и тот же probe на двух деревьях (`origin/main` и ветка) на фикстуре с дубликатами. **Было:** `Готовность 57.5/100 (limited): HRV: HRV 40.0 мс против базовых 42.5 (−5.9%); Сон: Сон: оценка 30/100 …; Пульс покоя: Пульс покоя 70.0 …`. **Стало:** `Готовность 57.5/100 (limited): HRV 40.0 мс против базовых 45.7 (−12.5%); Сон: оценка 30/100 …; Пульс покоя 70.0 уд/мин …` при том же входе гейта `intervention_score_input = 40.0`. Паритет описательного канала: 4 фикстуры, `score`/`status`/`confidence`/`as_of_date`/`intervention_score` и строки `evidence`/`baseline`/`deviation` — **0 различий** с `origin/main`.
 - Changed contracts: аддитивное поле в факторах/драйверах + регенерированный `ts_contract.json` (37 добавленных строк).
-- Unresolved review-thread count: 0 на момент открытия PR (заполняется после раунда checker'а).
+- Unresolved review-thread count: 0 (раунд 1 находок не дал, незакрытых тредов нет).
 - Residual risks and follow-ups: изменение fingerprint → инвалидация pending-карточек при выкате (задокументировано, класс #557).
 
 ## Review Findings
 
 | Severity | Evidence and falsifying check | Gate | Owner/status |
 | --- | --- | --- | --- |
-| — | Findings появятся после раунда независимого checker'а | — | — |
+| — | Независимый checker (раунд 1, `565a6d3d06`) находок не дал: `Didn't find any major issues` | — | closed |
 
 ## Native Review Rounds
 
