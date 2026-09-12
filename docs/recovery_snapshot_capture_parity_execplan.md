@@ -4,7 +4,7 @@
 
 Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **A — Full**. Базовая точка: `main` = `9ba4a37` (в main уже влиты #552 — revisioned evidence head и lifecycle, #557/#563 — freshness/provenance readiness и fail-closed intervention, #564/#565 — интервенционное evidence и guard отката `training_readiness`).
 
-Ревизия документа: v1.9 (реализация: M1 и M2 закрыты, плюс hardening-слайс F1–F3; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Публичный API payload, UI и схема пока не менялись.
+Ревизия документа: v1.10 (реализация: M1–M3 закрыты, плюс hardening-слайс F1–F3; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Публичный API payload, UI и схема пока не менялись.
 
 ## Purpose / Big Picture
 
@@ -19,7 +19,7 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 - [x] (2026-09-12) Plan-only этап: создан этот ExecPlan и Class A slice-spec, зафиксированы решения, RED→GREEN матрица и контур milestones. Код/API/UI/схема не менялись.
 - [x] (2026-09-12) M1. Provider-neutral capture-контракт и identity semantics — ветка `codex/issue-562-recovery-capture-parity` от обновлённого `main` (`facc2b4`), собственный review budget (D8). `capture_post_sync_recovery_state(...)` в `services/recovery_analytics.py`, правило пяти состояний — `capture_verdict` в `models/recovery_response.py`, дурабельный `capture_provider` в провенансе, общая граница дня `daily_activity_cutoff`. Исходный RED `13 failed` → GREEN `13 passed`; safety RED `2 failed` (`6dbe415`) → GREEN `14 passed`; подробности — `Artifacts and Notes`.
 - [x] (2026-09-13) M2. Garmin-путь использует общий контракт без двойной записи; `SyncJobManager` генерирует отдельный полный `capture_run_id` и передаёт его через API runner в `sync_garmin_data`, direct/demo вызов генерирует полный UUID сам. RED `4 failed` (`22fda6b`) → GREEN `34 passed` на Garmin/job/audit focused-контуре; D4 сохраняет `partial` + warning при `capture_failed`. Подробности — `Artifacts and Notes`.
-- [ ] M3. Intervals parity: тот же контракт в `services/intervals_sync.py`, fail-open как в Garmin.
+- [x] (2026-09-13) M3. Intervals parity: `sync_intervals_data` вызывает общий capture ровно один раз с `provider="intervals"` после основных записей; принимает полный `capture_run_id` из job'а, а при direct-вызове генерирует полный UUID сам; защитная ветка логирует с `exc_info` и переводит результат в `partial` стабильным кодом; `IntervalsSyncResult.recovery_capture` остаётся внутренним до M4, публичный payload не менялся. RED `5 failed` → GREEN `5 passed`; focused-набор `56 passed`; подробности — `Artifacts and Notes`.
 - [ ] M4. Additive API↔web контракт: `recovery_capture` в payload обоих провайдеров, `web/lib/types.ts`, регенерация `tests/contracts/ts_contract.json`, инвентарь.
 - [ ] M5. UI readback: локальное время, статус, причина в строке синка (роль UI/Design Specialist — см. Decision Log D6).
 - [ ] M6. Приёмка: синтетическая browser-приёмка обоих провайдеров, инвариант «capture-статус ⇔ дневной anchor», fail-open, идемпотентность/монотонность, широкий контур, ASR-каталог, evidence bundle.
@@ -99,6 +99,12 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 - Decision (M2): **причина отказа capture остаётся серверным следом, а не публичным текстом** (F3): все три ветки отказа логируют `logger.warning(<стабильный код>, exc_info=True)`, публичный блок и warning несут только код (`snapshot_capture_failed` / `activity_lookup_failed`).
   Rationale: до харденинга M1 сырой `str(exc)` уходил в warning синка (виден оператору), после — не сохранялся нигде, то есть диагностика была потеряна; возвращать текст в публичный контракт нельзя (утечка локальных путей и внутренних сообщений), поэтому traceback идёт в лог, а контракт остаётся стабильным.
   Date/Author: 2026-09-13 / agent (M2 hardening).
+- Decision (M3): **Intervals использует тот же контракт, но публичный payload в M3 не меняется**: блок кладётся во внутреннее поле `IntervalsSyncResult.recovery_capture`, билдер payload не тронут; при отказе в `warnings` добавляется только стабильный код, из-за чего payload штатно становится `partial`.
+  Rationale: паритет по AC2 — это identity/eligibility/fail-open semantics, а не витрина. Garmin сохраняет свою человеко-читаемую строку `details` как совместимость с прежним поведением (она была до M2), у Intervals такой строки никогда не было, и добавлять её значит менять публичный ответ вне M4. Асимметрия осознанная и закрывается в M4/M5, где readback становится общим.
+  Date/Author: 2026-09-13 / agent (M3).
+- Decision (M4 guard, обязательный): **наружу проецируется только очищенный `recovery_capture`**. Возврат обёртки содержит `episode_refresh`, а при сбое обновления эпизодов внутри рекордера туда попадает `{"error": str(exc), …}` (`services/recovery_analytics.py:119`; аналогично repair-хелпер `:883`) — это предсуществующее поведение и в M3/F3 оно не меняется. Публичный payload обязан собираться исключительно из блока `recovery_capture` (как сейчас делает `services/sync.py`), иначе сырой текст исключения и локальные пути попадут в API.
+  Rationale: проверено пробой при сбое `refresh_recovery_episodes` — блок остаётся чистым, а путь к файлу остаётся только в `episode_refresh["error"]`; без явного guard'а M4 может спроецировать весь возврат обёртки и утечь диагностикой.
+  Date/Author: 2026-09-13 / agent (по итогам независимой проверки M2).
 - Decision (D8): **plan-PR мержится отдельно и не переиспользуется под реализацию** (подтверждено владельцем, 2026-09-12): после принятия плана PR плана закрывается своим мержем, а M1–M6 идут **новой веткой от обновлённого `main`** и с собственным review budget.
   Rationale: смешивание плана и реализации в одной ветке сделало бы head одним объектом для двух разных бюджетов ревью и смазало бы evidence bundle: правки плана и правки кода имеют разные критерии приёмки. Побочный эффект: `docs/recovery_snapshot_capture_parity_execplan.md` живёт в main и обновляется уже веткой реализации.
   Date/Author: 2026-09-12 / agent (по решению владельца).
@@ -205,6 +211,14 @@ D4 сохранён: `capture_failed` добавляет безопасный wa
 
 RED (F3): `3 failed` — два теста в `tests/smoke/test_recovery_capture_contract.py` (записи лога нет) и один в `tests/smoke/test_garmin_sync_service.py` (`0 == 1` записей). GREEN: focused-набор M1+M2+F3 — `51 passed`; заметки: ровно одна запись на один сбой, `exc_info` присутствует, `athlete.db` отсутствует и в сообщении лога, и в публичном блоке, и в `notices`.
 
+### M3 — Intervals parity (2026-09-13)
+
+Новый файл `tests/smoke/test_recovery_capture_intervals.py` (5 тестов). RED: `5 failed` — `sync_intervals_data` не принимал `capture_run_id`, общего вызова не было. GREEN: `5 passed`.
+
+Покрыто: ровно один вызов общего capture с `provider="intervals"` и переданным job-идентификатором; direct-вызов генерирует полный UUID (`str(uuid.UUID(x)) == x`); блок остаётся внутренним — `build_intervals_sync_status_payload` не содержит `recovery_capture`, а успешная синхронизация остаётся `succeeded` с пустыми `notices`; при `capture_failed` сохранённая активность Intervals остаётся в базе, результат несёт стабильный код в `warnings`, payload становится `partial`; защитная ветка (обёртка выбросила исключение) логирует одну запись с `exc_info`, не раскрывает путь в блоке, warning'е и сообщении лога, данные остаются, payload — `partial`.
+
+Асимметрия с Garmin (осознанная, см. решение M3): строка `Recovery snapshot: …` в `details` есть только у Garmin как сохранённая совместимость; у Intervals успешный путь не добавляет ничего, чтобы не менять публичный ответ до M4.
+
 ## Interfaces and Dependencies
 
 Ожидаемые к концу M1–M4 стабильные имена:
@@ -296,3 +310,4 @@ RED (F3): `3 failed` — два теста в `tests/smoke/test_recovery_capture
 - v1.7 (2026-09-12): safety hardening M1. RED-checkpoint `6dbe415` доказал два fail-closed дефекта: ошибка чтения активностей маскировалась обычным статусом, а сырой `str(exc)` попадал в будущий публичный блок. GREEN возвращает стабильные коды `activity_lookup_failed`/`snapshot_capture_failed`, сохраняет идентичность уже записанной ревизии и не раскрывает внутренний текст; focused `14 passed`, Ruff чисто.
 - v1.8 (2026-09-13): M2 закрыл Garmin handoff и фактическую job identity. RED `4 failed` на `22fda6b`; GREEN заменяет legacy inline recorder общим wrapper, сохраняет ровно один capture, прокидывает полный UUID от `SyncJobManager`, генерирует его для direct/demo вызовов и сохраняет D4 (`partial` + безопасный warning при `capture_failed`). Focused `34 passed`, расширенный recovery/sync `119 passed`, contributor-safe `2488 passed, 28 skipped, 26 deselected`, 0 failed; Ruff чисто; публичный API payload ещё не менялся (M4).
 - v1.9 (2026-09-13): hardening-слайс F1–F3. F1 — документация приведена к факту: контракт раннера не аддитивен, а изменён (Protocol с обязательным `capture_run_id`), решение M2 записано с обоснованием. F2 — смена содержимого строки `details` на пятисоставный статус зафиксирована как намеренная. F3 — серверное логирование с `exc_info=True` во всех трёх ветках отказа; публичный блок и warning несут только стабильные коды. RED `3 failed` → GREEN `51 passed` в focused-наборе.
+- v1.10 (2026-09-13): M3 — Intervals parity. `sync_intervals_data` вызывает общий capture с `provider="intervals"`, принимает полный run id из job'а, при direct-вызове минтит полный UUID, при отказе логирует с `exc_info` и переводит результат в `partial` стабильным кодом; блок остаётся внутренним полем до M4. RED `5 failed` → GREEN `5 passed`, focused `56 passed`. Добавлено обязательное решение-охрана для M4: наружу проецируется только очищенный `recovery_capture`, потому что `episode_refresh["error"]` содержит `str(exc)`.
