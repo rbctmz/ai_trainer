@@ -13,7 +13,10 @@
 #             точную команду платного smoke.
 #   smoke     (только с --allow-paid-call) — один headless-прогон read-only
 #             задачи, с записью exit code, длительности, SHA промпта, пути
-#             сессии и проверкой, что дерево осталось неизменным.
+#             сессии и проверкой, что дерево осталось неизменным. Платный вызов
+#             ограничен жёстким лимитом 300 c (DSH_PILOT_TIMEOUT_SECONDS): по
+#             истечении вся группа процессов прогона получает SIGTERM, затем
+#             SIGKILL, и скрипт выходит с кодом 124.
 #
 # Примеры:
 #   scripts/dsh_pilot_preflight.sh
@@ -38,9 +41,14 @@ PIN_PROVIDER="deepseek-official"
 PIN_MODEL="deepseek-v4-flash"
 PIN_PERMISSION_MODE="workspace-write"
 ACCEPT_DRIFT="${DSH_PILOT_ACCEPT_CONFIG_DRIFT:-0}"
+# Жёсткий лимит платного smoke и grace-период перед SIGKILL. Значения читаются
+# здесь, но проверяются только перед самим платным вызовом (шаг 7): бесплатный
+# prepare не должен зависеть от настроек таймаута.
+TIMEOUT_SECONDS="${DSH_PILOT_TIMEOUT_SECONDS:-300}"
+TIMEOUT_GRACE_SECONDS="${DSH_PILOT_TIMEOUT_GRACE_SECONDS:-5}"
 
 usage() {
-  sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -208,6 +216,52 @@ PROMPT_FILE="$PROMPT_PATH"
 ok "промпт разрешён в абсолютный путь: $PROMPT_FILE"
 ok "cwd smoke будет $WORKTREE — промпт найден по абсолютному пути независимо от каталога вызова"
 
+# --- жёсткий лимит платного вызова -----------------------------------------
+# Без лимита зависший модельный вызов держит preflight неограниченно долго и
+# жжёт бюджет. Мусор в лимите — отказ ДО платного вызова, а не тихий откат к
+# 300 c: молчаливая потеря гарантии в этом скрипте запрещена (ср. drift профиля).
+case "$TIMEOUT_SECONDS" in
+  ''|*[!0-9]*) fail "DSH_PILOT_TIMEOUT_SECONDS='$TIMEOUT_SECONDS' — нужно целое число секунд (по умолчанию 300)" ;;
+esac
+[ "$TIMEOUT_SECONDS" -ge 1 ] || fail "DSH_PILOT_TIMEOUT_SECONDS='$TIMEOUT_SECONDS' — лимит должен быть не меньше 1 c"
+case "$TIMEOUT_GRACE_SECONDS" in
+  ''|*[!0-9]*) fail "DSH_PILOT_TIMEOUT_GRACE_SECONDS='$TIMEOUT_GRACE_SECONDS' — нужно целое число секунд (по умолчанию 5)" ;;
+esac
+
+# Почему группа процессов, а не один PID: dsh запускает дочерние процессы
+# (shell, инструменты), и убийство только прямого ребёнка оставило бы внуков
+# работать и тратить бюджет. На macOS нет ни `setsid`, ни GNU `timeout`, поэтому
+# группа создаётся job control'ом: `set -m` делает фоновый job лидером своей
+# группы процессов, и её pgid совпадает с PID лидера — значит `kill -- -PGID`
+# бьёт по всем потомкам сразу. Проверено локально: внук, игнорирующий SIGTERM,
+# умирает от SIGKILL по группе, а `kill -0 -- -PGID` видит его и после смерти
+# лидера (иначе «выживших нет» осталось бы непроверенным утверждением).
+smoke_group_alive() { kill -0 -- "-$1" 2>/dev/null; }
+
+# Завершает всю группу: SIGTERM, grace-период, затем SIGKILL. Возврат 1 означает,
+# что смерть группы подтвердить не удалось (SIGKILL не перехватывается, но
+# процесс мог остаться в непрерываемом сне) — это громкий провал, а не «ок».
+terminate_smoke_group() {
+  local pgid="$1" waited=0
+  kill -TERM -- "-$pgid" 2>/dev/null || true
+  # Как только группа опустела, эскалация не нужна.
+  while [ "$waited" -lt "$TIMEOUT_GRACE_SECONDS" ]; do
+    smoke_group_alive "$pgid" || return 0
+    sleep 1
+    waited=$((waited + 1))
+  done
+  kill -KILL -- "-$pgid" 2>/dev/null || true
+  waited=0
+  while smoke_group_alive "$pgid"; do
+    [ "$waited" -lt 50 ] || return 1
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  return 0
+}
+
+ok "жёсткий лимит платного прогона: ${TIMEOUT_SECONDS}s, затем через ${TIMEOUT_GRACE_SECONDS}s SIGKILL всей группе процессов (exit 124)"
+
 PROMPT_SHA="$(shasum -a 256 "$PROMPT_FILE" | cut -d' ' -f1)"
 STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 START_EPOCH="$(date +%s)"
@@ -217,16 +271,54 @@ START_EPOCH="$(date +%s)"
 RUN_STAMP="/tmp/.dsh-pilot-smoke-start.$$"
 : > "$RUN_STAMP" || fail "не удалось создать метку времени $RUN_STAMP"
 trap 'rm -f "$RUN_STAMP"' EXIT
+
+TIMED_OUT=no
+SMOKE_PID=""
+# Прогон живёт в отдельной группе процессов, поэтому Ctrl-C/Ctrl-\ по скрипту
+# терминал больше не доставляет ей: без этой ловушки прерывание preflight
+# оставляло бы оплаченный dsh работать. Watchdog-процесса нет вовсе — лимит
+# отсчитывается самим скриптом, так что после выхода «своего» процесса не
+# остаётся.
+trap 'if [ -n "$SMOKE_PID" ]; then terminate_smoke_group "$SMOKE_PID" || true; fi; exit 130' INT TERM HUP
+
 # set +e: ненулевой exit самого процесса DSH — это измеряемый результат smoke, а
 # не ошибка preflight; падение самого скрипта также превратится в exit_code.
 set +e
-(cd "$WORKTREE" && DSH_HOME="$PILOT_HOME" dsh --profile "$PROFILE" "$(cat "$PROMPT_FILE")")
+# set -m только на время запуска: фоновому job'у нужна своя группа процессов,
+# но monitor mode не должен менять поведение остальной части скрипта.
+set -m
+( cd "$WORKTREE" && exec env DSH_HOME="$PILOT_HOME" dsh --profile "$PROFILE" "$(cat "$PROMPT_FILE")" ) &
+SMOKE_PID=$!
+set +m
+# Отсчёт лимита — в фоне не оставляем: опрос идёт здесь же, поэтому «повисший»
+# прогон обнаруживается, а лишний процесс-сторож не создаётся. Шаг 0.2 c, а не 1 c:
+# иначе быстрый прогон ждал бы лишнюю секунду, а лимит срабатывал бы с секундной
+# задержкой; цена — несколько короткоживущих sleep/date за весь прогон.
+SMOKE_DEADLINE=$(( $(date +%s) + TIMEOUT_SECONDS ))
+while kill -0 "$SMOKE_PID" 2>/dev/null; do
+  [ "$(date +%s)" -lt "$SMOKE_DEADLINE" ] || { TIMED_OUT=yes; break; }
+  sleep 0.2
+done
+if [ "$TIMED_OUT" = yes ]; then
+  echo "  ✘ ТАЙМАУТ: платный прогон не уложился в ${TIMEOUT_SECONDS}s — убиваю всю группу процессов (SIGTERM, затем SIGKILL); это НЕ результат модели, exit code 124" >&2
+  # Сюда попадает и остановленный (SIGTTIN/SIGSTOP) процесс: SIGTERM такому не
+  # доставляется, но SIGKILL по группе его снимает.
+  terminate_smoke_group "$SMOKE_PID" \
+    || echo "  ✘ не удалось подтвердить смерть всей группы процессов smoke (pgid $SMOKE_PID)" >&2
+fi
+wait "$SMOKE_PID"
 EXIT_CODE=$?
+SMOKE_PID=""
 set -e
 [ -n "${EXIT_CODE:-}" ] || EXIT_CODE=1
+# Таймаут — не «результат модели»: наружу и в метрики идёт конвенциональный 124,
+# а не 143/137 от доставленного сигнала.
+[ "$TIMED_OUT" = no ] || EXIT_CODE=124
 DURATION=$(( $(date +%s) - START_EPOCH ))
 
 echo "== 8. Проверка read-only и метрики =="
+[ "$TIMED_OUT" = no ] \
+  || echo "  ✘ прогон прерван таймаутом ${TIMEOUT_SECONDS}s — ответа модели нет, прогон не засчитывается (timed_out=yes, exit 124)" >&2
 after="$(git -C "$WORKTREE" status --porcelain)"
 END_SHA="$(git -C "$WORKTREE" rev-parse HEAD)"
 HEAD_UNCHANGED=yes
@@ -264,6 +356,8 @@ emit_metrics() {
   printf 'started_at=%s\n' "$STARTED_AT"
   printf 'duration_seconds=%s\n' "$DURATION"
   printf 'exit_code=%s\n' "$EXIT_CODE"
+  printf 'timeout_seconds=%s\n' "$TIMEOUT_SECONDS"
+  printf 'timed_out=%s\n' "$TIMED_OUT"
   printf 'worktree_clean_after=%s\n' "$WORKTREE_CLEAN"
   printf 'head_unchanged=%s\n' "$HEAD_UNCHANGED"
   printf 'session_file=%s\n' "${SESSION_FILE:-not found}"
@@ -326,6 +420,13 @@ check "$([ -n "${SESSION_FILE:-}" ] && echo 0 || echo 1)" \
 
 emit_metrics
 
+# Таймаут доминирует над провалами read-only: у убитого прогона нет ни сессии,
+# ни ответа модели, поэтому 124 — точный и отличимый от «модель упала» сигнал.
+# Нарушения read-only при этом не скрываются: они уже напечатаны выше и видны в
+# метриках (worktree_clean_after/head_unchanged).
+if [ "$TIMED_OUT" = yes ]; then
+  exit 124
+fi
 if [ "$CHECK_FAIL" -ne 0 ]; then
   exit 1
 fi
