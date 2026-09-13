@@ -269,6 +269,10 @@ def test_persisted_week_respects_hours_end_to_end(phase, w_tss, hours):
     # Issue #554 regression: the week was measured with the athlete's zones, not
     # blind, so the ceiling is checked against what the plan actually persists.
     assert weekly[0]["scheduler_projection_basis"] == "zones"
+    # Criterion 5: projection and builder share one zone snapshot, so the minutes
+    # the scheduler measured ARE the minutes the plan persists. A divergence
+    # (projected 300, persisted 310) is exactly the defect this pins.
+    assert weekly[0]["scheduler_projected_minutes"] == minutes, (phase, w_tss, hours)
     # The trimmed week must say so: a persisted budget below the requested one
     # without status="reduced" is a silent cut.
     placed_budget = sum(_sport_week_totals_from_parts(weekly[0]).values())
@@ -287,6 +291,8 @@ def test_taper_260_week_trims_load_without_losing_the_np_prescription():
     horizon = 5 * 60 + 5
     assert minutes <= horizon, minutes
     assert weekly[0]["scheduler_projection_basis"] == "zones"
+    # Projection and builder agree on this week minute-for-minute.
+    assert weekly[0]["scheduler_projected_minutes"] == minutes
     # The cut is explicit: the placed budget is below the requested 260 TSS.
     assert weekly[0]["weekly_tss"] < 260
     assert weekly[0].get("scheduler_status") == "reduced"
