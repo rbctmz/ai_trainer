@@ -77,6 +77,13 @@ def test_gitleaks_exceptions_are_only_verified_non_secret_shapes() -> None:
         "docs/intervals_primary_quickstart.md:generic-api-key:20",
         "docs/self_hosted_deployment_execplan.md:curl-auth-user:331",
         "tests/smoke/test_garmin_auth_messages.py:generic-api-key:79",
+        # Issue #554 review tests: `template_key` fixtures trip generic-api-key
+        # (key-like name plus a high-entropy catalog key). No credential values.
+        "tests/smoke/test_issue_554_review_catalog.py:generic-api-key:170",
+        "tests/smoke/test_issue_554_review_catalog.py:generic-api-key:175",
+        "tests/smoke/test_issue_554_review_catalog.py:generic-api-key:180",
+        "tests/smoke/test_issue_554_review_catalog.py:generic-api-key:234",
+        "tests/smoke/test_issue_554_review_catalog.py:generic-api-key:239",
     }
     assert not any("archived/" in fingerprint for fingerprint in fingerprints)
     assert not Path("archived/old_debug_scripts/debug_body_battery.py").exists()
