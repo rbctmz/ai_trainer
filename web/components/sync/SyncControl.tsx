@@ -152,8 +152,10 @@ export function SyncControl({ onDone, detailed = false }: SyncControlProps) {
   }
 
   return (
-    <div className="flex items-center gap-2">
-      {message ? <span className="hidden text-xs text-ink-faint sm:inline">{message}</span> : null}
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {message ? (
+        <span className="basis-full text-xs text-ink-faint sm:basis-auto">{message}</span>
+      ) : null}
       <select
         aria-label="Источник синхронизации"
         value={selectedSource ?? ""}

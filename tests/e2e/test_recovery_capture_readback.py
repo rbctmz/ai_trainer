@@ -286,3 +286,34 @@ def test_recovery_capture_readback_is_visible_and_honest(web_stack, provider, st
     finally:
         page.unroute(JOB_URL)
         page.unroute(PROVIDERS_URL)
+
+
+@pytest.mark.parametrize("provider", PROVIDERS)
+def test_recovery_capture_readback_is_visible_on_small_dashboard_viewports(
+    web_stack, provider
+) -> None:
+    """The compact dashboard mount must not hide the terminal verdict below sm."""
+    page = web_stack.page
+    calls = _install_routes(page, provider, "saved_before_load", ())
+    page.set_viewport_size({"width": 375, "height": 800})
+    try:
+        page.goto(f"{web_stack.web_base}/dashboard", wait_until="domcontentloaded")
+        source_select = page.get_by_label("Источник синхронизации")
+        source_select.wait_for(state="visible", timeout=60_000)
+        expect(source_select).to_have_value(provider, timeout=60_000)
+        button = page.get_by_title(f"Синхронизировать с {PROVIDER_LABELS[provider]}")
+        expect(button).to_be_enabled(timeout=60_000)
+        button.click()
+
+        message = _sync_message(page)
+        message.wait_for(state="visible", timeout=60_000)
+        text = message.inner_text().strip()
+
+        assert calls["post"] == 1, calls
+        assert calls["get"] >= 2, calls
+        assert STATUS_TEXTS["saved_before_load"] in text, text
+        assert "23.07" in text and "08:00" in text, text
+    finally:
+        page.unroute(JOB_URL)
+        page.unroute(PROVIDERS_URL)
+        page.set_viewport_size({"width": 1280, "height": 900})

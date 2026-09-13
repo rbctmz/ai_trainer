@@ -142,6 +142,7 @@ def test_m5_existing_sync_states_survive_the_readback() -> None:
     assert 'job.sync_state === "partial"' in control
     assert "result.counts" in control
     assert "formatSyncNotices" in control
-    # Подробный вариант — видимый абзац, компактный — прежний responsive-контур.
+    # Подробный и compact-варианты не скрывают terminal readback.
     assert '<p className="text-xs text-ink-faint">{message}</p>' in control
-    assert 'className="hidden text-xs text-ink-faint sm:inline"' in control
+    assert 'className="basis-full text-xs text-ink-faint sm:basis-auto"' in control
+    assert 'className="hidden text-xs text-ink-faint sm:inline"' not in control
