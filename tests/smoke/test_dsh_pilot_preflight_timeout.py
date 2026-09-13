@@ -5,8 +5,18 @@
 завершаться успешно, а ``zstd`` — выводить файл сессии «как есть», чтобы тест не
 зависел от внешнего бинаря. Проверяются только гарантии процесса: по истечении
 лимита умирает вся группа процессов прогона (включая внуков, игнорирующих
-SIGTERM), скрипт выходит с 124, метрики печатают ``timed_out``/``timeout_seconds``,
-а обычные пути (успех, код возврата модели) и прежний гейтинг не меняются.
+SIGTERM), скрипт выходит с 124, метрики печатают ``timed_out``/``timeout_seconds``
+(и эффективный grace — ``timeout_grace_seconds``), а обычные пути (успех, код
+возврата модели) и прежний гейтинг не меняются.
+
+Отдельно закрыт вопрос границ: ``DSH_PILOT_TIMEOUT_SECONDS`` принимается только
+в ``1..300``, ``DSH_PILOT_TIMEOUT_GRACE_SECONDS`` — только в ``1..10``, а значения
+вне диапазона, ``0``, отрицательные и нечисловые отвергаются до платного вызова
+(ноль обращений к стабу, exit 1) — иначе «жёсткий лимит 300 c» был бы обещанием,
+которое снимается одной переменной окружения. Допуск верхних границ проверяется
+без ожидания: стаб завершается сразу, поэтому тест на ``300``/``10`` подтверждает,
+что значение прошло валидацию и платный прогон действительно начался, — а не то,
+что лимит кто-то выдержал.
 """
 
 from __future__ import annotations
@@ -214,6 +224,15 @@ class _Pilot:
 
     def log_text(self) -> str:
         return self.log_file.read_text(encoding="utf-8") if self.log_file.exists() else ""
+
+    def paid_invocations(self) -> int:
+        """Сколько раз стаб реально был запущен как платный прогон.
+
+        Строку ``paid-run`` пишет только платная ветка стаба: бесплатные
+        ``--version`` и ``--dump-config`` выходят раньше логирования, поэтому
+        ноль здесь означает «до платного вызова дело не дошло».
+        """
+        return self.log_text().count("paid-run")
 
     def pids(self) -> dict[str, int]:
         pids: dict[str, int] = {}
@@ -450,6 +469,117 @@ def test_non_numeric_limit_fails_before_paid_run(pilot: _Pilot) -> None:
     assert result.returncode == 1, result.stdout
     assert "DSH_PILOT_TIMEOUT_SECONDS" in result.stdout
     assert "paid-run" not in pilot.log_text()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "301",
+        "86400",
+        "0",
+        "-5",
+        "1O",
+        # 20 значащих цифр: `[ -gt ]` считает в 64 битах и падает ошибкой, которую
+        # условие `if` принимает за «ложь» — без проверки длины такой лимит прошёл бы.
+        "99999999999999999999",
+    ],
+)
+def test_limit_outside_1_300_fails_before_paid_run(pilot: _Pilot, value: str) -> None:
+    """Верхняя граница обязательна: 301/86400 (и 0/минус/мусор) — отказ, ноль вызовов."""
+    env = pilot.env(DSH_PILOT_TIMEOUT_SECONDS=value)
+    result = pilot.smoke(env=env)
+
+    assert result.returncode == 1, result.stdout
+    # Сообщение обязано называть и наблюдаемое значение, и допустимый диапазон.
+    assert f"DSH_PILOT_TIMEOUT_SECONDS='{value}'" in result.stdout
+    assert "1..300" in result.stdout
+    # Ноль платных вызовов: стаб не запускался вовсе (весь смысл отказа ДО вызова).
+    assert pilot.paid_invocations() == 0, pilot.log_text()
+    # Отказ раньше оплаченного прогона: метрик нет вовсе.
+    assert "timed_out=" not in result.stdout
+
+
+@pytest.mark.parametrize("value", ["999", "0", "-1", "grace"])
+def test_grace_outside_1_10_fails_before_paid_run(pilot: _Pilot, value: str) -> None:
+    """Grace больше 10 c растягивал бы уже оплаченный прогон: отказ до вызова."""
+    env = pilot.env(DSH_PILOT_TIMEOUT_GRACE_SECONDS=value)
+    result = pilot.smoke(env=env)
+
+    assert result.returncode == 1, result.stdout
+    assert f"DSH_PILOT_TIMEOUT_GRACE_SECONDS='{value}'" in result.stdout
+    assert "1..10" in result.stdout
+    assert pilot.paid_invocations() == 0, pilot.log_text()
+    assert "timed_out=" not in result.stdout
+
+
+def test_upper_bounds_300_and_10_are_accepted_and_observable(pilot: _Pilot) -> None:
+    """Границы 300 и 10 принимаются: валидация не отказывает и стаб реально стартует.
+
+    Ожидания 300 c здесь нет и быть не должно: стаб завершается сразу, поэтому
+    проверяются ровно два факта — значение прошло валидацию (нет ни fail-closed
+    отказа, ни таймаута) и платный прогон действительно начался (стаб получил
+    вызов). Соблюдение самого лимита проверяется отдельными тестами с коротким
+    лимитом; подменять 300 на маленькое число, чтобы «проверить границу», нельзя.
+    """
+    env = pilot.env(DSH_PILOT_TIMEOUT_SECONDS="300", DSH_PILOT_TIMEOUT_GRACE_SECONDS="10")
+    started = time.monotonic()
+    result = pilot.smoke(env=env)
+    elapsed = time.monotonic() - started
+
+    assert result.returncode == 0, result.stdout
+    # 1. Валидация значение приняла: ни отказа, ни сработавшего таймаута.
+    assert "ПРЕДПОЛЁТ НЕ ПРОЙДЕН" not in result.stdout
+    assert "ТАЙМАУТ" not in result.stdout
+    # 2. Прогон дошёл до платного вызова: стаб запущен ровно один раз.
+    assert pilot.paid_invocations() == 1, pilot.log_text()
+    # 3. Лимит 300 c не выдерживался ожиданием — стаб вышел сам (иначе здесь было бы ~300 c).
+    assert elapsed < 20, f"проверка границы 300 c ушла в ожидание лимита: {elapsed:.1f}s"
+    assert "жёсткий лимит платного прогона: 300s" in result.stdout
+    assert "через 10s SIGKILL" in result.stdout
+    assert "timeout_seconds=300" in result.stdout
+    assert "timeout_grace_seconds=10" in result.stdout
+    assert "timed_out=no" in result.stdout
+
+
+def test_default_grace_is_five_and_observable(pilot: _Pilot) -> None:
+    """Дефолтный grace (5 c) виден и в строке лимита, и в метриках — без ожидания 300 c."""
+    env = pilot.env()
+    env.pop("DSH_PILOT_TIMEOUT_SECONDS")
+    env.pop("DSH_PILOT_TIMEOUT_GRACE_SECONDS")
+    started = time.monotonic()
+    result = pilot.smoke(env=env)
+    elapsed = time.monotonic() - started
+
+    assert result.returncode == 0, result.stdout
+    assert pilot.paid_invocations() == 1, pilot.log_text()
+    assert elapsed < 20, f"дефолтный лимит 300 c выдерживался ожиданием: {elapsed:.1f}s"
+    assert "жёсткий лимит платного прогона: 300s" in result.stdout
+    assert "через 5s SIGKILL" in result.stdout
+    assert "timeout_seconds=300" in result.stdout
+    assert "timeout_grace_seconds=5" in result.stdout
+
+
+def test_leading_zero_limit_cannot_smuggle_past_the_ceiling(pilot: _Pilot) -> None:
+    """`0400` — это 400 c (отказ), а `0300` печатается канонически как 300."""
+    rejected = pilot.smoke(env=pilot.env(DSH_PILOT_TIMEOUT_SECONDS="0400"))
+    assert rejected.returncode == 1, rejected.stdout
+    assert "DSH_PILOT_TIMEOUT_SECONDS='0400'" in rejected.stdout
+    assert pilot.paid_invocations() == 0, pilot.log_text()
+
+    accepted = pilot.smoke(env=pilot.env(DSH_PILOT_TIMEOUT_SECONDS="0300"))
+    assert accepted.returncode == 0, accepted.stdout
+    assert pilot.paid_invocations() == 1, pilot.log_text()
+    assert "timeout_seconds=300" in accepted.stdout
+
+
+def test_prepare_ignores_out_of_range_timeout_settings(pilot: _Pilot) -> None:
+    """Бесплатный prepare не зависит от настроек таймаута: они проверяются только перед платным вызовом."""
+    env = pilot.env(DSH_PILOT_TIMEOUT_SECONDS="86400", DSH_PILOT_TIMEOUT_GRACE_SECONDS="999")
+    result = pilot.run(env=env)
+
+    assert result.returncode == 0, result.stdout
+    assert "Платный модельный вызов НЕ выполнялся" in result.stdout
+    assert pilot.paid_invocations() == 0, pilot.log_text()
 
 
 def test_prompt_never_read_project_env_and_always_passed_as_absolute_path(pilot: _Pilot) -> None:

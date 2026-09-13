@@ -14,9 +14,11 @@
 #   smoke     (только с --allow-paid-call) — один headless-прогон read-only
 #             задачи, с записью exit code, длительности, SHA промпта, пути
 #             сессии и проверкой, что дерево осталось неизменным. Платный вызов
-#             ограничен жёстким лимитом 300 c (DSH_PILOT_TIMEOUT_SECONDS): по
-#             истечении вся группа процессов прогона получает SIGTERM, затем
-#             SIGKILL, и скрипт выходит с кодом 124.
+#             ограничен жёстким лимитом 300 c (DSH_PILOT_TIMEOUT_SECONDS,
+#             допустимо 1..300): по истечении вся группа процессов прогона
+#             получает SIGTERM, затем через DSH_PILOT_TIMEOUT_GRACE_SECONDS
+#             (допустимо 1..10, по умолчанию 5) — SIGKILL, и скрипт выходит
+#             с кодом 124.
 #
 # Примеры:
 #   scripts/dsh_pilot_preflight.sh
@@ -46,9 +48,14 @@ ACCEPT_DRIFT="${DSH_PILOT_ACCEPT_CONFIG_DRIFT:-0}"
 # prepare не должен зависеть от настроек таймаута.
 TIMEOUT_SECONDS="${DSH_PILOT_TIMEOUT_SECONDS:-300}"
 TIMEOUT_GRACE_SECONDS="${DSH_PILOT_TIMEOUT_GRACE_SECONDS:-5}"
+# Верхние границы закреплены константами, чтобы «жёсткий лимит» из шапки был
+# проверяемым фактом, а не обещанием: не более 300 c на сам прогон и не более
+# 10 c на grace после SIGTERM (иначе уже оплаченный прогон растягивался бы).
+TIMEOUT_MAX_SECONDS=300
+TIMEOUT_GRACE_MAX_SECONDS=10
 
 usage() {
-  sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -220,13 +227,36 @@ ok "cwd smoke будет $WORKTREE — промпт найден по абсол
 # Без лимита зависший модельный вызов держит preflight неограниченно долго и
 # жжёт бюджет. Мусор в лимите — отказ ДО платного вызова, а не тихий откат к
 # 300 c: молчаливая потеря гарантии в этом скрипте запрещена (ср. drift профиля).
-case "$TIMEOUT_SECONDS" in
-  ''|*[!0-9]*) fail "DSH_PILOT_TIMEOUT_SECONDS='$TIMEOUT_SECONDS' — нужно целое число секунд (по умолчанию 300)" ;;
-esac
-[ "$TIMEOUT_SECONDS" -ge 1 ] || fail "DSH_PILOT_TIMEOUT_SECONDS='$TIMEOUT_SECONDS' — лимит должен быть не меньше 1 c"
-case "$TIMEOUT_GRACE_SECONDS" in
-  ''|*[!0-9]*) fail "DSH_PILOT_TIMEOUT_GRACE_SECONDS='$TIMEOUT_GRACE_SECONDS' — нужно целое число секунд (по умолчанию 5)" ;;
-esac
+# Верхняя граница здесь так же обязательна, как нижняя: `86400` в этом поле
+# означало бы «лимита нет», а неограниченный grace растягивал бы прогон уже
+# после SIGTERM, то есть оплаченное время шло бы и дальше.
+# $1 — имя переменной, $2 — значение, $3 — верхняя граница, $4 — значение по
+# умолчанию, $5 — почему верхняя граница важна. Сообщение всегда называет и
+# наблюдаемое значение, и допустимый диапазон.
+require_seconds_in_range() {
+  local name="$1" value="$2" max="$3" default="$4" why="$5"
+  case "$value" in
+    ''|*[!0-9]*) fail "$name='$value' — нужно целое число секунд в диапазоне 1..$max (по умолчанию $default); $why" ;;
+  esac
+  # Длина проверяется отдельно, и это не педантизм: `[ -gt ]` считает в 64 битах,
+  # а 20-значное значение роняет сравнение ошибкой (rc=2), которую условие `if`
+  # принимает за «ложь» — то есть пропустило бы лимит. Порог в 9 цифр безопасен
+  # для 64-битного сравнения и всё равно отсекает всё, что больше 300.
+  if [ "${#value}" -gt 9 ] || [ "$value" -lt 1 ] || [ "$value" -gt "$max" ]; then
+    fail "$name='$value' — допустимый диапазон 1..$max c (по умолчанию $default); $why"
+  fi
+}
+require_seconds_in_range DSH_PILOT_TIMEOUT_SECONDS "$TIMEOUT_SECONDS" \
+  "$TIMEOUT_MAX_SECONDS" 300 \
+  "значение вне диапазона означало бы, что жёсткого лимита нет"
+require_seconds_in_range DSH_PILOT_TIMEOUT_GRACE_SECONDS "$TIMEOUT_GRACE_SECONDS" \
+  "$TIMEOUT_GRACE_MAX_SECONDS" 5 \
+  "больший grace растягивал бы уже оплаченный прогон после SIGTERM"
+# Ведущие нули приводим к десятичной форме: в арифметике bash `$((0300))` — это
+# 192, поэтому без нормализации напечатанный лимит разошёлся бы с фактическим
+# дедлайном. Проверка выше уже гарантировала, что здесь только цифры.
+TIMEOUT_SECONDS=$((10#$TIMEOUT_SECONDS))
+TIMEOUT_GRACE_SECONDS=$((10#$TIMEOUT_GRACE_SECONDS))
 
 # Почему группа процессов, а не один PID: dsh запускает дочерние процессы
 # (shell, инструменты), и убийство только прямого ребёнка оставило бы внуков
@@ -260,7 +290,7 @@ terminate_smoke_group() {
   return 0
 }
 
-ok "жёсткий лимит платного прогона: ${TIMEOUT_SECONDS}s, затем через ${TIMEOUT_GRACE_SECONDS}s SIGKILL всей группе процессов (exit 124)"
+ok "жёсткий лимит платного прогона: ${TIMEOUT_SECONDS}s, затем через ${TIMEOUT_GRACE_SECONDS}s SIGKILL всей группе процессов (timeout_seconds/timeout_grace_seconds, exit 124)"
 
 PROMPT_SHA="$(shasum -a 256 "$PROMPT_FILE" | cut -d' ' -f1)"
 STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -300,7 +330,7 @@ while kill -0 "$SMOKE_PID" 2>/dev/null; do
   sleep 0.2
 done
 if [ "$TIMED_OUT" = yes ]; then
-  echo "  ✘ ТАЙМАУТ: платный прогон не уложился в ${TIMEOUT_SECONDS}s — убиваю всю группу процессов (SIGTERM, затем SIGKILL); это НЕ результат модели, exit code 124" >&2
+  echo "  ✘ ТАЙМАУТ: платный прогон не уложился в ${TIMEOUT_SECONDS}s — убиваю всю группу процессов (SIGTERM, затем через ${TIMEOUT_GRACE_SECONDS}s SIGKILL); это НЕ результат модели, exit code 124" >&2
   # Сюда попадает и остановленный (SIGTTIN/SIGSTOP) процесс: SIGTERM такому не
   # доставляется, но SIGKILL по группе его снимает.
   terminate_smoke_group "$SMOKE_PID" \
@@ -357,6 +387,7 @@ emit_metrics() {
   printf 'duration_seconds=%s\n' "$DURATION"
   printf 'exit_code=%s\n' "$EXIT_CODE"
   printf 'timeout_seconds=%s\n' "$TIMEOUT_SECONDS"
+  printf 'timeout_grace_seconds=%s\n' "$TIMEOUT_GRACE_SECONDS"
   printf 'timed_out=%s\n' "$TIMED_OUT"
   printf 'worktree_clean_after=%s\n' "$WORKTREE_CLEAN"
   printf 'head_unchanged=%s\n' "$HEAD_UNCHANGED"
