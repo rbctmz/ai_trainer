@@ -340,6 +340,31 @@ def test_capture_run_identity_is_idempotent(tmp_path):
     assert len(db.get_readiness_snapshots(capture_mode="prospective", local_date=DAY)) == 2
 
 
+def test_idempotent_retry_uses_the_persisted_revision_eligibility(tmp_path):
+    """Retry readback must describe the immutable row, not newly computed inputs."""
+    db = Database(str(tmp_path / "identity-eligibility.db"))
+    _seed_partial_day(db)
+
+    first = _capture(db, run_id="run-same", observed=MOSCOW_OBSERVED)["recovery_capture"]
+    assert first["eligibility_status"] == "ineligible"
+    assert "low_confidence" in first["eligibility_reasons"]
+
+    # The same job is retried after more readiness inputs arrived. Its fingerprint
+    # still resolves to the immutable first revision, so the readback must not mix
+    # that row with eligibility recomputed from the newer source state.
+    _seed_full_day(db)
+    retry = _capture(
+        db, run_id="run-same", observed=datetime(2026, 7, 16, 6, 0, tzinfo=timezone.utc)
+    )["recovery_capture"]
+    stored = db.get_readiness_snapshots(capture_mode="prospective", local_date=DAY)[0]
+
+    assert retry["created"] is False
+    assert retry["snapshot_id"] == first["snapshot_id"]
+    assert retry["revision"] == first["revision"] == 1
+    assert retry["eligibility_status"] == stored["eligibility_status"] == "ineligible"
+    assert retry["eligibility_reasons"] == stored["eligibility_reasons"]
+
+
 def test_capture_status_matches_the_daily_anchor_decision(tmp_path):
     """Дневной инвариант: anchor существует ⇔ есть ревизия со статусом before_load."""
     db = Database(str(tmp_path / "anchor.db"))

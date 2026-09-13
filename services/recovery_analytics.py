@@ -145,9 +145,20 @@ def record_post_sync_recovery_state(
         "snapshot": canonical,
     }
     saved = db.save_readiness_snapshot(payload)
+    # An idempotent retry returns the immutable row captured by the first call.
+    # Describe that revision instead of mixing it with eligibility recomputed
+    # from readiness inputs that may have changed meanwhile.
+    persisted_snapshot = dict(saved.get("snapshot") or {})
+    eligibility = {
+        "eligible": persisted_snapshot.get("eligibility_status") == "eligible",
+        "reasons": [
+            str(item) for item in (persisted_snapshot.get("eligibility_reasons") or [])
+        ],
+    }
+    refresh_date = _snapshot_date(persisted_snapshot.get("local_date")) or local_date
     try:
         episode_refresh: dict[str, Any] | None = refresh_recovery_episodes(
-            db, as_of=local_date, capture_mode=capture_mode
+            db, as_of=refresh_date, capture_mode=capture_mode
         )
     except Exception as exc:  # source sync stays valid; derived repair is retryable
         episode_refresh = {"error": str(exc), "created": 0}
@@ -225,6 +236,23 @@ def _capture_block(
         "created": bool(created),
         "error": error,
     }
+
+
+def build_capture_failure_block(
+    *, provider: str, capture_run_id: str, reason: str = CAPTURE_REASON_SNAPSHOT_FAILED
+) -> dict[str, Any]:
+    """Return the complete type-safe block for a defensive capture failure."""
+    return _capture_block(
+        provider=provider,
+        capture_run_id=capture_run_id,
+        status=CAPTURE_STATUS_FAILED,
+        reason=reason,
+        error=reason,
+        eligibility=None,
+        snapshot=None,
+        boundary=None,
+        created=False,
+    )
 
 
 def capture_post_sync_recovery_state(

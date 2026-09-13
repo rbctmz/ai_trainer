@@ -198,6 +198,14 @@ def test_intervals_defensive_capture_boundary_logs_once_and_marks_partial(
 
     assert _activity_count(db) == 1
     assert result.recovery_capture["status"] == "capture_failed"
+    assert result.recovery_capture["eligibility_status"] == "unknown"
+    assert result.recovery_capture["eligibility_reasons"] == []
+    assert result.recovery_capture["error"] == "snapshot_capture_failed"
+    assert result.recovery_capture["local_date"] is None
+    assert result.recovery_capture["observed_at_utc"] is None
+    assert result.recovery_capture["observed_at_local"] is None
+    assert result.recovery_capture["cutoff_at_utc"] is None
+    assert result.recovery_capture["snapshot_id"] is None
     assert "athlete.db" not in str(result.recovery_capture)
     records = [
         record

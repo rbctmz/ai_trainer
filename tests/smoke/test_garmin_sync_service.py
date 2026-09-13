@@ -381,6 +381,14 @@ def test_defensive_capture_boundary_logs_once_and_keeps_notices_clean(
     assert "snapshot_capture_failed" in records[0].getMessage()
 
     assert result.recovery_capture["status"] == "capture_failed"
+    assert result.recovery_capture["eligibility_status"] == "unknown"
+    assert result.recovery_capture["eligibility_reasons"] == []
+    assert result.recovery_capture["error"] == "snapshot_capture_failed"
+    assert result.recovery_capture["local_date"] is None
+    assert result.recovery_capture["observed_at_utc"] is None
+    assert result.recovery_capture["observed_at_local"] is None
+    assert result.recovery_capture["cutoff_at_utc"] is None
+    assert result.recovery_capture["snapshot_id"] is None
     assert "athlete.db" not in str(result.recovery_capture)
     warnings = " | ".join(result.warnings)
     assert "snapshot_capture_failed" in warnings
@@ -488,6 +496,14 @@ def test_sync_garmin_capture_failure_keeps_data_and_marks_partial(
 
     assert result.recovery_capture["status"] == "capture_failed"
     assert any("snapshot_capture_failed" in warning for warning in result.warnings)
+    assert not any(
+        detail.startswith("Recovery snapshot: capture_failed")
+        for detail in result.details
+    )
+    assert not any(
+        notice.startswith("Recovery snapshot: capture_failed")
+        for notice in payload["notices"]
+    )
     assert payload["sync_state"] == "partial"
     stored = db.get_activities(days=3650)
     assert len(stored) == 1

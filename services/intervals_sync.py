@@ -53,7 +53,10 @@ from services.intervals_icu import (
     IntervalsICUError,
     get_client,
 )
-from services.recovery_analytics import project_recovery_capture
+from services.recovery_analytics import (
+    build_capture_failure_block,
+    project_recovery_capture,
+)
 from services.sync_contracts import SyncProgressCallback, SyncProgressUpdate
 from services.sync_cursor import (
     ChunkFetch,
@@ -280,14 +283,11 @@ def sync_intervals_data(
                 CAPTURE_REASON_SNAPSHOT_FAILED,
                 exc_info=True,
             )
-            recovery_capture = {
-                "provider": "intervals",
-                "capture_run_id": effective_capture_run_id,
-                "status": "capture_failed",
-                "reason": CAPTURE_REASON_SNAPSHOT_FAILED,
-                "revision": None,
-                "created": False,
-            }
+            recovery_capture = build_capture_failure_block(
+                provider="intervals",
+                capture_run_id=effective_capture_run_id,
+                reason=CAPTURE_REASON_SNAPSHOT_FAILED,
+            )
         if str((recovery_capture or {}).get("status")) == "capture_failed":
             reason = str(
                 (recovery_capture or {}).get("reason") or CAPTURE_REASON_SNAPSHOT_FAILED

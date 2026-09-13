@@ -53,7 +53,10 @@ def _empty_sync_counts() -> SyncCounts:
 # Provider-neutral progress contract lives in services.sync_contracts (review P1.1
 # / §5): neither the Garmin nor the Intervals adapter owns the shared type. Re-exported
 # here so every existing ``from services.sync import SyncProgressUpdate`` keeps working.
-from services.recovery_analytics import project_recovery_capture  # noqa: E402
+from services.recovery_analytics import (  # noqa: E402
+    build_capture_failure_block,
+    project_recovery_capture,
+)
 from services.sync_contracts import SyncProgressCallback, SyncProgressUpdate  # noqa: E402
 
 
@@ -437,22 +440,19 @@ def sync_garmin_data(
             logger.warning(
                 "recovery capture failed: %s", "snapshot_capture_failed", exc_info=True
             )
-            result.recovery_capture = {
-                "provider": "garmin",
-                "capture_run_id": effective_capture_run_id,
-                "status": "capture_failed",
-                "reason": "snapshot_capture_failed",
-                "revision": None,
-                "created": False,
-            }
+            result.recovery_capture = build_capture_failure_block(
+                provider="garmin",
+                capture_run_id=effective_capture_run_id,
+            )
 
         block = result.recovery_capture or {}
         status = str(block.get("status") or "capture_failed")
         revision = block.get("revision")
-        result.details.append(f"Recovery snapshot: {status} · rev {revision or '—'}")
         if status == "capture_failed":
             reason = str(block.get("reason") or "snapshot_capture_failed")
             _append_warning(result.warnings, f"⚠️ Recovery snapshot capture: {reason}")
+        else:
+            result.details.append(f"Recovery snapshot: {status} · rev {revision or '—'}")
 
     result.details.extend(_build_sync_details(sleep_data, daily_health_data, training_status_data))
     result.success_messages = _build_success_messages(result)
