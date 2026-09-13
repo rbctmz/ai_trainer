@@ -117,6 +117,10 @@ def test_no_single_occasion_absorbs_disproportionate_weekly_share():
 _PROBE_ZONES = {"ftp": 159, "lthr": 160, "threshold_pace": 300}
 
 
+def _sport_week_totals_from_parts(week_row):
+    return {sport: float(week_row.get(sport) or 0.0) for sport in ("bike", "run", "swim")}
+
+
 def _materialized_week_minutes(result, *, phase: str = "Build") -> int:
     """Measure the week the way the plan will actually materialize it."""
     from models.training_planner import _estimate_session_duration_minutes
@@ -189,6 +193,17 @@ def test_actual_hours_trim_sets_reduced_status():
 
 def _vertical_week(phase: str, w_tss: int, hours: float):
     """The real product path: expand → brick allocation → builder."""
+    weekly, templates = _vertical_week_templates(phase, w_tss, hours)
+    minutes = sum(
+        int(s.get("duration_minutes") or 0)
+        for t in templates
+        for s in (t.get("sessions") or [])
+    )
+    return weekly, minutes
+
+
+def _vertical_week_templates(phase: str, w_tss: int, hours: float):
+    """Same product path, but returning the persisted templates as well."""
     from datetime import date as _date
 
     from models.training_planner import (
@@ -205,6 +220,11 @@ def _vertical_week(phase: str, w_tss: int, hours: float):
         goal_type="Триатлон",
         load_state="balanced",
         available_weekly_hours=hours,
+        # Issue #554 regression: the hours ceiling is enforced on the week the
+        # builder persists, so the scheduler must project with the same zones
+        # the builder receives below — a blind projection counted 300 minutes
+        # for the Taper 260-TSS / 5 h week while the plan persisted 310.
+        zone_snapshot=_PROBE_ZONES,
     )
     allocation = prepare_weekly_brick_allocations(
         daily,
@@ -221,12 +241,7 @@ def _vertical_week(phase: str, w_tss: int, hours: float):
         zone_snapshot=_PROBE_ZONES,
         brick_day_indices=set(allocation["brick_day_indices"]),
     )
-    minutes = sum(
-        int(s.get("duration_minutes") or 0)
-        for t in templates
-        for s in (t.get("sessions") or [])
-    )
-    return weekly, minutes
+    return weekly, templates
 
 
 @pytest.mark.parametrize(
@@ -237,6 +252,10 @@ def _vertical_week(phase: str, w_tss: int, hours: float):
         ("Taper", 550, 6.0),
         ("Peak", 550, 4.0),
         ("Base", 300, 5.0),
+        # Issue #554 regression RED: the band-driven re-timing persisted a
+        # 45-minute sharpening day where the blind projection counted 35, so the
+        # 5-hour Taper week came out at 310 minutes (> 300 + 5 quantum).
+        ("Taper", 260, 5.0),
     ],
 )
 def test_persisted_week_respects_hours_end_to_end(phase, w_tss, hours):
@@ -247,6 +266,95 @@ def test_persisted_week_respects_hours_end_to_end(phase, w_tss, hours):
     brick fallback: both independent sessions)."""
     weekly, minutes = _vertical_week(phase, w_tss, hours)
     assert minutes <= int(hours * 60) + 5, (phase, w_tss, hours, minutes)
+    # Issue #554 regression: the week was measured with the athlete's zones, not
+    # blind, so the ceiling is checked against what the plan actually persists.
+    assert weekly[0]["scheduler_projection_basis"] == "zones"
+    # The trimmed week must say so: a persisted budget below the requested one
+    # without status="reduced" is a silent cut.
+    placed_budget = sum(_sport_week_totals_from_parts(weekly[0]).values())
+    if placed_budget < w_tss - 0.5:
+        assert weekly[0].get("scheduler_status") == "reduced", (phase, w_tss, placed_budget)
+
+
+def test_taper_260_week_trims_load_without_losing_the_np_prescription():
+    """Issue #554 regression shape: the 5-hour Taper week fits the ceiling, and
+    the load cut must not cost the NP-derived prescription, the sharpening
+    intent or the re-timing audit trail."""
+    weekly, templates = _vertical_week_templates("Taper", 260, 5.0)
+    sessions = [s for t in templates for s in (t.get("sessions") or [])]
+    minutes = sum(int(s.get("duration_minutes") or 0) for s in sessions)
+
+    horizon = 5 * 60 + 5
+    assert minutes <= horizon, minutes
+    assert weekly[0]["scheduler_projection_basis"] == "zones"
+    # The cut is explicit: the placed budget is below the requested 260 TSS.
+    assert weekly[0]["weekly_tss"] < 260
+    assert weekly[0].get("scheduler_status") == "reduced"
+    assert weekly[0].get("scheduler_notes"), weekly[0]
+
+    # NP-derived load survives: every power session keeps its effective
+    # prescription_np_tss_v1 target instead of falling back to the budget.
+    power_sessions = [
+        s for s in sessions if (s.get("parameter_snapshot") or {}).get("requested_tss") is not None
+    ]
+    assert power_sessions
+    for session in power_sessions:
+        snapshot = session["parameter_snapshot"]
+        assert snapshot["planned_tss_method"] == "prescription_np_tss_v1"
+        assert snapshot["target_tss"] == pytest.approx(snapshot["planned_tss"], abs=0.01)
+        assert snapshot["target_tss"] == pytest.approx(
+            snapshot["planned_tss_evidence"]["planned_tss"], abs=0.01
+        )
+        assert session["materialization_status"] == "materialized"
+
+    # The Taper long day stays a bounded sharpening, re-timed inside the cap.
+    long_bike = next(
+        s for s in sessions if s.get("session_role") == "long" and s.get("sport") == "bike"
+    )
+    assert long_bike["template_key"] in {"bike_vo2max_intervals", "bike_neuromuscular_sprints"}
+    assert long_bike["duration_minutes"] <= 60
+    evidence = long_bike["selection_evidence"]
+    assert evidence["role_override"] == "long_to_sharpening"
+    assert evidence["intent_constraint"] == "taper_long_sharpening"
+
+    # Re-timing audit trail is present and truthful on every session.
+    assert any(evidence["duration_retimed"] for evidence in (
+        s["selection_evidence"] for s in sessions if s.get("selection_evidence")
+    ))
+    for session in sessions:
+        session_evidence = session.get("selection_evidence") or {}
+        if "duration_retimed" not in session_evidence:
+            continue
+        preferred = session_evidence["preferred_duration_minutes"]
+        selected = session_evidence["selected_duration_minutes"]
+        assert selected == session["duration_minutes"]
+        assert session_evidence["duration_retimed"] is (selected != preferred)
+
+
+def test_projection_without_zones_stays_blind_and_invents_nothing():
+    """Issue #554 regression: with no athlete zones the projection must behave
+    exactly as before (empty snapshot), never a fabricated FTP."""
+    budget = {"bike": 189.0, "run": 155.4, "swim": 75.6}
+    blind = _schedule(week_budget=dict(budget), available_weekly_hours=10.0)
+    explicit_empty = _schedule(
+        week_budget=dict(budget), available_weekly_hours=10.0, zone_snapshot={}
+    )
+    placeholder = _schedule(
+        week_budget=dict(budget),
+        available_weekly_hours=10.0,
+        zone_snapshot={"ftp": None, "lthr": None, "threshold_pace": None},
+    )
+    aware = _schedule(
+        week_budget=dict(budget), available_weekly_hours=10.0, zone_snapshot=_PROBE_ZONES
+    )
+
+    assert blind["projection_basis"] == "blind"
+    assert placeholder["projection_basis"] == "blind"
+    assert aware["projection_basis"] == "zones"
+    # No invented athlete data: omitting the zones equals passing an empty (or
+    # value-less) snapshot, and only real zones change the measurement.
+    assert _sport_week_totals(blind) == pytest.approx(_sport_week_totals(explicit_empty), abs=0.01)
+    assert _sport_week_totals(blind) == pytest.approx(_sport_week_totals(placeholder), abs=0.01)
 
 
 def test_reduced_week_materializes_within_availability_end_to_end():

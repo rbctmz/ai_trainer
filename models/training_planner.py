@@ -1893,6 +1893,7 @@ def expand_weekly_to_daily_triathlon(
     goal_type: str = "Триатлон",
     load_state: str = "balanced",
     available_weekly_hours: float | None = None,
+    zone_snapshot: Mapping[str, Any] | None = None,
 ) -> Tuple[List[Tuple[datetime, float, Dict[str, float]]], List[Dict[str, object]]]:
     """Разворачивает недельный triathlon-план в поминутную ленту по дням с разбивкой по видам спорта.
     Возвращает:
@@ -1957,6 +1958,11 @@ def expand_weekly_to_daily_triathlon(
             available_weekly_hours=available_weekly_hours,
             day_preferences=day_preferences,
             template_rotation=projected_template_rotation,
+            # Issue #554 regression: the scheduler's hours projection must
+            # materialize with the same zones the builder will use, otherwise it
+            # counts the selector's own duration while the persisted week can be
+            # longer (Taper 260 TSS / 5 h: projected 300, persisted 310).
+            zone_snapshot=zone_snapshot,
         )
         projected_template_rotation = list(slot_plan.get("template_rotation") or projected_template_rotation)
         adjusted_week_parts = slot_plan["allocated_parts"]
@@ -1982,6 +1988,14 @@ def expand_weekly_to_daily_triathlon(
         if slot_plan["notes"]:
             weekly_summary[-1]["scheduler_notes"] = list(slot_plan["notes"])
             weekly_summary[-1]["scheduler_status"] = slot_plan["status"]
+        # Issue #554 regression: keep the projection's basis in the persisted
+        # week so a hours decision can be audited against the materialization it
+        # was checked with ("zones" = the athlete's real input, "blind" = a
+        # caller that supplied none).
+        weekly_summary[-1]["scheduler_projection_basis"] = slot_plan.get("projection_basis")
+        weekly_summary[-1]["scheduler_projected_minutes"] = slot_plan.get(
+            "projected_week_minutes"
+        )
 
         for parts in adjusted_week_parts:
             total = round(parts.get('run', 0.0) + parts.get('bike', 0.0) + parts.get('swim', 0.0), 1)

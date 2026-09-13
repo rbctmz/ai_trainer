@@ -1313,6 +1313,20 @@ def build_plan(
         current_atl=float(metrics.get("atl") or 0.0),
     )
 
+    athlete_profile = db.get_athlete_profile() or {}
+    # Issue #554 regression: the scheduler's hours ceiling is enforced on the
+    # week the builder persists, so the projection has to materialize with the
+    # same athlete zones the builder receives below. A blind projection counted
+    # 300 minutes for a 5-hour Taper week whose persisted sessions were 310.
+    build_zone_snapshot = {
+        "ftp": athlete_profile.get("ftp"),
+        "lthr": athlete_profile.get("lthr"),
+        # The profile API/storage name pins the canonical unit. The workout
+        # catalog's established input key is shorter but means the same
+        # seconds-per-kilometre value.
+        "threshold_pace": athlete_profile.get("threshold_pace_seconds_per_km"),
+    }
+
     daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
         weekly_tss_plan,
         phases,
@@ -1323,6 +1337,7 @@ def build_plan(
         goal_type=gt,
         load_state=str(constraint_summary.get("load_state", "balanced")),
         available_weekly_hours=float(available_hours or 0.0) or None,
+        zone_snapshot=build_zone_snapshot,
     )
     for week_row, detail in zip(weekly_summary, constraint_details):
         week_row["capacity_tss"] = detail.get("capacity_tss")
@@ -1347,7 +1362,6 @@ def build_plan(
         load_state=str(constraint_summary.get("load_state", "balanced")),
     )
     daily_plan = list(brick_allocation.get("daily_plan") or daily_plan)
-    athlete_profile = db.get_athlete_profile() or {}
 
     session_templates = build_daily_session_templates(
         daily_plan,
@@ -1355,16 +1369,7 @@ def build_plan(
         goal_type=gt,
         distance=dist,
         load_state=str(constraint_summary.get("load_state", "balanced")),
-        zone_snapshot={
-            "ftp": athlete_profile.get("ftp"),
-            "lthr": athlete_profile.get("lthr"),
-            # The profile API/storage name pins the canonical unit. The workout
-            # catalog's established input key is shorter but means the same
-            # seconds-per-kilometre value.
-            "threshold_pace": athlete_profile.get(
-                "threshold_pace_seconds_per_km"
-            ),
-        },
+        zone_snapshot=build_zone_snapshot,
         brick_day_indices=set(brick_allocation.get("brick_day_indices") or []),
     )
     event_by_date = {str(event.get("date")): event for event in plan_events}
