@@ -237,8 +237,10 @@ WORKTREE_CLEAN=yes
 SESSIONS_ROOT="$PILOT_HOME/sessions"
 # Сессия: самый свежий session.jsonl.zstd, появившийся не раньше старта прогона.
 if [ -d "$SESSIONS_ROOT" ]; then
+  # Только сессия, созданная этим прогоном: fallback на любую сессию из
+  # DSH_PILOT_HOME (#576 review, P1) публиковал метрики прошлого прогона как
+  # метрики оплаченного — токены и tool calls чужой сессии выглядели текущими.
   SESSION_FILE="$(find "$SESSIONS_ROOT" -name 'session.jsonl.zstd' -newer "$RUN_STAMP" 2>/dev/null | sort | tail -1 || true)"
-  [ -n "$SESSION_FILE" ] || SESSION_FILE="$(find "$SESSIONS_ROOT" -name 'session.jsonl.zstd' 2>/dev/null | sort | tail -1 || true)"
 else
   SESSION_FILE=""
 fi
