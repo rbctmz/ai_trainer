@@ -413,13 +413,14 @@ def test_future_week_rebalance_rescales_composite_without_losing_steps() -> None
         load_state="balanced",
     )
 
-    assert applied == pytest.approx(10.0)
+    assert applied == pytest.approx(9.8)
     scaled = session_templates[0]["sessions"][0]
     assert scaled["materialization_status"] == "materialized"
-    assert scaled["total_tss"] == pytest.approx(110.0)
+    assert scaled["total_tss"] == pytest.approx(109.8)
     assert sum(float(leg["target_tss"]) for leg in scaled["legs"]) == pytest.approx(
-        110.0
+        scaled["parameter_snapshot"]["target_tss"]
     )
+    assert scaled["parameter_snapshot"]["target_tss"] == pytest.approx(109.8, abs=0.1)
     assert all(leg["materialized_steps"] for leg in scaled["legs"])
 
 

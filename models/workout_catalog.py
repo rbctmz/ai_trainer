@@ -11,7 +11,8 @@ from typing import Any, Mapping, Sequence
 
 CATALOG_VERSION = "workout_catalog_v3"
 SELECTOR_RULE_VERSION = "workout_selector_v1"
-MATERIALIZER_RULE_VERSION = "workout_materializer_v3"
+MATERIALIZER_RULE_VERSION = "workout_materializer_v4"
+PRESCRIPTION_NP_TSS_RULE_VERSION = "prescription_np_tss_v1"
 STRUCTURE_RULE_VERSION = "workout_structure_v2"
 
 
@@ -131,17 +132,19 @@ _CATALOG = (
     _definition(
         "bike_tempo_sweet_spot", "Tempo / Sweet Spot", "bike", ("quality",),
         "sustained sub-threshold work", ("Build", "Peak", "Maintenance"),
-        (45, 150), (35, 180), (60, 95), (2, 1, 1), 30, ("ftp", "relative_rpe"), "tempo",
+        # NP includes the prescribed recoveries and 30s transitions, so its
+        # effective density is below the old midpoint-sum floor.
+        (45, 150), (35, 180), (45, 95), (2, 1, 1), 30, ("ftp", "relative_rpe"), "tempo",
     ),
     _definition(
         "bike_threshold_intervals", "Threshold Intervals", "bike", ("quality",),
         "lactate-threshold development", ("Build", "Peak"),
-        (40, 120), (35, 160), (70, 110), (3, 1, 1), 36, ("ftp", "relative_rpe"), "threshold",
+        (40, 120), (35, 160), (55, 110), (3, 1, 1), 36, ("ftp", "relative_rpe"), "threshold",
     ),
     _definition(
         "bike_vo2max_intervals", "VO2max Intervals", "bike", ("quality",),
         "maximal aerobic power", ("Build", "Peak", "Taper", "Race Week"),
-        (35, 90), (30, 125), (75, 120), (3, 1, 2), 42, ("ftp", "relative_rpe"), "vo2",
+        (35, 90), (30, 125), (70, 120), (3, 1, 2), 42, ("ftp", "relative_rpe"), "vo2",
     ),
     _definition(
         "bike_neuromuscular_sprints", "Neuromuscular Sprints", "bike", ("quality", "easy"),
@@ -871,19 +874,19 @@ def planned_bike_tss_from_steps(
     steps: Sequence[Mapping[str, Any]],
     target_provenance: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    """Estimate planned bike TSS from persisted FTP power targets.
+    """Estimate planned bike TSS from an ordered power prescription.
 
-    A target range is not an observed power stream, so the midpoint is used as
-    an explicit planning estimate. This is deliberately fail-closed when FTP
-    or a power target is unavailable; callers must not substitute current
-    athlete settings for an older prescription.
+    Target-range midpoints form a deterministic one-second power profile. The
+    profile is smoothed with a 30-second rolling average before normalized
+    power and Power TSS are calculated. This is a planning estimate, not
+    provider-observed power, and fails closed without immutable FTP/targets.
     """
     provenance = dict(target_provenance or {})
     if str(provenance.get("kind") or "") != "ftp":
         return {
             "status": "data_gap",
             "planned_tss": None,
-            "method": "power_zone_midpoint_v1",
+            "method": PRESCRIPTION_NP_TSS_RULE_VERSION,
             "reason": "missing_ftp",
         }
     try:
@@ -894,19 +897,20 @@ def planned_bike_tss_from_steps(
         return {
             "status": "data_gap",
             "planned_tss": None,
-            "method": "power_zone_midpoint_v1",
+            "method": PRESCRIPTION_NP_TSS_RULE_VERSION,
             "reason": "missing_ftp",
         }
     if not steps:
         return {
             "status": "data_gap",
             "planned_tss": None,
-            "method": "power_zone_midpoint_v1",
+            "method": PRESCRIPTION_NP_TSS_RULE_VERSION,
             "reason": "missing_steps",
         }
 
-    total = 0.0
-    evidence: list[dict[str, Any]] = []
+    profile: list[float] = []
+    profile_step_indices: list[int] = []
+    step_evidence: list[dict[str, Any]] = []
     for index, raw_step in enumerate(steps):
         step = dict(raw_step or {})
         target = dict(step.get("target") or {})
@@ -914,7 +918,7 @@ def planned_bike_tss_from_steps(
             return {
                 "status": "data_gap",
                 "planned_tss": None,
-                "method": "power_zone_midpoint_v1",
+                "method": PRESCRIPTION_NP_TSS_RULE_VERSION,
                 "reason": "non_power_target",
             }
         try:
@@ -925,35 +929,94 @@ def planned_bike_tss_from_steps(
             return {
                 "status": "data_gap",
                 "planned_tss": None,
-                "method": "power_zone_midpoint_v1",
+                "method": PRESCRIPTION_NP_TSS_RULE_VERSION,
                 "reason": "invalid_power_target",
             }
         if low < 0 or high < low or seconds < 0:
             return {
                 "status": "data_gap",
                 "planned_tss": None,
-                "method": "power_zone_midpoint_v1",
+                "method": PRESCRIPTION_NP_TSS_RULE_VERSION,
                 "reason": "invalid_power_target",
             }
         midpoint = (low + high) / 2.0
-        step_tss = seconds / 3600.0 * 100.0 * (midpoint / ftp) ** 2
-        total += step_tss
-        evidence.append(
+        whole_seconds = int(round(seconds))
+        profile.extend([midpoint] * whole_seconds)
+        profile_step_indices.extend([index] * whole_seconds)
+        step_evidence.append(
             {
                 "index": index,
                 "duration_seconds": round(seconds, 3),
                 "midpoint_watts": round(midpoint, 3),
-                "tss": round(step_tss, 4),
             }
         )
+    if not profile:
+        return {
+            "status": "data_gap",
+            "planned_tss": None,
+            "method": PRESCRIPTION_NP_TSS_RULE_VERSION,
+            "reason": "missing_duration",
+        }
+
+    # Keep complete trailing windows, matching the conventional NP definition.
+    # Contributions are normalized to the full prescribed duration below so
+    # step TSS remains exactly additive with session Power TSS.
+    window_seconds = min(30, len(profile))
+    rolling: list[float] = []
+    running = sum(profile[:window_seconds])
+    rolling.append(running / window_seconds)
+    for end in range(window_seconds, len(profile)):
+        running += profile[end] - profile[end - window_seconds]
+        rolling.append(running / window_seconds)
+    fourth_power = [value**4 for value in rolling]
+    normalized_power = (sum(fourth_power) / len(fourth_power)) ** 0.25
+    total_seconds = len(profile)
+    power_tss = (normalized_power / ftp) ** 2 * (total_seconds / 3600.0) * 100.0
+
+    step_energy = [0.0] * len(steps)
+    for rolling_index, energy in enumerate(fourth_power):
+        step_index = profile_step_indices[rolling_index + window_seconds - 1]
+        step_energy[step_index] += energy
+    total_energy = sum(fourth_power)
+    step_tss = [
+        power_tss * energy / total_energy if total_energy > 0 else 0.0
+        for energy in step_energy
+    ]
+    evidence = [
+        {**item, "tss": round(value, 4)}
+        for item, value in zip(step_evidence, step_tss)
+    ]
     return {
         "status": "derived",
-        "planned_tss": round(total, 1),
-        "method": "power_zone_midpoint_v1",
+        "planned_tss": round(power_tss, 1),
+        "method": PRESCRIPTION_NP_TSS_RULE_VERSION,
+        "power_semantics": "ordered_prescription_midpoint_profile",
+        "normalized_power": {
+            "status": "derived",
+            "watts": round(normalized_power, 1),
+            "rolling_average_seconds": 30,
+        },
+        "power_tss": round(power_tss, 1),
         "ftp": ftp,
         "step_count": len(steps),
+        "profile_seconds": total_seconds,
+        "rolling_samples": len(rolling),
         "evidence": evidence,
     }
+
+
+_POWER_DERIVED_BIKE_BUILDERS = frozenset(
+    {
+        "recovery",
+        "endurance",
+        "progression",
+        "tempo",
+        "threshold",
+        "vo2",
+        "neuromuscular",
+        "race_pace",
+    }
+)
 
 
 def materialize_workout(
@@ -1012,15 +1075,32 @@ def materialize_workout(
             step["repeat_index"] = spec.repeat_index
         steps.append(step)
     planned_evidence = None
-    if definition.sport == "bike" and definition.step_builder_key in {
-        "recovery",
-        "endurance",
-        "progression",
-    }:
+    if (
+        definition.sport == "bike"
+        and definition.step_builder_key in _POWER_DERIVED_BIKE_BUILDERS
+    ):
         planned_evidence = planned_bike_tss_from_steps(steps, provenance)
         if planned_evidence.get("status") == "derived":
             effective_tss = float(planned_evidence["planned_tss"])
-            tss_values = _exact_distribution(effective_tss, duration_shares, 1)
+            # Step load follows the prescribed power intensity.  Distributing
+            # the effective total by duration alone made warm-ups and
+            # recoveries appear as hard as work intervals.  The calculator's
+            # evidence already contains one raw TSS contribution per step;
+            # preserve those relative contributions while rounding to an exact
+            # session total.
+            raw_step_tss = [
+                float(item.get("tss") or 0.0)
+                for item in planned_evidence.get("evidence") or []
+            ]
+            raw_total = sum(raw_step_tss)
+            if raw_total > 0 and len(raw_step_tss) == len(steps):
+                tss_values = _exact_distribution(
+                    effective_tss,
+                    [value / raw_total for value in raw_step_tss],
+                    1,
+                )
+            else:
+                tss_values = _exact_distribution(effective_tss, duration_shares, 1)
             for index, value in enumerate(tss_values):
                 steps[index]["tss"] = value
             parameter_snapshot = {
@@ -1033,6 +1113,10 @@ def materialize_workout(
                 "planned_tss_evidence": planned_evidence,
             }
             base["parameter_snapshot"] = parameter_snapshot
+            effective_failed = _failed_bounds(definition, duration, effective_tss)
+            if effective_failed:
+                base["materialization_status"] = "infeasible"
+                base["failed_bounds"] = effective_failed
     base["steps"] = steps
     base["target_provenance"] = provenance
     base["structure_status"] = structure_status
@@ -1130,8 +1214,13 @@ def _single_candidates(
         if load_state == "deep_fatigue" and max(definition.fatigue_cost) >= 3:
             continue
         duration = _candidate_duration(definition, target_tss, estimated_duration_minutes)
-        if duration is not None and phase in {"Taper", "Race Week"} and duration > 60:
-            duration = 60 if not _failed_bounds(definition, 60, target_tss) else None
+        if (
+            duration is not None
+            and phase in {"Taper", "Race Week"}
+            and duration > _TAPER_DURATION_CAP_MINUTES
+        ):
+            cap = _TAPER_DURATION_CAP_MINUTES
+            duration = cap if not _failed_bounds(definition, cap, target_tss) else None
         if duration is not None:
             candidates.append((definition, duration))
     fresh = [item for item in candidates if item[0].template_key not in recent]
@@ -1145,6 +1234,106 @@ def _single_candidates(
         )
     )
     return candidates
+
+
+# Issue #205 M4 (docs/structured_workout_catalog_execplan.md): a Taper/Race Week
+# ``long`` day is a bounded sharpening — never long endurance. The selector's
+# ``sharpening_override`` admits quality/easy definitions; this set names the
+# sharpening stimulus variants that may actually stand in for the long session
+# (neuromuscular, VO2, threshold repeats, swim repeats, run race pace). Pinned by
+# tests/smoke/test_workout_catalog.py::
+# test_taper_long_role_becomes_bounded_sharpening_not_long_endurance.
+_TAPER_LONG_INTENT = "taper_long_sharpening"
+# The selector caps a Taper/Race Week session at this duration; the retry
+# duration search obeys the same cap.
+_TAPER_DURATION_CAP_MINUTES = 60
+_RETRY_DURATION_STEP_MINUTES = 5
+_TAPER_SHARPENING_KEYS = frozenset(
+    {
+        ("bike", "vo2"),
+        ("bike", "neuromuscular"),
+        ("bike", "threshold"),
+        ("run", "vo2"),
+        ("run", "race_pace"),
+        ("swim", "threshold"),
+    }
+)
+
+
+def _session_intent_constraint(phase: str, session_role: str) -> str | None:
+    """Name the retry constraint of a phase/role pair, if it has one."""
+    if phase in {"Taper", "Race Week"} and session_role == "long":
+        return _TAPER_LONG_INTENT
+    return None
+
+
+def _keeps_session_intent(
+    definition: WorkoutTemplateDefinition,
+    *,
+    constraint: str | None,
+) -> bool:
+    """Whether a definition may replace the ranked selection in a retry.
+
+    A Taper/Race Week long day must stay a bounded sharpening: substituting an
+    easy endurance ride or a race-pace ride there rewrites the day's stimulus
+    and lengthens the week past the athlete's available hours.
+    """
+    if constraint == _TAPER_LONG_INTENT:
+        return (definition.sport, definition.step_builder_key) in _TAPER_SHARPENING_KEYS
+    return True
+
+
+def _retry_durations(
+    definition: WorkoutTemplateDefinition,
+    *,
+    preferred: int,
+    phase: str,
+) -> list[int]:
+    """Durations a candidate may be retried with, closest to ``preferred`` first.
+
+    Issue #554 review: ``_candidate_duration`` derives the duration from the
+    older mid-point density, so the NP-derived load can land outside the
+    template's declared band even though the requested bounds passed. The pair,
+    not the candidate, is what fails — 40 minutes of ``bike_vo2max_intervals``
+    deliver 59.7 TSS/h against its [70, 120] band, 50 minutes deliver 72.6 TSS/h
+    inside it. The grid keeps the selector's own pick first (a pair that already
+    materializes is never re-timed), then walks outward inside the template's
+    declared range, with the shorter duration winning a tie.
+
+    Re-timing is allowed only where the phase declares its own duration cap
+    (Taper and Race Week, 60 minutes): that cap bounds the result. Elsewhere the
+    schedule's duration would silently grow — an uncapped search measured a Base
+    week over the athlete's hours (315 > 305 minutes for 300 TSS / 5 h) and a
+    near-term day edit that stopped decreasing the day (65.2 instead of 60.5
+    TSS), so those phases keep the plain candidate retry.
+    """
+    if phase not in {"Taper", "Race Week"}:
+        return [preferred]
+    upper = max(
+        int(min(definition.max_duration_minutes, _TAPER_DURATION_CAP_MINUTES)),
+        definition.min_duration_minutes,
+    )
+    grid = list(
+        range(definition.min_duration_minutes, upper + 1, _RETRY_DURATION_STEP_MINUTES)
+    )
+    if preferred not in grid:
+        grid.append(preferred)
+    return sorted(grid, key=lambda duration: (abs(duration - preferred), duration))
+
+
+def _failed_bounds_evidence(materialized: Mapping[str, Any]) -> dict[str, Any]:
+    """Carry derived-bound failures of a materialized workout into a session.
+
+    Issue #554 review: ``materialize_workout`` reports which catalog bounds the
+    derived power prescription broke, and a fail-closed planned session must
+    keep that evidence instead of dropping it at the wrapper. The key is added
+    only when a bound actually failed, because the day-template projection
+    mirrors session keys by allow-list (pinned by
+    tests/smoke/test_session_day_projection.py) and a permanent empty field
+    would drift from it.
+    """
+    failed = [str(item) for item in list(materialized.get("failed_bounds") or [])]
+    return {"failed_bounds": failed} if failed else {}
 
 
 def materialize_session_template(
@@ -1185,12 +1374,71 @@ def materialize_session_template(
             },
         }
 
-    definition, duration = candidates[0]
-    materialized = materialize_workout(
-        definition,
-        {"duration_minutes": duration, "target_tss": target_tss},
-        zone_snapshot,
+    # Issue #554 review: ranking expresses preference, not deliverability, and
+    # the band mismatch is a (candidate × duration) property: the derived
+    # prescription of the top-ranked pair can break its own catalog bounds (a
+    # 40-minute bike_vo2max_intervals delivers 59.7 TSS/h against its [70, 120]
+    # band, while 50 minutes delivers 72.6 TSS/h inside it), and persisting it
+    # makes a deliverable day undeliverable. The retry therefore searches the
+    # duration grid of each candidate, closest to the duration the selector
+    # already picked first, but only inside the session's intent: a Taper/Race
+    # Week long day stays a bounded sharpening, never a longer endurance
+    # substitute. When no intent-preserving pair is executable, the top-ranked
+    # definition stays selected and the session keeps its fail-closed shape.
+    constraint = _session_intent_constraint(phase, session_role)
+    probe_order = [candidates[0]]
+    probe_order.extend(
+        item
+        for item in candidates[1:]
+        if _keeps_session_intent(item[0], constraint=constraint)
     )
+    attempts: list[dict[str, Any]] = []
+    executable_index: int | None = None
+    for definition, duration in probe_order:
+        for candidate_duration in _retry_durations(
+            definition,
+            preferred=duration,
+            phase=phase,
+        ):
+            if _failed_bounds(definition, candidate_duration, target_tss):
+                continue
+            materialized = materialize_workout(
+                definition,
+                {"duration_minutes": candidate_duration, "target_tss": target_tss},
+                zone_snapshot,
+            )
+            attempts.append(
+                {
+                    "definition": definition,
+                    "preferred_duration_minutes": duration,
+                    "duration_minutes": candidate_duration,
+                    "materialized": materialized,
+                }
+            )
+            if materialized["materialization_status"] == "materialized":
+                executable_index = len(attempts) - 1
+                break
+        if executable_index is not None:
+            break
+    selected_index = 0 if executable_index is None else executable_index
+    selected = attempts[selected_index]
+    definition = selected["definition"]
+    duration = selected["duration_minutes"]
+    preferred_duration = selected["preferred_duration_minutes"]
+    materialized = selected["materialized"]
+    skipped_candidates = [
+        {
+            "template_key": attempt["definition"].template_key,
+            "duration_minutes": attempt["duration_minutes"],
+            "failed_bounds": list(attempt["materialized"].get("failed_bounds") or []),
+        }
+        for attempt in attempts[:selected_index]
+    ]
+    intent_excluded_keys = [
+        item[0].template_key
+        for item in candidates[1:]
+        if not _keeps_session_intent(item[0], constraint=constraint)
+    ]
     evidence = {
         "rule_version": SELECTOR_RULE_VERSION,
         "phase": phase,
@@ -1200,13 +1448,25 @@ def materialize_session_template(
         "recent_template_keys": [str(item) for item in recent_template_keys],
         "candidate_keys": [item[0].template_key for item in candidates],
         "estimated_duration_minutes": int(estimated_duration_minutes),
+        "selected_template_key": definition.template_key,
+        "skipped_candidates": skipped_candidates,
+        "intent_constraint": constraint,
+        "intent_excluded_keys": intent_excluded_keys,
         "selected_duration_minutes": duration,
-        "role_override": (
-            "long_to_sharpening"
-            if phase in {"Taper", "Race Week"} and session_role == "long"
-            else None
-        ),
+        # Issue #554 review: the duration the selector's own density math picked
+        # for the selected definition. A difference from
+        # ``selected_duration_minutes`` is the audit trail of a band-driven
+        # re-timing (40 → 50 minutes for bike_vo2max_intervals on a 60-TSS
+        # Taper long day), never a silent change.
+        "preferred_duration_minutes": preferred_duration,
+        "duration_retimed": duration != preferred_duration,
+        "role_override": "long_to_sharpening" if constraint == _TAPER_LONG_INTENT else None,
     }
+    if executable_index is None:
+        # Nothing the retry was allowed to consider survived its derived bounds;
+        # the persisted session is the top-ranked definition with its own
+        # failed bounds.
+        evidence["reason"] = "no_executable_candidate"
     prescription = {
         "definition_snapshot": materialized["definition_snapshot"],
         "parameter_snapshot": materialized["parameter_snapshot"],
@@ -1236,6 +1496,7 @@ def materialize_session_template(
         "structure_evidence": materialized.get("structure_evidence"),
         "selection_evidence": evidence,
         "prescription_fingerprint": _prescription_fingerprint(prescription),
+        **_failed_bounds_evidence(materialized),
     }
 
 
@@ -1305,6 +1566,10 @@ def materialize_brick_session(
     if any(item["materialization_status"] != "materialized" for item in (bike, run)):
         return {"kind": "single", "materialization_status": "legacy_role_fallback"}
 
+    bike_effective_tss = float((bike.get("parameter_snapshot") or {}).get("target_tss") or bike_tss)
+    run_effective_tss = float((run.get("parameter_snapshot") or {}).get("target_tss") or run_tss)
+    effective_parent_tss = round(bike_effective_tss + run_effective_tss, 1)
+
     legs = []
     for leg_index, (sport, leg_tss, leg_duration, leg_definition, materialized) in enumerate(
         (
@@ -1317,7 +1582,10 @@ def materialize_brick_session(
             {
                 "leg_index": leg_index,
                 "sport": sport,
-                "target_tss": leg_tss,
+                "target_tss": round(
+                    bike_effective_tss if sport == "bike" else run_effective_tss,
+                    1,
+                ),
                 "duration_minutes": leg_duration,
                 "template_key": leg_definition.template_key,
                 "template_version": leg_definition.version,
@@ -1328,11 +1596,21 @@ def materialize_brick_session(
                 "target_provenance": materialized["target_provenance"],
                 "structure_status": materialized.get("structure_status"),
                 "structure_evidence": materialized.get("structure_evidence"),
+                # Issue #554 review: legs are rebuilt from ``materialize_workout``
+                # the same way single sessions are, so they carry the derived
+                # bound failures as audit evidence too (empty when bounds hold,
+                # matching ``_apply_power_evidence_to_session``).
+                "failed_bounds": list(materialized.get("failed_bounds") or []),
             }
         )
     prescription = {
         "definition_snapshot": parent_check["definition_snapshot"],
-        "parameter_snapshot": parent_check["parameter_snapshot"],
+        "parameter_snapshot": {
+            **parent_check["parameter_snapshot"],
+            "requested_tss": target_tss,
+            "target_tss": effective_parent_tss,
+            "tss_per_hour": round(effective_parent_tss * 60.0 / duration, 1),
+        },
         "transition_minutes": transition_minutes,
         "legs": legs,
     }
@@ -1353,7 +1631,7 @@ def materialize_brick_session(
         "transition_minutes": transition_minutes,
         "materialization_status": "materialized",
         "definition_snapshot": parent_check["definition_snapshot"],
-        "parameter_snapshot": parent_check["parameter_snapshot"],
+        "parameter_snapshot": prescription["parameter_snapshot"],
         "materialized_steps": [],
         "structure_status": parent_check.get("structure_status"),
         "structure_evidence": parent_check.get("structure_evidence"),
@@ -1402,6 +1680,104 @@ def _rescale_steps(
     return copied
 
 
+def _failed_bounds_from_snapshot(
+    snapshot: Mapping[str, Any] | None,
+    duration_minutes: float,
+    target_tss: float,
+) -> list[str]:
+    """Apply catalog bounds to a persisted definition snapshot during rebuild."""
+    raw = dict(snapshot or {})
+    try:
+        duration = float(duration_minutes)
+        tss = float(target_tss)
+        density = tss * 60.0 / duration if duration > 0 else math.inf
+        failed: list[str] = []
+        if duration < float(raw.get("min_duration_minutes", -math.inf)):
+            failed.append("duration_below_minimum")
+        if duration > float(raw.get("max_duration_minutes", math.inf)):
+            failed.append("duration_above_maximum")
+        if tss < float(raw.get("min_tss", -math.inf)):
+            failed.append("tss_below_minimum")
+        if tss > float(raw.get("max_tss", math.inf)):
+            failed.append("tss_above_maximum")
+        if density < float(raw.get("min_tss_per_hour", -math.inf)):
+            failed.append("density_below_minimum")
+        if density > float(raw.get("max_tss_per_hour", math.inf)):
+            failed.append("density_above_maximum")
+        return failed
+    except (TypeError, ValueError):
+        return []
+
+
+def _apply_power_evidence_to_session(
+    session: dict[str, Any],
+    *,
+    requested_tss: float,
+) -> tuple[float, bool] | None:
+    """Refresh a bike session's effective TSS after duration/step rebuild."""
+    steps = list(session.get("materialized_steps") or [])
+    evidence = planned_bike_tss_from_steps(steps, session.get("target_provenance"))
+    if evidence.get("status") != "derived":
+        return None
+    effective_tss = float(evidence["planned_tss"])
+    raw_step_tss = [float(item.get("tss") or 0.0) for item in evidence.get("evidence") or []]
+    raw_total = sum(raw_step_tss)
+    if raw_total > 0 and len(raw_step_tss) == len(steps):
+        values = _exact_distribution(
+            effective_tss,
+            [value / raw_total for value in raw_step_tss],
+            1,
+        )
+        for index, value in enumerate(values):
+            steps[index]["tss"] = value
+    duration = int(round(sum(float(step.get("duration_seconds") or 0.0) for step in steps) / 60.0))
+    session["materialized_steps"] = steps
+    session["parameter_snapshot"] = {
+        "duration_minutes": duration,
+        "requested_tss": round(float(requested_tss), 1),
+        "target_tss": effective_tss,
+        "tss_per_hour": round(effective_tss * 60.0 / duration, 1) if duration > 0 else 0.0,
+        "planned_tss": effective_tss,
+        "planned_tss_method": evidence["method"],
+        "planned_tss_evidence": evidence,
+    }
+    failed = _failed_bounds_from_snapshot(session.get("definition_snapshot"), duration, effective_tss)
+    session["failed_bounds"] = failed
+    session["materialization_status"] = "infeasible" if failed else "materialized"
+    return effective_tss, bool(failed)
+
+
+def _rescale_reference_tss(
+    session: Mapping[str, Any],
+    parameters: Mapping[str, Any],
+) -> float:
+    """Load the rescaled duration is scaled from.
+
+    Issue #554 review: the weekly rebalance
+    (``apply_weekly_rebalance_preview``) passes the projected *effective* day
+    load, because a current-format power prescription already carries its
+    NP-derived load in the plan rows. Dividing by the historical
+    ``requested_tss`` budget over-reduced every such day: an approved
+    40.2 → 34.4 TSS cut was scaled by the 70-TSS budget and collapsed into a
+    29-minute fail-closed prescription instead of a 51-minute deliverable one.
+    A deliverable derived prescription therefore scales from that effective
+    load. Records without one keep the requested-budget reference they were
+    written with: legacy pre-#554 checkpoints and run/swim prescriptions carry
+    the budget itself, and a fail-closed row keeps the requested budget as the
+    plan number by contract (the derived load lives in the audit evidence).
+    """
+    requested = float(parameters.get("requested_tss") or 0.0)
+    effective = float(
+        parameters.get("planned_tss") or parameters.get("target_tss") or 0.0
+    )
+    derived_effective = (
+        str(parameters.get("planned_tss_method") or "") == PRESCRIPTION_NP_TSS_RULE_VERSION
+        and str(session.get("materialization_status") or "") == "materialized"
+        and effective > 0
+    )
+    return effective if derived_effective else (requested or effective)
+
+
 def rescale_materialized_session(
     template: Mapping[str, Any],
     *,
@@ -1410,10 +1786,10 @@ def rescale_materialized_session(
 ) -> dict[str, Any]:
     """Rescale one persisted prescription without re-selecting its stimulus."""
     updated = deepcopy(dict(template))
-    if updated.get("materialization_status") != "materialized":
+    if updated.get("materialization_status") not in {"materialized", "infeasible"}:
         return updated
     old_parameters = dict(updated.get("parameter_snapshot") or {})
-    old_tss = float(old_parameters.get("target_tss") or 0.0)
+    old_tss = _rescale_reference_tss(updated, old_parameters)
     target_tss = round(float(target_tss or 0.0), 1)
     if old_tss <= 0 or target_tss <= 0:
         return updated
@@ -1442,15 +1818,37 @@ def rescale_materialized_session(
                 target_seconds=new_minutes * 60,
                 target_tss=new_leg_tss,
             )
+            if sport == "bike":
+                power_result = _apply_power_evidence_to_session(leg, requested_tss=new_leg_tss)
+                if power_result is not None:
+                    effective_tss, _failed = power_result
+                    # Issue #554 review: the derived NP load stays the leg's
+                    # target on the infeasible branch too — the requested budget
+                    # lives only in ``requested_tss``, so consumers auditing the
+                    # two can still see the discrepancy instead of a silently
+                    # rewritten target.
+                    new_leg_tss = round(effective_tss, 1)
+                leg["target_tss"] = new_leg_tss
             legs.append(leg)
         updated["legs"] = legs
         duration = sum(int(leg.get("duration_minutes") or 0) for leg in legs) + transition
         updated["duration_minutes"] = duration
+        effective_parent_tss = round(
+            sum(float(leg.get("target_tss") or 0.0) for leg in legs),
+            1,
+        )
         updated["parameter_snapshot"] = {
             "duration_minutes": duration,
-            "target_tss": target_tss,
-            "tss_per_hour": round(target_tss * 60.0 / duration, 1),
+            "requested_tss": target_tss,
+            "target_tss": effective_parent_tss,
+            "tss_per_hour": round(effective_parent_tss * 60.0 / duration, 1),
         }
+        updated["total_tss"] = effective_parent_tss
+        updated["materialization_status"] = (
+            "infeasible"
+            if any(leg.get("materialization_status", "materialized") != "materialized" for leg in legs)
+            else "materialized"
+        )
         updated["materialized_steps"] = []
         fingerprint_legs = []
         for leg in legs:
@@ -1476,6 +1874,17 @@ def rescale_materialized_session(
             list(updated.get("materialized_steps") or []),
             target_seconds=duration * 60,
             target_tss=target_tss,
+        )
+        if str(updated.get("sport") or "").strip().lower() == "bike":
+            # Issue #554 review: ``_apply_power_evidence_to_session`` already
+            # writes the derived NP load into ``target_tss`` and keeps the
+            # request in ``requested_tss``. An infeasible rebuild must not
+            # overwrite that derived target with the requested budget — hiding
+            # the discrepancy is exactly what the fail-closed path forbids.
+            _apply_power_evidence_to_session(updated, requested_tss=target_tss)
+        updated["total_tss"] = round(
+            float((updated.get("parameter_snapshot") or {}).get("target_tss") or target_tss),
+            1,
         )
         prescription = {
             "definition_snapshot": updated.get("definition_snapshot"),
@@ -1521,6 +1930,8 @@ def extract_zone_snapshot(templates: Sequence[Mapping[str, Any]]) -> dict[str, f
 
 def planned_session_is_executable(session: Mapping[str, Any]) -> bool:
     """Return whether a persisted modern session owns an exact prescription."""
+    if str(session.get("materialization_status") or "materialized") != "materialized":
+        return False
     if str(session.get("kind") or "single") == "composite":
         legs = list(session.get("legs") or [])
         return bool(legs) and all(list((leg or {}).get("materialized_steps") or []) for leg in legs)
@@ -1713,6 +2124,7 @@ __all__ = [
     "CATALOG_VERSION",
     "SELECTOR_RULE_VERSION",
     "MATERIALIZER_RULE_VERSION",
+    "PRESCRIPTION_NP_TSS_RULE_VERSION",
     "STRUCTURE_RULE_VERSION",
     "WorkoutTemplateDefinition",
     "catalog_definitions",

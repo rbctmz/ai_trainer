@@ -75,15 +75,31 @@ def schedule_week_slots(
     available_weekly_hours: float | None = None,
     day_preferences: Mapping[str, Sequence[float]] | None = None,
     template_rotation: Sequence[str] | None = None,
+    zone_snapshot: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Return the deterministic slot plan for one week.
 
     Output: ``allocated_parts`` (7 dicts), ``day_roles``/``day_focuses`` (7),
     ``occasions`` (7 lists of ``{sport, role, parts, is_brick}``), ``status``
     (``scheduled``/``reduced``/``infeasible``), ``notes``, ``rule_version``.
+
+    ``zone_snapshot`` is the athlete's immutable zone input. The hours ceiling
+    is enforced on the week the builder will actually persist, so the check
+    must materialize with the same zones; without them the projection is blind
+    to the band-driven re-timing and under-counts (Issue #554 regression:
+    Taper 260 TSS / 5 h projected 300 minutes but persisted 310).
     """
     notes: List[str] = []
     budget = {sport: round(float(week_budget.get(sport, 0.0) or 0.0), 1) for sport in _SPORTS}
+    # Issue #554 regression: the hours ceiling is checked on the week the
+    # builder will persist, so the projection must materialize with the
+    # athlete's zones. An empty snapshot cannot see the band-driven re-timing
+    # (a 40-minute VO2max sharpening becomes 50 minutes once the derived load is
+    # checked), which let a 5-hour Taper week persist 310 minutes. With no zones
+    # supplied the projection stays exactly as it was — no FTP is invented, and
+    # the blind basis is reported instead of a fabricated bound.
+    effective_zones: Dict[str, Any] = dict(zone_snapshot or {})
+    zone_aware = any(value is not None for value in effective_zones.values())
     pinned = {int(day) for day in pinned_off_days}
     days = sorted(
         {int(day) for day in (available_day_indices if available_day_indices is not None else range(7))}
@@ -102,6 +118,7 @@ def schedule_week_slots(
         "day_focuses": ["Отдых"] * 7,
         "occasions": [[] for _ in range(7)],
         "template_rotation": list(template_rotation or []),
+        "projected_week_minutes": None,
     }
     if total_budget <= 0 or not days:
         if total_budget > 0 and not days:
@@ -363,6 +380,12 @@ def schedule_week_slots(
     # surrogate estimator. Capacity is a ceiling, not an obligation to fill.
     # A real trim is explicit: recorded note AND status="reduced".
     plan_rotation_out: List[str] = list(template_rotation or [])
+    # Minutes the hours projection measured for the final slot plan; None when
+    # the caller scheduled without an hours ceiling. Issue #554 regression: this
+    # must equal the minutes the builder persists (same zones, same path) — a
+    # divergence is exactly the defect that let a 5-hour Taper week persist 310
+    # minutes while the projection reported 300.
+    projected_week_minutes: int | None = None
     if available_weekly_hours and float(available_weekly_hours) > 0:
         # Canonical WEEK projection: measure exactly the way the builder will
         # persist the week — occasions aggregated into calendar days (the same
@@ -397,7 +420,7 @@ def schedule_week_slots(
                     day_focus="—",
                     goal_type=goal_type,
                     distance="",
-                    zone_snapshot={},
+                    zone_snapshot=effective_zones,
                     load_state=load_state,
                     recent_template_keys=rotation,
                 )
@@ -472,6 +495,7 @@ def schedule_week_slots(
                 f"бюджет явно снижен до {trimmed_total} TSS."
             )
         plan_rotation_out = list(rotation_out)
+        projected_week_minutes = int(estimated)
 
     # Assemble the 7-day outputs.
     from models.training_planner import _build_day_focus_label  # lazy: avoid import cycle
@@ -509,6 +533,11 @@ def schedule_week_slots(
         "day_focuses": day_focuses,
         "occasions": occasions_out,
         "template_rotation": plan_rotation_out,
+        # Audit trail: whether the hours projection saw the athlete's zones
+        # ("zones") or had to measure blind ("blind" — a legacy caller that
+        # supplied none, or a snapshot with no usable value).
+        "projection_basis": "zones" if zone_aware else "blind",
+        "projected_week_minutes": projected_week_minutes,
     }
 
 

@@ -54,6 +54,11 @@ _SESSION_META_MIRROR_KEYS = (
     "target_provenance",
     "structure_status",
     "structure_evidence",
+    # Issue #554 review: a fail-closed prescription records why it failed
+    # (`failed_bounds`). The day template is what plan views and edit surfaces
+    # read, so the evidence has to survive the day-level projection instead of
+    # existing only on `sessions[0]`.
+    "failed_bounds",
     "selection_evidence",
     "prescription_fingerprint",
     "legs",
@@ -1888,6 +1893,7 @@ def expand_weekly_to_daily_triathlon(
     goal_type: str = "Триатлон",
     load_state: str = "balanced",
     available_weekly_hours: float | None = None,
+    zone_snapshot: Mapping[str, Any] | None = None,
 ) -> Tuple[List[Tuple[datetime, float, Dict[str, float]]], List[Dict[str, object]]]:
     """Разворачивает недельный triathlon-план в поминутную ленту по дням с разбивкой по видам спорта.
     Возвращает:
@@ -1952,6 +1958,11 @@ def expand_weekly_to_daily_triathlon(
             available_weekly_hours=available_weekly_hours,
             day_preferences=day_preferences,
             template_rotation=projected_template_rotation,
+            # Issue #554 regression: the scheduler's hours projection must
+            # materialize with the same zones the builder will use, otherwise it
+            # counts the selector's own duration while the persisted week can be
+            # longer (Taper 260 TSS / 5 h: projected 300, persisted 310).
+            zone_snapshot=zone_snapshot,
         )
         projected_template_rotation = list(slot_plan.get("template_rotation") or projected_template_rotation)
         adjusted_week_parts = slot_plan["allocated_parts"]
@@ -1977,6 +1988,14 @@ def expand_weekly_to_daily_triathlon(
         if slot_plan["notes"]:
             weekly_summary[-1]["scheduler_notes"] = list(slot_plan["notes"])
             weekly_summary[-1]["scheduler_status"] = slot_plan["status"]
+        # Issue #554 regression: keep the projection's basis in the persisted
+        # week so a hours decision can be audited against the materialization it
+        # was checked with ("zones" = the athlete's real input, "blind" = a
+        # caller that supplied none).
+        weekly_summary[-1]["scheduler_projection_basis"] = slot_plan.get("projection_basis")
+        weekly_summary[-1]["scheduler_projected_minutes"] = slot_plan.get(
+            "projected_week_minutes"
+        )
 
         for parts in adjusted_week_parts:
             total = round(parts.get('run', 0.0) + parts.get('bike', 0.0) + parts.get('swim', 0.0), 1)
@@ -2310,7 +2329,9 @@ def project_daily_plan_from_session_templates(
         if str((template or {}).get("session_role") or "") in {"off", "race"} or (template or {}).get("is_race_event"):
             projected.append((dt, round(float(original_total or 0.0), 1), dict(original_parts or {})))
             continue
+        original_parts_map = dict(original_parts or {})
         parts: Dict[str, float] = {}
+        contributed = False
         for session in list((template or {}).get("sessions") or []):
             if not isinstance(session, Mapping):
                 continue
@@ -2319,11 +2340,21 @@ def project_daily_plan_from_session_templates(
                     sport = str(leg.get("sport") or "")
                     if sport in {"bike", "run", "swim"}:
                         parts[sport] = round(parts.get(sport, 0.0) + float(leg.get("target_tss") or 0.0), 1)
+                        contributed = True
             else:
                 sport = str(session.get("sport") or "")
                 if sport in {"bike", "run", "swim"}:
                     parts[sport] = round(parts.get(sport, 0.0) + float(session.get("total_tss") or 0.0), 1)
-        if parts:
+                    contributed = True
+        # Issue #554 review: a template without projected leaf sessions (legacy or
+        # padded checkpoint row) keeps its original row verbatim. Zero-filled
+        # discipline keys are therefore materialized only after at least one
+        # session actually contributed load, so `sessions == []` can no longer
+        # flatten an untouched historical day to zero.
+        if contributed:
+            for sport in ("run", "bike", "swim"):
+                if sport in original_parts_map:
+                    parts.setdefault(sport, 0.0)
             projected.append((dt, round(sum(parts.values()), 1), parts))
         else:
             projected.append((dt, round(float(original_total or 0.0), 1), dict(original_parts or {})))
@@ -2395,6 +2426,7 @@ def derive_weekly_sport_buckets_from_sessions(
                         buckets[sport] + float(leaf.get("total_tss") or 0.0), 1
                     )
         row.update(buckets)
+        row["weekly_tss"] = int(round(sum(buckets.values())))
     return derived
 
 

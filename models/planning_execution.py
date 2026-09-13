@@ -1190,6 +1190,13 @@ def rebuild_goal_plan_with_adjustment(
         plan_adjustment=plan_adjustment,
     )
 
+    # Issue #554 regression: the hours ceiling is enforced on the week the
+    # builder persists, so the scheduler's projection needs the athlete's zones
+    # (moved above the call it used to be built after).
+    zone_snapshot = extract_zone_snapshot(
+        list(goal_plan.get("session_templates") or [])
+    )
+
     daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
         weekly_tss_plan,
         phases,
@@ -1201,6 +1208,7 @@ def rebuild_goal_plan_with_adjustment(
         goal_type=goal_type,
         load_state=str(rebuilt_constraint_summary.get("load_state", "balanced")),
         available_weekly_hours=float(rebuilt_constraint_summary.get("available_hours", 0.0) or 0.0) or None,
+        zone_snapshot=zone_snapshot,
     )
 
     for week_row, detail in zip(weekly_summary, constraint_details):
@@ -1225,9 +1233,6 @@ def rebuild_goal_plan_with_adjustment(
         load_state=str(rebuilt_constraint_summary.get("load_state", "balanced")),
     )
     daily_plan = list(brick_allocation.get("daily_plan") or daily_plan)
-    zone_snapshot = extract_zone_snapshot(
-        list(goal_plan.get("session_templates") or [])
-    )
 
     session_templates = build_daily_session_templates(
         daily_plan,
@@ -1268,6 +1273,18 @@ def rebuild_goal_plan_with_adjustment(
                 f"({corrective_microcycle['window_delta_tss']:+d} TSS в первых {corrective_microcycle['window_day_count']} дн.)."
             )
             rebuilt_constraint_summary["notes"] = notes
+
+    from models.training_planner import project_daily_plan_from_session_templates
+    daily_plan = project_daily_plan_from_session_templates(daily_plan, session_templates)
+    for week_index, row in enumerate(weekly_summary):
+        week_days = daily_plan[week_index * 7 : week_index * 7 + 7]
+        row["weekly_tss"] = int(round(sum(float(item[1] or 0.0) for item in week_days)))
+        for sport in ("bike", "run", "swim"):
+            row[sport] = round(
+                sum(float((item[2] or {}).get(sport, 0.0) or 0.0) for item in week_days),
+                1,
+            )
+    weekly_tss_plan = [int(row.get("weekly_tss") or 0) for row in weekly_summary]
 
     return synchronize_goal_plan_events({
         **goal_plan,
