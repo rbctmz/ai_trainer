@@ -4,7 +4,7 @@
 
 Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **A — Full**. Базовая точка: `main` = `9ba4a37` (в main уже влиты #552 — revisioned evidence head и lifecycle, #557/#563 — freshness/provenance readiness и fail-closed intervention, #564/#565 — интервенционное evidence и guard отката `training_readiness`).
 
-Ревизия документа: v1.18 (реализация закрыта: M1–M6, включая M6a-коррекцию `capture_failed` → `partial`, повторную браузерную приёмку, M6b-cleanup снятия дублирования и M6c — ASR-контур с evidence bundle; плюс hardening-слайс F1–F3; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Публичный API-контракт расширен аддитивно в M4, UI readback добавлен в M5; схема не менялась.
+Ревизия документа: v1.19 (реализация закрыта: M1–M6, включая M6a-коррекцию `capture_failed` → `partial`, повторную браузерную приёмку, M6b-cleanup снятия дублирования и M6c — ASR-контур с evidence bundle; плюс hardening-слайсы F1–F3 и pre-review CI timezone; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Публичный API-контракт расширен аддитивно в M4, UI readback добавлен в M5; схема не менялась.
 
 ## Purpose / Big Picture
 
@@ -28,9 +28,14 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 - [x] (2026-09-13) M6b re-acceptance. В браузерном сценарии утверждён терминальный `partial` для `capture_failed`; этим вскрыт UI-дефект (машинный код в предупреждении) и исправлен только в `SyncControl` (`formatSyncNotice` переводит известные коды, неизвестные не подменяет); оба evidence-снимка пересняты, модуль `10 passed`, полный e2e `12 passed`, статические UI-тесты `9 passed`, lint/build чисто.
 - [x] (2026-09-13) M6b-cleanup. Дублирование снято в UI по решению владельца: серверный warning не меняется (нужен для D4/`partial`), скрывается только notice, уже представленный структурным `recovery_capture` (статус `capture_failed` + код, равный `capture.reason`); чужие notices сохраняются. Проверки: причина видна ровно один раз, `⚠️ Снимок готовности:` отсутствует, «завершена частично» сохранено, посторонний notice не исчезает. Backend/API, фикстуры и контракт не менялись.
 - [x] (2026-09-13) M6c. Spec / Architecture Owner: контур #562 зафиксирован в `docs/architecture/asr_catalog.md` (строки ASR-REL-3/REL-2/MOD-2/MOD-3 + отдельная секция) и собран итоговый evidence bundle `docs/recovery_snapshot_capture_parity_evidence.md` с явным разделением проверенного и непроверенного. Продуктовый код не менялся. Финальный прогон: contributor-safe `2598 passed, 15 skipped, 36 deselected`, focused M1–M6 `132 passed, 10 skipped`, браузерный модуль `10 passed`, полный e2e `12 passed`, Ruff/линт/сборка чисто, contract check актуален, inventory `0 unresolved`.
+- [x] (2026-09-13) Pre-review CI timezone hardening. Первый contributor-safe прогон PR #572 в UTC вскрыл два полуночных тестовых расхождения вне продуктового контура #562: фикстуры строились по системной UTC-дате, а routes использовали локальную дату атлета. Оба теста переведены на `athlete_local_date()` в коммите `2cf3b76`; точная репродукция под `TZ=UTC`: `2 failed` → `2 passed`, полный contributor-safe под `TZ=UTC`: `2597 passed, 16 skipped, 36 deselected`, 0 failed. Продуктовый код/API/UI/контракт не менялись.
 - [x] M6. Приёмка: синтетическая browser-приёмка обоих провайдеров, инвариант «capture-статус ⇔ дневной anchor», fail-open, идемпотентность/монотонность, широкий контур, ASR-каталог и evidence bundle — закрыты M6a/M6b/M6c.
 
 ## Surprises & Discoveries
+
+- **Observed**: contributor-safe CI PR #572 стартовал в UTC в 22:28 12 сентября, когда в таймзоне атлета `Europe/Moscow` уже было 13 сентября; `test_repeated_today_reads_do_not_append_timestamp_only_forecasts` и `test_api_and_tool_agree_on_subjective_only_day` строили фикстуры через `datetime.now().date()` / `date.today()`, а продуктовые routes считали день через `athlete_local_date()`.
+  **Inferred**: падения были полуночной несогласованностью тестовых дат, а не регрессией recovery-capture; тесты должны использовать ту же бизнес-дату, что и продукт.
+  **Verified by**: оба теста падают в исходном виде под `TZ=UTC` (`2 failed`) и проходят после замены на `athlete_local_date()` (`2 passed`); полный contributor-safe на том же тестовом коммите `2cf3b76` и под `TZ=UTC` дал `2597 passed, 16 skipped, 36 deselected`, 0 failed.
 
 - **Observed**: `SyncControl` смонтирован только на дашборде — `web/app/dashboard/page.tsx:42` (компактный вариант) и `:128` (подробный, в пустом состоянии); отдельной страницы `/sync` нет. Текст сообщения рендерится как `<p>` (`SyncControl.tsx:147`) либо как `<span className="hidden … sm:inline">` (`:155`), то есть в компактном варианте строка скрыта на узких экранах.
   **Inferred**: браузерный сценарий M6 обязан целиться в тот вариант, который реально видим на выбранной ширине, иначе приёмка «пройдёт» по невидимой строке; а UI-слайс M5 ограничен дашбордом, встраивать отдельную страницу синка нельзя (это расширение scope).
@@ -217,6 +222,10 @@ Browser contract/UX acceptance (D5): **параметризованные сце
 ## Artifacts and Notes
 
 Plan-only этап: артефакты — этот файл и `docs/recovery_snapshot_capture_parity_slice_spec.md`. Прогоны и выводы будут дополнены в M1–M6 (RED-падения, GREEN-прогоны, браузерные снимки текста, evidence bundle).
+
+### Pre-review CI timezone hardening (2026-09-13)
+
+Первый contributor-safe job PR #572 падал в двух предсуществующих тестах вне контура #562: они строили тестовый день по системной дате, хотя продуктовое поведение опирается на дату атлета. Точная репродукция под `TZ=UTC` дала `2 failed`; после замены `datetime.now().date()` / `date.today()` на `athlete_local_date()` тот же набор дал `2 passed`, а весь contributor-safe под `TZ=UTC` — `2597 passed, 16 skipped, 36 deselected`, 0 failed. Исправление — только в `tests/smoke/test_api_today.py` и `tests/smoke/test_issue_555_subjective_wellness.py`, коммит `2cf3b76`; продуктовый код и контракты не менялись.
 
 ### M6c — ASR-контур и evidence bundle (2026-09-13)
 
@@ -449,6 +458,8 @@ RED: `2 failed` в `tests/smoke/test_m3_sync_ui_contract.py` (readback отсу�
 - публикация личных дат, health-метрик, названий тренировок и provider payload.
 
 ## Change log
+
+- v1.19 (2026-09-13): pre-review CI timezone hardening PR #572. Два предсуществующих smoke-теста использовали системную дату, тогда как routes используют дату атлета; полуночное UTC/MSK-окно воспроизвело `2 failed`. Фикстуры переведены на `athlete_local_date()` в `2cf3b76`; точный GREEN — `2 passed`, полный contributor-safe под `TZ=UTC` — `2597 passed, 16 skipped, 36 deselected`, 0 failed. Продуктовый код/API/UI/контракт не менялись.
 
 - v1 (2026-09-12): plan-only этап по issue #562. Зафиксированы: provider-neutral владение capture, run identity из sync-job, пять вычисляемых состояний с инвариантом к `select_daily_anchor`, fail-open граница, аддитивный API↔web контракт `recovery_capture`, UI readback как отдельный ролевой слайс, RED→GREEN матрица на 10 acceptance criteria, подход к browser-приёмке обоих провайдеров, non-goals. Код, API, UI и схема не менялись; решения D4 и D5 вынесены на подтверждение владельцу.
 - v1.1 (2026-09-12): уточнены факты о покрытии контракта (реестр покрывает GET-статус `/api/sync`, POST и `result` в demo-сценарии — нет; JS-тест-раннера в `web/` нет) и номера строк в ссылках на `api/sync_jobs.py` и `models/recovery_response.py`. Проверено чтением `registry.json`, `test_web_contract_drift.py`, `web/package.json`.

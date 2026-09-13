@@ -20,8 +20,9 @@ live-provider E2E, эфемерность терминального readback, �
 | Class | A — Full (SpecDD → BDD → TDD → Contract First → Self-Review) |
 | Base | `facc2b4` — merge плана (PR #571), `main` на момент старта реализации |
 | Ветка | `codex/issue-562-recovery-capture-parity` (отдельный review budget, решение D8) |
-| Head финального прогона | `294aeda` |
-| Diff | 33 файла, +4069 / −60 (`facc2b4..294aeda`); из них код и контракт — 9 файлов (+938 / −37), тесты — 19 файлов (+2889 / −4), остальное — docs, фикстуры и ассеты |
+| Head финального feature-прогона | `294aeda` |
+| Head pre-review CI hardening | `2cf3b76` (только два датозависимых smoke-теста после M6c-документов) |
+| Diff на hardening-head | 37 файлов, +4338 / −67 (`facc2b4..2cf3b76`); продуктовый код после `294aeda` не менялся |
 | Схема БД | не менялась (никаких DDL и миграций) |
 | Milestone SHA | M1 `3992c5c` · M2 RED `22fda6b` / GREEN `e18b279` · safety RED `6dbe415` / GREEN `edfcfca` · F1–F3 `45976af` · M3 `20e8594` · M4 `ead8f05` · M5 `e66266c` · M6a `d8226be` + фикстуры `faff6aa` + docs `9919be5` · M6b `cbf86cd` · M6a-коррекция `a9f6790` · M6b re-acceptance `661dee6` · M6b-cleanup `294aeda` |
 
@@ -29,12 +30,18 @@ live-provider E2E, эфемерность терминального readback, �
 меняют продуктовый код и тесты. Полный набор прогнан на `294aeda`; после
 документационных правок дополнительно перепрогнаны док-пины, focused-контур,
 Ruff и contract-гейты — результаты в §2 и §3 отмечены как «после docs-правок».
+После открытия PR #572 полночное UTC/MSK-окно вскрыло два
+предсуществующих тестовых расхождения вне контура #562; они закрыты
+тестовым коммитом `2cf3b76`, а точная UTC-репродукция и полный GREEN
+зафиксированы ниже.
 
 ## 2. Проверено локально (verified locally)
 
-| Проверка | Команда | Результат на `294aeda` |
+| Проверка | Команда | Результат / head |
 |----------|---------|------------------------|
 | Contributor-safe набор | `python -m pytest -m "not live and not debug and not e2e" tests/ -q` | **2598 passed, 15 skipped, 36 deselected**, 65.49 s, 3 warnings (пропуски — отсутствие `garth` и HRV-данных в локальной базе) |
+| Pre-review UTC reproduction | `TZ=UTC python -m pytest tests/smoke/test_api_today.py::test_repeated_today_reads_do_not_append_timestamp_only_forecasts tests/smoke/test_issue_555_subjective_wellness.py::test_api_and_tool_agree_on_subjective_only_day -q -vv` | на исходном head **2 failed**; на `2cf3b76` **2 passed** |
+| Contributor-safe под UTC после hardening | `TZ=UTC python -m pytest -m "not live and not debug and not e2e" tests/ -W error::pytest.PytestReturnNotNoneWarning -q` | на `2cf3b76` **2597 passed, 16 skipped, 36 deselected**, 0 failed, 68.65 s, 3 warnings |
 | Focused M1–M6 (#562) | `python -m pytest tests/smoke/test_recovery_capture_contract.py tests/smoke/test_garmin_sync_service.py tests/smoke/test_recovery_capture_intervals.py tests/smoke/test_recovery_capture_api_contract.py tests/smoke/test_issue_562_acceptance.py tests/smoke/test_m3_sync_ui_contract.py tests/smoke/test_m3_sync_provider_api.py tests/smoke/test_sync_job_api.py -q` | **132 passed, 10 skipped** (skip — явная регенерация фикстур под `CAPTURE_FIXTURE_REGEN=1`) |
 | Линтер Python | `python -m ruff check .` | **All checks passed!** |
 | Web lint | `npm --prefix web run lint` | exit 0, «No ESLint warnings or errors» |
