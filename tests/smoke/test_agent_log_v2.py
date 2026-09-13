@@ -598,7 +598,7 @@ def test_sync_job_records_provider_trigger_for_success_partial_and_failure(tmp_p
         days=7,
         source="intervals",
         db=db,
-        run_sync=lambda _progress: {"sync_state": "succeeded", "title": "ok"},
+        run_sync=lambda _progress, **_kwargs: {"sync_state": "succeeded", "title": "ok"},
     )
     assert wait_done(succeeded)["sync_state"] == "succeeded"
 
@@ -607,13 +607,13 @@ def test_sync_job_records_provider_trigger_for_success_partial_and_failure(tmp_p
         days=7,
         source="intervals",
         db=db,
-        run_sync=lambda _progress: {"sync_state": "partial", "title": "warnings"},
+        run_sync=lambda _progress, **_kwargs: {"sync_state": "partial", "title": "warnings"},
     )
     assert wait_done(partial)["sync_state"] == "partial"
 
     failed = SyncJobManager()
 
-    def fail_sync(_progress):
+    def fail_sync(_progress, **_kwargs):
         raise RuntimeError("provider unavailable")
 
     failed.start_or_get(

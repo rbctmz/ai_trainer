@@ -1,0 +1,81 @@
+{
+  "job_id": "job-00000001",
+  "sync_state": "partial",
+  "status": "partial",
+  "started_at": "2026-07-23T05:00:00",
+  "finished_at": "2026-07-23T05:00:05",
+  "days": 1,
+  "source": "garmin",
+  "progress": {
+    "percent": 100,
+    "message": "Синхронизация Garmin завершена частично",
+    "step_text": null,
+    "stats_message": "За последние 30 дней удалось получить не все данные. Проверьте замечания ниже, затем решите, нужен ли повторный запуск."
+  },
+  "result": {
+    "sync_state": "partial",
+    "severity": "warning",
+    "title": "Синхронизация Garmin завершена частично",
+    "summary": "За последние 30 дней удалось получить не все данные. Проверьте замечания ниже, затем решите, нужен ли повторный запуск.",
+    "synced_at": "2026-07-23T05:00:05",
+    "days": 30,
+    "mode": "full",
+    "counts": {
+      "new": 0,
+      "updated": 0,
+      "skipped": 0
+    },
+    "activity_changes": 0,
+    "recovery_changes": 0,
+    "highlights": [],
+    "notices": [
+      "⚠️ Recovery snapshot capture: snapshot_capture_failed"
+    ],
+    "source": "garmin",
+    "recovery_capture": {
+      "provider": "garmin",
+      "capture_run_id": "3f1c0f4e-6a1b-4c2d-9e30-8a7b6c5d4e3f",
+      "status": "capture_failed",
+      "reason": "snapshot_capture_failed",
+      "eligibility_status": "eligible",
+      "eligibility_reasons": [],
+      "local_date": null,
+      "observed_at_utc": null,
+      "observed_at_local": null,
+      "cutoff_at_utc": null,
+      "snapshot_id": null,
+      "revision": null,
+      "created": false,
+      "error": "snapshot_capture_failed",
+      "job_id": "job-00000001"
+    },
+    "operational_state": {
+      "status": "empty",
+      "mode": "live",
+      "demo": false,
+      "empty": true,
+      "stale": false,
+      "latest_data_at": null,
+      "sync_state": "partial",
+      "error": null
+    },
+    "session_quality_forecast": {
+      "prediction": null,
+      "reason": "no_active_plan"
+    },
+    "session_quality_forecast_error": null
+  },
+  "error": null,
+  "reused": false,
+  "latest_data_at": null,
+  "operational_state": {
+    "status": "empty",
+    "mode": "live",
+    "demo": false,
+    "empty": true,
+    "stale": false,
+    "latest_data_at": null,
+    "sync_state": "partial",
+    "error": null
+  }
+}

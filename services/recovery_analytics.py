@@ -4,21 +4,70 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
-from typing import Any, Sequence
+import logging
+from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from config.settings import Settings
 from data.database import Database
 from models.recovery_response import (
+    CAPTURE_STATUS_FAILED,
     RECOVERY_RESPONSE_RULE_VERSION,
     actual_load_bucket,
     build_episode_outcomes,
     build_recovery_analytics,
+    capture_verdict,
+    daily_activity_cutoff,
     evaluate_snapshot_eligibility,
     rpe_band,
     select_daily_anchor,
 )
 from services.readiness_snapshot import build_readiness_snapshot
+
+# Граница дня относится к дате capture, а не к «сегодня»: backfilled-захват
+# прошлого дня обязан видеть активности того дня, поэтому активности читаются
+# диапазоном по дате ревизии, а не окном от текущего момента.
+CAPTURE_ACTIVITY_LOOKBACK_DAYS = 1
+CAPTURE_REASON_SNAPSHOT_FAILED = "snapshot_capture_failed"
+CAPTURE_REASON_ACTIVITY_LOOKUP_FAILED = "activity_lookup_failed"
+
+# F3: причина отказа остаётся серверным следом (traceback), а публичный блок и
+# warning несут только стабильные коды — сырой текст исключения туда не попадает.
+logger = logging.getLogger(__name__)
+
+
+# M4: публичная проекция блока — белый список полей. Возврат обёртки наружу не
+# проецируется никогда: в нём есть episode_refresh, где живёт str(exc).
+RECOVERY_CAPTURE_PUBLIC_FIELDS = (
+    "provider",
+    "capture_run_id",
+    "status",
+    "reason",
+    "eligibility_status",
+    "eligibility_reasons",
+    "local_date",
+    "observed_at_utc",
+    "observed_at_local",
+    "cutoff_at_utc",
+    "snapshot_id",
+    "revision",
+    "created",
+    "error",
+)
+
+
+def project_recovery_capture(block: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Очищенный блок для публичного контракта (issue #562 M4).
+
+    ``job_id`` добавляется отдельно на границе ``SyncJobManager``, где известен
+    короткий display-ID; научный ``capture_run_id`` остаётся неизменным.
+    """
+    if not isinstance(block, Mapping) or not block:
+        return None
+    return {
+        field: block.get(field)
+        for field in RECOVERY_CAPTURE_PUBLIC_FIELDS
+    }
 
 
 def _fingerprint(payload: dict[str, Any]) -> str:
@@ -36,8 +85,15 @@ def record_post_sync_recovery_state(
     capture_run_id: str,
     observed_at_utc: datetime | None = None,
     capture_mode: str = "prospective",
+    capture_provider: str | None = None,
 ) -> dict[str, Any]:
-    """Append one post-sync readiness fact; retrying a run is idempotent."""
+    """Append one post-sync readiness fact; retrying a run is idempotent.
+
+    ``capture_provider`` (issue #562) makes the triggering provider durable: it is
+    written into the provenance JSON the journal row already stores, so the origin
+    of a capture survives reads without a schema change. Omit it and the stored
+    provenance is exactly what it was before this parameter existed.
+    """
     if capture_mode not in {"prospective", "backfilled"}:
         raise ValueError("capture_mode must be prospective or backfilled")
     observed = observed_at_utc or _utc_now()
@@ -52,6 +108,10 @@ def record_post_sync_recovery_state(
     canonical = build_readiness_snapshot(
         db, as_of=local_date, observed_at_utc=observed
     )
+    if capture_provider is not None:
+        provenance = dict(canonical.get("input_provenance") or {})
+        provenance["capture_provider"] = str(capture_provider)
+        canonical["input_provenance"] = provenance
     eligibility = evaluate_snapshot_eligibility(
         canonical, athlete_timezone=timezone_name
     )
@@ -85,9 +145,20 @@ def record_post_sync_recovery_state(
         "snapshot": canonical,
     }
     saved = db.save_readiness_snapshot(payload)
+    # An idempotent retry returns the immutable row captured by the first call.
+    # Describe that revision instead of mixing it with eligibility recomputed
+    # from readiness inputs that may have changed meanwhile.
+    persisted_snapshot = dict(saved.get("snapshot") or {})
+    eligibility = {
+        "eligible": persisted_snapshot.get("eligibility_status") == "eligible",
+        "reasons": [
+            str(item) for item in (persisted_snapshot.get("eligibility_reasons") or [])
+        ],
+    }
+    refresh_date = _snapshot_date(persisted_snapshot.get("local_date")) or local_date
     try:
         episode_refresh: dict[str, Any] | None = refresh_recovery_episodes(
-            db, as_of=local_date, capture_mode=capture_mode
+            db, as_of=refresh_date, capture_mode=capture_mode
         )
     except Exception as exc:  # source sync stays valid; derived repair is retryable
         episode_refresh = {"error": str(exc), "created": 0}
@@ -95,6 +166,201 @@ def record_post_sync_recovery_state(
         **saved,
         "eligibility": eligibility,
         "episode_refresh": episode_refresh,
+    }
+
+
+def _snapshot_date(value: Any) -> date | None:
+    """JSON-safe приведение даты снимка (правила живут в models/recovery_response)."""
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_utc(value: Any) -> datetime | None:
+    """JSON-safe приведение времени наблюдения снимка к UTC."""
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _capture_block(
+    *,
+    provider: str,
+    capture_run_id: str,
+    status: str,
+    reason: str | None,
+    error: str | None,
+    eligibility: Mapping[str, Any] | None,
+    snapshot: Mapping[str, Any] | None,
+    boundary: Mapping[str, Any] | None,
+    created: bool,
+) -> dict[str, Any]:
+    """Структурный блок capture: одинаковый для обоих провайдеров."""
+    snapshot = snapshot or {}
+    eligibility = eligibility or {}
+    observed_text = snapshot.get("observed_at_utc")
+    observed_local: str | None = None
+    parsed_observed = _parse_utc(observed_text)
+    if parsed_observed is not None:
+        try:
+            observed_local = parsed_observed.astimezone(
+                ZoneInfo(str(Settings.ATHLETE_TIMEZONE or ""))
+            ).isoformat()
+        except (ZoneInfoNotFoundError, ValueError):
+            observed_local = None
+    if eligibility:
+        eligibility_status = "eligible" if eligibility.get("eligible") else "ineligible"
+    else:
+        eligibility_status = "unknown"
+    return {
+        "provider": str(provider),
+        "capture_run_id": str(capture_run_id),
+        "status": status,
+        "reason": reason,
+        "eligibility_status": eligibility_status,
+        "eligibility_reasons": [str(item) for item in (eligibility.get("reasons") or [])],
+        "local_date": (str(snapshot.get("local_date")) if snapshot.get("local_date") else None),
+        "observed_at_utc": (str(observed_text) if observed_text else None),
+        "observed_at_local": observed_local,
+        "cutoff_at_utc": (boundary or {}).get("cutoff_at_utc"),
+        "snapshot_id": snapshot.get("id"),
+        "revision": snapshot.get("revision"),
+        "created": bool(created),
+        "error": error,
+    }
+
+
+def build_capture_failure_block(
+    *, provider: str, capture_run_id: str, reason: str = CAPTURE_REASON_SNAPSHOT_FAILED
+) -> dict[str, Any]:
+    """Return the complete type-safe block for a defensive capture failure."""
+    return _capture_block(
+        provider=provider,
+        capture_run_id=capture_run_id,
+        status=CAPTURE_STATUS_FAILED,
+        reason=reason,
+        error=reason,
+        eligibility=None,
+        snapshot=None,
+        boundary=None,
+        created=False,
+    )
+
+
+def capture_post_sync_recovery_state(
+    db: Database,
+    *,
+    capture_run_id: str,
+    provider: str,
+    observed_at_utc: datetime | None = None,
+    capture_mode: str = "prospective",
+    activities: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Provider-neutral post-sync capture with a structured verdict (issue #562).
+
+    Единый вход для Garmin и Intervals.icu: сохраняет одну prospective-ревизию
+    через существующий рекордер (идентичность рана, eligibility и идемпотентность
+    не меняются), делает провайдера дурабельным и возвращает блок
+    ``recovery_capture``, описывающий именно эту ревизию.
+
+    Ошибка производной аналитики не выходит наружу: вызывающий sync получает
+    ``status="capture_failed"`` с причиной, а данные провайдера остаются целыми
+    (границы fail-open зафиксированы планом, D4).
+    """
+    observed = observed_at_utc or _utc_now()
+    try:
+        recorded = record_post_sync_recovery_state(
+            db,
+            capture_run_id=capture_run_id,
+            observed_at_utc=observed,
+            capture_mode=capture_mode,
+            capture_provider=provider,
+        )
+    except Exception:  # derived analytics stay retryable, sync stays valid
+        logger.warning(
+            "recovery capture failed: %s", CAPTURE_REASON_SNAPSHOT_FAILED, exc_info=True
+        )
+        return {
+            "snapshot": None,
+            "created": False,
+            "eligibility": None,
+            "episode_refresh": None,
+            "recovery_capture": _capture_block(
+                provider=provider,
+                capture_run_id=capture_run_id,
+                status=CAPTURE_STATUS_FAILED,
+                reason=CAPTURE_REASON_SNAPSHOT_FAILED,
+                error=CAPTURE_REASON_SNAPSHOT_FAILED,
+                eligibility=None,
+                snapshot=None,
+                boundary=None,
+                created=False,
+            ),
+        }
+
+    snapshot = dict(recorded.get("snapshot") or {})
+    eligibility = dict(recorded.get("eligibility") or {})
+    local_date = _snapshot_date(snapshot.get("local_date")) or observed.date()
+    if activities is None:
+        try:
+            activities = db.get_activities_between(
+                local_date - timedelta(days=CAPTURE_ACTIVITY_LOOKBACK_DAYS),
+                local_date,
+            )
+        except Exception:
+            logger.warning(
+                "recovery capture failed: %s",
+                CAPTURE_REASON_ACTIVITY_LOOKUP_FAILED,
+                exc_info=True,
+            )
+            return {
+                **recorded,
+                "recovery_capture": _capture_block(
+                    provider=provider,
+                    capture_run_id=capture_run_id,
+                    status=CAPTURE_STATUS_FAILED,
+                    reason=CAPTURE_REASON_ACTIVITY_LOOKUP_FAILED,
+                    error=CAPTURE_REASON_ACTIVITY_LOOKUP_FAILED,
+                    eligibility=eligibility,
+                    snapshot=snapshot,
+                    boundary=None,
+                    created=bool(recorded.get("created")),
+                ),
+            }
+    boundary = daily_activity_cutoff(
+        activities,
+        local_date=local_date,
+        athlete_timezone=str(Settings.ATHLETE_TIMEZONE or ""),
+    )
+    verdict = capture_verdict(
+        eligibility=eligibility,
+        observed_at_utc=snapshot.get("observed_at_utc"),
+        boundary=boundary,
+    )
+    status = str(verdict["status"])
+    reason = verdict.get("reason")
+    error = str(reason) if status == CAPTURE_STATUS_FAILED else None
+    return {
+        **recorded,
+        "recovery_capture": _capture_block(
+            provider=provider,
+            capture_run_id=capture_run_id,
+            status=status,
+            reason=reason,
+            error=error,
+            eligibility=eligibility,
+            snapshot=snapshot,
+            boundary=boundary,
+            created=bool(recorded.get("created")),
+        ),
     }
 
 

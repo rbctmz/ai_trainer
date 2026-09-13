@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import logging
+import uuid
 
 import pytest
 
@@ -349,6 +351,52 @@ def test_sync_status_payload_summarizes_fresh_training_data():
     ]
 
 
+def test_defensive_capture_boundary_logs_once_and_keeps_notices_clean(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, caplog
+):
+    """F3: последняя защитная граница Garmin тоже логирует, а notices несут только код."""
+    from services import recovery_analytics
+
+    db = _make_database(tmp_path)
+    state = _StubState(db)
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("wrapper exploded at /private/athlete.db")
+
+    monkeypatch.setattr(recovery_analytics, "capture_post_sync_recovery_state", _boom)
+    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+    caplog.set_level(logging.WARNING, logger="services.sync")
+
+    result = sync_service.sync_garmin_data(state, days=1)
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "services.sync"
+        and record.levelno == logging.WARNING
+        and record.exc_info is not None
+    ]
+    assert len(records) == 1, [record.getMessage() for record in records]
+    assert "athlete.db" not in records[0].getMessage()
+    assert "snapshot_capture_failed" in records[0].getMessage()
+
+    assert result.recovery_capture["status"] == "capture_failed"
+    assert result.recovery_capture["eligibility_status"] == "unknown"
+    assert result.recovery_capture["eligibility_reasons"] == []
+    assert result.recovery_capture["error"] == "snapshot_capture_failed"
+    assert result.recovery_capture["local_date"] is None
+    assert result.recovery_capture["observed_at_utc"] is None
+    assert result.recovery_capture["observed_at_local"] is None
+    assert result.recovery_capture["cutoff_at_utc"] is None
+    assert result.recovery_capture["snapshot_id"] is None
+    assert "athlete.db" not in str(result.recovery_capture)
+    warnings = " | ".join(result.warnings)
+    assert "snapshot_capture_failed" in warnings
+    assert "athlete.db" not in warnings
+    payload = sync_service.build_sync_status_payload(result)
+    assert payload["sync_state"] == "partial"
+
+
 def test_sync_status_payload_marks_partial_when_warnings_exist():
     result = sync_service.GarminSyncResult(
         activity_result={"new": 2, "updated": 0, "skipped": 0},
@@ -362,6 +410,136 @@ def test_sync_status_payload_marks_partial_when_warnings_exist():
     assert payload["title"] == "Синхронизация Garmin завершена частично"
     assert payload["activity_changes"] == 2
     assert payload["notices"][0].startswith("⚠️ Garmin sleep")
+
+
+def test_sync_garmin_uses_shared_capture_once_with_explicit_run_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    """#562 M2: Garmin replaces the legacy inline recorder, without a second write."""
+    from services import recovery_analytics
+
+    db = _make_database(tmp_path)
+    state = _StubState(db)
+    calls: list[dict[str, object]] = []
+
+    def fake_capture(database, *, capture_run_id, provider, **_kwargs):
+        calls.append(
+            {
+                "database": database,
+                "capture_run_id": capture_run_id,
+                "provider": provider,
+            }
+        )
+        return {
+            "snapshot": {"revision": 1},
+            "created": True,
+            "recovery_capture": {
+                "status": "saved_before_load",
+                "reason": None,
+                "revision": 1,
+                "created": True,
+            },
+        }
+
+    monkeypatch.setattr(recovery_analytics, "capture_post_sync_recovery_state", fake_capture)
+    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+
+    run_id = str(uuid.uuid4())
+    result = sync_service.sync_garmin_data(
+        state,
+        days=1,
+        on_progress=None,
+        capture_run_id=run_id,
+    )
+
+    assert calls == [{"database": db, "capture_run_id": run_id, "provider": "garmin"}]
+    assert result.recovery_capture == {
+        "status": "saved_before_load",
+        "reason": None,
+        "revision": 1,
+        "created": True,
+    }
+    assert "Recovery snapshot: saved_before_load · rev 1" in result.details
+
+
+def test_sync_garmin_capture_failure_keeps_data_and_marks_partial(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    """D4: derived failure is visible, while the provider write remains committed."""
+    from services import recovery_analytics
+
+    db = _make_database(tmp_path)
+    state = _StubState(db)
+
+    monkeypatch.setattr(
+        recovery_analytics,
+        "capture_post_sync_recovery_state",
+        lambda *_args, **_kwargs: {
+            "snapshot": None,
+            "created": False,
+            "recovery_capture": {
+                "status": "capture_failed",
+                "reason": "snapshot_capture_failed",
+                "revision": None,
+                "created": False,
+            },
+        },
+    )
+    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+
+    result = sync_service.sync_garmin_data(
+        state,
+        days=1,
+        capture_run_id=str(uuid.uuid4()),
+    )
+    payload = sync_service.build_sync_status_payload(result, days=1)
+
+    assert result.recovery_capture["status"] == "capture_failed"
+    assert any("snapshot_capture_failed" in warning for warning in result.warnings)
+    assert not any(
+        detail.startswith("Recovery snapshot: capture_failed")
+        for detail in result.details
+    )
+    assert not any(
+        notice.startswith("Recovery snapshot: capture_failed")
+        for notice in payload["notices"]
+    )
+    assert payload["sync_state"] == "partial"
+    stored = db.get_activities(days=3650)
+    assert len(stored) == 1
+    assert stored.iloc[0]["activity_id"] == "run-1"
+
+
+def test_sync_garmin_generates_a_full_uuid_for_direct_callers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    """Direct/demo callers get the same collision-resistant identity as API jobs."""
+    from services import recovery_analytics
+
+    db = _make_database(tmp_path)
+    state = _StubState(db)
+    capture_run_ids: list[str] = []
+
+    def fake_capture(_database, *, capture_run_id, **_kwargs):
+        capture_run_ids.append(capture_run_id)
+        return {
+            "snapshot": {"revision": 1},
+            "created": True,
+            "recovery_capture": {
+                "status": "saved_before_load",
+                "reason": None,
+                "revision": 1,
+                "created": True,
+            },
+        }
+
+    monkeypatch.setattr(recovery_analytics, "capture_post_sync_recovery_state", fake_capture)
+    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+
+    sync_service.sync_garmin_data(state, days=1)
+
+    assert len(capture_run_ids) == 1
+    assert str(uuid.UUID(capture_run_ids[0])) == capture_run_ids[0]
 
 
 def test_peak_body_battery_uses_the_days_peak_not_the_last_reading():

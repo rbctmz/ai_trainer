@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 from threading import Lock, Thread
 import uuid
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 from api.operational_state import build_operational_state, latest_iso_from_database
 from models.coach_decisions import NO_REVISIT_REQUIRED
@@ -26,7 +26,15 @@ from services.agent_log import (
 from services.sync_contracts import SyncProgressUpdate
 
 
-SyncRunner = Callable[[Callable[[SyncProgressUpdate], None]], dict[str, Any]]
+class SyncRunner(Protocol):
+    """Provider runner receiving the stable full identity of one sync job."""
+
+    def __call__(
+        self,
+        on_progress: Callable[[SyncProgressUpdate], None],
+        *,
+        capture_run_id: str,
+    ) -> dict[str, Any]: ...
 
 
 class SyncJobManager:
@@ -61,6 +69,7 @@ class SyncJobManager:
                 return self._public_snapshot_locked(db=db, demo=demo, reused=True)
 
             job_id = str(uuid.uuid4())[:8]
+            capture_run_id = str(uuid.uuid4())
             self._job = {
                 "job_id": job_id,
                 "sync_state": "running",
@@ -81,7 +90,7 @@ class SyncJobManager:
 
             thread = Thread(
                 target=self._run_job,
-                args=(job_id, run_sync, source, days, db),
+                args=(job_id, capture_run_id, run_sync, source, days, db),
                 name=f"sync-{source}-{job_id}",
                 daemon=True,
             )
@@ -99,6 +108,7 @@ class SyncJobManager:
     def _run_job(
         self,
         job_id: str,
+        capture_run_id: str,
         run_sync: SyncRunner,
         source: str,
         days: int | None,
@@ -116,7 +126,12 @@ class SyncJobManager:
                 }
 
         try:
-            result = run_sync(on_progress)
+            result = run_sync(on_progress, capture_run_id=capture_run_id)
+            # Issue #562 M4: короткий display-ID известен только здесь; научная
+            # идентичность capture_run_id внутри блока не меняется.
+            capture = result.get("recovery_capture")
+            if isinstance(capture, dict):
+                result["recovery_capture"] = {**capture, "job_id": job_id}
             sync_state = str(result.get("sync_state") or "succeeded")
             self._record_provider_sync_decision(
                 db=db,

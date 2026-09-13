@@ -95,6 +95,105 @@ def evaluate_snapshot_eligibility(
     return {"eligible": not reasons, "reasons": list(dict.fromkeys(reasons))}
 
 
+# Issue #562: пять состояний post-sync capture. Порядок разрешения предикатов
+# взаимоисключающий: capture_failed → activity_start_missing → ineligible →
+# saved_before_load | saved_too_late.
+CAPTURE_STATUS_BEFORE_LOAD = "saved_before_load"
+CAPTURE_STATUS_TOO_LATE = "saved_too_late"
+CAPTURE_STATUS_ACTIVITY_START_MISSING = "activity_start_missing"
+CAPTURE_STATUS_INELIGIBLE = "ineligible"
+CAPTURE_STATUS_FAILED = "capture_failed"
+CAPTURE_UNPARSABLE_OBSERVED_REASON = "unparsable_observed_at"
+
+
+def capture_verdict(
+    *,
+    eligibility: Mapping[str, Any],
+    observed_at_utc: Any,
+    boundary: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Вердикт одной сохранённой ревизии capture (issue #562).
+
+    Единственная реализация правила: сначала fail-closed проблема старта
+    активности, затем непригодность снимка, затем сравнение времени **этой**
+    ревизии с границей дня. Возвращает ``{"status": ..., "reason": ...}``.
+    """
+    if boundary.get("reason") == "invalid_timezone":
+        # Границу дня вычислить нельзя — это отказ eligibility, а не проблема
+        # старта активности: гейт снимка сообщает ту же причину.
+        return {
+            "status": CAPTURE_STATUS_INELIGIBLE,
+            "reason": "invalid_timezone",
+        }
+    if boundary.get("activity_start_missing"):
+        return {
+            "status": CAPTURE_STATUS_ACTIVITY_START_MISSING,
+            "reason": "activity_start_missing",
+        }
+    if not eligibility.get("eligible"):
+        reasons = [str(reason) for reason in (eligibility.get("reasons") or [])]
+        return {
+            "status": CAPTURE_STATUS_INELIGIBLE,
+            "reason": reasons[0] if reasons else "ineligible",
+        }
+    observed = _utc_datetime(observed_at_utc)
+    if observed is None:
+        # Дата наблюдения ревизии нечитаема: классифицировать нельзя, поэтому
+        # отказ, а не выдуманное «до нагрузки».
+        return {
+            "status": CAPTURE_STATUS_FAILED,
+            "reason": CAPTURE_UNPARSABLE_OBSERVED_REASON,
+        }
+    cutoff = boundary.get("cutoff")
+    if cutoff is not None and observed > cutoff:
+        return {"status": CAPTURE_STATUS_TOO_LATE, "reason": None}
+    return {"status": CAPTURE_STATUS_BEFORE_LOAD, "reason": None}
+
+
+def daily_activity_cutoff(
+    activities: Sequence[Mapping[str, Any]],
+    *,
+    local_date: date,
+    athlete_timezone: str,
+) -> dict[str, Any]:
+    """Граница дня для pre-activity anchor'а (issue #562).
+
+    Единственная реализация правила: cutoff — минимальный старт активности дня,
+    иначе локальный полдень. ``activity_start_missing=True`` означает, что у
+    активности дня нет читаемого старта: границу вычислить нельзя, и решение
+    обязано быть fail-closed.
+    """
+    if not _valid_timezone(athlete_timezone):
+        return {
+            "cutoff": None,
+            "cutoff_at_utc": None,
+            "activity_start_missing": False,
+            "reason": "invalid_timezone",
+        }
+    zone = ZoneInfo(athlete_timezone)
+    relevant_activities = [
+        row for row in activities if _iso_date(row.get("date")) == local_date
+    ]
+    if relevant_activities:
+        starts = [_utc_datetime(row.get("started_at_utc")) for row in relevant_activities]
+        if any(value is None for value in starts):
+            return {
+                "cutoff": None,
+                "cutoff_at_utc": None,
+                "activity_start_missing": True,
+                "reason": "activity_start_missing",
+            }
+        cutoff = min(value for value in starts if value is not None)
+    else:
+        cutoff = datetime.combine(local_date, time(12, 0), zone).astimezone(timezone.utc)
+    return {
+        "cutoff": cutoff,
+        "cutoff_at_utc": _utc_text(cutoff),
+        "activity_start_missing": False,
+        "reason": None,
+    }
+
+
 def select_daily_anchor(
     snapshots: Sequence[Mapping[str, Any]],
     activities: Sequence[Mapping[str, Any]],
@@ -104,23 +203,16 @@ def select_daily_anchor(
     capture_mode: str = "prospective",
 ) -> dict[str, Any]:
     """Choose the latest eligible snapshot before activity start or local noon."""
-    if not _valid_timezone(athlete_timezone):
-        return {"snapshot": None, "reason": "invalid_timezone", "cutoff_at_utc": None}
-    zone = ZoneInfo(athlete_timezone)
-    relevant_activities = [
-        row for row in activities if _iso_date(row.get("date")) == local_date
-    ]
-    if relevant_activities:
-        starts = [_utc_datetime(row.get("started_at_utc")) for row in relevant_activities]
-        if any(value is None for value in starts):
-            return {
-                "snapshot": None,
-                "reason": "activity_start_missing",
-                "cutoff_at_utc": None,
-            }
-        cutoff = min(value for value in starts if value is not None)
-    else:
-        cutoff = datetime.combine(local_date, time(12, 0), zone).astimezone(timezone.utc)
+    boundary = daily_activity_cutoff(
+        activities, local_date=local_date, athlete_timezone=athlete_timezone
+    )
+    if boundary["reason"] is not None:
+        return {
+            "snapshot": None,
+            "reason": boundary["reason"],
+            "cutoff_at_utc": None,
+        }
+    cutoff = boundary["cutoff"]
 
     candidates: list[tuple[datetime, Mapping[str, Any]]] = []
     for row in snapshots:

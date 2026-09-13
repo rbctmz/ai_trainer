@@ -1,0 +1,92 @@
+{
+  "job_id": "job-00000001",
+  "sync_state": "partial",
+  "status": "partial",
+  "started_at": "2026-07-23T05:00:00",
+  "finished_at": "2026-07-23T05:00:05",
+  "days": 1,
+  "source": "intervals",
+  "progress": {
+    "percent": 100,
+    "message": "Синхронизация Intervals.icu завершена частично",
+    "step_text": null,
+    "stats_message": "За запрошенный период удалось получить не все данные. Проверьте замечания ниже, затем решите, нужен ли повторный запуск."
+  },
+  "result": {
+    "sync_state": "partial",
+    "severity": "warning",
+    "title": "Синхронизация Intervals.icu завершена частично",
+    "summary": "За запрошенный период удалось получить не все данные. Проверьте замечания ниже, затем решите, нужен ли повторный запуск.",
+    "synced_at": "2026-07-23T05:00:05",
+    "days": 1,
+    "counts": {
+      "new": 1,
+      "updated": 0,
+      "skipped": 0
+    },
+    "activity_changes": 1,
+    "recovery_changes": 0,
+    "recovery_counts": {
+      "new": 0,
+      "updated": 0,
+      "skipped": 0
+    },
+    "highlights": [],
+    "notices": [
+      "⚠️ Recovery snapshot capture: snapshot_capture_failed"
+    ],
+    "source": "intervals",
+    "window_start": "",
+    "window_end": "",
+    "bootstrapped": false,
+    "halted": false,
+    "cursor_value": null,
+    "wellness_halted": false,
+    "wellness_cursor_value": null,
+    "recovery_capture": {
+      "provider": "intervals",
+      "capture_run_id": "3f1c0f4e-6a1b-4c2d-9e30-8a7b6c5d4e3f",
+      "status": "capture_failed",
+      "reason": "snapshot_capture_failed",
+      "eligibility_status": "eligible",
+      "eligibility_reasons": [],
+      "local_date": null,
+      "observed_at_utc": null,
+      "observed_at_local": null,
+      "cutoff_at_utc": null,
+      "snapshot_id": null,
+      "revision": null,
+      "created": false,
+      "error": "snapshot_capture_failed",
+      "job_id": "job-00000001"
+    },
+    "operational_state": {
+      "status": "empty",
+      "mode": "live",
+      "demo": false,
+      "empty": true,
+      "stale": false,
+      "latest_data_at": null,
+      "sync_state": "partial",
+      "error": null
+    },
+    "session_quality_forecast": {
+      "prediction": null,
+      "reason": "no_active_plan"
+    },
+    "session_quality_forecast_error": null
+  },
+  "error": null,
+  "reused": false,
+  "latest_data_at": null,
+  "operational_state": {
+    "status": "empty",
+    "mode": "live",
+    "demo": false,
+    "empty": true,
+    "stale": false,
+    "latest_data_at": null,
+    "sync_state": "partial",
+    "error": null
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "job_id": "job-00000001",
+  "sync_state": "succeeded",
+  "status": "succeeded",
+  "started_at": "2026-07-23T05:00:00",
+  "finished_at": "2026-07-23T05:00:05",
+  "days": 1,
+  "source": "garmin",
+  "progress": {
+    "percent": 100,
+    "message": "Новых Garmin данных не найдено",
+    "step_text": null,
+    "stats_message": "За последние 30 дней новых записей не появилось. Можно продолжить анализ по уже сохранённым данным."
+  },
+  "result": {
+    "sync_state": "succeeded",
+    "severity": "info",
+    "title": "Новых Garmin данных не найдено",
+    "summary": "За последние 30 дней новых записей не появилось. Можно продолжить анализ по уже сохранённым данным.",
+    "synced_at": "2026-07-23T05:00:05",
+    "days": 30,
+    "mode": "full",
+    "counts": {
+      "new": 0,
+      "updated": 0,
+      "skipped": 0
+    },
+    "activity_changes": 0,
+    "recovery_changes": 0,
+    "highlights": [],
+    "notices": [],
+    "source": "garmin",
+    "recovery_capture": {
+      "provider": "garmin",
+      "capture_run_id": "3f1c0f4e-6a1b-4c2d-9e30-8a7b6c5d4e3f",
+      "status": "activity_start_missing",
+      "reason": "activity_start_missing",
+      "eligibility_status": "eligible",
+      "eligibility_reasons": [],
+      "local_date": "2026-07-23",
+      "observed_at_utc": "2026-07-23T05:00:00Z",
+      "observed_at_local": "2026-07-23T08:00:00+03:00",
+      "cutoff_at_utc": null,
+      "snapshot_id": 17,
+      "revision": 1,
+      "created": true,
+      "error": null,
+      "job_id": "job-00000001"
+    },
+    "operational_state": {
+      "status": "empty",
+      "mode": "live",
+      "demo": false,
+      "empty": true,
+      "stale": false,
+      "latest_data_at": null,
+      "sync_state": "succeeded",
+      "error": null
+    },
+    "session_quality_forecast": {
+      "prediction": null,
+      "reason": "no_active_plan"
+    },
+    "session_quality_forecast_error": null
+  },
+  "error": null,
+  "reused": false,
+  "latest_data_at": null,
+  "operational_state": {
+    "status": "empty",
+    "mode": "live",
+    "demo": false,
+    "empty": true,
+    "stale": false,
+    "latest_data_at": null,
+    "sync_state": "succeeded",
+    "error": null
+  }
+}

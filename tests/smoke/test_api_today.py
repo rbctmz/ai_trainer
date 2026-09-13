@@ -834,8 +834,9 @@ def test_repeated_today_reads_do_not_append_timestamp_only_forecasts(
 ) -> None:
     from api import session_quality_forecast as forecast_module
     from api.routers.today import today_view
+    from utils.athlete_time import athlete_local_date
 
-    today = datetime.now().date()
+    today = athlete_local_date()
     db = Database(str(tmp_path / "today-forecast-idempotency.db"))
     db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
     day_session = _session(today, days_until=0, role="quality")

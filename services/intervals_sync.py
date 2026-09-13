@@ -37,7 +37,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+import logging
 from typing import Any, Callable
+import uuid
 
 from config.settings import Settings
 from data.database import Database
@@ -51,6 +53,10 @@ from services.intervals_icu import (
     IntervalsICUError,
     get_client,
 )
+from services.recovery_analytics import (
+    build_capture_failure_block,
+    project_recovery_capture,
+)
 from services.sync_contracts import SyncProgressCallback, SyncProgressUpdate
 from services.sync_cursor import (
     ChunkFetch,
@@ -58,6 +64,12 @@ from services.sync_cursor import (
     run_windowed_sync,
 )
 from services.wellness_ingest import sync_intervals_wellness
+
+# F3-паритет: причина отказа capture остаётся серверным следом, а результат
+# синхронизации и его payload несут только стабильный код.
+logger = logging.getLogger(__name__)
+
+CAPTURE_REASON_SNAPSHOT_FAILED = "snapshot_capture_failed"
 
 # Intervals.icu caps a reconciliation window at 90 days, so each chunk fed to
 # list_activities must be at most that wide (services/intervals_icu).
@@ -91,6 +103,9 @@ class IntervalsSyncResult:
     wellness_updated: int = 0
     wellness_skipped: int = 0
     recovery_changes: int = 0
+    # Issue #562 M3: структурный блок общего capture. Внутреннее поле: в payload
+    # он попадёт только в M4, поэтому билдер здесь не меняется.
+    recovery_capture: dict[str, Any] | None = None
 
 
 def _validate_days(days: Any) -> int | None:
@@ -152,6 +167,7 @@ def sync_intervals_data(
     on_progress: SyncProgressCallback | None = None,
     client: IntervalsICUClient | None = None,
     chunk_days: int = CHUNK_DAYS,
+    capture_run_id: str | None = None,
 ) -> IntervalsSyncResult:
     """Synchronize Intervals.icu activities into local storage (M1-T4).
 
@@ -244,12 +260,47 @@ def sync_intervals_data(
             )
         )
 
+    # Provider-neutral capture parity (issue #562 M3): тот же контракт, что и в
+    # Garmin-пути, после всех основных записей и без отката данных провайдера.
+    result_warnings = [*wsr.warnings, *wellness.warnings]
+    recovery_capture: dict[str, Any] | None = None
+    if callable(getattr(database, "save_readiness_snapshot", None)):
+        from services import recovery_analytics
+
+        effective_capture_run_id = capture_run_id or str(uuid.uuid4())
+        try:
+            capture_result = recovery_analytics.capture_post_sync_recovery_state(
+                database,
+                capture_run_id=effective_capture_run_id,
+                provider="intervals",
+            )
+            recovery_capture = dict(capture_result.get("recovery_capture") or {}) or None
+        except Exception:
+            # Defensive last boundary: сохранённые данные Intervals остаются
+            # валидными, наружу уходит только стабильный код.
+            logger.warning(
+                "recovery capture failed: %s",
+                CAPTURE_REASON_SNAPSHOT_FAILED,
+                exc_info=True,
+            )
+            recovery_capture = build_capture_failure_block(
+                provider="intervals",
+                capture_run_id=effective_capture_run_id,
+                reason=CAPTURE_REASON_SNAPSHOT_FAILED,
+            )
+        if str((recovery_capture or {}).get("status")) == "capture_failed":
+            reason = str(
+                (recovery_capture or {}).get("reason") or CAPTURE_REASON_SNAPSHOT_FAILED
+            )
+            result_warnings.append(f"⚠️ Recovery snapshot capture: {reason}")
+
     return IntervalsSyncResult(
         new=wsr.new,
         updated=wsr.updated,
         skipped=0,  # list_activities fails closed on id-less rows (no silent drops)
         ingested=wsr.ingested,
-        warnings=[*wsr.warnings, *wellness.warnings],
+        warnings=result_warnings,
+        recovery_capture=recovery_capture,
         window_start=wsr.window_start,
         window_end=wsr.window_end,
         bootstrapped=wsr.bootstrapped,
@@ -311,7 +362,7 @@ def build_intervals_sync_status_payload(
         severity = "info"
         sync_state = "succeeded"
 
-    return {
+    payload = {
         "sync_state": sync_state,
         "severity": severity,
         "title": title,
@@ -342,6 +393,11 @@ def build_intervals_sync_status_payload(
         "wellness_halted": result.wellness_halted,
         "wellness_cursor_value": result.wellness_cursor_value,
     }
+    # Issue #562 M4: та же очищенная проекция, что и в Garmin-пути.
+    capture = project_recovery_capture(result.recovery_capture)
+    if capture is not None:
+        payload["recovery_capture"] = capture
+    return payload
 
 
 __all__ = [

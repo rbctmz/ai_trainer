@@ -116,9 +116,10 @@ def test_api_and_tool_agree_on_subjective_only_day(tmp_path):
     from api.deps import get_database
     from models.ai_tools import AITools
     from services.subjective_wellness import build_subjective_wellness
+    from utils.athlete_time import athlete_local_date
 
     db = Database(str(tmp_path / 'api.db'))
-    day = date.today()
+    day = athlete_local_date()
     client = FakeIntervalsClient(wellness=[{
         'id': day.isoformat(), 'sleepQuality': 4, 'soreness': 1, 'fatigue': 2,
         'stress': 3, 'mood': 2, 'motivation': 3, 'injury': 1, 'hydration': 2,

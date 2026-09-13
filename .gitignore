@@ -249,6 +249,8 @@ chats/
 !web/.eslintrc.json
 !tests/contracts/registry.json
 !tests/contracts/ts_contract.json
+# Issue #562 M6a: запиненные JSON-фикстуры терминального API для browser-приёмки
+!tests/e2e/fixtures/recovery_capture/*.json
 
 # Temporary files and screenshots
 temp/

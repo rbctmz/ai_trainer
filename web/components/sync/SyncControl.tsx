@@ -5,6 +5,7 @@ import useSWR, { useSWRConfig } from "swr";
 import { fetcher, postJSON } from "@/lib/api";
 import { syncSourceLabel } from "@/lib/sourceLabels";
 import {
+  RecoveryCapture,
   SyncJobResponse,
   SyncProvidersResponse,
   SyncProviderTestResponse,
@@ -151,8 +152,10 @@ export function SyncControl({ onDone, detailed = false }: SyncControlProps) {
   }
 
   return (
-    <div className="flex items-center gap-2">
-      {message ? <span className="hidden text-xs text-ink-faint sm:inline">{message}</span> : null}
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {message ? (
+        <span className="basis-full text-xs text-ink-faint sm:basis-auto">{message}</span>
+      ) : null}
       <select
         aria-label="Источник синхронизации"
         value={selectedSource ?? ""}
@@ -196,6 +199,109 @@ async function waitForSyncJob(
   throw new Error("Синхронизация всё ещё выполняется. Проверьте статус позже.");
 }
 
+// Issue #562 M5: readback вердикта capture. Читается только публичный блок;
+// идентификаторы рана и job'а, сырой error и служебные поля в UI не попадают.
+const RECOVERY_CAPTURE_STATUS_LABELS: Record<string, string> = {
+  saved_before_load: "снимок готовности сохранён до нагрузки",
+  saved_too_late: "снимок готовности сохранён после начала активности",
+  activity_start_missing: "нет данных о времени старта активности",
+  ineligible: "снимок сохранён, но не пригоден для оценки перед нагрузкой",
+  capture_failed: "снимок готовности не сохранён",
+};
+
+const RECOVERY_CAPTURE_UNKNOWN_STATUS = "состояние снимка готовности неизвестно";
+const RECOVERY_CAPTURE_UNKNOWN_TIME = "время не определено";
+const RECOVERY_CAPTURE_UNKNOWN_REASON = "причина не уточнена";
+
+// Проблемные состояния: только для них пользователю важна безопасная причина.
+const RECOVERY_CAPTURE_PROBLEM_STATUSES = new Set([
+  "saved_too_late",
+  "activity_start_missing",
+  "ineligible",
+  "capture_failed",
+]);
+
+const RECOVERY_CAPTURE_REASON_LABELS: Record<string, string> = {
+  low_confidence: "недостаточно уверенности в данных",
+  stale_snapshot: "данные устарели",
+  stale_factor: "часть факторов устарела",
+  missing_score: "нет оценки готовности",
+  missing_as_of: "не указана дата оценки",
+  future_factor: "есть измерение из будущего",
+  invalid_timezone: "некорректная таймзона атлета",
+  activity_start_missing: "нет времени старта активности",
+  snapshot_capture_failed: "сбой при сохранении снимка",
+  activity_lookup_failed: "не удалось прочитать активности дня",
+  unparsable_observed_at: "нечитаемое время наблюдения",
+};
+
+// Серверное предупреждение о сбое capture приходит как
+// «⚠️ Recovery snapshot capture: <код>». В UI показываем человеко-читаемую
+// причину; устойчивый код остаётся в payload и в notices контракта.
+const RECOVERY_CAPTURE_NOTICE_PREFIX = "⚠️ Recovery snapshot capture:";
+const RECOVERY_CAPTURE_NOTICE_LABEL = "⚠️ Снимок готовности:";
+
+function recoveryCaptureNoticeCode(notice: string): string {
+  const text = notice.trim();
+  if (!text.startsWith(RECOVERY_CAPTURE_NOTICE_PREFIX)) return "";
+  return text.slice(RECOVERY_CAPTURE_NOTICE_PREFIX.length).trim();
+}
+
+function formatSyncNotice(notice: string): string {
+  const text = notice.trim();
+  const code = recoveryCaptureNoticeCode(text);
+  if (code.length === 0) return text;
+  const label = RECOVERY_CAPTURE_REASON_LABELS[code];
+  // Неизвестный код не прячем и не выдумываем причину — оставляем текст как есть.
+  return label ? `${RECOVERY_CAPTURE_NOTICE_LABEL} ${label}` : text;
+}
+
+// Отказ capture уже объяснён структурным readback-блоком («Снимок готовности») в
+// той же строке. Если серверное предупреждение несёт ровно ту же причину, что и
+// блок, оно дублирует объяснение — такое предупреждение из строки убираем и
+// оставляем один видимый источник. Любые другие notices сохраняются.
+function isDuplicateCaptureNotice(
+  notice: string,
+  capture: RecoveryCapture | null | undefined,
+): boolean {
+  if (!capture || capture.status !== "capture_failed") return false;
+  const reason = typeof capture.reason === "string" ? capture.reason.trim() : "";
+  if (reason.length === 0) return false;
+  const code = recoveryCaptureNoticeCode(notice);
+  return code.length > 0 && code === reason;
+}
+
+function formatRecoveryCaptureTime(value: RecoveryCapture["observed_at_local"]): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return RECOVERY_CAPTURE_UNKNOWN_TIME;
+  }
+  // Время атлета приходит ISO-строкой со смещением: разбираем текст, чтобы
+  // показ не зависел от таймзоны браузера.
+  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(value.trim());
+  if (!match) return RECOVERY_CAPTURE_UNKNOWN_TIME;
+  return `${match[3]}.${match[2]} ${match[4]}:${match[5]}`;
+}
+
+function formatRecoveryCaptureReason(reason: RecoveryCapture["reason"]): string {
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    return RECOVERY_CAPTURE_UNKNOWN_REASON;
+  }
+  return RECOVERY_CAPTURE_REASON_LABELS[reason.trim()] ?? RECOVERY_CAPTURE_UNKNOWN_REASON;
+}
+
+function formatRecoveryCapture(capture: RecoveryCapture | null | undefined): string {
+  if (!capture || typeof capture.status !== "string" || capture.status.trim().length === 0) {
+    return "";
+  }
+  const status = capture.status.trim();
+  const label = RECOVERY_CAPTURE_STATUS_LABELS[status] ?? RECOVERY_CAPTURE_UNKNOWN_STATUS;
+  const time = formatRecoveryCaptureTime(capture.observed_at_local);
+  const reason = RECOVERY_CAPTURE_PROBLEM_STATUSES.has(status)
+    ? ` · ${formatRecoveryCaptureReason(capture.reason)}`
+    : "";
+  return ` · Снимок готовности: ${label}, ${time}${reason}`;
+}
+
 function isTerminalSyncState(state: string): boolean {
   return state === "succeeded" || state === "partial" || state === "failed";
 }
@@ -223,8 +329,11 @@ function formatSyncJob(job: SyncJobResponse, fallbackSource: SyncSource): string
       ? ` +${result.counts.new} новых, ${result.counts.updated} обновлено`
       : "";
     const notices =
-      job.sync_state === "partial" ? formatSyncNotices(result.notices) : "";
-    return (result.title || `Синхронизация ${label} завершена`) + detail + notices;
+      job.sync_state === "partial"
+        ? formatSyncNotices(result.notices, result.recovery_capture)
+        : "";
+    const capture = formatRecoveryCapture(result.recovery_capture);
+    return (result.title || `Синхронизация ${label} завершена`) + detail + notices + capture;
   }
 
   return job.sync_state === "partial"
@@ -232,8 +341,15 @@ function formatSyncJob(job: SyncJobResponse, fallbackSource: SyncSource): string
     : `Синхронизация ${label} завершена`;
 }
 
-function formatSyncNotices(notices: string[] | undefined): string {
-  const actionable = (notices ?? []).filter((notice) => notice.trim()).slice(0, 2);
+function formatSyncNotices(
+  notices: string[] | undefined,
+  capture: RecoveryCapture | null | undefined,
+): string {
+  const actionable = (notices ?? [])
+    .map((notice) => notice.trim())
+    .filter((notice) => notice.length > 0 && !isDuplicateCaptureNotice(notice, capture))
+    .map(formatSyncNotice)
+    .slice(0, 2);
   return actionable.length > 0 ? ` · ${actionable.join(" · ")}` : "";
 }
 

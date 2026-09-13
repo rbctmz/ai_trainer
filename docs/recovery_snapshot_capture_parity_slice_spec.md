@@ -2,10 +2,10 @@
 
 Рабочая спецификация по `docs/templates/slice_spec_review_template.md`; связана с живым ExecPlan `docs/recovery_snapshot_capture_parity_execplan.md` (issue #562) и не дублирует формат `.agent/PLANS.md`.
 
-- Issue / PR: [#562](https://github.com/rbctmz/ai_trainer/issues/562) (PR: plan-only этап — см. ветку плана)
-- Author / checker / merge owner: agent (Spec / Architecture Owner на plan-only этапе; реализация M1–M4 — Domain / API Implementer, M5 — UI / Design Specialist) / независимый checker на PR (`@codex review`) / rbctmz
+- Issue / PR: [#562](https://github.com/rbctmz/ai_trainer/issues/562) / [#572](https://github.com/rbctmz/ai_trainer/pull/572)
+- Author / checker / merge owner: agent (Spec / Architecture Owner на plan-only и M6c; Domain / API Implementer на M1–M4/M6a; UI / Design Specialist на M5/M6b; Supervisor / Integrator на review repair) / независимый checker на PR (`@codex review`) / rbctmz
 - Date: 2026-09-12
-- Candidate head SHA: раунд 1 отревьюил `4ae3f4b`, раунд 2 — `20f9dcb` (неизменяемые факты; правки раунда 1 — `3a4a39d`). Код не менялся: диф состоит только из этого файла и ExecPlan
+- Candidate head SHA: implementation round 1 отревьюил `9bb781e`; правки — `002fbdd` (Domain/API) и `98f2388` (UI), docs follow-up — текущий head. Plan-only PR #571 отдельно отревьюил `4ae3f4b` и `20f9dcb`; эти раунды не списываются из бюджета PR #572 (D8)
 
 ## Change Class
 
@@ -18,9 +18,9 @@
   - security boundary/permissions/secrets — **нет**;
   - irreversible action — **нет**: откат = revert коммита, исторические строки не мутируются;
   - новый cross-module public contract или архитектурная граница — **да**: `recovery_capture` в ответе синхронизации и в `web/lib/types.ts`; новая архитектурная граница не создаётся (провайдер-нейтральный владелец capture уже существует в `services/recovery_analytics.py`).
-- Review budget used: **1 / 2 rounds** (раунд 1 на `4ae3f4b`: 6 находок — 1 P1 + 5 P2, все `fixed-in 3a4a39d`)
+- Review budget used: **1 / 2 rounds** для implementation PR #572 (раунд 1 на `9bb781e`: 5 находок — 1 P1 + 4 P2; код и UI `fixed-in 002fbdd` / `fixed-in 98f2388`, documentation follow-up на текущем head)
 - Review trigger mode: automatic (`@codex review` на PR)
-- Review acceptance head SHA: TBD — фиксируется в момент acceptance (отревьюенные раунды: `4ae3f4b`, затем `20f9dcb`)
+- Review acceptance head SHA: TBD — фиксируется в момент acceptance; implementation round 1 reviewed `9bb781e`
 - Review budget exception: N/A — бюджет не превышен
 
 **Устаревшая зависимость issue.** В теле issue сказано «Related but deliberately separate from **open** #557». На дату плана #557 **закрыт** (смержен PR #563, merge-коммит `a82be7b`), и в main уже живут его семантики: metric-scoped provenance (`sleep_score_observed_at`, `total_sleep_observed_at`, `rmssd_observed_at`, `resting_hr_observed_at`, `training_readiness_observed_at`), аддитивный канал `freshness`/`intervention_*`, fail-closed гейт и athlete-local (а не серверные) anchor'ы дат. План **опирается** на эти семантики и не дублирует их: capture по-прежнему строит канонический snapshot через `services/readiness_snapshot.py`, а `freshness`/`intervention_*` — часть этого snapshot'а. Разделение из issue сохраняется: #562 отвечает за *паритет и видимость capture*, а не за свежесть входов readiness.
@@ -46,9 +46,9 @@
 
 ## Definition of Done
 
-- [ ] Acceptance criteria наблюдаемы (RED Matrix ниже, по одной строке на каждый AC issue).
-- [ ] Required tests/checks названы и пройдены: focused capture/sync/API/UI-контракт, широкий Python-контур, `ruff`, web `lint`/`build`/`contract:extract -- --check`, синтетическая browser-приёмка обоих провайдеров.
-- [ ] Merge and cleanup owner назначен: rbctmz (мерж — отдельное действие владельца; после мержа — удаление ветки/worktree).
+- [x] Acceptance criteria наблюдаемы (RED Matrix ниже, по одной строке на каждый AC issue).
+- [x] Required tests/checks названы и пройдены: focused capture/sync/API/UI-контракт, широкий Python-контур, `ruff`, web `lint`/`build`/`contract:extract -- --check`, синтетическая browser-приёмка обоих провайдеров; итоговые числа — в evidence bundle.
+- [x] Merge and cleanup owner назначен: rbctmz (мерж — отдельное действие владельца; после мержа — удаление ветки/worktree).
 
 ## Public Contracts
 
@@ -66,7 +66,7 @@
 - Rollback procedure and proof: revert коммитов слайсов; журнал append-only, исторические строки не переписываются; доказательство — тест «после отката/повторного sync состояние читается и совпадает с ожидаемым» + отсутствие миграций в диффе.
 - [x] Does this add **new persistent state**? **Да, аддитивно**: в существующую строку журнала `readiness_snapshots` добавляется провенанса провайдера (`input_provenance.capture_provider` внутри `provenance_json`) — новых колонок, таблиц и курсоров нет, владелец состояния тот же журнал, отдельного age-out не вводится; состояние capture по-прежнему вычисляется, а не хранится.
 - [x] Does **full reset** remove every row/artifact/cursor introduced here? Новых артефактов и курсоров нет; провенанса живёт и умирает вместе со строкой снимка, поэтому reset/export обязан сохранять читаемость `provenance_json` — существующее поведение журнала, покрывается тестом «сохранённая строка несёт провайдера».
-- [x] Restart and partial-failure recovery are covered **с явной границей**: запись снимка атомарна (`BEGIN IMMEDIATE`), обновление эпизодов изолировано `try/except`; дурабельна только сама строка снимка с её провенансой. Терминальный `recovery_capture` в ответе job'а **эфемерен** (`SyncJobManager` process-local, новый процесс стартует с idle-снимком), а `capture_failed` не пишет ни строки в журнал — поэтому «переживает рестарт» здесь не заявляется; для успешных capture статус детерминированно пересчитывается из журнала и активностей, для провалов — нет (персистенция исходов вынесена в non-goals, решение владельца).
+- [x] Restart and partial-failure recovery are covered **с явной границей**: запись снимка атомарна (`BEGIN IMMEDIATE`), обновление эпизодов изолировано `try/except`; дурабельна сама строка снимка с её провенансой. Терминальный `recovery_capture` в ответе job'а **эфемерен** (`SyncJobManager` process-local, новый процесс стартует с idle-снимком). `snapshot_capture_failed` возникает до записи и не пишет строку; `activity_lookup_failed` возникает после записи, поэтому сохраняет дурабельные `snapshot_id` / `revision`, но его failure-verdict и reason не переживают рестарт. Персистенция исходов вынесена в non-goals.
 
 ## State Boundaries and Identity
 
@@ -124,7 +124,7 @@
    - Verification: focused capture-контур, существующий тест идемпотентности остаётся зелёным.
 2. Slice M2 — Garmin без двойной записи (`services/sync.py`).
    - RED: `test_garmin_sync_captures_one_revision_per_run`, `test_capture_failure_keeps_provider_data`.
-   - GREEN: замена инлайн-блока общим контрактом; аддитивное поле результата.
+   - GREEN: замена инлайн-блока общим контрактом; аддитивное поле `GarminSyncResult.recovery_capture`; `SyncJobManager` генерирует полный `capture_run_id` и передаёт его через **изменённый** контракт раннера (`SyncRunner` — `Protocol` с обязательным keyword; вызывающие и двойники обновлены в том же слайсе, F1); человеко-читаемая строка `details` сохранена, но несёт пятисоставный `capture_status` вместо `eligibility_status` (F2).
    - Verification: `test_garmin_sync_service.py` целиком + broad-контур.
 3. Slice M3 — Intervals parity (`services/intervals_sync.py`).
    - RED: `test_intervals_sync_captures_with_the_shared_contract`, `test_provider_payload_shapes_match`.
@@ -140,7 +140,7 @@
    - Verification: статический UI-контракт + web `lint`/`build`.
 6. Slice M6 расщеплён по ролевым границам (review P2) — у каждой части свой владелец и критерий:
    - **M6a — Domain / API Implementer (продолжает после M4):** тест «фикстура ↔ форма ответа» (pinning), паритетный payload-тест обоих источников, `test_existing_snapshots_and_episodes_remain_readable`, идемпотентность/монотонность, fail-open, инвариант «статус ревизии ⇔ время относительно cutoff», приоритет статусов.
-   - **M6b — UI / Design Specialist (продолжает после M5):** browser contract/UX acceptance — каталог `tests/e2e/fixtures/` отсутствует и создаётся здесь; `PRIMARY_ACTIVITY_SOURCE` и `ACCEPTANCE_*` в web-стенд не подключены (только Streamlit), поэтому сценарий строится на перехвате маршрутов; параметризованные сценарии на все пять состояний × оба провайдера (D5; это не provider E2E) с утверждением видимого варианта строки.
+   - **M6b — UI / Design Specialist (продолжает после M5):** browser contract/UX acceptance — **потребляет** JSON-фикстуры терминального ответа, созданные и запиненные M6a (`tests/e2e/fixtures/recovery_capture/*.json`), и сам их **не создаёт**; `PRIMARY_ACTIVITY_SOURCE` и `ACCEPTANCE_*` в web-стенд не подключены (только Streamlit), поэтому сценарий строится на перехвате маршрутов; параметризованные сценарии на все пять состояний × оба провайдера (D5; это не provider E2E) с утверждением видимого варианта строки.
    - **M6c — Spec / Architecture Owner:** обновление `docs/architecture/asr_catalog.md` (ASR-REL-3/REL-2/MOD-2/3) и сборка итогового evidence bundle в PR реализации.
    - Verification: `pytest -m e2e tests/e2e -q` (M6b) + широкий Python-контур (M6a) + запись метрик после мержа (M6c).
 
