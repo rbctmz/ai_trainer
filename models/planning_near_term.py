@@ -39,6 +39,20 @@ EDITABLE_SESSION_ROLES = ["off", "recovery", "easy", "activation", "quality", "l
 EDITABLE_SPORTS = ["run", "bike", "swim", "brick", "off"]
 RISK_LEVEL_RANK = {"low": 0, "medium": 1, "high": 2}
 
+# Issue #554 review (P1): строка правки показывает эффективную нагрузку дня —
+# то, что план отдаёт после материализации, — и запрошенное число возвращается
+# как такая же эффективная цель, а не как бюджет материализации. Допуск ниже
+# равен одной ступени каталога по длительности (вело-прескрипция шагает по
+# 5 мин ≈ 2 TSS): внутри него запрошенная нагрузка считается исполненной, за
+# его пределами расхождение называется явно — в заметке и в метаданных правки.
+NEAR_TERM_EFFECTIVE_TARGET_TOLERANCE_TSS = 2.0
+# Полка исполнимости прескрипции нелинейна по бюджету, поэтому бюджет
+# подбирается сканированием вокруг запрошенной нагрузки.
+_NEAR_TERM_BUDGET_SEARCH_STEP_TSS = 0.5
+_NEAR_TERM_BUDGET_SEARCH_MIN_FACTOR = 0.5
+_NEAR_TERM_BUDGET_SEARCH_MAX_FACTOR = 2.0
+_NEAR_TERM_BUDGET_SEARCH_MAX_CANDIDATES = 240
+
 
 def _normalize_post_edit_strategy(value: Any) -> str:
     return normalize_near_term_edit_post_strategy(value)
@@ -1379,6 +1393,304 @@ def rematerialize_non_executable_sessions(
     return repaired, sorted(set(changed_dates))
 
 
+def _solved_day_budget_candidates(requested_total_tss: float) -> List[float]:
+    """Бюджеты материализации, среди которых ищется запрошенная нагрузка дня."""
+    if requested_total_tss <= 0:
+        return [0.0]
+    low = requested_total_tss * _NEAR_TERM_BUDGET_SEARCH_MIN_FACTOR
+    high = requested_total_tss * _NEAR_TERM_BUDGET_SEARCH_MAX_FACTOR
+    span = max(high - low, _NEAR_TERM_BUDGET_SEARCH_STEP_TSS)
+    step = max(
+        _NEAR_TERM_BUDGET_SEARCH_STEP_TSS,
+        span / _NEAR_TERM_BUDGET_SEARCH_MAX_CANDIDATES,
+    )
+    budgets = {round(requested_total_tss, 1)}
+    budget = low
+    while budget <= high + 1e-9:
+        budgets.add(round(budget, 1))
+        budget += step
+    # Ближайшие к запрошенной нагрузке бюджеты проверяются первыми: точное
+    # попадание находится до полного сканирования диапазона.
+    return sorted(budgets, key=lambda value: (abs(value - requested_total_tss), value))
+
+
+def _projected_day_load(
+    dt: datetime,
+    parts: Mapping[str, float],
+    template: Mapping[str, Any],
+) -> tuple[float, Dict[str, float]]:
+    """Эффективная нагрузка дня — та же проекция, что применяется ко всему плану."""
+    resolved_parts = {
+        sport: round(float(dict(parts or {}).get(sport, 0.0) or 0.0), 1)
+        for sport in ("run", "bike", "swim")
+    }
+    projected = project_daily_plan_from_session_templates(
+        [(dt, round(sum(resolved_parts.values()), 1), resolved_parts)],
+        [template],
+    )
+    if not projected:
+        return 0.0, {"run": 0.0, "bike": 0.0, "swim": 0.0}
+    _dt, total, projected_parts = projected[0]
+    return round(float(total or 0.0), 1), {
+        str(sport): round(float(value or 0.0), 1)
+        for sport, value in dict(projected_parts or {}).items()
+    }
+
+
+def _materialize_day_for_budget(
+    current_template: Mapping[str, Any],
+    *,
+    dt: datetime,
+    day_index: int,
+    current_parts: Mapping[str, float],
+    budget: float,
+    target_role: str,
+    target_sport: str,
+    phase: str,
+    goal_type: str,
+    distance: str,
+    zone_snapshot: Mapping[str, Any],
+    load_state: str,
+    recent_template_keys: Sequence[str],
+) -> tuple[Dict[str, Any], float, Dict[str, float]] | None:
+    """Собрать день под заданный бюджет материализации.
+
+    Возвращает ``(template, effective_total, effective_parts)``, где нагрузка
+    посчитана по тем же сессиям, что уйдут в план; ``None`` — исполни́мой
+    прескрипции на этот бюджет нет, и подменять её другим днём нельзя."""
+    current_sport = _normalize_sport(
+        current_template.get("sport") or _dominant_sport(current_parts)
+    )
+    if target_sport == current_sport and budget > 0 and current_sport != "off":
+        new_parts = _scale_parts_to_total(current_parts, budget, current_sport)
+    else:
+        new_parts = _single_sport_parts(budget, target_sport)
+
+    focus = _build_day_focus_label(target_role, target_sport)
+    duration_minutes = _estimate_session_duration_minutes(budget, target_sport, target_role)
+    export_name = _build_session_export_name(goal_type, distance, focus)
+    description = _build_session_description(
+        goal_type=goal_type,
+        distance=distance,
+        phase=phase,
+        session_role=target_role,
+        session_focus=focus,
+        sport=target_sport,
+        total_tss=budget,
+        parts=new_parts,
+        duration_minutes=duration_minutes,
+    )
+    next_template = {
+        **current_template,
+        "date": dt.strftime("%Y-%m-%d"),
+        "week_index": day_index // 7,
+        "day_index": day_index % 7,
+        "phase": phase,
+        "session_role": target_role,
+        "session_focus": focus,
+        "sport": target_sport,
+        "sport_label": SPORT_LABELS_RU.get(target_sport, target_sport),
+        "duration_minutes": duration_minutes,
+        "template_key": f"manual:{phase.lower()}:{target_role}:{target_sport}",
+        "export_name": export_name,
+        "description": description,
+    }
+    is_composite_brick = (
+        str(current_template.get("kind") or "") == "composite"
+        and target_sport == "brick"
+        and budget > 0
+    )
+    if is_composite_brick:
+        rescaled = rescale_materialized_session(
+            current_template,
+            target_tss=budget,
+            parts=new_parts,
+        )
+        if str(rescaled.get("materialization_status") or "") == "infeasible":
+            return None
+        rescaled_session = deepcopy(rescaled)
+        rescaled_session.pop("sessions", None)
+        rescaled["sessions"] = [rescaled_session]
+        next_template.update(rescaled)
+        resolved_duration = int(rescaled.get("duration_minutes") or duration_minutes)
+        next_template.update(
+            {
+                "date": dt.strftime("%Y-%m-%d"),
+                "week_index": day_index // 7,
+                "day_index": day_index % 7,
+                "phase": phase,
+                "session_role": target_role,
+                "session_focus": focus,
+                "sport": "brick",
+                "sport_label": SPORT_LABELS_RU["brick"],
+                "export_name": export_name,
+                "description": _build_session_description(
+                    goal_type=goal_type,
+                    distance=distance,
+                    phase=phase,
+                    session_role=target_role,
+                    session_focus=focus,
+                    sport="brick",
+                    total_tss=budget,
+                    parts=new_parts,
+                    duration_minutes=resolved_duration,
+                ),
+            }
+        )
+        project_day_scalars(next_template)
+    else:
+        try:
+            next_template = _rebuild_sessions_after_day_edit(
+                next_template,
+                current_template,
+                new_parts=new_parts,
+                role=target_role,
+                sport=target_sport,
+                phase=phase,
+                goal_type=goal_type,
+                distance=distance,
+                zone_snapshot=zone_snapshot,
+                load_state=load_state,
+                recent_template_keys=list(recent_template_keys),
+            )
+        except ValueError:
+            return None
+    effective_total, effective_parts = _projected_day_load(dt, new_parts, next_template)
+    return next_template, effective_total, effective_parts
+
+
+def _solve_day_prescription_for_target(
+    current_template: Mapping[str, Any],
+    *,
+    dt: datetime,
+    day_index: int,
+    current_parts: Mapping[str, float],
+    requested_total_tss: float,
+    target_role: str,
+    target_sport: str,
+    phase: str,
+    goal_type: str,
+    distance: str,
+    zone_snapshot: Mapping[str, Any],
+    load_state: str,
+    recent_template_keys: Sequence[str],
+) -> Dict[str, Any] | None:
+    """Подобрать прескрипцию под запрошенную эффективную нагрузку дня.
+
+    Нагрузка дня — это то, что материализует каталог, а не запрошенное число.
+    Кандидаты перебираются по бюджету материализации, берётся тот, чья
+    фактическая нагрузка ближе всего к запросу. ``None`` — исполни́мых
+    кандидатов нет вовсе."""
+    best: Dict[str, Any] | None = None
+    for budget in _solved_day_budget_candidates(requested_total_tss):
+        candidate = _materialize_day_for_budget(
+            current_template,
+            dt=dt,
+            day_index=day_index,
+            current_parts=current_parts,
+            budget=budget,
+            target_role=target_role,
+            target_sport=target_sport,
+            phase=phase,
+            goal_type=goal_type,
+            distance=distance,
+            zone_snapshot=zone_snapshot,
+            load_state=load_state,
+            recent_template_keys=recent_template_keys,
+        )
+        if candidate is None:
+            continue
+        template, effective_total, effective_parts = candidate
+        deviation = round(abs(effective_total - requested_total_tss), 1)
+        if best is None or deviation < float(best["deviation_tss"]):
+            best = {
+                "template": template,
+                "effective_total_tss": effective_total,
+                "effective_parts": effective_parts,
+                "budget_tss": round(float(budget), 1),
+                "deviation_tss": deviation,
+            }
+            if deviation == 0.0:
+                break
+    return best
+
+
+def _resolve_near_term_target_decision(
+    solved: Mapping[str, Any],
+    *,
+    current_total_tss: float,
+    requested_total_tss: float,
+) -> tuple[bool, str | None]:
+    """Решить, применяется ли подобранная прескрипция и что о ней сообщить.
+
+    Возвращает ``(применить, причина_расхождения)``. Правка отклоняется только
+    тогда, когда ни один исполни́мый вариант не ближе к запросу, чем текущая
+    нагрузка дня: увести день в сторону от запроса молча нельзя."""
+    deviation = round(float(solved.get("deviation_tss") or 0.0), 1)
+    if deviation <= NEAR_TERM_EFFECTIVE_TARGET_TOLERANCE_TSS:
+        return True, None
+    current_total = round(float(current_total_tss or 0.0), 1)
+    if requested_total_tss == current_total:
+        # Правка меняет только роль или вид спорта: нагрузка следует за каталогом.
+        return True, "effective_target_approximated"
+    current_deviation = round(abs(current_total - requested_total_tss), 1)
+    if deviation < current_deviation:
+        return True, "effective_target_approximated"
+    return False, "effective_target_not_reachable"
+
+
+def _near_term_target_report(
+    dt: datetime,
+    day_index: int,
+    *,
+    requested_total_tss: float,
+    achieved_total_tss: float | None,
+    reason: str,
+) -> Dict[str, Any]:
+    """Запись о дне, чья эффективная нагрузка разошлась с запрошенной."""
+    return {
+        "index": int(day_index),
+        "week_index": int(day_index // 7),
+        "date": dt.strftime("%Y-%m-%d"),
+        "date_label": f"{WEEKDAY_LABELS_RU[dt.weekday()]} {dt.strftime('%d.%m')}",
+        "requested_tss": round(float(requested_total_tss or 0.0), 1),
+        "achieved_tss": (
+            round(float(achieved_total_tss), 1)
+            if achieved_total_tss is not None
+            else None
+        ),
+        "reason": reason,
+    }
+
+
+def _format_near_term_target_note(item: Mapping[str, Any], *, applied: bool) -> str:
+    requested = round(float(item.get("requested_tss") or 0.0), 1)
+    achieved = item.get("achieved_tss")
+    label = str(item.get("date_label") or item.get("date") or "")
+    if not applied:
+        if achieved is None:
+            return (
+                f"эффективная нагрузка {label} не изменена: исполни́мой "
+                f"прескрипции на {requested:g} TSS нет"
+            )
+        return (
+            f"эффективная нагрузка {label} не изменена: прескрипции "
+            f"на {requested:g} TSS нет, ближайшая исполни́мая {float(achieved):g} TSS"
+        )
+    return (
+        f"эффективная нагрузка {label}: запрошено {requested:g} TSS, "
+        f"исполнимая прескрипция {float(achieved or 0.0):g} TSS"
+    )
+
+
+def _note_as_sentence(note: str) -> str:
+    """Заметка правки — строчная, а в списке примечаний плана она предложение."""
+    text = str(note or "").strip()
+    if not text:
+        return text
+    return f"{text[0].upper()}{text[1:]}."
+
+
 def apply_near_term_day_edits(
     goal_plan: Mapping[str, Any],
     edited_rows: Sequence[Mapping[str, Any]],
@@ -1408,8 +1720,12 @@ def apply_near_term_day_edits(
     zone_snapshot = extract_zone_snapshot(session_templates)
 
     original_horizon_total = round(sum(total for _dt, total, _parts in daily_plan[:resolved_horizon]), 1)
-    changed_day_count = 0
-    edited_dates: List[str] = []
+    # Issue #554 review (P1): дельты, число правленых дней и заметки считаются по
+    # фактической нагрузке после проекции, поэтому дни запоминаются индексами, а
+    # не суммами, посчитанными из запрошенного бюджета.
+    edited_day_indices: List[int] = []
+    approximated_days: List[Dict[str, Any]] = []
+    infeasible_days: List[Dict[str, Any]] = []
     touched_week_stats: Dict[int, Dict[str, float]] = {}
 
     for raw_row in edited_rows:
@@ -1455,14 +1771,6 @@ def apply_near_term_day_edits(
             if edited is None:
                 continue
             day_sessions, new_day_total, new_day_parts = edited
-            changed_day_count += 1
-            edited_dates.append(dt.strftime("%Y-%m-%d"))
-            week_stat = touched_week_stats.setdefault(
-                day_index // 7,
-                {"delta_tss": 0.0, "edited_days": 0.0},
-            )
-            week_stat["delta_tss"] += round(new_day_total - float(current_total or 0.0), 1)
-            week_stat["edited_days"] += 1.0
             daily_plan[day_index] = (dt, new_day_total, new_day_parts)
             next_template = dict(current_template)
             next_template["sessions"] = day_sessions
@@ -1470,6 +1778,8 @@ def apply_near_term_day_edits(
             # and steps stay consistent with session_focus, never stale.
             project_day_scalars(next_template)
             session_templates[day_index] = next_template
+            if day_index not in edited_day_indices:
+                edited_day_indices.append(day_index)
             continue
 
         current_role = _normalize_session_role(current_template.get("session_role") or ("off" if current_total <= 0 else "easy"))
@@ -1495,120 +1805,100 @@ def apply_near_term_day_edits(
         )
         if not changed:
             continue
-        changed_day_count += 1
-        edited_dates.append(dt.strftime("%Y-%m-%d"))
-        week_index = day_index // 7
+
+        phase = str(current_template.get("phase", weekly_summary[day_index // 7].get("phase", "Base") if day_index // 7 < len(weekly_summary) else "Base") or "Base")
+        # Issue #554 review (P1): запрошенное число — эффективная нагрузка дня, а
+        # не бюджет материализации. Прескрипция подбирается под неё, и день
+        # принимается только тогда, когда результат ближе к запросу, чем текущая
+        # нагрузка: молча увести день в другую сторону нельзя.
+        solved = _solve_day_prescription_for_target(
+            current_template,
+            dt=dt,
+            day_index=day_index,
+            current_parts=current_parts,
+            requested_total_tss=target_total_tss,
+            target_role=target_role,
+            target_sport=target_sport,
+            phase=phase,
+            goal_type=goal_type,
+            distance=distance,
+            zone_snapshot=zone_snapshot,
+            load_state=load_state,
+            recent_template_keys=_recent_template_keys_before(
+                session_templates,
+                day_index,
+            ),
+        )
+        if solved is None:
+            # Ни одна исполнимая прескрипция не собралась: день остаётся прежним
+            # и правка называется явно неисполнимой, а не подменяется другой
+            # нагрузкой.
+            infeasible_days.append(
+                _near_term_target_report(
+                    dt,
+                    day_index,
+                    requested_total_tss=target_total_tss,
+                    achieved_total_tss=None,
+                    reason="no_feasible_prescription",
+                )
+            )
+            continue
+        accepted, report_reason = _resolve_near_term_target_decision(
+            solved,
+            current_total_tss=float(current_total or 0.0),
+            requested_total_tss=target_total_tss,
+        )
+        if not accepted:
+            # Правка отклонена: ни один исполнимый вариант не ближе к запросу,
+            # чем текущая нагрузка дня.
+            infeasible_days.append(
+                _near_term_target_report(
+                    dt,
+                    day_index,
+                    requested_total_tss=target_total_tss,
+                    achieved_total_tss=solved["effective_total_tss"],
+                    reason=str(report_reason or "effective_target_not_reachable"),
+                )
+            )
+            continue
+        if report_reason:
+            approximated_days.append(
+                _near_term_target_report(
+                    dt,
+                    day_index,
+                    requested_total_tss=target_total_tss,
+                    achieved_total_tss=solved["effective_total_tss"],
+                    reason=report_reason,
+                )
+            )
+        daily_plan[day_index] = (
+            dt,
+            solved["effective_total_tss"],
+            solved["effective_parts"],
+        )
+        session_templates[day_index] = solved["template"]
+        if day_index not in edited_day_indices:
+            edited_day_indices.append(day_index)
+
+    daily_plan = project_daily_plan_from_session_templates(daily_plan, session_templates)
+    # Issue #554 review (P1): дельта дня — разница фактических нагрузок, а не
+    # запрошенного бюджета: недельная заметка и метаданные правки говорят ровно
+    # то, что стоит в дневном плане.
+    for day_index in edited_day_indices:
         week_stat = touched_week_stats.setdefault(
-            week_index,
+            day_index // 7,
             {"delta_tss": 0.0, "edited_days": 0.0},
         )
         week_stat["delta_tss"] += round(
-            target_total_tss - float(current_total or 0.0),
+            daily_plan[day_index][1] - original_daily_plan[day_index][1],
             1,
         )
         week_stat["edited_days"] += 1.0
-
-        if target_sport == current_sport and target_total_tss > 0 and current_sport != "off":
-            new_parts = _scale_parts_to_total(current_parts, target_total_tss, current_sport)
-        else:
-            new_parts = _single_sport_parts(target_total_tss, target_sport)
-
-        daily_plan[day_index] = (dt, target_total_tss, new_parts)
-
-        phase = str(current_template.get("phase", weekly_summary[day_index // 7].get("phase", "Base") if day_index // 7 < len(weekly_summary) else "Base") or "Base")
-        focus = _build_day_focus_label(target_role, target_sport)
-        duration_minutes = _estimate_session_duration_minutes(target_total_tss, target_sport, target_role)
-        export_name = _build_session_export_name(goal_type, distance, focus)
-        description = _build_session_description(
-            goal_type=goal_type,
-            distance=distance,
-            phase=phase,
-            session_role=target_role,
-            session_focus=focus,
-            sport=target_sport,
-            total_tss=target_total_tss,
-            parts=new_parts,
-            duration_minutes=duration_minutes,
-        )
-        next_template = {
-            **current_template,
-            "date": dt.strftime("%Y-%m-%d"),
-            "week_index": day_index // 7,
-            "day_index": day_index % 7,
-            "phase": phase,
-            "session_role": target_role,
-            "session_focus": focus,
-            "sport": target_sport,
-            "sport_label": SPORT_LABELS_RU.get(target_sport, target_sport),
-            "duration_minutes": duration_minutes,
-            "template_key": f"manual:{phase.lower()}:{target_role}:{target_sport}",
-            "export_name": export_name,
-            "description": description,
-        }
-        if (
-            str(current_template.get("kind") or "") == "composite"
-            and target_sport == "brick"
-            and target_total_tss > 0
-        ):
-            rescaled = rescale_materialized_session(
-                current_template,
-                target_tss=target_total_tss,
-                parts=new_parts,
-            )
-            rescaled_session = deepcopy(rescaled)
-            rescaled_session.pop("sessions", None)
-            rescaled["sessions"] = [rescaled_session]
-            next_template.update(rescaled)
-            resolved_duration = int(rescaled.get("duration_minutes") or duration_minutes)
-            next_template.update(
-                {
-                    "date": dt.strftime("%Y-%m-%d"),
-                    "week_index": day_index // 7,
-                    "day_index": day_index % 7,
-                    "phase": phase,
-                    "session_role": target_role,
-                    "session_focus": focus,
-                    "sport": "brick",
-                    "sport_label": SPORT_LABELS_RU["brick"],
-                    "export_name": export_name,
-                    "description": _build_session_description(
-                        goal_type=goal_type,
-                        distance=distance,
-                        phase=phase,
-                        session_role=target_role,
-                        session_focus=focus,
-                        sport="brick",
-                        total_tss=target_total_tss,
-                        parts=new_parts,
-                        duration_minutes=resolved_duration,
-                    ),
-                }
-            )
-            project_day_scalars(next_template)
-        if not (
-            str(current_template.get("kind") or "") == "composite"
-            and target_sport == "brick"
-            and target_total_tss > 0
-        ):
-            next_template = _rebuild_sessions_after_day_edit(
-                next_template,
-                current_template,
-                new_parts=new_parts,
-                role=target_role,
-                sport=target_sport,
-                phase=phase,
-                goal_type=goal_type,
-                distance=distance,
-                zone_snapshot=zone_snapshot,
-                load_state=load_state,
-                recent_template_keys=_recent_template_keys_before(
-                    session_templates,
-                    day_index,
-                ),
-            )
-        session_templates[day_index] = next_template
-
-    daily_plan = project_daily_plan_from_session_templates(daily_plan, session_templates)
+    changed_day_count = len(edited_day_indices)
+    edited_dates = [
+        daily_plan[day_index][0].strftime("%Y-%m-%d")
+        for day_index in edited_day_indices
+    ]
 
     refreshed_weekly_summary: List[Dict[str, Any]] = []
     for week_index, week_row in enumerate(weekly_summary):
@@ -1633,14 +1923,28 @@ def apply_near_term_day_edits(
             **structure_meta,
         }
 
+        week_notes: List[str] = []
         if week_index in touched_week_stats:
-            manual_note = (
+            week_notes.append(
                 f"ручная правка: {int(touched_week_stats[week_index]['edited_days'])} дн., "
                 f"Δ {int(round(touched_week_stats[week_index]['delta_tss'])):+d} TSS"
             )
+        # Issue #554 review (P1): если полка каталога не дала запрошенную
+        # нагрузку дня, это сказано в заметке недели, а не спрятано в плане.
+        week_notes.extend(
+            _format_near_term_target_note(item, applied=True)
+            for item in approximated_days
+            if item["week_index"] == week_index
+        )
+        week_notes.extend(
+            _format_near_term_target_note(item, applied=False)
+            for item in infeasible_days
+            if item["week_index"] == week_index
+        )
+        if week_notes:
             refreshed_row["adjustment_note"] = _merge_adjustment_note(
                 refreshed_row.get("adjustment_note", "—"),
-                manual_note,
+                "; ".join(week_notes),
             )
 
         refreshed_weekly_summary.append(refreshed_row)
@@ -1786,12 +2090,22 @@ def apply_near_term_day_edits(
             and not str(note).startswith("Ручная правка ближнего горизонта:")
             and not str(note).startswith("После ручной правки:")
             and not str(note).startswith("Оценка ручной правки:")
+            and not str(note).startswith("Эффективная нагрузка ")
         )
     ]
     manual_note = (
         f"Ручная правка ближнего горизонта: {changed_day_count} дн. "
         f"в ближайших {resolved_horizon} дн., Δ {horizon_delta:+d} TSS."
     )
+    # Issue #554 review (P1): расхождение запрошенной и исполнимой нагрузки дня
+    # называется в примечаниях плана, а не растворяется в дневном плане.
+    target_notes = [
+        _note_as_sentence(_format_near_term_target_note(item, applied=True))
+        for item in approximated_days
+    ] + [
+        _note_as_sentence(_format_near_term_target_note(item, applied=False))
+        for item in infeasible_days
+    ]
     follow_up_note = ""
     if normalized_post_edit_strategy == "keep":
         follow_up_note = "После ручной правки: следующие 1-2 недели оставлены без автокоррекции."
@@ -1817,7 +2131,9 @@ def apply_near_term_day_edits(
         else "Оценка ручной правки: риск низкий, достаточно обычного контроля самочувствия."
     )
 
-    constraint_summary["notes"] = existing_notes + [manual_note, follow_up_note, risk_note]
+    constraint_summary["notes"] = (
+        existing_notes + [manual_note] + target_notes + [follow_up_note, risk_note]
+    )
     constraint_summary["near_term_edit"] = {
         "is_active": changed_day_count > 0,
         "edited_day_count": changed_day_count,
@@ -1831,6 +2147,14 @@ def apply_near_term_day_edits(
         "future_delta_tss": future_delta_tss,
         "future_weeks": 2,
         "future_week_count": future_week_count,
+        # Issue #554 review (P1): запрошенная эффективная нагрузка и то, что
+        # реально выдала прескрипция, лежат рядом — даже когда день применён
+        # с расхождением или не применён вовсе.
+        "effective_target_tolerance_tss": NEAR_TERM_EFFECTIVE_TARGET_TOLERANCE_TSS,
+        "unmet_target_day_count": len(approximated_days),
+        "unmet_target_days": approximated_days,
+        "infeasible_day_count": len(infeasible_days),
+        "infeasible_days": infeasible_days,
         **risk_summary,
     }
 
@@ -1853,6 +2177,7 @@ __all__ = [
     "EDITABLE_NEAR_TERM_HORIZON_MIN",
     "EDITABLE_SESSION_ROLES",
     "EDITABLE_SPORTS",
+    "NEAR_TERM_EFFECTIVE_TARGET_TOLERANCE_TSS",
     "build_near_term_edit_seed_from_goal_plans",
     "build_near_term_edit_draft_rows",
     "build_near_term_edit_rows",

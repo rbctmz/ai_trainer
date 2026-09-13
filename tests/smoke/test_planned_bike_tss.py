@@ -441,7 +441,16 @@ def test_planned_quality_bike_preserves_effective_tss_across_plan_views():
     assert [int(row["weekly_tss"]) for row in projected_weekly] == [int(round(effective))]
 
 
-def test_rescaling_lower_requested_tss_does_not_increase_tempo_duration():
+def test_rescaling_lower_effective_tss_does_not_increase_tempo_duration():
+    """Понижение эффективной нагрузки не удлиняет сессию.
+
+    Ревизия #554 (находка 556): `rescale_materialized_session` теперь считает от
+    эффективной нагрузки материализованной прескрипции, поэтому `target_tss` —
+    целевая ЭФФЕКТИВНАЯ нагрузка, а не запрошенный бюджет. Прежняя версия теста
+    подавала 60 при запросе 63 и ожидала сокращения: по старой семантике это было
+    понижением бюджета, по новой — повышением эффективной цели в полтора раза,
+    и удлинение партии корректно (проверяется ниже отдельным утверждением).
+    """
     definition = _definition("bike_tempo_sweet_spot")
     materialized = materialize_workout(
         definition,
@@ -458,10 +467,12 @@ def test_rescaling_lower_requested_tss_does_not_increase_tempo_duration():
         "target_provenance": materialized["target_provenance"],
         "definition_snapshot": materialized["definition_snapshot"],
     }
+    # Понижение берётся в пределах полосы шаблона (ниже 36 TSS у этой сессии
+    # начинают падать собственные границы шаблона — это отдельный fail-closed).
     scaled = rescale_materialized_session(
         session,
-        target_tss=60.0,
-        parts={"bike": 60.0},
+        target_tss=37.0,
+        parts={"bike": 37.0},
     )
 
     assert scaled["materialization_status"] == "materialized"
@@ -469,6 +480,16 @@ def test_rescaling_lower_requested_tss_does_not_increase_tempo_duration():
     effective = scaled["parameter_snapshot"]["target_tss"]
     assert scaled["total_tss"] == pytest.approx(effective, abs=0.01)
     assert sum(step["tss"] for step in scaled["materialized_steps"]) == pytest.approx(effective, abs=0.01)
+
+    # Обратная сторона контракта: повышение эффективной цели удлиняет предписание,
+    # а не маскируется прежним бюджетом.
+    raised = rescale_materialized_session(
+        session,
+        target_tss=60.0,
+        parts={"bike": 60.0},
+    )
+    assert raised["duration_minutes"] > session["duration_minutes"]
+    assert raised["parameter_snapshot"]["requested_tss"] == 60.0
 
 
 def test_preview_fails_closed_when_weekly_duration_budget_is_missing():

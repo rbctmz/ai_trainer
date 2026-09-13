@@ -139,7 +139,12 @@ def test_taper_long_role_becomes_bounded_sharpening_not_long_endurance():
         zone_snapshot={"ftp": 200},
     )
 
-    assert result["materialization_status"] == "infeasible"
+    # Issue #554 review: the fail-closed status was the pre-fix consequence of a
+    # (candidate × duration) band mismatch — 40 minutes of VO2max delivers
+    # 59.7 TSS/h against its [70, 120] band, while 50 minutes delivers 72.6 TSS/h
+    # inside it. The invariant this test protects is the one below: a bounded
+    # sharpening inside the taper cap, never a long-endurance replacement.
+    assert result["materialization_status"] == "materialized"
     assert result["duration_minutes"] <= 60
     assert result["template_key"] in {
         "bike_vo2max_intervals",
@@ -620,9 +625,13 @@ def test_weekly_rebalance_refreshes_persisted_prescription_and_identity():
     updated = apply_weekly_rebalance_preview(original, preview)
     after = updated["session_templates"][0]
 
-    assert after["parameter_snapshot"]["target_tss"] == pytest.approx(48.8, abs=0.1)
+    # Issue #554 review (finding 4): the rebalance now scales from the effective
+    # persisted load (65.2 TSS) instead of the historical requested budget
+    # (80 TSS), so the approved 60-TSS target is delivered (59.8) rather than
+    # under-delivered (48.8, the pre-fix value this assertion used to pin).
+    assert after["parameter_snapshot"]["target_tss"] == pytest.approx(59.8, abs=0.1)
     assert after["sessions"][0]["total_tss"] == after["sessions"][0]["parameter_snapshot"]["target_tss"]
-    assert sum(step["tss"] for step in after["materialized_steps"]) == pytest.approx(48.8, abs=0.1)
+    assert sum(step["tss"] for step in after["materialized_steps"]) == pytest.approx(59.8, abs=0.1)
     assert after["prescription_fingerprint"] != before["prescription_fingerprint"]
     assert after["session_id"] != before["session_id"]
     assert after["replaces_session_id"] == before["session_id"]

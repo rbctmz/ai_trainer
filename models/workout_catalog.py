@@ -1214,8 +1214,13 @@ def _single_candidates(
         if load_state == "deep_fatigue" and max(definition.fatigue_cost) >= 3:
             continue
         duration = _candidate_duration(definition, target_tss, estimated_duration_minutes)
-        if duration is not None and phase in {"Taper", "Race Week"} and duration > 60:
-            duration = 60 if not _failed_bounds(definition, 60, target_tss) else None
+        if (
+            duration is not None
+            and phase in {"Taper", "Race Week"}
+            and duration > _TAPER_DURATION_CAP_MINUTES
+        ):
+            cap = _TAPER_DURATION_CAP_MINUTES
+            duration = cap if not _failed_bounds(definition, cap, target_tss) else None
         if duration is not None:
             candidates.append((definition, duration))
     fresh = [item for item in candidates if item[0].template_key not in recent]
@@ -1229,6 +1234,106 @@ def _single_candidates(
         )
     )
     return candidates
+
+
+# Issue #205 M4 (docs/structured_workout_catalog_execplan.md): a Taper/Race Week
+# ``long`` day is a bounded sharpening — never long endurance. The selector's
+# ``sharpening_override`` admits quality/easy definitions; this set names the
+# sharpening stimulus variants that may actually stand in for the long session
+# (neuromuscular, VO2, threshold repeats, swim repeats, run race pace). Pinned by
+# tests/smoke/test_workout_catalog.py::
+# test_taper_long_role_becomes_bounded_sharpening_not_long_endurance.
+_TAPER_LONG_INTENT = "taper_long_sharpening"
+# The selector caps a Taper/Race Week session at this duration; the retry
+# duration search obeys the same cap.
+_TAPER_DURATION_CAP_MINUTES = 60
+_RETRY_DURATION_STEP_MINUTES = 5
+_TAPER_SHARPENING_KEYS = frozenset(
+    {
+        ("bike", "vo2"),
+        ("bike", "neuromuscular"),
+        ("bike", "threshold"),
+        ("run", "vo2"),
+        ("run", "race_pace"),
+        ("swim", "threshold"),
+    }
+)
+
+
+def _session_intent_constraint(phase: str, session_role: str) -> str | None:
+    """Name the retry constraint of a phase/role pair, if it has one."""
+    if phase in {"Taper", "Race Week"} and session_role == "long":
+        return _TAPER_LONG_INTENT
+    return None
+
+
+def _keeps_session_intent(
+    definition: WorkoutTemplateDefinition,
+    *,
+    constraint: str | None,
+) -> bool:
+    """Whether a definition may replace the ranked selection in a retry.
+
+    A Taper/Race Week long day must stay a bounded sharpening: substituting an
+    easy endurance ride or a race-pace ride there rewrites the day's stimulus
+    and lengthens the week past the athlete's available hours.
+    """
+    if constraint == _TAPER_LONG_INTENT:
+        return (definition.sport, definition.step_builder_key) in _TAPER_SHARPENING_KEYS
+    return True
+
+
+def _retry_durations(
+    definition: WorkoutTemplateDefinition,
+    *,
+    preferred: int,
+    phase: str,
+) -> list[int]:
+    """Durations a candidate may be retried with, closest to ``preferred`` first.
+
+    Issue #554 review: ``_candidate_duration`` derives the duration from the
+    older mid-point density, so the NP-derived load can land outside the
+    template's declared band even though the requested bounds passed. The pair,
+    not the candidate, is what fails — 40 minutes of ``bike_vo2max_intervals``
+    deliver 59.7 TSS/h against its [70, 120] band, 50 minutes deliver 72.6 TSS/h
+    inside it. The grid keeps the selector's own pick first (a pair that already
+    materializes is never re-timed), then walks outward inside the template's
+    declared range, with the shorter duration winning a tie.
+
+    Re-timing is allowed only where the phase declares its own duration cap
+    (Taper and Race Week, 60 minutes): that cap bounds the result. Elsewhere the
+    schedule's duration would silently grow — an uncapped search measured a Base
+    week over the athlete's hours (315 > 305 minutes for 300 TSS / 5 h) and a
+    near-term day edit that stopped decreasing the day (65.2 instead of 60.5
+    TSS), so those phases keep the plain candidate retry.
+    """
+    if phase not in {"Taper", "Race Week"}:
+        return [preferred]
+    upper = max(
+        int(min(definition.max_duration_minutes, _TAPER_DURATION_CAP_MINUTES)),
+        definition.min_duration_minutes,
+    )
+    grid = list(
+        range(definition.min_duration_minutes, upper + 1, _RETRY_DURATION_STEP_MINUTES)
+    )
+    if preferred not in grid:
+        grid.append(preferred)
+    return sorted(grid, key=lambda duration: (abs(duration - preferred), duration))
+
+
+def _failed_bounds_evidence(materialized: Mapping[str, Any]) -> dict[str, Any]:
+    """Carry derived-bound failures of a materialized workout into a session.
+
+    Issue #554 review: ``materialize_workout`` reports which catalog bounds the
+    derived power prescription broke, and a fail-closed planned session must
+    keep that evidence instead of dropping it at the wrapper. The key is added
+    only when a bound actually failed, because the day-template projection
+    mirrors session keys by allow-list (pinned by
+    tests/smoke/test_session_day_projection.py) and a permanent empty field
+    would drift from it.
+    """
+    failed = [str(item) for item in list(materialized.get("failed_bounds") or [])]
+    return {"failed_bounds": failed} if failed else {}
 
 
 def materialize_session_template(
@@ -1269,12 +1374,71 @@ def materialize_session_template(
             },
         }
 
-    definition, duration = candidates[0]
-    materialized = materialize_workout(
-        definition,
-        {"duration_minutes": duration, "target_tss": target_tss},
-        zone_snapshot,
+    # Issue #554 review: ranking expresses preference, not deliverability, and
+    # the band mismatch is a (candidate × duration) property: the derived
+    # prescription of the top-ranked pair can break its own catalog bounds (a
+    # 40-minute bike_vo2max_intervals delivers 59.7 TSS/h against its [70, 120]
+    # band, while 50 minutes delivers 72.6 TSS/h inside it), and persisting it
+    # makes a deliverable day undeliverable. The retry therefore searches the
+    # duration grid of each candidate, closest to the duration the selector
+    # already picked first, but only inside the session's intent: a Taper/Race
+    # Week long day stays a bounded sharpening, never a longer endurance
+    # substitute. When no intent-preserving pair is executable, the top-ranked
+    # definition stays selected and the session keeps its fail-closed shape.
+    constraint = _session_intent_constraint(phase, session_role)
+    probe_order = [candidates[0]]
+    probe_order.extend(
+        item
+        for item in candidates[1:]
+        if _keeps_session_intent(item[0], constraint=constraint)
     )
+    attempts: list[dict[str, Any]] = []
+    executable_index: int | None = None
+    for definition, duration in probe_order:
+        for candidate_duration in _retry_durations(
+            definition,
+            preferred=duration,
+            phase=phase,
+        ):
+            if _failed_bounds(definition, candidate_duration, target_tss):
+                continue
+            materialized = materialize_workout(
+                definition,
+                {"duration_minutes": candidate_duration, "target_tss": target_tss},
+                zone_snapshot,
+            )
+            attempts.append(
+                {
+                    "definition": definition,
+                    "preferred_duration_minutes": duration,
+                    "duration_minutes": candidate_duration,
+                    "materialized": materialized,
+                }
+            )
+            if materialized["materialization_status"] == "materialized":
+                executable_index = len(attempts) - 1
+                break
+        if executable_index is not None:
+            break
+    selected_index = 0 if executable_index is None else executable_index
+    selected = attempts[selected_index]
+    definition = selected["definition"]
+    duration = selected["duration_minutes"]
+    preferred_duration = selected["preferred_duration_minutes"]
+    materialized = selected["materialized"]
+    skipped_candidates = [
+        {
+            "template_key": attempt["definition"].template_key,
+            "duration_minutes": attempt["duration_minutes"],
+            "failed_bounds": list(attempt["materialized"].get("failed_bounds") or []),
+        }
+        for attempt in attempts[:selected_index]
+    ]
+    intent_excluded_keys = [
+        item[0].template_key
+        for item in candidates[1:]
+        if not _keeps_session_intent(item[0], constraint=constraint)
+    ]
     evidence = {
         "rule_version": SELECTOR_RULE_VERSION,
         "phase": phase,
@@ -1284,13 +1448,18 @@ def materialize_session_template(
         "recent_template_keys": [str(item) for item in recent_template_keys],
         "candidate_keys": [item[0].template_key for item in candidates],
         "estimated_duration_minutes": int(estimated_duration_minutes),
+        "selected_template_key": definition.template_key,
+        "skipped_candidates": skipped_candidates,
+        "intent_constraint": constraint,
+        "intent_excluded_keys": intent_excluded_keys,
         "selected_duration_minutes": duration,
-        "role_override": (
-            "long_to_sharpening"
-            if phase in {"Taper", "Race Week"} and session_role == "long"
-            else None
-        ),
+        "role_override": "long_to_sharpening" if constraint == _TAPER_LONG_INTENT else None,
     }
+    if executable_index is None:
+        # Nothing the retry was allowed to consider survived its derived bounds;
+        # the persisted session is the top-ranked definition with its own
+        # failed bounds.
+        evidence["reason"] = "no_executable_candidate"
     prescription = {
         "definition_snapshot": materialized["definition_snapshot"],
         "parameter_snapshot": materialized["parameter_snapshot"],
@@ -1320,6 +1489,7 @@ def materialize_session_template(
         "structure_evidence": materialized.get("structure_evidence"),
         "selection_evidence": evidence,
         "prescription_fingerprint": _prescription_fingerprint(prescription),
+        **_failed_bounds_evidence(materialized),
     }
 
 
@@ -1419,6 +1589,11 @@ def materialize_brick_session(
                 "target_provenance": materialized["target_provenance"],
                 "structure_status": materialized.get("structure_status"),
                 "structure_evidence": materialized.get("structure_evidence"),
+                # Issue #554 review: legs are rebuilt from ``materialize_workout``
+                # the same way single sessions are, so they carry the derived
+                # bound failures as audit evidence too (empty when bounds hold,
+                # matching ``_apply_power_evidence_to_session``).
+                "failed_bounds": list(materialized.get("failed_bounds") or []),
             }
         )
     prescription = {
@@ -1565,6 +1740,37 @@ def _apply_power_evidence_to_session(
     return effective_tss, bool(failed)
 
 
+def _rescale_reference_tss(
+    session: Mapping[str, Any],
+    parameters: Mapping[str, Any],
+) -> float:
+    """Load the rescaled duration is scaled from.
+
+    Issue #554 review: the weekly rebalance
+    (``apply_weekly_rebalance_preview``) passes the projected *effective* day
+    load, because a current-format power prescription already carries its
+    NP-derived load in the plan rows. Dividing by the historical
+    ``requested_tss`` budget over-reduced every such day: an approved
+    40.2 → 34.4 TSS cut was scaled by the 70-TSS budget and collapsed into a
+    29-minute fail-closed prescription instead of a 51-minute deliverable one.
+    A deliverable derived prescription therefore scales from that effective
+    load. Records without one keep the requested-budget reference they were
+    written with: legacy pre-#554 checkpoints and run/swim prescriptions carry
+    the budget itself, and a fail-closed row keeps the requested budget as the
+    plan number by contract (the derived load lives in the audit evidence).
+    """
+    requested = float(parameters.get("requested_tss") or 0.0)
+    effective = float(
+        parameters.get("planned_tss") or parameters.get("target_tss") or 0.0
+    )
+    derived_effective = (
+        str(parameters.get("planned_tss_method") or "") == PRESCRIPTION_NP_TSS_RULE_VERSION
+        and str(session.get("materialization_status") or "") == "materialized"
+        and effective > 0
+    )
+    return effective if derived_effective else (requested or effective)
+
+
 def rescale_materialized_session(
     template: Mapping[str, Any],
     *,
@@ -1576,14 +1782,7 @@ def rescale_materialized_session(
     if updated.get("materialization_status") not in {"materialized", "infeasible"}:
         return updated
     old_parameters = dict(updated.get("parameter_snapshot") or {})
-    # ``target_tss`` is the effective NP load after materialization. Rescale
-    # duration against the requested budget so reducing a plan budget cannot
-    # lengthen a session merely because the old prescription delivered less NP.
-    old_tss = float(
-        old_parameters.get("requested_tss")
-        or old_parameters.get("target_tss")
-        or 0.0
-    )
+    old_tss = _rescale_reference_tss(updated, old_parameters)
     target_tss = round(float(target_tss or 0.0), 1)
     if old_tss <= 0 or target_tss <= 0:
         return updated
@@ -1615,17 +1814,13 @@ def rescale_materialized_session(
             if sport == "bike":
                 power_result = _apply_power_evidence_to_session(leg, requested_tss=new_leg_tss)
                 if power_result is not None:
-                    effective_tss, failed = power_result
-                    if not failed:
-                        new_leg_tss = round(effective_tss, 1)
-                    else:
-                        # An infeasible prescription keeps the requested plan
-                        # budget for daily/weekly reconciliation while exposing
-                        # the derived effective load in planned_tss/evidence.
-                        leg["parameter_snapshot"]["target_tss"] = new_leg_tss
-                        leg["parameter_snapshot"]["tss_per_hour"] = round(
-                            new_leg_tss * 60.0 / new_minutes, 1
-                        )
+                    effective_tss, _failed = power_result
+                    # Issue #554 review: the derived NP load stays the leg's
+                    # target on the infeasible branch too — the requested budget
+                    # lives only in ``requested_tss``, so consumers auditing the
+                    # two can still see the discrepancy instead of a silently
+                    # rewritten target.
+                    new_leg_tss = round(effective_tss, 1)
                 leg["target_tss"] = new_leg_tss
             legs.append(leg)
         updated["legs"] = legs
@@ -1674,15 +1869,12 @@ def rescale_materialized_session(
             target_tss=target_tss,
         )
         if str(updated.get("sport") or "").strip().lower() == "bike":
-            power_result = _apply_power_evidence_to_session(updated, requested_tss=target_tss)
-            if power_result is not None:
-                effective_tss, failed = power_result
-                if failed:
-                    updated["parameter_snapshot"]["target_tss"] = target_tss
-                    old_minutes = int(updated["parameter_snapshot"].get("duration_minutes") or 0)
-                    updated["parameter_snapshot"]["tss_per_hour"] = round(
-                        target_tss * 60.0 / old_minutes, 1
-                    ) if old_minutes > 0 else 0.0
+            # Issue #554 review: ``_apply_power_evidence_to_session`` already
+            # writes the derived NP load into ``target_tss`` and keeps the
+            # request in ``requested_tss``. An infeasible rebuild must not
+            # overwrite that derived target with the requested budget — hiding
+            # the discrepancy is exactly what the fail-closed path forbids.
+            _apply_power_evidence_to_session(updated, requested_tss=target_tss)
         updated["total_tss"] = round(
             float((updated.get("parameter_snapshot") or {}).get("target_tss") or target_tss),
             1,

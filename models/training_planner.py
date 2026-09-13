@@ -54,6 +54,11 @@ _SESSION_META_MIRROR_KEYS = (
     "target_provenance",
     "structure_status",
     "structure_evidence",
+    # Issue #554 review: a fail-closed prescription records why it failed
+    # (`failed_bounds`). The day template is what plan views and edit surfaces
+    # read, so the evidence has to survive the day-level projection instead of
+    # existing only on `sessions[0]`.
+    "failed_bounds",
     "selection_evidence",
     "prescription_fingerprint",
     "legs",
@@ -2311,11 +2316,8 @@ def project_daily_plan_from_session_templates(
             projected.append((dt, round(float(original_total or 0.0), 1), dict(original_parts or {})))
             continue
         original_parts_map = dict(original_parts or {})
-        parts: Dict[str, float] = {
-            sport: 0.0
-            for sport in ("run", "bike", "swim")
-            if sport in original_parts_map
-        }
+        parts: Dict[str, float] = {}
+        contributed = False
         for session in list((template or {}).get("sessions") or []):
             if not isinstance(session, Mapping):
                 continue
@@ -2324,11 +2326,21 @@ def project_daily_plan_from_session_templates(
                     sport = str(leg.get("sport") or "")
                     if sport in {"bike", "run", "swim"}:
                         parts[sport] = round(parts.get(sport, 0.0) + float(leg.get("target_tss") or 0.0), 1)
+                        contributed = True
             else:
                 sport = str(session.get("sport") or "")
                 if sport in {"bike", "run", "swim"}:
                     parts[sport] = round(parts.get(sport, 0.0) + float(session.get("total_tss") or 0.0), 1)
-        if parts:
+                    contributed = True
+        # Issue #554 review: a template without projected leaf sessions (legacy or
+        # padded checkpoint row) keeps its original row verbatim. Zero-filled
+        # discipline keys are therefore materialized only after at least one
+        # session actually contributed load, so `sessions == []` can no longer
+        # flatten an untouched historical day to zero.
+        if contributed:
+            for sport in ("run", "bike", "swim"):
+                if sport in original_parts_map:
+                    parts.setdefault(sport, 0.0)
             projected.append((dt, round(sum(parts.values()), 1), parts))
         else:
             projected.append((dt, round(float(original_total or 0.0), 1), dict(original_parts or {})))
