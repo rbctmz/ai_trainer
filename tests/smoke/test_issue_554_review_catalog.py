@@ -163,6 +163,9 @@ def test_taper_long_bike_retimes_the_sharpening_pair_instead_of_leaving_the_set(
     assert evidence["intent_constraint"] == "taper_long_sharpening"
     assert evidence["selected_template_key"] == "bike_vo2max_intervals"
     assert evidence["selected_duration_minutes"] == 50
+    # Отклонение от собственного выбора селектора записано явно: 40 → 50 минут.
+    assert evidence["preferred_duration_minutes"] == 40
+    assert evidence["duration_retimed"] is True
     # Перебор шёл от выбранной селектором длительности наружу, пара 50 минут —
     # первая исполнимая.
     assert evidence["skipped_candidates"] == [
@@ -228,6 +231,9 @@ def test_taper_long_bike_uses_the_next_sharpening_candidate_when_needed():
 
     evidence = session["selection_evidence"]
     assert evidence["selected_template_key"] == "bike_neuromuscular_sprints"
+    # Здесь длительность не менялась: заменён кандидат, а не пара.
+    assert evidence["preferred_duration_minutes"] == 45
+    assert evidence["duration_retimed"] is False
     # Обе длительности VO2max внутри капа не проходят его полосу [70, 120].
     assert evidence["skipped_candidates"] == [
         {
@@ -268,6 +274,7 @@ def test_fail_closed_selection_keeps_the_candidate_and_records_the_reason():
     assert planned_session_is_executable(session) is False
     assert session["selection_evidence"]["skipped_candidates"] == []
     assert session["selection_evidence"]["reason"] == "no_executable_candidate"
+    assert session["selection_evidence"]["duration_retimed"] is False
     # Вне Taper/Race Week long intent-ограничения нет.
     assert session["selection_evidence"]["intent_constraint"] is None
     assert session["selection_evidence"]["intent_excluded_keys"] == []

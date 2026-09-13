@@ -1453,6 +1453,13 @@ def materialize_session_template(
         "intent_constraint": constraint,
         "intent_excluded_keys": intent_excluded_keys,
         "selected_duration_minutes": duration,
+        # Issue #554 review: the duration the selector's own density math picked
+        # for the selected definition. A difference from
+        # ``selected_duration_minutes`` is the audit trail of a band-driven
+        # re-timing (40 → 50 minutes for bike_vo2max_intervals on a 60-TSS
+        # Taper long day), never a silent change.
+        "preferred_duration_minutes": preferred_duration,
+        "duration_retimed": duration != preferred_duration,
         "role_override": "long_to_sharpening" if constraint == _TAPER_LONG_INTENT else None,
     }
     if executable_index is None:
