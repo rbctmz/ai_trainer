@@ -905,6 +905,41 @@ def build_weekly_rebalance_preview(
     return payload
 
 
+def _effective_load_parts(
+    session: Mapping[str, Any],
+    *,
+    fallback_total: float,
+    fallback_parts: Mapping[str, float],
+) -> tuple[float, dict[str, float]]:
+    """Return the effective load and per-sport projection of a rescaled session.
+
+    #554 review: a power-materialized prescription separates the requested
+    planning budget (``parameter_snapshot.requested_tss``) from the NP-derived
+    load its steps actually carry. A refreshed description must follow the
+    effective load the session scalar, the daily plan row and the weekly
+    summary already carry, never the requested budget. Only a materialized
+    session owns that projection; anything else keeps the rescaled day parts.
+    """
+    if str(session.get("materialization_status") or "") not in {"materialized", "infeasible"}:
+        return round(float(fallback_total or 0.0), 1), dict(fallback_parts)
+    parts: dict[str, float] = {}
+    if str(session.get("kind") or "single") == "composite":
+        for leg in list(session.get("legs") or []):
+            sport = normalize_sport_key((leg or {}).get("sport"))
+            if sport not in {"bike", "run", "swim"}:
+                continue
+            parts[sport] = round(
+                parts.get(sport, 0.0) + max(0.0, _float((leg or {}).get("target_tss"))), 1
+            )
+    else:
+        sport = normalize_sport_key(session.get("sport"))
+        if sport in {"bike", "run", "swim"}:
+            parts[sport] = round(max(0.0, _float(session.get("total_tss"))), 1)
+    if not parts:
+        return round(float(fallback_total or 0.0), 1), dict(fallback_parts)
+    return round(sum(parts.values()), 1), parts
+
+
 def _updated_description(
     description: str,
     total_tss: float,
@@ -965,32 +1000,62 @@ def apply_weekly_rebalance_preview(
         template = templates[index]
         before_duration = int(template.get("duration_minutes") or 0)
         after_duration = max(1, int(round(before_duration * scale))) if before_duration else 0
-        template["duration_minutes"] = after_duration
-        template["description"] = _updated_description(
-            str(template.get("description") or ""),
-            after_total,
-            after_duration,
-            after_parts,
-        )
-        if template.get("materialization_status") == "materialized":
+        if template.get("sessions") or template.get("materialization_status") in {"materialized", "infeasible"}:
+            session_rows = list(template.get("sessions") or [])
+            source_session = dict(session_rows[0] or {}) if len(session_rows) == 1 else template
             refreshed = rescale_materialized_session(
-                template,
+                source_session,
                 target_tss=after_total,
                 parts=after_parts,
             )
+            # #554 review: refresh every persisted description from the load the
+            # rescaled prescription delivers, never from the requested budget.
+            effective_total, effective_parts = _effective_load_parts(
+                refreshed,
+                fallback_total=after_total,
+                fallback_parts=after_parts,
+            )
+            effective_duration = int(refreshed.get("duration_minutes") or after_duration)
             refreshed["description"] = _updated_description(
                 str(template.get("description") or ""),
+                effective_total,
+                effective_duration,
+                effective_parts,
+            )
+            previous_session_id = str(refreshed.get("session_id") or "").strip()
+            if previous_session_id:
+                refreshed["replaces_session_id"] = previous_session_id
+                refreshed.pop("session_id", None)
+            refreshed["duration_minutes"] = effective_duration
+            refreshed["total_tss"] = round(effective_total, 1)
+            if len(session_rows) == 1:
+                template["sessions"] = [refreshed]
+                if previous_session_id:
+                    template["replaces_session_id"] = previous_session_id
+                    template.pop("session_id", None)
+                from models.training_planner import project_day_scalars
+                project_day_scalars(template)
+                templates[index] = template
+            else:
+                templates[index] = refreshed
+        else:
+            template["duration_minutes"] = after_duration
+            template["description"] = _updated_description(
+                str(template.get("description") or ""),
                 after_total,
-                int(refreshed.get("duration_minutes") or after_duration),
+                after_duration,
                 after_parts,
             )
-            templates[index] = refreshed
 
     updated["daily_plan"] = daily_plan
     updated["session_templates"] = templates
+    from models.training_planner import project_daily_plan_from_session_templates
+    updated["daily_plan"] = project_daily_plan_from_session_templates(
+        updated["daily_plan"], updated["session_templates"]
+    )
     weekly_summary = [dict(row or {}) for row in list(updated.get("weekly_summary") or [])]
     for week_index, row in enumerate(weekly_summary):
-        week_days = daily_plan[week_index * 7 : week_index * 7 + 7]
+        week_days = updated["daily_plan"][week_index * 7 : week_index * 7 + 7]
         row["weekly_tss"] = int(round(sum(float(item[1] or 0.0) for item in week_days)))
         for sport in ("bike", "run", "swim"):
             row[sport] = round(sum(float((item[2] or {}).get(sport, 0.0) or 0.0) for item in week_days), 1)

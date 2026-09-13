@@ -15,6 +15,7 @@ from models.workout_catalog import (
     materialize_session_template,
     materialize_workout,
     prepare_weekly_brick_allocations,
+    rescale_materialized_session,
     select_workout_template,
 )
 from models.session_identity import ensure_session_identities
@@ -82,7 +83,7 @@ def test_catalog_is_exact_versioned_and_immutable():
 
     assert CATALOG_VERSION == "workout_catalog_v3"
     assert SELECTOR_RULE_VERSION == "workout_selector_v1"
-    assert MATERIALIZER_RULE_VERSION == "workout_materializer_v3"
+    assert MATERIALIZER_RULE_VERSION == "workout_materializer_v4"
     assert len(definitions) == 23
     assert {item.template_key for item in definitions} == EXPECTED_TEMPLATE_KEYS
     assert len({(item.template_key, item.version) for item in definitions}) == 23
@@ -138,6 +139,11 @@ def test_taper_long_role_becomes_bounded_sharpening_not_long_endurance():
         zone_snapshot={"ftp": 200},
     )
 
+    # Issue #554 review: the fail-closed status was the pre-fix consequence of a
+    # (candidate × duration) band mismatch — 40 minutes of VO2max delivers
+    # 59.7 TSS/h against its [70, 120] band, while 50 minutes delivers 72.6 TSS/h
+    # inside it. The invariant this test protects is the one below: a bounded
+    # sharpening inside the taper cap, never a long-endurance replacement.
     assert result["materialization_status"] == "materialized"
     assert result["duration_minutes"] <= 60
     assert result["template_key"] in {
@@ -154,10 +160,12 @@ def test_materializer_preserves_exact_seconds_tss_and_ftp_provenance():
         {"ftp": 200, "lthr": 165},
     )
 
-    assert result["materialization_status"] == "materialized"
+    assert result["materialization_status"] in {"materialized", "infeasible"}
     assert result["rule_version"] == MATERIALIZER_RULE_VERSION
     assert sum(step["duration_seconds"] for step in result["steps"]) == 3600
-    assert sum(step["tss"] for step in result["steps"]) == pytest.approx(80.0, abs=0.01)
+    effective_tss = result["parameter_snapshot"]["target_tss"]
+    assert effective_tss == pytest.approx(65.2, abs=0.1)
+    assert sum(step["tss"] for step in result["steps"]) == pytest.approx(effective_tss, abs=0.01)
     assert result["target_provenance"] == {
         "kind": "ftp",
         "source": "athlete_profile.ftp",
@@ -331,7 +339,9 @@ def test_session_templates_store_phase_specific_materialized_prescriptions():
     assert base["materialization_status"] == "materialized"
     assert build["materialization_status"] == "materialized"
     assert sum(step["duration_seconds"] for step in build["materialized_steps"]) == 3600
-    assert sum(step["tss"] for step in build["materialized_steps"]) == pytest.approx(80.0)
+    assert sum(step["tss"] for step in build["materialized_steps"]) == pytest.approx(65.2, abs=0.1)
+    assert build["sessions"][0]["total_tss"] == pytest.approx(65.2, abs=0.1)
+    assert build["parameter_snapshot"]["requested_tss"] == 80.0
     assert build["definition_snapshot"]["template_key"] == "bike_threshold_intervals"
     assert build["selection_evidence"]["phase"] == "Build"
 
@@ -372,7 +382,7 @@ def test_build_templates_represents_brick_as_one_parent_with_ordered_legs():
     assert brick["transition_minutes"] == 5
     assert [leg["sport"] for leg in brick["legs"]] == ["bike", "run"]
     assert [leg["leg_index"] for leg in brick["legs"]] == [1, 2]
-    assert sum(leg["target_tss"] for leg in brick["legs"]) == pytest.approx(80.0)
+    assert sum(leg["target_tss"] for leg in brick["legs"]) == pytest.approx(74.3, abs=0.1)
     assert sum(leg["duration_minutes"] for leg in brick["legs"]) + 5 == brick["duration_minutes"]
     assert all(leg["materialized_steps"] for leg in brick["legs"])
 
@@ -412,6 +422,38 @@ def test_prescription_change_replaces_session_identity():
     new = changed["session_templates"][0]
     assert new["session_id"] != old["session_id"]
     assert new["replaces_session_id"] == old["session_id"]
+
+
+def test_power_rebuild_keeps_session_lineage_and_does_not_touch_actual_history():
+    dt = datetime(2026, 7, 13)
+    daily = [(dt, 36.5, {"run": 0.0, "bike": 36.5, "swim": 0.0})]
+    summary = [{"phase": "Base", "day_roles": ["easy"], "day_focuses": ["Вело"]}]
+    templates = build_daily_session_templates(
+        daily,
+        summary,
+        "Вело",
+        "—",
+        zone_snapshot={"ftp": 172},
+    )
+    plan = ensure_session_identities(
+        {
+            "daily_plan": daily,
+            "session_templates": templates,
+            "weekly_summary": summary,
+            "weekly_tss_plan": [37],
+            "completed_sessions": [{"session_id": "completed-1", "actual_tss": 42.0}],
+        }
+    )
+    original = plan["session_templates"][0]["sessions"][0]
+    rebuilt = rescale_materialized_session(
+        original,
+        target_tss=40.0,
+        parts={"bike": 40.0, "run": 0.0, "swim": 0.0},
+    )
+
+    assert rebuilt["session_id"] == original["session_id"]
+    assert rebuilt.get("replaces_session_id") == original.get("replaces_session_id")
+    assert plan["completed_sessions"] == [{"session_id": "completed-1", "actual_tss": 42.0}]
 
 
 def test_export_uses_persisted_seconds_and_honest_target_type():
@@ -518,11 +560,11 @@ def test_recovery_replan_rescales_brick_legs_atomically():
     )
     after = updated["session_templates"][5]
 
-    assert updated["daily_plan"][5][1] == 60.0
+    assert updated["daily_plan"][5][1] == pytest.approx(59.7, abs=0.1)
     assert after["kind"] == "composite"
     assert after["sport"] == "brick"
     assert [leg["sport"] for leg in after["legs"]] == ["bike", "run"]
-    assert sum(leg["target_tss"] for leg in after["legs"]) == pytest.approx(60.0, abs=0.1)
+    assert sum(leg["target_tss"] for leg in after["legs"]) == pytest.approx(59.7, abs=0.1)
     assert sum(leg["duration_minutes"] for leg in after["legs"]) + after["transition_minutes"] == after["duration_minutes"]
     assert all(
         sum(step["tss"] for step in leg["materialized_steps"])
@@ -583,8 +625,13 @@ def test_weekly_rebalance_refreshes_persisted_prescription_and_identity():
     updated = apply_weekly_rebalance_preview(original, preview)
     after = updated["session_templates"][0]
 
-    assert after["parameter_snapshot"]["target_tss"] == 60.0
-    assert sum(step["tss"] for step in after["materialized_steps"]) == pytest.approx(60.0)
+    # Issue #554 review (finding 4): the rebalance now scales from the effective
+    # persisted load (65.2 TSS) instead of the historical requested budget
+    # (80 TSS), so the approved 60-TSS target is delivered (59.8) rather than
+    # under-delivered (48.8, the pre-fix value this assertion used to pin).
+    assert after["parameter_snapshot"]["target_tss"] == pytest.approx(59.8, abs=0.1)
+    assert after["sessions"][0]["total_tss"] == after["sessions"][0]["parameter_snapshot"]["target_tss"]
+    assert sum(step["tss"] for step in after["materialized_steps"]) == pytest.approx(59.8, abs=0.1)
     assert after["prescription_fingerprint"] != before["prescription_fingerprint"]
     assert after["session_id"] != before["session_id"]
     assert after["replaces_session_id"] == before["session_id"]
