@@ -22,7 +22,9 @@ live-provider E2E, эфемерность терминального readback, �
 | Ветка | `codex/issue-562-recovery-capture-parity` (отдельный review budget, решение D8) |
 | Head финального feature-прогона | `294aeda` |
 | Head pre-review CI hardening | `2cf3b76` (только два датозависимых smoke-теста после M6c-документов) |
-| Diff на hardening-head | 37 файлов, +4338 / −67 (`facc2b4..2cf3b76`); продуктовый код после `294aeda` не менялся |
+| Round 1 reviewed head | `9bb781e` |
+| Round 1 repair head | `98f2388` (`002fbdd` Domain/API + `98f2388` UI; docs follow separately) |
+| Diff на repair-head | 37 файлов, +4470 / −70 (`facc2b4..98f2388`) |
 | Схема БД | не менялась (никаких DDL и миграций) |
 | Milestone SHA | M1 `3992c5c` · M2 RED `22fda6b` / GREEN `e18b279` · safety RED `6dbe415` / GREEN `edfcfca` · F1–F3 `45976af` · M3 `20e8594` · M4 `ead8f05` · M5 `e66266c` · M6a `d8226be` + фикстуры `faff6aa` + docs `9919be5` · M6b `cbf86cd` · M6a-коррекция `a9f6790` · M6b re-acceptance `661dee6` · M6b-cleanup `294aeda` |
 
@@ -43,6 +45,8 @@ Ruff и contract-гейты — результаты в §2 и §3 отмече�
 | Pre-review UTC reproduction | `TZ=UTC python -m pytest tests/smoke/test_api_today.py::test_repeated_today_reads_do_not_append_timestamp_only_forecasts tests/smoke/test_issue_555_subjective_wellness.py::test_api_and_tool_agree_on_subjective_only_day -q -vv` | на исходном head **2 failed**; на `2cf3b76` **2 passed** |
 | Contributor-safe под UTC после hardening | `TZ=UTC python -m pytest -m "not live and not debug and not e2e" tests/ -W error::pytest.PytestReturnNotNoneWarning -q` | на `2cf3b76` **2597 passed, 16 skipped, 36 deselected**, 0 failed, 68.65 s, 3 warnings |
 | Focused M1–M6 (#562) | `python -m pytest tests/smoke/test_recovery_capture_contract.py tests/smoke/test_garmin_sync_service.py tests/smoke/test_recovery_capture_intervals.py tests/smoke/test_recovery_capture_api_contract.py tests/smoke/test_issue_562_acceptance.py tests/smoke/test_m3_sync_ui_contract.py tests/smoke/test_m3_sync_provider_api.py tests/smoke/test_sync_job_api.py -q` | **132 passed, 10 skipped** (skip — явная регенерация фикстур под `CAPTURE_FIXTURE_REGEN=1`) |
+| Round 1 repair: focused M1–M6 | та же focused-команда | на `98f2388` **133 passed, 10 skipped**, 0 failed, 3.55 s |
+| Round 1 repair: contributor-safe UTC | `TZ=UTC python -m pytest -m "not live and not debug and not e2e" tests/ -W error::pytest.PytestReturnNotNoneWarning -q` | на `98f2388` **2598 passed, 16 skipped, 38 deselected**, 0 failed, 70.55 s, 3 warnings |
 | Линтер Python | `python -m ruff check .` | **All checks passed!** |
 | Web lint | `npm --prefix web run lint` | exit 0, «No ESLint warnings or errors» |
 | Web build | `npm --prefix web run build` | exit 0, `✓ Compiled successfully` (16/16 статических страниц) |
@@ -70,10 +74,10 @@ E2E-контур заново не перезапускались: их резу
 пользователь видит честный readback. Продуктовые переключатели и инъекции
 провайдеров для этого не добавлялись (решение D5).
 
-| Проверка | Команда | Результат на `294aeda` |
+| Проверка | Команда | Результат / head |
 |----------|---------|------------------------|
-| Браузерный модуль #562 | `python -m pytest -m e2e tests/e2e/test_recovery_capture_readback.py -q` | **10 passed** (5 состояний × 2 провайдера), ~30 s |
-| Полный E2E | `python -m pytest -m e2e tests/e2e -q` | **12 passed**, 36.85 s |
+| Браузерный модуль #562 | `python -m pytest -m e2e tests/e2e/test_recovery_capture_readback.py -q` | на `98f2388` **12 passed**: 5 состояний × 2 провайдера + compact 375 px × 2 провайдера, 37.73 s |
+| Полный E2E | `python -m pytest -m e2e tests/e2e -q` | на `98f2388` **14 passed**, 42.69 s |
 
 Перехват и что он утверждает:
 
@@ -90,6 +94,11 @@ E2E-контур заново не перезапускались: их резу
 идентификаторов (`capture_run_id`, `job_id`, `snapshot_id`), машинных кодов
 состояний и причин, сырого `error`, путей вида `athlete.db` и новых
 console/pageerror.
+
+После review round 1 добавлен отдельный mobile-фальсификатор: compact
+`SyncControl` на ширине 375 px обязан показать terminal readback для Garmin и
+Intervals; до исправления его скрывал `hidden ... sm:inline`, на `98f2388`
+оба кейса видимы и входят в `12 passed` выше.
 
 Evidence прогона (артефакты каталога, в git не коммитятся — `logs/` вне
 репозитория, кроме двух репрезентативных снимков):
@@ -130,9 +139,11 @@ UI-контур — синтетической браузерной приёмк
 **Ограничение, не проверенное свойство устойчивости.** `SyncJobManager` —
 process-local: новый процесс инициализируется idle-снимком, поэтому терминальный
 результат (а вместе с ним и `recovery_capture`) **не переживает рестарт API**.
-Дурабельна только сама запись снимка — её строка в журнале и провенанс;
-`capture_failed` не пишет ни одной строки, поэтому восстановить этот исход из
-базы нельзя.
+Дурабельна сама запись снимка — её строка в журнале и провенанс. Для
+`capture_failed/snapshot_capture_failed` сбой происходит до записи, поэтому строки
+нет. Для `capture_failed/activity_lookup_failed` ревизия уже сохранена и её
+`snapshot_id` / `revision` дурабельны, но сам вердикт сбоя и его причина
+остаются только в process-local ответе job'а и после рестарта не восстанавливаются.
 
 Персистенция исходов capture (включая провалы) — вне объёма #562 и не
 заявляется как покрытая. В UI это не маскируется: readback показывает вердикт

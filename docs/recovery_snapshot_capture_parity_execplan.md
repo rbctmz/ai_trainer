@@ -4,7 +4,7 @@
 
 Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **A — Full**. Базовая точка: `main` = `9ba4a37` (в main уже влиты #552 — revisioned evidence head и lifecycle, #557/#563 — freshness/provenance readiness и fail-closed intervention, #564/#565 — интервенционное evidence и guard отката `training_readiness`).
 
-Ревизия документа: v1.19 (реализация закрыта: M1–M6, включая M6a-коррекцию `capture_failed` → `partial`, повторную браузерную приёмку, M6b-cleanup снятия дублирования и M6c — ASR-контур с evidence bundle; плюс hardening-слайсы F1–F3 и pre-review CI timezone; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Публичный API-контракт расширен аддитивно в M4, UI readback добавлен в M5; схема не менялась.
+Ревизия документа: v1.20 (реализация закрыта: M1–M6, включая M6a-коррекцию `capture_failed` → `partial`, повторную браузерную приёмку, M6b-cleanup снятия дублирования и M6c — ASR-контур с evidence bundle; плюс hardening-слайсы F1–F3, pre-review CI timezone и implementation review round 1; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Публичный API-контракт расширен аддитивно в M4, UI readback добавлен в M5; схема не менялась.
 
 ## Purpose / Big Picture
 
@@ -29,6 +29,7 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 - [x] (2026-09-13) M6b-cleanup. Дублирование снято в UI по решению владельца: серверный warning не меняется (нужен для D4/`partial`), скрывается только notice, уже представленный структурным `recovery_capture` (статус `capture_failed` + код, равный `capture.reason`); чужие notices сохраняются. Проверки: причина видна ровно один раз, `⚠️ Снимок готовности:` отсутствует, «завершена частично» сохранено, посторонний notice не исчезает. Backend/API, фикстуры и контракт не менялись.
 - [x] (2026-09-13) M6c. Spec / Architecture Owner: контур #562 зафиксирован в `docs/architecture/asr_catalog.md` (строки ASR-REL-3/REL-2/MOD-2/MOD-3 + отдельная секция) и собран итоговый evidence bundle `docs/recovery_snapshot_capture_parity_evidence.md` с явным разделением проверенного и непроверенного. Продуктовый код не менялся. Финальный прогон: contributor-safe `2598 passed, 15 skipped, 36 deselected`, focused M1–M6 `132 passed, 10 skipped`, браузерный модуль `10 passed`, полный e2e `12 passed`, Ruff/линт/сборка чисто, contract check актуален, inventory `0 unresolved`.
 - [x] (2026-09-13) Pre-review CI timezone hardening. Первый contributor-safe прогон PR #572 в UTC вскрыл два полуночных тестовых расхождения вне продуктового контура #562: фикстуры строились по системной UTC-дате, а routes использовали локальную дату атлета. Оба теста переведены на `athlete_local_date()` в коммите `2cf3b76`; точная репродукция под `TZ=UTC`: `2 failed` → `2 passed`, полный contributor-safe под `TZ=UTC`: `2597 passed, 16 skipped, 36 deselected`, 0 failed. Продуктовый код/API/UI/контракт не менялись.
+- [x] (2026-09-13) Implementation review round 1 на `9bb781e` (бюджет 1/2): 5 подтверждённых находок — 1 P1 + 4 P2. Domain/API `fixed-in 002fbdd`: idempotent retry берёт eligibility и дату episode refresh из сохранённой ревизии; defensive failure обоих провайдеров возвращает полный type-safe блок; Garmin не публикует legacy detail при `capture_failed`. UI `fixed-in 98f2388`: compact readback виден ниже `sm`, browser acceptance расширена до 375 px × оба провайдера. Spec/docs: restart-evidence разделяет pre-save `snapshot_capture_failed` и post-save `activity_lookup_failed`. GREEN на repair-head: focused `133 passed, 10 skipped`; contributor-safe под UTC `2598 passed, 16 skipped, 38 deselected`; browser module `12 passed`; full e2e `14 passed`; Ruff/lint/build чисто.
 - [x] M6. Приёмка: синтетическая browser-приёмка обоих провайдеров, инвариант «capture-статус ⇔ дневной anchor», fail-open, идемпотентность/монотонность, широкий контур, ASR-каталог и evidence bundle — закрыты M6a/M6b/M6c.
 
 ## Surprises & Discoveries
@@ -52,8 +53,8 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 - **Observed**: M1 принимал `capture_run_id` и доказывал его storage/idempotency semantics, но production `SyncJobManager` всё ещё вызывал runner только с progress callback, а Garmin создавал собственный UUID внутри сервиса; значит end-to-end job identity ещё не была закрыта.
   **Inferred**: полный UUID должен рождаться один раз на job boundary и передаваться keyword-аргументом через provider-neutral runner; короткий `job_id` остаётся только display/audit handle.
   **Verified by**: M2 RED `4 failed` на `22fda6b`; GREEN: тест API job получает ровно один parseable full UUID при reuse, Garmin wrapper вызывается один раз с тем же явным ID, direct вызов генерирует отдельный full UUID.
-- **Observed**: `SyncJobManager` — process-local: новый процесс инициализируется idle-снимком (`api/sync_jobs.py::_idle_snapshot`), то есть терминальный `result` (а с ним и `recovery_capture`) не переживает рестарт API; `capture_failed` при этом не пишет ни одной строки в журнал, поэтому восстановить его из базы нельзя.
-  **Inferred**: терминальный readback capture-статуса **эфемерен**; дурабельна только сама запись снимка (её строка и provenance). Значит «переживает рестарт» нельзя заявлять как покрытое свойство — это надо честно объявить эфемерным, а персистенцию исходов (включая провалы) вынести за scope.
+- **Observed**: `SyncJobManager` — process-local: новый процесс инициализируется idle-снимком (`api/sync_jobs.py::_idle_snapshot`), то есть терминальный `result` (а с ним и `recovery_capture`) не переживает рестарт API. `snapshot_capture_failed` возникает до записи и не оставляет строку; `activity_lookup_failed` возникает после записи и сохраняет ревизию.
+  **Inferred**: терминальный readback capture-статуса **эфемерен** для обоих причин; в post-save ветке дурабельна ревизия с `snapshot_id` / `revision`, но не failure-verdict. Персистенция исходов остаётся за scope.
   **Verified by**: чтение `api/sync_jobs.py` (`_idle_snapshot`, `start_or_get`, `_public_snapshot_locked`) и структуры `readiness_snapshots` (поля исхода capture там нет) на `9ba4a37`.
 - **Observed**: активности нужно читать **по дате самой ревизии**, а не окном от текущего момента: `db.get_activities(days=N)` отсчитывает окно от сегодня, поэтому backfilled-захват прошлого дня не видел бы активности этого дня и вердикт стал бы `saved_before_load` вместо `saved_too_late`.
   **Inferred**: граница дня относится к дате capture, а не к моменту запуска; выборка обязана быть детерминированной и не зависеть от того, когда захват выполнен.
@@ -79,6 +80,10 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 - **Observed**: после локализации одна и та же причина печаталась в строке дважды — `⚠️ Снимок готовности: сбой при сохранении снимка` (warning) и `… · сбой при сохранении снимка` (readback-блок), то есть два объяснения одного факта в одной строке. **Inferred**: warning нужен как сигнал D4/`partial`, но не обязан дублировать структурный блок; дублирование — дефект представления, снимаемый на стороне UI без изменения домена. **Verified by**: M6b-cleanup — `text.count("сбой при сохранении снимка") == 1`, `⚠️ Снимок готовности:` отсутствует, «завершена частично» сохранено, посторонний notice виден (`UNRELATED_NOTICE`, инъекция перехватом в тесте).
 
 ## Decision Log
+
+- Decision (implementation review round 1): все пять находок на `9bb781e` нарушают уже принятые инварианты и исправляются в этом PR, а не выносятся в follow-up. P1 нарушал revision-specific readback при idempotent retry; P2 нарушали однократное объяснение сбоя, TS-форму defensive fallback, видимость UI на mobile и точность evidence. Исправления разнесены по ролям: Domain/API `002fbdd`, UI `98f2388`, Spec/docs — v1.20.
+  Rationale: каждая находка воспроизведена RED-тестом или прямым исполняемым трейсом; это не гипотетические расширения scope, а контрпримеры к AC2/AC3/AC4/AC8/AC9 и D4.
+  Date/Author: 2026-09-13 / Supervisor / Integrator after independent checker round 1.
 
 - Decision (D1): **владение capture — общий provider-neutral вход в `services/recovery_analytics.py`**, вызываемый обоими sync-сервисами; Garmin-путь перестаёт держать собственный инлайн-блок.
   Rationale: capture обязан работать не только на API-пути. Легаси-Streamlit и demo вызывают `services/sync.py::sync_garmin_data` и `services/intervals_sync.py::sync_intervals_data` напрямую; хук в `api/routers/system.py` оставил бы эти поверхности без снимка — то есть воспроизвёл бы дефект #562 в другом месте. Отвергнутая альтернатива — вызов capture только в API-раннере (`_run_garmin_sync`/`_run_intervals_sync`): меньше файлов в диффе, но потеря поведения на не-API поверхностях.
@@ -222,6 +227,16 @@ Browser contract/UX acceptance (D5): **параметризованные сце
 ## Artifacts and Notes
 
 Plan-only этап: артефакты — этот файл и `docs/recovery_snapshot_capture_parity_slice_spec.md`. Прогоны и выводы будут дополнены в M1–M6 (RED-падения, GREEN-прогоны, браузерные снимки текста, evidence bundle).
+
+### Implementation review round 1 repair (2026-09-13)
+
+Reviewed head `9bb781e`; бюджет implementation PR #572 — 1/2. Все пять находок подтверждены:
+
+- P1: повтор того же `capture_run_id` после изменения readiness-входов возвращал старую immutable-ревизию, но новую eligibility. RED — `test_idempotent_retry_uses_the_persisted_revision_eligibility`; `fixed-in 002fbdd` — eligibility и дата episode refresh восстанавливаются из возвращённой строки.
+- P2: Garmin при `capture_failed` публиковал legacy detail и warning, а UI снимал только warning. RED в `test_sync_garmin_capture_failure_keeps_data_and_marks_partial`; `fixed-in 002fbdd` — failure-detail не добавляется, success-details сохранены.
+- P2: defensive fallback обоих провайдеров не соответствовал `RecoveryCapture`. RED — два теста защитной границы; `fixed-in 002fbdd` — общий `build_capture_failure_block` со строковым `eligibility_status="unknown"`, пустым списком причин, stable `error` и nullable-датами.
+- P2: compact `SyncControl` скрывал message классом `hidden ... sm:inline`. UI RED — статический пин; `fixed-in 98f2388` — message имеет `basis-full` ниже `sm` и `sm:basis-auto` в широком контуре. Browser GREEN: 12 кейсов, включая 375 px × Garmin/Intervals.
+- P2-doc: restart-секция обобщала все `capture_failed` как pre-save. `fixed-in` v1.20: `snapshot_capture_failed` не пишет строку, `activity_lookup_failed` сохраняет ревизию, но его verdict/reason остаются эфемерными.
 
 ### Pre-review CI timezone hardening (2026-09-13)
 
@@ -458,6 +473,8 @@ RED: `2 failed` в `tests/smoke/test_m3_sync_ui_contract.py` (readback отсу�
 - публикация личных дат, health-метрик, названий тренировок и provider payload.
 
 ## Change log
+
+- v1.20 (2026-09-13): implementation review round 1 PR #572 на `9bb781e` — 5 подтверждённых находок (1 P1 + 4 P2). `fixed-in 002fbdd`: idempotent readback и episode refresh берут eligibility/дату из immutable-ревизии, defensive fallback обоих провайдеров соответствует `RecoveryCapture`, Garmin failure не публикует второй legacy detail. `fixed-in 98f2388`: compact readback виден на 375 px для обоих провайдеров. Evidence разделяет pre-save `snapshot_capture_failed` и post-save `activity_lookup_failed`. Бюджет implementation-review: 1/2.
 
 - v1.19 (2026-09-13): pre-review CI timezone hardening PR #572. Два предсуществующих smoke-теста использовали системную дату, тогда как routes используют дату атлета; полуночное UTC/MSK-окно воспроизвело `2 failed`. Фикстуры переведены на `athlete_local_date()` в `2cf3b76`; точный GREEN — `2 passed`, полный contributor-safe под `TZ=UTC` — `2597 passed, 16 skipped, 36 deselected`, 0 failed. Продуктовый код/API/UI/контракт не менялись.
 
