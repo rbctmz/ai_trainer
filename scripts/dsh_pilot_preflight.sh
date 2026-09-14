@@ -14,8 +14,8 @@
 #   smoke     (только с --allow-paid-call) — один headless-прогон read-only
 #             задачи, с записью exit code, длительности, SHA промпта, пути
 #             сессии и проверкой, что дерево осталось неизменным. Платный вызов
-#             ограничен жёстким лимитом 300 c (DSH_PILOT_TIMEOUT_SECONDS,
-#             допустимо 1..300; пустое значение — отказ, а не дефолт): лимит
+#             ограничен жёстким лимитом 600 c (DSH_PILOT_TIMEOUT_SECONDS,
+#             допустимо 1..900; пустое значение — отказ, а не дефолт): лимит
 #             отсчитывается монотонными часами (time.monotonic), поэтому перевод
 #             настенных часов его не растягивает. По истечении вся группа
 #             процессов прогона получает SIGTERM, затем через
@@ -54,13 +54,18 @@ ACCEPT_DRIFT="${DSH_PILOT_ACCEPT_CONFIG_DRIFT:-0}"
 # Развёртка `-`, а не `:-`: явно пустое значение обязано дойти до валидации и
 # упасть. С `:-` `DSH_PILOT_TIMEOUT_SECONDS=` (нерасширившаяся переменная в CI,
 # обнулённая настройка) тихо подменялось бы дефолтом, ветка отказа для `''`
-# стала бы недостижимой, и платный вызов стартовал бы с лимитом 300 c.
-TIMEOUT_SECONDS="${DSH_PILOT_TIMEOUT_SECONDS-300}"
+# стала бы недостижимой, и платный вызов стартовал бы с дефолтным лимитом.
+# Дефолт поднят с 300 до 600 c: оплаченный прогон пилота #577 на задаче из трёх
+# файлов (74 tool calls, 57 шагов) упёрся в 300 c на середине работы и не выдал
+# ни финального ответа, ни коммита — то есть лимит обрывал задачу такого размера.
+# Верхняя граница остаётся жёсткой: 900 c — предел, после которого «лимит» уже
+# не защищал бы бюджет от зависшего вызова.
+TIMEOUT_SECONDS="${DSH_PILOT_TIMEOUT_SECONDS-600}"
 TIMEOUT_GRACE_SECONDS="${DSH_PILOT_TIMEOUT_GRACE_SECONDS-5}"
 # Верхние границы закреплены константами, чтобы «жёсткий лимит» из шапки был
-# проверяемым фактом, а не обещанием: не более 300 c на сам прогон и не более
+# проверяемым фактом, а не обещанием: не более 900 c на сам прогон и не более
 # 10 c на grace после SIGTERM (иначе уже оплаченный прогон растягивался бы).
-TIMEOUT_MAX_SECONDS=300
+TIMEOUT_MAX_SECONDS=900
 TIMEOUT_GRACE_MAX_SECONDS=10
 
 usage() {
@@ -285,7 +290,7 @@ ok "cwd smoke будет $WORKTREE — промпт найден по абсол
 # --- жёсткий лимит платного вызова -----------------------------------------
 # Без лимита зависший модельный вызов держит preflight неограниченно долго и
 # жжёт бюджет. Мусор в лимите — отказ ДО платного вызова, а не тихий откат к
-# 300 c: молчаливая потеря гарантии в этом скрипте запрещена (ср. drift профиля).
+# 600 c: молчаливая потеря гарантии в этом скрипте запрещена (ср. drift профиля).
 # Верхняя граница здесь так же обязательна, как нижняя: `86400` в этом поле
 # означало бы «лимита нет», а неограниченный grace растягивал бы прогон уже
 # после SIGTERM, то есть оплаченное время шло бы и дальше.
@@ -300,19 +305,19 @@ require_seconds_in_range() {
   # Длина проверяется отдельно, и это не педантизм: `[ -gt ]` считает в 64 битах,
   # а 20-значное значение роняет сравнение ошибкой (rc=2), которую условие `if`
   # принимает за «ложь» — то есть пропустило бы лимит. Порог в 9 цифр безопасен
-  # для 64-битного сравнения и всё равно отсекает всё, что больше 300.
+  # для 64-битного сравнения и всё равно отсекает всё, что больше 900.
   if [ "${#value}" -gt 9 ] || [ "$value" -lt 1 ] || [ "$value" -gt "$max" ]; then
     fail "$name='$value' — допустимый диапазон 1..$max c (по умолчанию $default); $why"
   fi
 }
 require_seconds_in_range DSH_PILOT_TIMEOUT_SECONDS "$TIMEOUT_SECONDS" \
-  "$TIMEOUT_MAX_SECONDS" 300 \
+  "$TIMEOUT_MAX_SECONDS" 600 \
   "значение вне диапазона означало бы, что жёсткого лимита нет"
 require_seconds_in_range DSH_PILOT_TIMEOUT_GRACE_SECONDS "$TIMEOUT_GRACE_SECONDS" \
   "$TIMEOUT_GRACE_MAX_SECONDS" 5 \
   "больший grace растягивал бы уже оплаченный прогон после SIGTERM"
-# Ведущие нули приводим к десятичной форме: в арифметике bash `$((0300))` — это
-# 192, поэтому без нормализации напечатанный лимит разошёлся бы с фактическим
+# Ведущие нули приводим к десятичной форме: в арифметике bash `$((0900))` — это
+# 576, поэтому без нормализации напечатанный лимит разошёлся бы с фактическим
 # дедлайном. Проверка выше уже гарантировала, что здесь только цифры.
 TIMEOUT_SECONDS=$((10#$TIMEOUT_SECONDS))
 TIMEOUT_GRACE_SECONDS=$((10#$TIMEOUT_GRACE_SECONDS))
@@ -515,6 +520,113 @@ METRICS_DONE=0
 # модели прогон засчитывался бы без оплаченных чисел. Для таймаутного прогона
 # доминирует 124, поэтому решение принимается ниже и отдельно.
 METRICS_FAIL=0
+# --- агрегация токенов из session.jsonl.zstd --------------------------------
+# Разбор читает usage НА ЛЮБОЙ ГЛУБИНЕ записи, а не только в её корне. Это
+# оплаченный урок пилота #577: harness 0.1.0-rc.6 пишет usage вложенно внутри
+# `data`, поэтому парсер, смотревший только `rec.get("usage")`, получал
+# tokens_*=0, и первая оплаченная сессия осталась без измеренных токенов.
+# Точные формы, наблюдавшиеся в сохранённой сессии пилота #577
+# (`logs/dsh-pilot-577/.../session.jsonl.zstd`, 1614 записей):
+#   1) сверенный шаг модели — `{"type":"assistant/message","data":{"turn":N,
+#      "step":M,"usage":{"inputTokens":..,"outputTokens":..,"cacheReadTokens":..,
+#      "reasoningTokens":..}}}` — авторитетная запись шага (57 штук);
+#   2) стриминговый чанк того же шага — `{"type":"assistant/chunk","data":{"turn":N,
+#      "step":M,"chunk":{"type":"usage","usage":{...}}}}` с ТЕМИ ЖЕ числами (57 штук).
+# Обе записи описывают один запрос к провайдеру, поэтому суммировать их вместе
+# нельзя: это удвоило бы токены. Дубль снимается структурно: у записи берётся
+# только первый (ближайший к корню) найденный usage, поэтому у `assistant/chunk`
+# это `data.chunk.usage`, а у `assistant/message` — `data.usage`. Вторым рубежом
+# идёт дедупликация по (turn, step, значения usage): повтор с теми же числами в
+# том же шаге считается одним измерением, разные шаги и разные значения —
+# разными. Пропуски любых других форм (в т.ч. `data.message.usage`) считаются
+# как есть, без удвоения.
+PARSER_PY='
+import json, sys
+KEYS = ("inputTokens", "outputTokens", "cacheReadTokens", "reasoningTokens")
+tok = dict.fromkeys(KEYS, 0)
+calls = steps = user_msgs = 0
+usage_records = usage_duplicates = parse_errors = 0
+seen = set()
+
+def nearest_usage(node):
+    """usage, ближайший к корню записи: обход в ширину, первое совпадение.
+
+    Обход в ширину, а не в глубину, важен: у одной записи может быть несколько
+    usage на разной глубине, и «первый по глубине» — это измерение этой записи,
+    а не вложенная копия (иначе один запрос считался бы дважды).
+    """
+    queue = [node]
+    while queue:
+        current = queue.pop(0)
+        if isinstance(current, dict):
+            value = current.get("usage")
+            if isinstance(value, dict) and any(key in value for key in KEYS):
+                return value
+            queue.extend(current.values())
+        elif isinstance(current, list):
+            queue.extend(current)
+    return None
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        rec = json.loads(line)
+    except Exception:
+        # Строка-обрезок не должна обнулять уже посчитанное: ошибка считается и
+        # печатается, но остальные записи остаются измеренными.
+        parse_errors += 1
+        continue
+    if not isinstance(rec, dict):
+        continue
+    rtype = rec.get("type")
+    data = rec.get("data")
+    data = data if isinstance(data, dict) else {}
+    usage = nearest_usage(rec)
+    if usage is not None:
+        values = []
+        for key in KEYS:
+            raw = usage.get(key)
+            try:
+                values.append(int(raw or 0))
+            except Exception:
+                values.append(0)
+        signature = (str(data.get("turn", "")), str(data.get("step", "")), tuple(values))
+        if signature in seen:
+            usage_duplicates += 1
+        else:
+            seen.add(signature)
+            usage_records += 1
+            for key, value in zip(KEYS, values):
+                tok[key] += value
+    calls += 1 if rtype == "tool/call" else 0
+    steps += 1 if rtype == "step/end" else 0
+    user_msgs += 1 if rtype == "user/message" else 0
+
+print(f"usage_records={usage_records}")
+print(f"usage_duplicate_records_skipped={usage_duplicates}")
+print(f"session_parse_errors={parse_errors}")
+if usage_records == 0:
+    reason = "usage records absent in the whole session"
+    if parse_errors:
+        reason = f"usage records absent and {parse_errors} record(s) unreadable"
+    print(f"tokens_input=not available ({reason})")
+    print(f"tokens_output=not available ({reason})")
+    print(f"tokens_cache_read=not available ({reason})")
+    print(f"tokens_reasoning=not available ({reason})")
+else:
+    # `.format(**tok)` вместо f-строк с ключами: блок исполняется как
+    # `python3 -c "$PARSER_PY"`, и одиночная кавычка внутри ключа закрыла бы
+    # аргумент -c, обрезав остаток кода (проверено: f"{{{tok[chr(39)+key+chr(39)]}}}").
+    print("tokens_input={inputTokens}".format(**tok))
+    print("tokens_output={outputTokens}".format(**tok))
+    print("tokens_cache_read={cacheReadTokens}".format(**tok))
+    print("tokens_reasoning={reasoningTokens}".format(**tok))
+print(f"tool_calls={calls}")
+print(f"steps={steps}")
+print(f"human_messages_in_session={user_msgs}  # больше 1 => были вмешательства")
+'
 emit_metrics() {
   [ "$METRICS_DONE" -eq 0 ] || return 0
   METRICS_DONE=1
@@ -548,34 +660,17 @@ emit_metrics() {
     # этом не молчит: она печатается и попадает в метрики строкой session_metrics,
     # а решение о коде возврата принимается независимо от неё.
     local metrics_lines
-    if metrics_lines="$(zstd -dc "$SESSION_FILE" 2>/dev/null | python3 -c '
-import json, sys
-tok_in = tok_out = cache = reasoning = calls = steps = user_msgs = 0
-for line in sys.stdin:
-    try:
-        rec = json.loads(line)
-    except Exception:
-        continue
-    if not isinstance(rec, dict):
-        continue
-    usage = rec.get("usage") or {}
-    if isinstance(usage, dict) and usage:
-        tok_in += int(usage.get("inputTokens") or 0)
-        tok_out += int(usage.get("outputTokens") or 0)
-        cache += int(usage.get("cacheReadTokens") or 0)
-        reasoning += int(usage.get("reasoningTokens") or 0)
-    calls += 1 if rec.get("type") == "tool/call" else 0
-    steps += 1 if rec.get("type") == "step/end" else 0
-    user_msgs += 1 if rec.get("type") == "user/message" else 0
-print(f"tokens_input={tok_in}")
-print(f"tokens_output={tok_out}")
-print(f"tokens_cache_read={cache}")
-print(f"tokens_reasoning={reasoning}")
-print(f"tool_calls={calls}")
-print(f"steps={steps}")
-print(f"human_messages_in_session={user_msgs}  # больше 1 => были вмешательства")
-')"; then
+    if metrics_lines="$(zstd -dc "$SESSION_FILE" 2>/dev/null | python3 -c "$PARSER_PY")"; then
       printf '%s\n' "$metrics_lines"
+      # Сессия без единой записи usage — не «нулевые токены», а отсутствие
+      # измерения: печатать нули значило бы утверждать, что оплаченный прогон
+      # израсходовал ровно ноль токенов. Одна явная строка говорит об этом прямо,
+      # а для нетаймаутного прогона отсутствие метрик так же фатально, как сбой
+      # извлечения (runbook требует метрики для зачёта smoke).
+      if printf '%s\n' "$metrics_lines" | grep -q 'tokens_input=not available'; then
+        METRICS_FAIL=1
+        echo "  ✘ в сессии $SESSION_FILE нет ни одной записи usage — токены и стоимость недоступны (не нули), прогон нельзя засчитывать по метрикам (для таймаутного прогона наружу всё равно 124)" >&2
+      fi
     else
       METRICS_FAIL=1
       echo "  ✘ не удалось извлечь метрики сессии из $SESSION_FILE: zstd/python3 вернули ошибку — оплаченные числа не собраны, прогон нельзя засчитывать (для таймаутного прогона наружу всё равно 124)" >&2
