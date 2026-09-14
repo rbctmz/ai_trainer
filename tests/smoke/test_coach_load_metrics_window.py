@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import pytest
 
 from data.database import Database
 from models.ai_tools import AITools, COACH_LOAD_METRICS_WINDOW_DAYS
+from models.signals_engine import assemble_signals
 
 
 pytestmark = pytest.mark.smoke
@@ -63,6 +64,89 @@ def test_performance_metrics_ignore_days_for_ctl_atl_tsb(tmp_path):
     assert metrics_7d["ctl"] == pytest.approx(metrics_60d["ctl"], abs=0.01)
     assert metrics_7d["atl"] == pytest.approx(metrics_60d["atl"], abs=0.01)
     assert metrics_7d["tsb"] == pytest.approx(metrics_60d["tsb"], abs=0.01)
+
+
+def test_performance_metrics_anchor_is_athlete_day(tmp_path, monkeypatch):
+    """Host pinned to 09-13, athlete already 09-14: the anchor must be 09-14 (#577)."""
+    from config.settings import Settings
+    from models import ai_tools
+    from utils import athlete_time
+
+    class PinnedAthleteInstant(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = datetime(2026, 9, 13, 22, tzinfo=timezone.utc)
+            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+    class HostDay(date):
+        @classmethod
+        def today(cls):
+            return date(2026, 9, 13)
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "Europe/Moscow")
+    monkeypatch.setattr(athlete_time, "datetime", PinnedAthleteInstant)
+    monkeypatch.setattr(ai_tools, "date", HostDay)
+
+    empty = AITools(Database(str(tmp_path / "athlete_empty.db"))).get_performance_metrics()
+    assert empty["computed_for"] == "2026-09-14"
+
+    db = Database(str(tmp_path / "athlete_metrics.db"))
+    db.save_activities(
+        [
+            {
+                "activity_id": "athlete-anchor-1",
+                "date": "2026-09-13",
+                "sport": "cycling",
+                "duration_minutes": 60,
+                "distance_km": 24.0,
+                "tss": 50.0,
+            }
+        ]
+    )
+    result = AITools(db).get_performance_metrics(days=30)
+    assert result["computed_for"] == result["as_of_date"] == "2026-09-14"
+    activities = db.get_activities(COACH_LOAD_METRICS_WINDOW_DAYS)
+    athlete_load = assemble_signals(activities_df=activities, as_of=date(2026, 9, 14))["load"]
+    host_load = assemble_signals(activities_df=activities, as_of=date(2026, 9, 13))["load"]
+    assert athlete_load["tsb"] == pytest.approx(-4.6)
+    assert host_load["tsb"] == pytest.approx(-5.5)
+    assert result["tsb"] == pytest.approx(athlete_load["tsb"])
+    assert result["tsb"] != pytest.approx(host_load["tsb"])
+
+
+def test_performance_metrics_exclude_activities_after_athlete_day(tmp_path, monkeypatch):
+    """Tomorrow's activity cannot drive today's Coach load recommendation."""
+    from config.settings import Settings
+    from utils import athlete_time
+
+    class PinnedLosAngelesInstant(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = datetime(2026, 9, 14, 2, tzinfo=timezone.utc)
+            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "America/Los_Angeles")
+    monkeypatch.setattr(athlete_time, "datetime", PinnedLosAngelesInstant)
+
+    db = Database(str(tmp_path / "future_activity.db"))
+    db.save_activities(
+        [
+            {
+                "activity_id": "tomorrow-activity",
+                "date": "2026-09-14",
+                "sport": "cycling",
+                "duration_minutes": 60,
+                "distance_km": 24.0,
+                "tss": 100.0,
+            }
+        ]
+    )
+
+    result = AITools(db).get_performance_metrics(days=30)
+
+    assert result["computed_for"] == "2026-09-13"
+    assert result["data_through"] is None
+    assert "ctl" not in result
 
 
 def test_coach_meta_and_decision_log_include_load_window(tmp_path, monkeypatch):

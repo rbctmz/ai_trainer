@@ -94,20 +94,119 @@ def test_observations_reach_native_messages_and_synthesis(tmp_path, monkeypatch,
         assert 'synthetic measured-table failure' in provider.received
 
 
-def test_tool_uses_its_computed_for_date_on_utc_host(tmp_path, monkeypatch):
+class PinnedAthleteInstant(datetime):
+    """2026-09-13T22:00Z — already 2026-09-14 on the athlete's Moscow calendar."""
+
+    @classmethod
+    def now(cls, tz=None):
+        instant = datetime(2026, 9, 13, 22, tzinfo=timezone.utc)
+        return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+
+class HostDay(date):
+    """Host process calendar pinned one day behind the athlete."""
+
+    @classmethod
+    def today(cls):
+        return date(2026, 9, 13)
+
+
+class PinnedLosAngelesInstant(datetime):
+    """2026-09-14T02:00Z — still 2026-09-13 for the athlete in Los Angeles."""
+
+    @classmethod
+    def now(cls, tz=None):
+        instant = datetime(2026, 9, 14, 2, tzinfo=timezone.utc)
+        return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+
+def test_tool_anchor_matches_canonical_snapshot_on_athlete_day(tmp_path, monkeypatch):
+    """The host says 09-13 while the athlete is already on 09-14 (#577).
+
+    Both the canonical readiness snapshot and the coach tool must follow the
+    athlete calendar, so ``computed_for`` is the same 09-14 date the rest of
+    the product exposes.
+    """
+    from config.settings import Settings
+    from services import readiness_snapshot, subjective_wellness
+    from utils import athlete_time
     from models import ai_tools
-    from services import subjective_wellness
-    class UTCHostDate(date):
-        @classmethod
-        def today(cls):
-            return date(2026, 9, 9)
-    monkeypatch.setattr(ai_tools, 'date', UTCHostDate)
-    monkeypatch.setattr(subjective_wellness, 'datetime', UTCHostClock)
-    db = Database(str(tmp_path / 'tool-clock.db'))
-    seed(db, '2026-09-09', 1)
-    seed(db, '2026-09-10', 4)
+
+    monkeypatch.setattr(Settings, 'ATHLETE_TIMEZONE', 'Europe/Moscow')
+    monkeypatch.setattr(athlete_time, 'datetime', PinnedAthleteInstant)
+    monkeypatch.setattr(ai_tools, 'date', HostDay)
+
+    db = Database(str(tmp_path / 'athlete-anchor.db'))
+    seed(db, '2026-09-13', 1)
+    seed(db, '2026-09-14', 4)
+
+    canonical = readiness_snapshot.build_readiness_snapshot(db)
+
+    reader_dates = []
+    original_reader = subjective_wellness.build_subjective_wellness
+
+    def capture_reader(db, *, as_of=None):
+        reader_dates.append(as_of)
+        return original_reader(db, as_of=as_of)
+
+    monkeypatch.setattr(subjective_wellness, 'build_subjective_wellness', capture_reader)
+
     result = AITools(db).get_readiness_today()
-    assert result['computed_for'] == result['subjective_wellness']['date'] == '2026-09-09'
+
+    assert canonical['as_of_date'] == '2026-09-14'
+    assert result['computed_for'] == canonical['as_of_date']
+    assert result['subjective_wellness']['date'] == result['computed_for']
+    # Issue #555 one-date rule: the observation reader gets computed_for's date.
+    assert reader_dates[-1].isoformat() == result['computed_for']
+
+
+def test_constraint_relative_dates_use_athlete_calendar(monkeypatch):
+    """«сегодня»/«завтра» resolve on the athlete calendar, not the host clock."""
+    from config.settings import Settings
+    from models import ai_tools
+    from models.ai_tools import _normalize_constraint_date
+    from utils import athlete_time
+
+    monkeypatch.setattr(Settings, 'ATHLETE_TIMEZONE', 'Europe/Moscow')
+    monkeypatch.setattr(athlete_time, 'datetime', PinnedAthleteInstant)
+    monkeypatch.setattr(ai_tools, 'datetime', PinnedAthleteInstant)
+
+    assert _normalize_constraint_date('сегодня') == '2026-09-14'
+    assert _normalize_constraint_date('завтра') == '2026-09-15'
+    assert _normalize_constraint_date('today') == '2026-09-14'
+    assert _normalize_constraint_date('tomorrow') == '2026-09-15'
+
+
+def test_absolute_constraint_date_does_not_require_athlete_timezone(monkeypatch):
+    """An explicit ISO date has no timezone dependency (#577 review round 1)."""
+    from config.settings import Settings
+    from models.ai_tools import _normalize_constraint_date
+
+    monkeypatch.setattr(Settings, 'ATHLETE_TIMEZONE', 'not/a-zone')
+
+    assert _normalize_constraint_date('2026-10-01') == '2026-10-01'
+
+
+def test_tool_excludes_readiness_rows_after_athlete_day(tmp_path, monkeypatch):
+    """Tomorrow's measurements must not enter today's Coach snapshot."""
+    from config.settings import Settings
+    from services import readiness_snapshot
+    from tests.smoke.test_readiness_snapshot_contract import _seed_full_readiness
+    from utils import athlete_time
+
+    monkeypatch.setattr(Settings, 'ATHLETE_TIMEZONE', 'America/Los_Angeles')
+    monkeypatch.setattr(athlete_time, 'datetime', PinnedLosAngelesInstant)
+
+    db = Database(str(tmp_path / 'future-readiness.db'))
+    _seed_full_readiness(db, '2026-09-14')
+
+    canonical = readiness_snapshot.build_readiness_snapshot(db)
+    result = AITools(db).get_readiness_today()
+
+    assert canonical['as_of_date'] == result['computed_for'] == '2026-09-13'
+    assert canonical['score'] is None
+    assert result['readiness']['score'] is None
+    assert result['readiness']['as_of_date'] is None
 
 
 def test_readiness_message_does_not_hide_observations(tmp_path):
