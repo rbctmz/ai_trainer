@@ -114,6 +114,41 @@ def test_performance_metrics_anchor_is_athlete_day(tmp_path, monkeypatch):
     assert result["tsb"] != pytest.approx(host_load["tsb"])
 
 
+def test_performance_metrics_exclude_activities_after_athlete_day(tmp_path, monkeypatch):
+    """Tomorrow's activity cannot drive today's Coach load recommendation."""
+    from config.settings import Settings
+    from utils import athlete_time
+
+    class PinnedLosAngelesInstant(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = datetime(2026, 9, 14, 2, tzinfo=timezone.utc)
+            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "America/Los_Angeles")
+    monkeypatch.setattr(athlete_time, "datetime", PinnedLosAngelesInstant)
+
+    db = Database(str(tmp_path / "future_activity.db"))
+    db.save_activities(
+        [
+            {
+                "activity_id": "tomorrow-activity",
+                "date": "2026-09-14",
+                "sport": "cycling",
+                "duration_minutes": 60,
+                "distance_km": 24.0,
+                "tss": 100.0,
+            }
+        ]
+    )
+
+    result = AITools(db).get_performance_metrics(days=30)
+
+    assert result["computed_for"] == "2026-09-13"
+    assert result["data_through"] is None
+    assert "ctl" not in result
+
+
 def test_coach_meta_and_decision_log_include_load_window(tmp_path, monkeypatch):
     from config.settings import Settings
 

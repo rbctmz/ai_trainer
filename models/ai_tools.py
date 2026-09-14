@@ -71,6 +71,17 @@ def _latest_date_iso(df: pd.DataFrame) -> str | None:
     return latest.strftime("%Y-%m-%d")
 
 
+def _bounded_to_date(df: pd.DataFrame, as_of: date) -> pd.DataFrame:
+    """Exclude invalid and future-dated rows from an athlete-day snapshot."""
+    if df.empty:
+        return df
+    if "date" not in df.columns:
+        return df.iloc[0:0].copy()
+    result = df.copy()
+    parsed = pd.to_datetime(result["date"], errors="coerce")
+    return result.loc[parsed.notna() & (parsed.dt.date <= as_of)].copy()
+
+
 def _is_actionable_plan_adjustment(
     adjustment: Dict[str, Any],
     rows: List[Dict[str, Any]],
@@ -696,21 +707,21 @@ class AITools:
         """
         report_days = max(1, int(days or 30))
         metrics_window_days = COACH_LOAD_METRICS_WINDOW_DAYS
-        report_df = self.db.get_activities(report_days)
-        metrics_df = self.db.get_activities(metrics_window_days)
+        today = athlete_local_date()
+        report_df = _bounded_to_date(self.db.get_activities(report_days), today)
+        metrics_df = _bounded_to_date(self.db.get_activities(metrics_window_days), today)
 
         if metrics_df.empty:
             return {
                 "message": "Нет данных для расчета метрик производительности",
                 "data_through": None,
-                "computed_for": athlete_local_date().isoformat(),
+                "computed_for": today.isoformat(),
             }
 
         # Issue #231: anchor CTL/ATL/TSB to today so a rest morning shows the
         # fresh "today" TSB (matching the canonical readiness sidebar), not a
         # value frozen at the last activity date (second instance of #139).
         # Issue #577: "today" is the athlete calendar day, not the host clock.
-        today = athlete_local_date()
         signals = assemble_signals(activities_df=metrics_df, as_of=today)
         load = signals["load"]
         tss_data = []
@@ -759,11 +770,15 @@ class AITools:
         today = athlete_local_date()
         subjective = build_subjective_wellness(self.db, as_of=today)
         try:
-            sleep_df = self.db.get_sleep_data(36500)
-            hrv_df = self.db.get_hrv_data(36500)
-            health_df = self.db.get_daily_health(36500)
-            training_df = self.db.get_training_status_history(36500)
-            activities_df = self.db.get_activities(COACH_LOAD_METRICS_WINDOW_DAYS)
+            sleep_df = _bounded_to_date(self.db.get_sleep_data(36500), today)
+            hrv_df = _bounded_to_date(self.db.get_hrv_data(36500), today)
+            health_df = _bounded_to_date(self.db.get_daily_health(36500), today)
+            training_df = _bounded_to_date(
+                self.db.get_training_status_history(36500), today
+            )
+            activities_df = _bounded_to_date(
+                self.db.get_activities(COACH_LOAD_METRICS_WINDOW_DAYS), today
+            )
         except Exception as exc:
             return {
                 "success": True, "computed_for": today.isoformat(),
@@ -2347,11 +2362,10 @@ def _normalize_constraint_kind(value: Any) -> str:
 
 def _normalize_constraint_date(value: Any) -> str:
     text = str(value or "").strip().lower()
-    today = athlete_local_date()
     if text in {"today", "сегодня"}:
-        return today.isoformat()
+        return athlete_local_date().isoformat()
     if text in {"tomorrow", "завтра"}:
-        return (today + timedelta(days=1)).isoformat()
+        return (athlete_local_date() + timedelta(days=1)).isoformat()
     if not text:
         raise ValueError("date is required")
     try:
