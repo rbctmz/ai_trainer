@@ -20,16 +20,23 @@ from models.coach_constraints import normalize_constraint_sport
 from models.readiness import LOAD_METRICS_WINDOW_DAYS as COACH_LOAD_METRICS_WINDOW_DAYS
 from models.readiness import compute_readiness_today
 from models.signals_engine import assemble_signals
+from utils.athlete_time import athlete_local_date
 from utils.product_semantics import (
     TODAY_PARTIAL_NOTE_RU,
+    coerce_date,
     format_date_label,
-    is_today,
     normalize_training_status_key,
     normalize_sport_key,
     sport_label,
     training_status_label,
     trend_label,
 )
+
+
+def _is_athlete_today(value: Any, today: date) -> bool:
+    """Whether ``value`` falls on the athlete's resolved calendar day (#577)."""
+    resolved = coerce_date(value)
+    return resolved is not None and resolved == today
 
 
 def _localized_sports_distribution(values) -> Dict[str, int]:
@@ -696,13 +703,14 @@ class AITools:
             return {
                 "message": "Нет данных для расчета метрик производительности",
                 "data_through": None,
-                "computed_for": date.today().isoformat(),
+                "computed_for": athlete_local_date().isoformat(),
             }
 
         # Issue #231: anchor CTL/ATL/TSB to today so a rest morning shows the
         # fresh "today" TSB (matching the canonical readiness sidebar), not a
         # value frozen at the last activity date (second instance of #139).
-        today = date.today()
+        # Issue #577: "today" is the athlete calendar day, not the host clock.
+        today = athlete_local_date()
         signals = assemble_signals(activities_df=metrics_df, as_of=today)
         load = signals["load"]
         tss_data = []
@@ -746,7 +754,9 @@ class AITools:
         """
         from services.subjective_wellness import build_subjective_wellness
 
-        today = date.today()
+        # Issue #577: the readiness anchor is the athlete calendar day, so this
+        # tool and the canonical snapshot share one date around host midnight.
+        today = athlete_local_date()
         subjective = build_subjective_wellness(self.db, as_of=today)
         try:
             sleep_df = self.db.get_sleep_data(36500)
@@ -800,7 +810,7 @@ class AITools:
             )
         return {
             "success": True,
-            "computed_for": date.today().isoformat(),
+            "computed_for": athlete_local_date().isoformat(),
             "count": len(proposals),
             "pending_proposals": proposals,
         }
@@ -814,12 +824,13 @@ class AITools:
         
         recent = df.head(limit)
         activities = []
+        today = athlete_local_date()
         
         for _, row in recent.iterrows():
             raw_sport = row.get("sport", "unknown")
             localized_sport = sport_label(raw_sport)
             date_label = format_date_label(row.get("date"), "weekday_short")
-            today_partial = is_today(row.get("date"))
+            today_partial = _is_athlete_today(row.get("date"), today)
             if today_partial:
                 date_label = f"{date_label} {TODAY_PARTIAL_NOTE_RU}"
             activity = {
@@ -1420,7 +1431,7 @@ class AITools:
         try:
             from datetime import timedelta as _td
 
-            today = datetime.now().date()
+            today = athlete_local_date()
             rows = self.db.get_coach_constraints(
                 start_date=(today - _td(days=14)).isoformat(),
                 end_date=(today + _td(days=max(1, int(days or 30)))).isoformat(),
@@ -1469,7 +1480,7 @@ class AITools:
     def _active_constraint_rows(self) -> List[Dict[str, Any]]:
         from datetime import timedelta as _td
 
-        today = datetime.now().date()
+        today = athlete_local_date()
         return self.db.get_coach_constraints(
             start_date=None,
             end_date=(today + _td(days=180)).isoformat(),
@@ -1897,7 +1908,8 @@ class AITools:
 
         # Сегодняшняя строка — незавершённый день: шаги/минуты ещё копятся,
         # поэтому агрегаты и тренд считаем только по завершённым дням (#126).
-        today = pd.Timestamp(datetime.now().date())
+        # Issue #577: граница неполного дня — календарь атлета, не хоста.
+        today = pd.Timestamp(athlete_local_date())
         completed = df[df["date"] < today]
         has_today_partial = bool((df["date"] >= today).any())
 
@@ -1928,7 +1940,7 @@ class AITools:
             if isinstance(record_date, pd.Timestamp):
                 record["date"] = record_date.strftime("%Y-%m-%d")
             record["date_label"] = format_date_label(record.get("date"), "weekday_short")
-            record["is_today_partial"] = is_today(record.get("date"))
+            record["is_today_partial"] = _is_athlete_today(record.get("date"), today.date())
             if record["is_today_partial"]:
                 record["date_label"] = f"{record['date_label']} {TODAY_PARTIAL_NOTE_RU}"
             recent_entries.append(record)
@@ -1966,7 +1978,7 @@ class AITools:
             except (TypeError, ValueError):
                 return None
 
-        today = datetime.now().date()
+        today = athlete_local_date()
         total_weeks = max(len(weekly_tss_plan), len(weekly_summary_raw))
 
         start_week = _as_date(goal_plan.get("start_week"))
@@ -2073,7 +2085,7 @@ class AITools:
         daily_plan = list(goal_plan.get("daily_plan") or [])
         templates = list(goal_plan.get("session_templates") or [])
 
-        today = datetime.now().date()
+        today = athlete_local_date()
         cutoff = today + timedelta(days=days)
 
         # Composite bricks cannot be reconciled safely from sport/date alone:
@@ -2335,7 +2347,7 @@ def _normalize_constraint_kind(value: Any) -> str:
 
 def _normalize_constraint_date(value: Any) -> str:
     text = str(value or "").strip().lower()
-    today = datetime.now().date()
+    today = athlete_local_date()
     if text in {"today", "сегодня"}:
         return today.isoformat()
     if text in {"tomorrow", "завтра"}:
