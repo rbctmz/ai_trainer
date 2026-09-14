@@ -918,3 +918,23 @@ def test_prompt_never_read_project_env_and_always_passed_as_absolute_path(pilot:
     log = pilot.log_text()
     assert f"cwd={pilot.worktree}" in log
     assert not (pilot.worktree / ".env").exists()
+
+
+def test_extraction_failure_is_fatal_for_non_timeout_run(pilot: _Pilot) -> None:
+    """Сбой извлечения метрик на обычном прогоне — провал preflight, а не успех.
+
+    #578 review (P1): ветка провала извлечения печатала ``session_metrics=not
+    collected``, но не поднимала провал, поэтому прогон, чьи оплаченные числа
+    потеряны (битый/обрезанный ``session.jsonl.zstd``), мог вернуть 0 — при том
+    что runbook требует метрики для зачёта smoke.
+    """
+    env = pilot.env(STUB_SESSION="yes", STUB_ZSTD_EXIT="9")
+    try:
+        result = pilot.smoke(env=env)
+
+        assert result.returncode == 1, result.stdout
+        assert result.returncode != 0
+        assert "session_metrics=not collected (extraction failed" in result.stdout
+        assert "timed_out=no" in result.stdout
+    finally:
+        pilot.kill_leftovers()
