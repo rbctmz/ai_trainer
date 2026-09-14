@@ -15,10 +15,14 @@
 #             задачи, с записью exit code, длительности, SHA промпта, пути
 #             сессии и проверкой, что дерево осталось неизменным. Платный вызов
 #             ограничен жёстким лимитом 300 c (DSH_PILOT_TIMEOUT_SECONDS,
-#             допустимо 1..300): по истечении вся группа процессов прогона
-#             получает SIGTERM, затем через DSH_PILOT_TIMEOUT_GRACE_SECONDS
-#             (допустимо 1..10, по умолчанию 5) — SIGKILL, и скрипт выходит
-#             с кодом 124.
+#             допустимо 1..300; пустое значение — отказ, а не дефолт): лимит
+#             отсчитывается монотонными часами (time.monotonic), поэтому перевод
+#             настенных часов его не растягивает. По истечении вся группа
+#             процессов прогона получает SIGTERM, затем через
+#             DSH_PILOT_TIMEOUT_GRACE_SECONDS (допустимо 1..10, по умолчанию 5) —
+#             SIGKILL, и скрипт выходит с кодом 124. Группа проверяется и после
+#             выхода её лидера: потомок, переживший лидера, добивается, а прогон
+#             признаётся недействительным (leftover_processes_killed=yes).
 #
 # Примеры:
 #   scripts/dsh_pilot_preflight.sh
@@ -46,8 +50,12 @@ ACCEPT_DRIFT="${DSH_PILOT_ACCEPT_CONFIG_DRIFT:-0}"
 # Жёсткий лимит платного smoke и grace-период перед SIGKILL. Значения читаются
 # здесь, но проверяются только перед самим платным вызовом (шаг 7): бесплатный
 # prepare не должен зависеть от настроек таймаута.
-TIMEOUT_SECONDS="${DSH_PILOT_TIMEOUT_SECONDS:-300}"
-TIMEOUT_GRACE_SECONDS="${DSH_PILOT_TIMEOUT_GRACE_SECONDS:-5}"
+# Развёртка `-`, а не `:-`: явно пустое значение обязано дойти до валидации и
+# упасть. С `:-` `DSH_PILOT_TIMEOUT_SECONDS=` (нерасширившаяся переменная в CI,
+# обнулённая настройка) тихо подменялось бы дефолтом, ветка отказа для `''`
+# стала бы недостижимой, и платный вызов стартовал бы с лимитом 300 c.
+TIMEOUT_SECONDS="${DSH_PILOT_TIMEOUT_SECONDS-300}"
+TIMEOUT_GRACE_SECONDS="${DSH_PILOT_TIMEOUT_GRACE_SECONDS-5}"
 # Верхние границы закреплены константами, чтобы «жёсткий лимит» из шапки был
 # проверяемым фактом, а не обещанием: не более 300 c на сам прогон и не более
 # 10 c на grace после SIGTERM (иначе уже оплаченный прогон растягивался бы).
@@ -55,7 +63,7 @@ TIMEOUT_MAX_SECONDS=300
 TIMEOUT_GRACE_MAX_SECONDS=10
 
 usage() {
-  sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -264,9 +272,33 @@ TIMEOUT_GRACE_SECONDS=$((10#$TIMEOUT_GRACE_SECONDS))
 # группа создаётся job control'ом: `set -m` делает фоновый job лидером своей
 # группы процессов, и её pgid совпадает с PID лидера — значит `kill -- -PGID`
 # бьёт по всем потомкам сразу. Проверено локально: внук, игнорирующий SIGTERM,
-# умирает от SIGKILL по группе, а `kill -0 -- -PGID` видит его и после смерти
-# лидера (иначе «выживших нет» осталось бы непроверенным утверждением).
-smoke_group_alive() { kill -0 -- "-$1" 2>/dev/null; }
+# умирает от SIGKILL по группе.
+#
+# Живость группы считается по *живым*, а не по зомби членам: `kill -0 -- -PGID`
+# видит и `<defunct>`, а в контейнере, где PID 1 не пожинает сирот, убитый
+# потомок остаётся таким навсегда — тогда группа выглядела бы живой вечно.
+# Зомби не может выполняться и не тратит бюджет, поэтому он не считается
+# выжившим. Если `ps` недоступен, остаётся консервативный откат на `kill -0`
+# (зомби тогда считается живым — как было до этой проверки).
+smoke_group_alive() {
+  local pgid="$1" table=""
+  if table="$(ps -A -o pgid=,stat= 2>/dev/null)" && [ -n "$table" ]; then
+    printf '%s\n' "$table" | awk -v pgid="$pgid" '$1 == pgid && $2 !~ /^Z/ { live = 1 } END { exit live ? 0 : 1 }'
+    return $?
+  fi
+  kill -0 -- "-$pgid" 2>/dev/null
+}
+
+# --- монотонная шкала времени ------------------------------------------------
+# `date +%s` — настенные часы: перевод времени (коррекция NTP, ручная правка)
+# назад растянул бы «жёсткий» лимит ровно на величину коррекции, то есть лимит
+# перестал бы быть верхней границей. `$SECONDS` для этого тоже не годится: bash
+# считает его через gettimeofday (bug-bash, «$SECONDS and timeout values use
+# realtime gettimeofday()»), то есть по тем же настенным часам. Замер берётся у
+# python3: `time.monotonic()` — CLOCK_MONOTONIC (на macOS mach_absolute_time),
+# adjustable=False. Новых требований к окружению это не добавляет: python3 и так
+# обязателен для метрик сессии (шаг 6, отказ до платного вызова).
+monotonic_ms() { python3 -c 'import time; print(int(time.monotonic() * 1000))'; }
 
 # Завершает всю группу: SIGTERM, grace-период, затем SIGKILL. Возврат 1 означает,
 # что смерть группы подтвердить не удалось (SIGKILL не перехватывается, но
@@ -293,17 +325,44 @@ terminate_smoke_group() {
 ok "жёсткий лимит платного прогона: ${TIMEOUT_SECONDS}s, затем через ${TIMEOUT_GRACE_SECONDS}s SIGKILL всей группе процессов (timeout_seconds/timeout_grace_seconds, exit 124)"
 
 PROMPT_SHA="$(shasum -a 256 "$PROMPT_FILE" | cut -d' ' -f1)"
+# Настенные часы дальше участвуют только в читаемой метке времени: ни лимит, ни
+# длительность от них не зависят (см. monotonic_ms).
 STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-START_EPOCH="$(date +%s)"
+# Старт отсчёта берётся ДО запуска: несколько миллисекунд, потраченных на запуск
+# DSH, только укорачивают фактический лимит, то есть в безопасную сторону.
+# Проверка часов стоит до платного вызова: недоказуемая граница — это отказ, а не
+# «прогон без лимита».
+if ! SMOKE_START_MS="$(monotonic_ms)"; then
+  fail "не удалось прочитать монотонные часы (python3 time.monotonic) — жёсткий лимит ${TIMEOUT_SECONDS}s недоказуем, платный вызов не стартует"
+fi
+case "$SMOKE_START_MS" in
+  ''|*[!0-9]*) fail "не удалось прочитать монотонные часы (python3 time.monotonic вернул '$SMOKE_START_MS') — жёсткий лимит ${TIMEOUT_SECONDS}s недоказуем, платный вызов не стартует" ;;
+esac
+SMOKE_LAST_MS="$SMOKE_START_MS"
 # Опорная метка времени начала прогона: поиск файла сессии идёт по ней, а не по
 # `-newermt "-N seconds"` (на BSD/macOS такая запись не матчит свежие файлы, и
 # оплаченные метрики молча терялись бы).
 RUN_STAMP="/tmp/.dsh-pilot-smoke-start.$$"
 : > "$RUN_STAMP" || fail "не удалось создать метку времени $RUN_STAMP"
-trap 'rm -f "$RUN_STAMP"' EXIT
 
 TIMED_OUT=no
+CLOCK_ERROR=no
+LEFTOVERS_KILLED=no
+LEFTOVER_PGID=""
 SMOKE_PID=""
+# Выход скрипта идёт через одну точку: таймаут обязан доехать наружу кодом 124
+# даже если пост-обработка (извлечение метрик, git-проверки) оборвётся ошибкой
+# под `set -e` — иначе падение zstd/парсера подменяло бы таймаут чужим кодом.
+smoke_exit() {
+  local code=$?
+  rm -f "$RUN_STAMP"
+  if [ "${TIMED_OUT:-no}" = yes ] && [ "$code" -ne 124 ]; then
+    echo "  ✘ пост-обработка таймаутного прогона оборвалась кодом $code — наружу всё равно идёт 124 (таймаут не маскируется сбоем метрик)" >&2
+    exit 124
+  fi
+  exit "$code"
+}
+trap smoke_exit EXIT
 # Прогон живёт в отдельной группе процессов, поэтому Ctrl-C/Ctrl-\ по скрипту
 # терминал больше не доставляет ей: без этой ловушки прерывание preflight
 # оставляло бы оплаченный dsh работать. Watchdog-процесса нет вовсе — лимит
@@ -321,12 +380,24 @@ set -m
 SMOKE_PID=$!
 set +m
 # Отсчёт лимита — в фоне не оставляем: опрос идёт здесь же, поэтому «повисший»
-# прогон обнаруживается, а лишний процесс-сторож не создаётся. Шаг 0.2 c, а не 1 c:
-# иначе быстрый прогон ждал бы лишнюю секунду, а лимит срабатывал бы с секундной
-# задержкой; цена — несколько короткоживущих sleep/date за весь прогон.
-SMOKE_DEADLINE=$(( $(date +%s) + TIMEOUT_SECONDS ))
+# прогон обнаруживается, а лишний процесс-сторож не создаётся (иначе после
+# preflight оставался бы ещё и он). Шаг 0.2 c, а не 1 c: иначе быстрый прогон
+# ждал бы лишнюю секунду, а лимит срабатывал бы с секундной задержкой. Часы
+# читаются на каждой итерации, поэтому выход за лимит ограничен шагом опроса
+# (≤0.2 c); цена — один короткоживущий python3 на итерацию, то есть примерно
+# 5 % одного ядра во время платного прогона.
+SMOKE_DEADLINE_MS=$(( SMOKE_START_MS + TIMEOUT_SECONDS * 1000 ))
 while kill -0 "$SMOKE_PID" 2>/dev/null; do
-  [ "$(date +%s)" -lt "$SMOKE_DEADLINE" ] || { TIMED_OUT=yes; break; }
+  SMOKE_NOW_MS="$(monotonic_ms)"
+  case "$SMOKE_NOW_MS" in
+    ''|*[!0-9]*)
+      echo "  ✘ монотонные часы перестали читаться (python3 time.monotonic вернул '$SMOKE_NOW_MS') — жёсткий лимит ${TIMEOUT_SECONDS}s недоказуем, поэтому платный прогон останавливается (fail-closed)" >&2
+      CLOCK_ERROR=yes
+      break
+      ;;
+  esac
+  SMOKE_LAST_MS="$SMOKE_NOW_MS"
+  [ "$SMOKE_NOW_MS" -lt "$SMOKE_DEADLINE_MS" ] || { TIMED_OUT=yes; break; }
   sleep 0.2
 done
 if [ "$TIMED_OUT" = yes ]; then
@@ -335,16 +406,34 @@ if [ "$TIMED_OUT" = yes ]; then
   # доставляется, но SIGKILL по группе его снимает.
   terminate_smoke_group "$SMOKE_PID" \
     || echo "  ✘ не удалось подтвердить смерть всей группы процессов smoke (pgid $SMOKE_PID)" >&2
+elif [ "$CLOCK_ERROR" = yes ]; then
+  terminate_smoke_group "$SMOKE_PID" \
+    || echo "  ✘ не удалось подтвердить смерть всей группы процессов smoke (pgid $SMOKE_PID)" >&2
+elif smoke_group_alive "$SMOKE_PID"; then
+  # Лидер вышел, но его группа — нет: асинхронный потомок DSH остался бы
+  # работать (и тратить бюджет) после preflight. Прогон принимается только после
+  # того, как группа пуста: проверяем и добиваем её ДО `wait`, а не после «ок».
+  echo "  ✘ группа процессов smoke пережила своего лидера (pgid $SMOKE_PID) — асинхронный потомок DSH остался бы работать после preflight; убиваю всю группу" >&2
+  terminate_smoke_group "$SMOKE_PID" \
+    || echo "  ✘ не удалось подтвердить смерть всей группы процессов smoke (pgid $SMOKE_PID)" >&2
+  LEFTOVERS_KILLED=yes
+  LEFTOVER_PGID="$SMOKE_PID"
 fi
 wait "$SMOKE_PID"
 EXIT_CODE=$?
 SMOKE_PID=""
+# Финальный замер — тоже монотонный: перевод настенных часов не должен делать
+# длительность оплаченного прогона отрицательной или произвольной.
+SMOKE_END_MS="$(monotonic_ms)"
+case "$SMOKE_END_MS" in ''|*[!0-9]*) SMOKE_END_MS="$SMOKE_LAST_MS" ;; esac
 set -e
 [ -n "${EXIT_CODE:-}" ] || EXIT_CODE=1
 # Таймаут — не «результат модели»: наружу и в метрики идёт конвенциональный 124,
 # а не 143/137 от доставленного сигнала.
 [ "$TIMED_OUT" = no ] || EXIT_CODE=124
-DURATION=$(( $(date +%s) - START_EPOCH ))
+# Нечитаемые часы — тоже не результат модели: код 1 (fail-closed), а не чужой.
+[ "$CLOCK_ERROR" = no ] || EXIT_CODE=1
+DURATION=$(( (SMOKE_END_MS - SMOKE_START_MS + 500) / 1000 ))
 
 echo "== 8. Проверка read-only и метрики =="
 [ "$TIMED_OUT" = no ] \
@@ -391,9 +480,16 @@ emit_metrics() {
   printf 'timed_out=%s\n' "$TIMED_OUT"
   printf 'worktree_clean_after=%s\n' "$WORKTREE_CLEAN"
   printf 'head_unchanged=%s\n' "$HEAD_UNCHANGED"
+  printf 'leftover_processes_killed=%s\n' "$LEFTOVERS_KILLED"
   printf 'session_file=%s\n' "${SESSION_FILE:-not found}"
   if [ -n "${SESSION_FILE:-}" ]; then
-    zstd -dc "$SESSION_FILE" 2>/dev/null | python3 -c '
+    # Извлечение — best-effort: `zstd`/`python3` работают под `set -euo pipefail`,
+    # и падение на битом или обрезанном session.jsonl.zstd иначе унесло бы с собой
+    # код возврата всего скрипта (в таймаутном прогоне — вместо 124). Ошибка при
+    # этом не молчит: она печатается и попадает в метрики строкой session_metrics,
+    # а решение о коде возврата принимается независимо от неё.
+    local metrics_lines
+    if metrics_lines="$(zstd -dc "$SESSION_FILE" 2>/dev/null | python3 -c '
 import json, sys
 tok_in = tok_out = cache = reasoning = calls = steps = user_msgs = 0
 for line in sys.stdin:
@@ -419,7 +515,12 @@ print(f"tokens_reasoning={reasoning}")
 print(f"tool_calls={calls}")
 print(f"steps={steps}")
 print(f"human_messages_in_session={user_msgs}  # больше 1 => были вмешательства")
-'
+')"; then
+      printf '%s\n' "$metrics_lines"
+    else
+      echo "  ✘ не удалось извлечь метрики сессии из $SESSION_FILE: zstd/python3 вернули ошибку — оплаченные числа не собраны (результат прогона и его код возврата это не отменяет)" >&2
+      printf 'session_metrics=not collected (extraction failed for %s — zstd/python3 вернули ошибку)\n' "$SESSION_FILE"
+    fi
   else
     printf 'session_metrics=not collected (session file not found in %s)\n' "$SESSIONS_ROOT"
   fi
@@ -448,15 +549,28 @@ check "$([ "$HEAD_UNCHANGED" = yes ] && echo 0 || echo 1)" \
 check "$([ -n "${SESSION_FILE:-}" ] && echo 0 || echo 1)" \
   "сессия сохранена: ${SESSION_FILE:-}" \
   "файл сессии не найден в $SESSIONS_ROOT — оплаченные метрики потеряны, прогон нельзя засчитывать"
+# Гарантия «после preflight не остаётся процессов оплаченного прогона» — часть
+# контракта, поэтому выживший потомок не «предупреждение», а недействительный
+# прогон: он уже был убит выше, но метрики не должны читаться как чистый успех.
+check "$([ "$LEFTOVERS_KILLED" = no ] && echo 0 || echo 1)" \
+  "группа процессов smoke не пережила своего лидера (процессов-сирот нет)" \
+  "группа процессов smoke (pgid $LEFTOVER_PGID) пережила своего лидера — потомки были убиты, но прогон недействителен как чистый (leftover_processes_killed=yes)"
 
 emit_metrics
 
 # Таймаут доминирует над провалами read-only: у убитого прогона нет ни сессии,
 # ни ответа модели, поэтому 124 — точный и отличимый от «модель упала» сигнал.
 # Нарушения read-only при этом не скрываются: они уже напечатаны выше и видны в
-# метриках (worktree_clean_after/head_unchanged).
+# метриках (worktree_clean_after/head_unchanged). Метрики к этому моменту уже
+# напечатаны, а страховку от сбоя в самой пост-обработке держит ловушка
+# smoke_exit: 124 не может быть подменён кодом zstd/парсера.
 if [ "$TIMED_OUT" = yes ]; then
   exit 124
+fi
+# Нечитаемые монотонные часы: прогон остановлен без доказуемой границы, поэтому
+# это провал preflight (1), а не «результат модели» и не таймаут.
+if [ "$CLOCK_ERROR" = yes ]; then
+  exit 1
 fi
 if [ "$CHECK_FAIL" -ne 0 ]; then
   exit 1

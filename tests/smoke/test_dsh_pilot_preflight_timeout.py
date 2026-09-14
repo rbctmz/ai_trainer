@@ -1,22 +1,30 @@
 """Жёсткий таймаут платного smoke в ``scripts/dsh_pilot_preflight.sh``.
 
 Реального модельного вызова и сети здесь нет: ``dsh`` подменён стабом в
-``tmp_path/bin``, который умеет зависать (игнорируя SIGTERM), падать и
-завершаться успешно, а ``zstd`` — выводить файл сессии «как есть», чтобы тест не
-зависел от внешнего бинаря. Проверяются только гарантии процесса: по истечении
-лимита умирает вся группа процессов прогона (включая внуков, игнорирующих
-SIGTERM), скрипт выходит с 124, метрики печатают ``timed_out``/``timeout_seconds``
-(и эффективный grace — ``timeout_grace_seconds``), а обычные пути (успех, код
-возврата модели) и прежний гейтинг не меняются.
+``tmp_path/bin``, который умеет зависать (игнорируя SIGTERM), запускать потомка и
+выходить, падать и завершаться успешно, а ``zstd`` — выводить файл сессии «как
+есть», чтобы тест не зависел от внешнего бинаря. Проверяются только гарантии
+процесса: по истечении лимита умирает вся группа процессов прогона (включая
+внуков, игнорирующих SIGTERM), скрипт выходит с 124, метрики печатают
+``timed_out``/``timeout_seconds`` (и эффективный grace — ``timeout_grace_seconds``),
+а обычные пути (успех, код возврата модели) и прежний гейтинг не меняются.
 
 Отдельно закрыт вопрос границ: ``DSH_PILOT_TIMEOUT_SECONDS`` принимается только
 в ``1..300``, ``DSH_PILOT_TIMEOUT_GRACE_SECONDS`` — только в ``1..10``, а значения
-вне диапазона, ``0``, отрицательные и нечисловые отвергаются до платного вызова
-(ноль обращений к стабу, exit 1) — иначе «жёсткий лимит 300 c» был бы обещанием,
-которое снимается одной переменной окружения. Допуск верхних границ проверяется
-без ожидания: стаб завершается сразу, поэтому тест на ``300``/``10`` подтверждает,
-что значение прошло валидацию и платный прогон действительно начался, — а не то,
-что лимит кто-то выдержал.
+вне диапазона, ``0``, отрицательные, нечисловые и **явно пустые** отвергаются до
+платного вызова (ноль обращений к стабу, exit 1) — иначе «жёсткий лимит 300 c»
+был бы обещанием, которое снимается одной переменной окружения. Допуск верхних
+границ проверяется без ожидания: стаб завершается сразу, поэтому тест на
+``300``/``10`` подтверждает, что значение прошло валидацию и платный прогон
+действительно начался, — а не то, что лимит кто-то выдержал.
+
+Процессные гарантии закрыты четырьмя независимыми тестами: (1) группа умирает по
+таймауту; (2) потомок, переживший своего лидера, добивается, а прогон не
+принимается как чистый (``leftover_processes_killed``); (3) лимит считается
+монотонными часами — замороженный ``date`` его не растягивает; (4) сбой
+извлечения метрик (``zstd``/парсер) не подменяет таймаутный ``124``. Проверка
+живости PID считает зомби завершённым: в контейнере, где PID 1 не пожинает
+сирот, убитый внук остаётся ``<defunct>``, и ``os.kill(pid, 0)`` по нему успешен.
 """
 
 from __future__ import annotations
@@ -24,8 +32,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
+import sys
 import time
 
 import pytest
@@ -81,7 +91,20 @@ case "${STUB_MODE:-normal}" in
     ( trap '' TERM; while :; do sleep 1; done ) &
     printf 'grandchild=%s\\n' "$!" >> "${STUB_PIDS:?STUB_PIDS}"
     printf 'stub=%s\\n' "$$" >> "${STUB_PIDS:?STUB_PIDS}"
+    # Сессия пишется ДО зависания: таймаутный прогон с сохранённой сессией нужен,
+    # чтобы проверить, что сбой извлечения метрик не съедает exit 124.
+    write_session
     while :; do sleep 1; done
+    ;;
+  fork_and_exit)
+    # Лидер запускает асинхронного потомка в наследственной группе процессов и
+    # выходит сам. Потомок игнорирует SIGTERM, поэтому проверяется не только
+    # обнаружение «группа пережила лидера», но и эскалация до SIGKILL.
+    ( trap '' TERM; while :; do sleep 1; done ) &
+    printf 'orphan=%s\\n' "$!" >> "${STUB_PIDS:?STUB_PIDS}"
+    printf 'stub=%s\\n' "$$" >> "${STUB_PIDS:?STUB_PIDS}"
+    write_session
+    exit "${STUB_EXIT_CODE:-0}"
     ;;
   mutate)
     # «Прогон изменил дерево»: проверка read-only обязана это заметить.
@@ -106,7 +129,12 @@ esac
 
 # Стаб `zstd`: тест пишет файл сессии без сжатия, поэтому `-dc` = «как есть».
 # Так проверка готовности метрик и агрегация токенов проходят без внешнего zstd.
+# STUB_ZSTD_EXIT эмулирует битый/нечитаемый session.jsonl.zstd: извлечение метрик
+# падает так же, как упал бы настоящий zstd (он выходит ненулевым кодом).
 _STUB_ZSTD = """#!/usr/bin/env bash
+if [ -n "${STUB_ZSTD_EXIT:-}" ]; then
+  exit "${STUB_ZSTD_EXIT}"
+fi
 for arg in "$@"; do
   if [ -f "$arg" ]; then
     cat "$arg"
@@ -132,14 +160,77 @@ def _git(worktree: Path, *args: str) -> None:
     )
 
 
+def _state_from_proc(pid: int) -> str | None:
+    """Состояние процесса из ``/proc/<pid>/stat`` (Linux, контейнеры).
+
+    Поле 3 (после ``comm`` в скобках) — состояние: ``Z`` означает зомби. На
+    macOS ``/proc`` нет, поэтому источник честно возвращает ``None``.
+    """
+    try:
+        raw = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    try:
+        return raw.rsplit(")", 1)[1].split()[0]
+    except IndexError:
+        return None
+
+
+def _state_from_ps(pid: int) -> str | None:
+    """Состояние процесса из ``ps -o stat= -p PID`` (BSD/macOS и Linux).
+
+    ``None`` означает «состояние узнать не удалось» (нет процесса, нет ``ps``,
+    песочница запрещает ``ps``) — вызывающий код трактует это консервативно.
+    """
+    try:
+        completed = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    fields = completed.stdout.split()
+    return fields[0] if fields else None
+
+
+# Источники состояния процесса по порядку: сначала дешёвый и точный /proc, потом
+# ps. Список отдельной константой, чтобы тест механизма мог проверить разбор
+# состояния ``Z`` независимо от того, какой из источников доступен на машине.
+_STATE_SOURCES = (_state_from_proc, _state_from_ps)
+
+
+def _pid_state(pid: int) -> str | None:
+    for source in _STATE_SOURCES:
+        state = source(pid)
+        if state is not None:
+            return state
+    return None
+
+
 def _pid_alive(pid: int) -> bool:
-    """Проверка живости по PID (а не по строке в логе стаба)."""
+    """Проверка живости по PID (а не по строке в логе стаба).
+
+    Зомби считается завершённым. В контейнере, где PID 1 не пожинает сирот,
+    убитый внук навсегда остаётся ``<defunct>``: ``os.kill(pid, 0)`` по нему
+    успешен, но выполняться и тратить оплаченное время он не может, поэтому
+    «живым» он не считается. Запущенный процесс остаётся живым: ``Z`` — это
+    ровно состояние зомби, всё остальное (``S``, ``R``, ``I``, ``U``) — нет.
+    """
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
+    state = _pid_state(pid)
+    if state is not None and state.startswith("Z"):
+        return False
     return True
 
 
@@ -244,12 +335,12 @@ class _Pilot:
                 pids[name] = int(raw)
         return pids
 
-    def wait_for_pids(self, timeout: float = 20.0) -> dict[str, int]:
-        """Ждём, пока стаб запишет PID себя и внука (без угадывания sleep'ов)."""
+    def wait_for_pids(self, names: frozenset[str] = frozenset({"stub", "grandchild"}), timeout: float = 20.0) -> dict[str, int]:
+        """Ждём, пока стаб запишет нужные PID (без угадывания sleep'ов)."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             pids = self.pids()
-            if {"stub", "grandchild"} <= set(pids):
+            if names <= set(pids):
                 return pids
             time.sleep(0.05)
         return self.pids()
@@ -355,6 +446,122 @@ def test_short_override_bounds_wall_clock_instead_of_default(pilot: _Pilot) -> N
         assert "timed_out=yes" in result.stdout
         assert elapsed >= 1.5, f"прогон оборвался раньше лимита: {elapsed:.1f}s"
         assert elapsed < 20, f"лимит 2 c не соблюдён (похоже на дефолт 300 c): {elapsed:.1f}s"
+    finally:
+        pilot.kill_leftovers()
+
+
+def test_group_member_surviving_its_leader_is_terminated(pilot: _Pilot) -> None:
+    """Потомок, переживший лидера группы, добивается, а прогон не принимается как чистый.
+
+    Здесь лидер выходит сам (не по таймауту), но оставляет в наследственной группе
+    асинхронного потомка, игнорирующего SIGTERM. Пока группа не отслеживалась после
+    смерти лидера, preflight возвращал успех, а этот потомок продолжал работать и
+    тратить бюджет. Ожидания лимита тоже быть не должно: группа добивается сразу
+    после выхода лидера, поэтому прогон не помечается таймаутом.
+    """
+    env = pilot.env(
+        STUB_MODE="fork_and_exit",
+        STUB_SESSION="yes",
+        DSH_PILOT_TIMEOUT_SECONDS="10",
+        DSH_PILOT_TIMEOUT_GRACE_SECONDS="1",
+    )
+    try:
+        result = pilot.smoke(env=env)
+
+        assert result.returncode == 1, result.stdout
+        assert "пережила своего лидера" in result.stdout
+        assert "leftover_processes_killed=yes" in result.stdout
+        assert "timed_out=no" in result.stdout
+        # Прогон был бы засчитан (сессия сохранена, дерево не менялось, HEAD не
+        # двигался): ненулевой код вызван ровно выжившим потомком.
+        assert "worktree_clean_after=yes" in result.stdout
+        assert "head_unchanged=yes" in result.stdout
+        assert "tokens_input=11" in result.stdout
+
+        pids = pilot.pids()
+        assert {"stub", "orphan"} <= set(pids), f"стаб не записал PID: {pids}"
+        # Живость проверяется по PID, а не по строке в логе.
+        assert _wait_pid_gone(pids["orphan"]), (
+            f"потомок {pids['orphan']} пережил preflight: группа проверялась только по лидеру"
+        )
+    finally:
+        pilot.kill_leftovers()
+
+
+def test_hard_limit_does_not_depend_on_wall_clock(pilot: _Pilot) -> None:
+    """Замороженный/переведённый назад ``date`` не растягивает жёсткий лимит.
+
+    Воспроизведение находки ревью: пока дедлайн считался ``date +%s``, стаб
+    ``date`` с фиксированным epoch (эмуляция коррекции NTP назад) держал лимит
+    вечно — прогон не завершался даже спустя секунды после ``DSH_PILOT_TIMEOUT_SECONDS=2``.
+    Теперь лимит считается монотонными часами, поэтому таймаут срабатывает.
+    """
+    _write_executable(pilot.bin_dir / "date", '#!/usr/bin/env bash\nprintf \'%s\\n\' "1700000000"\n')
+    env = pilot.env(
+        STUB_MODE="sleep_forever",
+        STUB_SESSION="no",
+        DSH_PILOT_TIMEOUT_SECONDS="2",
+        DSH_PILOT_TIMEOUT_GRACE_SECONDS="1",
+    )
+    started = time.monotonic()
+    try:
+        result = pilot.smoke(env=env)
+        elapsed = time.monotonic() - started
+
+        assert result.returncode == 124, result.stdout
+        assert "timed_out=yes" in result.stdout
+        assert "exit_code=124" in result.stdout
+        assert elapsed < 20, f"настенные часы растянули лимит 2 c: {elapsed:.1f}s"
+        pids = pilot.pids()
+        assert _wait_pid_gone(pids["grandchild"]), f"внук {pids['grandchild']} пережил таймаут"
+    finally:
+        pilot.kill_leftovers()
+
+
+def test_hard_limit_is_measured_by_monotonic_clock() -> None:
+    """Механизм: лимит и длительность считаются монотонной шкалой, а не ``date``.
+
+    ``date +%s`` — настенные часы; ``$SECONDS`` в bash тоже идут через
+    ``gettimeofday`` (bug-bash), поэтому «жёсткость» лимита держится только на
+    монотонном источнике. Тест проверяет сам механизм, а не поведение при
+    подмене ``date`` (его проверяет тест выше), и падает, если дедлайн снова
+    начнут считать настенными часами.
+    """
+    script = PREFLIGHT.read_text(encoding="utf-8")
+    code_lines = [line for line in script.splitlines() if not line.lstrip().startswith("#")]
+
+    assert "time.monotonic()" in script, "лимит больше не опирается на монотонные часы"
+    assert "monotonic_ms" in script
+    for line in code_lines:
+        assert not re.search(r"\bdate\s+\+%s", line), f"настенные часы вернулись в лимит: {line.strip()}"
+
+
+def test_metrics_failure_does_not_mask_timeout_exit_code(pilot: _Pilot) -> None:
+    """Сбой извлечения метрик на таймаутном прогоне: наружу всё равно 124, сбой виден.
+
+    ``zstd`` выходит с кодом 9 (битый/обрезанный ``session.jsonl.zstd``), а
+    извлечение идёт под ``set -euo pipefail``: без best-effort обработки код zstd
+    становился кодом всего preflight и маскировал таймаут (в метриках при этом
+    печаталось ``exit_code=124``, а процесс возвращал 9 — автоматика
+    классифицировала бы прогон неверно).
+    """
+    env = pilot.env(
+        STUB_MODE="sleep_forever",
+        STUB_SESSION="yes",
+        STUB_ZSTD_EXIT="9",
+        DSH_PILOT_TIMEOUT_SECONDS="1",
+        DSH_PILOT_TIMEOUT_GRACE_SECONDS="1",
+    )
+    try:
+        result = pilot.smoke(env=env)
+
+        assert result.returncode == 124, result.stdout
+        assert result.returncode != 9
+        assert "exit_code=124" in result.stdout
+        assert "timed_out=yes" in result.stdout
+        # Сбой не молчит: и громкое сообщение, и строка метрик с причиной.
+        assert "не удалось извлечь метрики сессии" in result.stdout
+        assert "session_metrics=not collected (extraction failed" in result.stdout
     finally:
         pilot.kill_leftovers()
 
@@ -472,6 +679,54 @@ def test_non_numeric_limit_fails_before_paid_run(pilot: _Pilot) -> None:
 
 
 @pytest.mark.parametrize(
+    ("variable", "expected_range"),
+    [
+        ("DSH_PILOT_TIMEOUT_SECONDS", "1..300"),
+        ("DSH_PILOT_TIMEOUT_GRACE_SECONDS", "1..10"),
+    ],
+)
+def test_explicitly_empty_setting_fails_before_paid_run(
+    pilot: _Pilot, variable: str, expected_range: str
+) -> None:
+    """Явно пустое значение — отказ, а не подстановка дефолта 300/5.
+
+    Пустая переменная (нерасширившаяся подстановка в CI, обнулённая настройка)
+    раньше молча получала дефолт: ветка отказа для ``''`` была недостижима, и
+    платный вызов стартовал. Разница между «не задано» и «задано пустым» обязана
+    сохраняться до валидации: «не задано» — это по-прежнему дефолт 300/5, и он
+    закреплён тестами ``test_normal_run_reports_default_limit_and_keeps_metrics``
+    и ``test_default_grace_is_five_and_observable``.
+    """
+    env = pilot.env(**{variable: ""})
+    result = pilot.smoke(env=env)
+
+    assert result.returncode == 1, result.stdout
+    # Сообщение называет наблюдаемое значение буквально пустым и допустимый диапазон.
+    assert f"{variable}=''" in result.stdout
+    assert expected_range in result.stdout
+    assert "paid-run" not in pilot.log_text()
+    assert pilot.paid_invocations() == 0, pilot.log_text()
+    assert "timed_out=" not in result.stdout
+
+
+def test_unreadable_monotonic_clock_fails_before_paid_run(pilot: _Pilot) -> None:
+    """Недоказуемая граница — отказ до платного вызова, а не «прогон без лимита».
+
+    Стаб ``python3`` ломается, поэтому монотонные часы прочитать нельзя. Скрипт
+    обязан отказаться от платного вызова, а не запускать его без жёсткого лимита
+    и не подменять шкалу настенными часами.
+    """
+    _write_executable(pilot.bin_dir / "python3", '#!/usr/bin/env bash\nexit 3\n')
+    env = pilot.env()
+    result = pilot.smoke(env=env)
+
+    assert result.returncode == 1, result.stdout
+    assert "монотонные часы" in result.stdout
+    assert pilot.paid_invocations() == 0, pilot.log_text()
+    assert "timed_out=" not in result.stdout
+
+
+@pytest.mark.parametrize(
     "value",
     [
         "301",
@@ -570,6 +825,78 @@ def test_leading_zero_limit_cannot_smuggle_past_the_ceiling(pilot: _Pilot) -> No
     assert accepted.returncode == 0, accepted.stdout
     assert pilot.paid_invocations() == 1, pilot.log_text()
     assert "timeout_seconds=300" in accepted.stdout
+
+
+def test_liveness_treats_reported_zombie_state_as_terminated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Зомби (состояние ``Z``) — не живой процесс, а запущенный процесс — живой.
+
+    Проверяется решение хелпера по состоянию процесса: ``os.kill(pid, 0)`` по
+    зомби успешен, поэтому одного его недостаточно. Стаб ``ps`` стоит здесь
+    потому, что состояние процессов снаружи может быть недоступно (в песочнице
+    агента ``ps`` запрещён), а проверяем мы именно разбор ``stat`` — источник
+    ``/proc`` на Linux тестируется отдельным тестом ниже.
+    """
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    _write_executable(
+        stub_bin / "ps",
+        '#!/usr/bin/env bash\nprintf \'%s\\n\' "${STUB_PS_STATE:?STUB_PS_STATE}"\n',
+    )
+    monkeypatch.setenv("PATH", os.pathsep.join([str(stub_bin), os.environ.get("PATH", "/usr/bin:/bin")]))
+    monkeypatch.setenv("STUB_PS_STATE", "Z")
+    # Источник /proc на Linux вернул бы реальное состояние, поэтому список
+    # источников сужается до ps: тест про разбор состояния, а не про платформу.
+    monkeypatch.setattr(sys.modules[__name__], "_STATE_SOURCES", (_state_from_ps,))
+
+    running = subprocess.Popen(["sleep", "30"])
+    try:
+        # Живой процесс: состояние не Z, поэтому он обязан считаться живым.
+        monkeypatch.setenv("STUB_PS_STATE", "S")
+        assert _pid_alive(running.pid), "запущенный процесс посчитан завершённым"
+
+        # Тот же PID, но состояние Z: работать он не может — значит завершён.
+        monkeypatch.setenv("STUB_PS_STATE", "Z")
+        assert not _pid_alive(running.pid), "зомби посчитан живым — тест зависел бы от окружения"
+        monkeypatch.setenv("STUB_PS_STATE", "Z+")
+        assert not _pid_alive(running.pid)
+    finally:
+        running.kill()
+        running.wait()
+
+    # Убитый и пожинанный процесс мёртв независимо от источника состояния.
+    assert not _pid_alive(running.pid)
+
+
+def test_liveness_reports_real_zombie_as_terminated() -> None:
+    """Настоящий зомби (родитель не пожинает ребёнка) считается завершённым.
+
+    Это ровно случай из находки ревью: в контейнере, где PID 1 не пожинает
+    сирот, ``<defunct>`` остаётся навсегда. Тест пропускается там, где состояние
+    процесса узнать нельзя (нет ``/proc`` и запрещён ``ps``) — там ту же логику
+    проверяет тест механизма выше.
+    """
+    if not hasattr(os, "fork"):
+        pytest.skip("нет os.fork на этой платформе")
+    if _pid_state(os.getpid()) is None:
+        pytest.skip("состояние процесса недоступно (нет /proc, ps недоступен)")
+
+    pid = os.fork()
+    if pid == 0:  # pragma: no cover — дочерняя ветка выходит немедленно
+        os._exit(0)
+    try:
+        state = ""
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            state = _pid_state(pid) or ""
+            if state.startswith("Z"):
+                break
+            time.sleep(0.05)
+        assert state.startswith("Z"), f"не удалось получить зомби: state={state!r}"
+        assert not _pid_alive(pid), "зомби посчитан живым — тест снова зависел бы от окружения"
+    finally:
+        os.waitpid(pid, 0)
 
 
 def test_prepare_ignores_out_of_range_timeout_settings(pilot: _Pilot) -> None:
