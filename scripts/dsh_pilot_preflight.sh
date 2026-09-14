@@ -38,6 +38,7 @@ PROFILE="headless"
 WORKTREE="${DSH_PILOT_WORKTREE:-/tmp/dsh-pilot-wt}"
 PILOT_HOME="${DSH_PILOT_HOME:-/tmp/dsh-home-pilot}"
 PROMPT_FILE="${DSH_PILOT_PROMPT:-}"
+NODE_DIR="${DSH_PILOT_NODE_DIR:-}"
 MODE="prepare"
 ALLOW_PAID=0
 # Закреплённая конфигурация эксперимента (runbook, «Неподвижные правила»). Любое
@@ -81,6 +82,45 @@ done
 fail() { echo "ПРЕДПОЛЁТ НЕ ПРОЙДЕН: $*" >&2; exit 1; }
 ok() { echo "  ✔ $*"; }
 warn() { echo "  ! $*" >&2; }
+
+echo "== 0. Node runtime для DSH =="
+# DSH 0.1.0-rc.6 загружает плагины через API, которых нет в части Node 20
+# runtime. Номер версии сам по себе не является доказательством: проверяем ровно
+# нужные capability до первого запуска dsh и тем более до платного вызова.
+# Явный каталог позволяет выбрать уже установленный runtime без установки
+# пакетов и без изменения системного symlink. Он обязан быть абсолютным и
+# содержать node: молчаливый откат на PATH снова запустил бы smoke не тем runtime.
+if [ -n "$NODE_DIR" ]; then
+  case "$NODE_DIR" in
+    /*) ;;
+    *) fail "DSH_PILOT_NODE_DIR='$NODE_DIR' — нужен absolute path к каталогу с исполняемым node" ;;
+  esac
+  [ -d "$NODE_DIR" ] || fail "DSH_PILOT_NODE_DIR='$NODE_DIR' — каталог не существует"
+  [ -x "$NODE_DIR/node" ] || fail "DSH_PILOT_NODE_DIR='$NODE_DIR' — нет исполняемого '$NODE_DIR/node'"
+  NODE_DIR="$(cd "$NODE_DIR" && pwd -P)"
+  export PATH="$NODE_DIR:$PATH"
+fi
+command -v node >/dev/null 2>&1 || fail "Node runtime не найден в PATH; задайте DSH_PILOT_NODE_DIR абсолютным каталогом с совместимым node"
+NODE_PATH="$(command -v node)"
+NODE_VERSION="$(node --version 2>/dev/null || true)"
+[ -n "$NODE_VERSION" ] || fail "Node runtime '$NODE_PATH' не сообщил версию"
+if ! node -e '
+const zlib = require("node:zlib");
+const moduleApi = require("node:module");
+const missing = [];
+if (typeof Promise.withResolvers !== "function") missing.push("Promise.withResolvers");
+if (typeof zlib.createZstdDecompress !== "function") missing.push("node:zlib.createZstdDecompress");
+if (typeof moduleApi.stripTypeScriptTypes !== "function") missing.push("node:module.stripTypeScriptTypes");
+if (missing.length) {
+  console.error(missing.join(", "));
+  process.exit(1);
+}
+' >/dev/null 2>&1; then
+  fail "Node runtime '$NODE_PATH' ($NODE_VERSION) несовместим с DSH $DSH_VERSION_PIN: нужны Promise.withResolvers, node:zlib.createZstdDecompress и node:module.stripTypeScriptTypes; выберите совместимый уже установленный runtime через DSH_PILOT_NODE_DIR"
+fi
+ok "node_path=$NODE_PATH"
+ok "node_version=$NODE_VERSION"
+ok "Node runtime содержит обязательные API загрузчика DSH"
 
 # --- разбор эффективной конфигурации профиля -------------------------------
 # `--dump-config` печатает скомпонованное дерево (без вычисления !!js): записи
@@ -133,6 +173,16 @@ if ! (cd "$WORKTREE" && DSH_HOME="$PILOT_HOME" dsh --profile "$PROFILE" --dump-c
   fail "профиль '$PROFILE' не поднялся в $PILOT_HOME"
 fi
 ok "DSH_HOME=$PILOT_HOME, профиль '$PROFILE' материализован (без вызова модели)"
+
+echo "== 3a. Бесплатная проверка загрузчика headless =="
+# --dump-config не загружает весь runtime плагинов и ранее проходил даже там,
+# где настоящий headless запуск падал до agent loop. --help проходит тот же
+# загрузчик приложения, но не отправляет запрос модели и не требует API key.
+if ! (cd "$WORKTREE" && DSH_HOME="$PILOT_HOME" dsh --profile "$PROFILE" --help >/dev/null 2>&1); then
+  fail "headless loader check не прошёл: 'dsh --profile $PROFILE --help' завершился с ошибкой на Node '$NODE_PATH' ($NODE_VERSION); платный smoke заблокирован"
+fi
+HEADLESS_LOADER_CHECK=pass
+ok "headless_loader_check=$HEADLESS_LOADER_CHECK"
 
 echo "== 4. Креды приходят из окружения, а не из файла =="
 if [ -n "${DEEPSEEK_API_KEY:-}" ]; then ok "DEEPSEEK_API_KEY: задан (значение не печатается)"; else echo "  ! DEEPSEEK_API_KEY не задан — платный smoke невозможен"; fi
@@ -200,6 +250,7 @@ if [ "$MODE" = "prepare" ]; then
 
 Команда одного read-only smoke (запускать только после явного разрешения владельца):
 
+  DSH_PILOT_NODE_DIR=$(dirname "$NODE_PATH") \\
   DSH_PILOT_WORKTREE=$WORKTREE \\
   DSH_PILOT_HOME=$PILOT_HOME \\
   DSH_PILOT_PROMPT=<файл с read-only задачей> \\
@@ -470,6 +521,9 @@ emit_metrics() {
   echo
   echo "--- экспериментальные метрики пилота ---"
   printf 'dsh_version=%s\n' "$DSH_VERSION_PIN"
+  printf 'node_path=%s\n' "$NODE_PATH"
+  printf 'node_version=%s\n' "$NODE_VERSION"
+  printf 'headless_loader_check=%s\n' "$HEADLESS_LOADER_CHECK"
   printf 'profile=%s\n' "$PROFILE"
   printf 'effective_provider=%s\n' "${OBSERVED_PROVIDER:-unknown}"
   printf 'effective_model=%s\n' "${OBSERVED_MODEL:-unknown}"

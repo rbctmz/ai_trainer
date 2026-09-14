@@ -19,6 +19,9 @@ DeepSeek Harness официально значится **developer preview**, п
 
 1. **Версия закреплена:** `dsh 0.1.0-rc.6`. Обновление во время эксперимента
    запрещено — иначе качество harness не отделить от качества модели.
+   Runtime выбирается отдельно через `DSH_PILOT_NODE_DIR`: preflight проверяет
+   нужные API Node, а не доверяет одному номеру версии и не меняет системный
+   `node` или глобальные symlink.
 2. **DSH не путается с `git push`:** способность выполнить внешнее действие не
    измеряет качество реализации и добавляет гонку мержа.
 3. **Проектный `.env` не участвует.** DSH fail-closed отказывается читать
@@ -40,13 +43,22 @@ DeepSeek Harness официально значится **developer preview**, п
 git worktree add --detach /tmp/dsh-pilot-wt main
 
 # 2. бесплатная подготовка: версия, worktree, DSH_HOME, профиль, наличие кред
+DSH_PILOT_NODE_DIR=/opt/homebrew/opt/node@25/bin \
 scripts/dsh_pilot_preflight.sh
 
 # 3. один read-only smoke — только после разрешения владельца
 DEEPSEEK_API_KEY=<из окружения, не из файла> \
+DSH_PILOT_NODE_DIR=/opt/homebrew/opt/node@25/bin \
 DSH_PILOT_PROMPT=scripts/dsh_pilot_smoke_prompt.txt \
 scripts/dsh_pilot_preflight.sh --smoke --allow-paid-call
 ```
+
+Путь `/opt/homebrew/opt/node@25/bin` — воспроизводимый путь уже установленного
+runtime на пилотном хосте, а не требование устанавливать Node через Homebrew.
+На другом хосте укажите абсолютный каталог своего совместимого `node`. Если
+`DSH_PILOT_NODE_DIR` задан, preflight требует каталог с исполняемым `node` и
+ставит его первым в `PATH`; несуществующий, относительный или неполный путь —
+fail-closed до первого запуска `dsh`.
 
 Промпт smoke версионирован (`scripts/dsh_pilot_smoke_prompt.txt`), поэтому его
 SHA-256 попадает в метрики и постановки задач остаются сопоставимыми. Промпт
@@ -56,6 +68,20 @@ Preflight проверяет: закреплённую версию; отсут�
 материализацию профиля `headless` в отдельном `DSH_HOME`; наличие
 `DEEPSEEK_API_KEY` в окружении (значения не печатаются); модель и permission
 mode профиля. Режим `smoke` дополнительно требует `--allow-paid-call`.
+
+До любого запуска harness он проверяет три capability выбранного Node:
+`Promise.withResolvers`, `node:zlib.createZstdDecompress` и
+`node:module.stripTypeScriptTypes`. Затем бесплатный prepare запускает
+`dsh --profile headless --help`: это проверка полного загрузчика приложения без
+запроса модели. Одного `--dump-config` недостаточно — он может пройти, хотя
+загрузчик плагинов затем упадёт.
+
+Основание для follow-up #581: первый разрешённый smoke завершился за одну
+секунду до agent loop на Node `v20.19.5`, где отсутствовали перечисленные API;
+сессия и ответ модели не были созданы. Бесплатная проба того же DSH с уже
+установленным Node `v25.6.1` прошла через `--profile headless --help`. Это
+доказывает совместимость загрузчика, но не является платным smoke и не
+доказывает ответ провайдера. Preflight ничего не устанавливает и не обновляет.
 
 Свежий `DSH_HOME` даёт дефолты профиля: `provider: deepseek-official`,
 `model: deepseek-v4-flash`, `apiKeyEnv: DEEPSEEK_API_KEY`,
@@ -120,6 +146,8 @@ blocking P2, escaped defects, CI-ретраи и flakes, follow-up P2, wait time
 | Поле | Источник |
 | --- | --- |
 | `dsh_version`, `profile` | preflight |
+| `node_path`, `node_version` | выбранный runtime после применения `DSH_PILOT_NODE_DIR` |
+| `headless_loader_check` | бесплатный `dsh --profile headless --help`; для допущенного прогона `pass` |
 | `starting_sha` | worktree перед прогоном |
 | `prompt_sha256` | SHA-256 файла промпта (сопоставимость постановок) |
 | `duration_seconds`, `exit_code` | измерение процесса |

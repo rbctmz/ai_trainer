@@ -61,6 +61,13 @@ if [ "${1:-}" = "--version" ]; then
 fi
 
 for arg in "$@"; do
+  if [ "$arg" = "--help" ]; then
+    log "loader-check"
+    exit "${STUB_LOADER_EXIT_CODE:-0}"
+  fi
+done
+
+for arg in "$@"; do
   if [ "$arg" = "--dump-config" ]; then
     printf '%s\\n' \\
       '- id: agent-default-model' \\
@@ -125,6 +132,20 @@ case "${STUB_MODE:-normal}" in
     exit "${STUB_EXIT_CODE:-0}"
     ;;
 esac
+"""
+
+# Стаб `node`: preflight проверяет не номер версии как таковой, а три API,
+# нужные загрузчику DSH. Код `-e` здесь означает только эту capability-пробу;
+# JavaScript и сеть в тестах не исполняются.
+_STUB_NODE = """#!/usr/bin/env bash
+if [ "${1:-}" = "--version" ]; then
+  printf '%s\\n' "${STUB_NODE_VERSION:-v25.6.1}"
+  exit 0
+fi
+if [ "${1:-}" = "-e" ]; then
+  exit "${STUB_NODE_FEATURE_EXIT:-0}"
+fi
+exit 2
 """
 
 # Стаб `zstd`: тест пишет файл сессии без сжатия, поэтому `-dc` = «как есть».
@@ -262,12 +283,16 @@ class _Pilot:
             "DSH_PILOT_WORKTREE": str(self.worktree),
             "DSH_PILOT_HOME": str(self.home / "dsh-home"),
             "DSH_PILOT_PROMPT": str(self.prompt),
+            "DSH_PILOT_NODE_DIR": str(self.bin_dir),
             "DEEPSEEK_API_KEY": "stub-key-never-used",
             "STUB_LOG": str(self.log_file),
             "STUB_PIDS": str(self.pids_file),
             "STUB_MODE": "normal",
             "STUB_EXIT_CODE": "0",
             "STUB_SESSION": "yes",
+            "STUB_NODE_VERSION": "v25.6.1",
+            "STUB_NODE_FEATURE_EXIT": "0",
+            "STUB_LOADER_EXIT_CODE": "0",
             # Короткие лимиты: тест обязан быть быстрым и детерминированным.
             "DSH_PILOT_TIMEOUT_SECONDS": "5",
             "DSH_PILOT_TIMEOUT_GRACE_SECONDS": "1",
@@ -363,6 +388,7 @@ def pilot(tmp_path: Path) -> _Pilot:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _write_executable(bin_dir / "dsh", _STUB_DSH)
+    _write_executable(bin_dir / "node", _STUB_NODE)
     _write_executable(bin_dir / "zstd", _STUB_ZSTD)
     prompt = tmp_path / "prompt.txt"
     prompt.write_text("Прочитай README.md и ничего не меняй.\n", encoding="utf-8")
@@ -398,6 +424,55 @@ def pilot(tmp_path: Path) -> _Pilot:
         yield harness
     finally:
         harness.kill_leftovers()
+
+
+def test_incompatible_node_runtime_fails_before_dsh_or_paid_run(pilot: _Pilot) -> None:
+    """Нет нужных API Node: preflight падает до любого запуска harness."""
+    env = pilot.env(STUB_NODE_VERSION="v20.19.5", STUB_NODE_FEATURE_EXIT="9")
+    result = pilot.run("--prepare", env=env)
+
+    assert result.returncode == 1, result.stdout
+    assert "Node runtime" in result.stdout
+    assert "Promise.withResolvers" in result.stdout
+    assert pilot.log_text() == ""
+    assert pilot.paid_invocations() == 0
+
+
+def test_headless_loader_failure_blocks_prepare_without_paid_run(pilot: _Pilot) -> None:
+    """Capability-проба прошла, но реальный loader профиля нет: prepare не зачтён."""
+    env = pilot.env(STUB_LOADER_EXIT_CODE="9")
+    result = pilot.run("--prepare", env=env)
+
+    assert result.returncode == 1, result.stdout
+    assert "headless" in result.stdout
+    assert "loader" in result.stdout
+    assert pilot.log_text().count("loader-check") == 1
+    assert pilot.paid_invocations() == 0
+
+
+def test_compatible_runtime_prepare_records_runtime_and_loader(pilot: _Pilot) -> None:
+    """Бесплатный prepare публикует наблюдаемый runtime и успешную loader-пробу."""
+    env = pilot.env()
+    result = pilot.run("--prepare", env=env)
+
+    assert result.returncode == 0, result.stdout
+    assert f"node_path={pilot.bin_dir / 'node'}" in result.stdout
+    assert "node_version=v25.6.1" in result.stdout
+    assert "headless_loader_check=pass" in result.stdout
+    assert pilot.log_text().count("loader-check") == 1
+    assert pilot.paid_invocations() == 0
+
+
+def test_invalid_node_dir_fails_before_dsh_or_paid_run(pilot: _Pilot) -> None:
+    """Явный runtime-dir валидируется, а не молча игнорируется в пользу PATH."""
+    env = pilot.env(DSH_PILOT_NODE_DIR="relative/node-bin")
+    result = pilot.run("--prepare", env=env)
+
+    assert result.returncode == 1, result.stdout
+    assert "DSH_PILOT_NODE_DIR" in result.stdout
+    assert "absolute" in result.stdout
+    assert pilot.log_text() == ""
+    assert pilot.paid_invocations() == 0
 
 
 def test_timeout_kills_whole_process_group_including_grandchild(pilot: _Pilot) -> None:
@@ -576,6 +651,9 @@ def test_normal_run_reports_default_limit_and_keeps_metrics(pilot: _Pilot) -> No
     assert "timeout_seconds=300" in result.stdout
     assert "timed_out=no" in result.stdout
     assert "exit_code=0" in result.stdout
+    assert f"node_path={pilot.bin_dir / 'node'}" in result.stdout
+    assert "node_version=v25.6.1" in result.stdout
+    assert "headless_loader_check=pass" in result.stdout
     # Метрики сессии по-прежнему собираются (стаб zstd = «вывести как есть»),
     # а гарантии read-only по-прежнему подтверждаются.
     assert "tokens_input=11" in result.stdout
