@@ -13,6 +13,7 @@ from typing import Any
 import pandas as pd
 
 from models.activity_lineage import authoritative_training_load_activities
+from models.acwr import acwr_signal, provider_status_from_training_status
 from models.banister import BanisterModel, tsb_zone
 
 
@@ -62,6 +63,48 @@ def _without_multisport_envelopes(frame: pd.DataFrame) -> pd.DataFrame:
     return authoritative_training_load_activities(frame)
 
 
+def _daily_load_series(
+    activities_df: pd.DataFrame | None,
+    *,
+    as_of: date | None = None,
+) -> tuple[list[float], list[Any]]:
+    """Дневной ряд нагрузки (включая нулевые дни отдыха) для EWMA-моделей.
+
+    Возвращает ``(tss, dates)``. Это общий вход для CTL/ATL/TSB и ACWR: если
+    считать их из разных рядов, ACWR перестанет быть отношением тех самых
+    средних, которые показывает TSB.
+
+    Issue #231: с ``as_of`` дни отдыха после последней тренировки
+    достраиваются нулями до якоря, поэтому средние — сигнал «на сегодня», а не
+    замороженный на дате последней активности.
+    """
+    df = _without_multisport_envelopes(_frame_or_empty(activities_df))
+    if df.empty:
+        return [], []
+
+    if as_of is not None:
+        frame = df[["date", "tss"]].copy()
+        frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+        frame["tss"] = pd.to_numeric(frame["tss"], errors="coerce").fillna(0.0)
+        frame = frame.dropna(subset=["date"])
+        anchor_ts = pd.Timestamp(as_of)
+        frame = frame[frame["date"] <= anchor_ts]
+        if frame.empty:
+            return [], []
+        daily = frame.groupby(frame["date"].dt.normalize())["tss"].sum().sort_index()
+        date_range = pd.date_range(start=daily.index.min(), end=anchor_ts, freq="D")
+        daily = daily.reindex(date_range, fill_value=0.0)
+        return daily.tolist(), daily.index.tolist()
+
+    tss_data: list[float] = []
+    dates: list[Any] = []
+    for _, row in df.iterrows():
+        tss_data.append(_safe_float(row.get("tss"), 0.0))
+        dates.append(row.get("date"))
+
+    return tss_data, dates
+
+
 def training_load_metrics(
     activities_df: pd.DataFrame | None,
     *,
@@ -72,12 +115,12 @@ def training_load_metrics(
     Issue #231: with ``as_of`` set, rest days after the last activity are
     zero-filled through the anchor before the EWMA, so CTL/ATL/TSB are a
     "today" signal — matching the canonical readiness snapshot
-    (``models/readiness._tsb_metrics``). Without it the model freezes at the
+    (``models.readiness._tsb_metrics``). Without it the model freezes at the
     last workout date (second instance of #139). ``as_of`` defaults to None to
     keep every existing caller's behavior unchanged.
     """
-    df = _without_multisport_envelopes(_frame_or_empty(activities_df))
-    if df.empty:
+    tss_data, dates = _daily_load_series(activities_df, as_of=as_of)
+    if not tss_data:
         return {
             "ctl": 0.0,
             "atl": 0.0,
@@ -87,26 +130,24 @@ def training_load_metrics(
             "form": "Недостаточно данных",
         }
 
-    if as_of is not None:
-        frame = df[["date", "tss"]].copy()
-        frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
-        frame["tss"] = pd.to_numeric(frame["tss"], errors="coerce").fillna(0.0)
-        frame = frame.dropna(subset=["date"])
-        anchor_ts = pd.Timestamp(as_of)
-        frame = frame[frame["date"] <= anchor_ts]
-        if not frame.empty:
-            daily = frame.groupby(frame["date"].dt.normalize())["tss"].sum().sort_index()
-            date_range = pd.date_range(start=daily.index.min(), end=anchor_ts, freq="D")
-            daily = daily.reindex(date_range, fill_value=0.0)
-            return BanisterModel().get_current_metrics(daily.tolist(), daily.index.tolist())
-
-    tss_data: list[float] = []
-    dates: list[Any] = []
-    for _, row in df.iterrows():
-        tss_data.append(_safe_float(row.get("tss"), 0.0))
-        dates.append(row.get("date"))
-
     return BanisterModel().get_current_metrics(tss_data, dates)
+
+
+def acwr_metrics(
+    activities_df: pd.DataFrame | None,
+    *,
+    as_of: date | None = None,
+    provider_status: Any = None,
+) -> dict[str, Any]:
+    """ACWR по дневным EWMA (issue #593).
+
+    Считается из того же дневного ряда, что и CTL/ATL в
+    :func:`training_load_metrics`, поэтому отношение согласовано с TSB.
+    ``provider_status`` — значение из Intervals.icu: оно попадает в поле
+    ``cross_check`` и никогда не подменяет локальный расчёт.
+    """
+    tss_data, _ = _daily_load_series(activities_df, as_of=as_of)
+    return acwr_signal(tss_data, provider_status=provider_status)
 
 
 def _training_status_frame(training_status: Any) -> pd.DataFrame | None:
@@ -255,10 +296,13 @@ def _sleep_signal(sleep_df: pd.DataFrame | None) -> dict[str, Any]:
     }
 
 
-def _load_signal(metrics: dict[str, Any]) -> dict[str, Any]:
+def _load_signal(
+    metrics: dict[str, Any],
+    acwr: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     tsb = _safe_float(metrics.get("tsb"), 0.0)
     zone = tsb_zone(tsb)
-    return {
+    signal = {
         "ctl": round(_safe_float(metrics.get("ctl"), 0.0), 1),
         "atl": round(_safe_float(metrics.get("atl"), 0.0), 1),
         "tsb": round(tsb, 1),
@@ -268,6 +312,9 @@ def _load_signal(metrics: dict[str, Any]) -> dict[str, Any]:
         "clause": zone["clause"],
         "severity": tone_severity(zone["tone"]),
     }
+    # Issue #593: локальный ACWR по дневным EWMA.
+    signal["acwr"] = acwr if acwr is not None else acwr_metrics(None)
+    return signal
 
 
 def _recommendations_for_signals(
@@ -414,18 +461,31 @@ def assemble_signals(
 
     Issue #231: pass ``as_of`` to anchor CTL/ATL/TSB to today (rest days decay
     after the last workout) instead of freezing at the last activity date.
+    Issue #593: ``load.acwr`` — локальный ACWR; провайдерский ``acwr_status``
+    из Intervals.icu идёт только в сверку и не подменяет расчёт.
     """
     load_activities = _without_multisport_envelopes(
         _frame_or_empty(activities_df)
     )
+    status_frame = _training_status_frame(training_status)
+    # Провайдерский статус читаем из исходного объекта: _training_status_frame
+    # для dict оставляет только readiness-поля и потерял бы acwr_status.
+    provider_acwr_status = provider_status_from_training_status(training_status)
     metrics = training_load_metrics(load_activities, as_of=as_of)
-    load = _load_signal(metrics)
+    load = _load_signal(
+        metrics,
+        acwr_metrics(
+            load_activities,
+            as_of=as_of,
+            provider_status=provider_acwr_status,
+        ),
+    )
     hrv = _hrv_signal(hrv_df)
     sleep = _sleep_signal(sleep_df)
     readiness = _readiness_signal(
         sleep_df,
         hrv_df,
-        training_status,
+        status_frame,
         load_activities,
         health_df,
     )
