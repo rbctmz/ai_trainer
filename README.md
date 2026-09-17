@@ -457,6 +457,13 @@ python -m pytest tests/smoke -q
 # Более широкий локальный прогон без live/debug сценариев
 python -m pytest -m "not live and not debug" tests/
 
+# Покрытие product-кода: отчёт, не гейт (baseline и разбор — docs/code_quality_measurements.md)
+python -m pytest -m "not live and not debug and not e2e" tests/ -q \
+  --cov=api --cov=models --cov=services --cov=data --cov=utils
+
+# Проверка типов включённого allowlist (mypy.ini), команда должна быть зелёной
+python -m mypy
+
 # Изолированный acceptance-запуск с временной БД
 ACCEPTANCE_PORT=8510 ./run_acceptance.sh
 

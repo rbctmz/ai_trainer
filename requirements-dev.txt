@@ -2,3 +2,6 @@
 pytest>=8.4.0,<9
 playwright>=1.50,<2
 ruff>=0.6,<1.0
+# Инженерные измерения: покрытие и проверка типов (docs/code_quality_measurements.md)
+pytest-cov>=5,<7
+mypy>=1.11,<2.0
