@@ -181,10 +181,10 @@ class GarthClient:
                     params={"startDate": date_str, "endDate": date_str}
                 )
                 if body_battery:
-                    print(f"DEBUG: Body Battery получен через connectapi для {date_str}")
+                    garmin_logger.debug(f"Body Battery получен через connectapi для {date_str}")
                     return body_battery
             except Exception as e:
-                print(f"DEBUG: Body Battery connectapi failed for {date_str}: {e}")
+                garmin_logger.warning(f"Body Battery connectapi failed for {date_str}: {e}")
             
             # Метод 2: Альтернативный endpoint
             try:
@@ -192,15 +192,15 @@ class GarthClient:
                     f"/wellness-service/wellness/bodyBattery/{date_str}"
                 )
                 if body_battery_alt:
-                    print(f"DEBUG: Body Battery получен через альтернативный API для {date_str}")
+                    garmin_logger.debug(f"Body Battery получен через альтернативный API для {date_str}")
                     return body_battery_alt
             except Exception as e:
-                print(f"DEBUG: Body Battery alt API failed for {date_str}: {e}")
+                garmin_logger.warning(f"Body Battery alt API failed for {date_str}: {e}")
             
             return None
             
         except Exception as e:
-            print(f"DEBUG: Ошибка получения Body Battery для {date}: {e}")
+            garmin_logger.warning(f"Ошибка получения Body Battery для {date}: {e}")
             return None
     
     def get_hrv_data_garth(self, date):
@@ -214,23 +214,23 @@ class GarthClient:
         try:
             daily_hrv = garth.DailyHRV.get(date_str)
             if daily_hrv:
-                print(f"DEBUG GARTH HRV: HRV данные получены через DailyHRV для {date_str}")
+                garmin_logger.debug(f"HRV данные получены через DailyHRV для {date_str}")
                 result = self._convert_hrv_to_dict(daily_hrv)
-                print(f"DEBUG GARTH HRV: Конвертированные данные: {result}")
+                garmin_logger.debug(f"Конвертированные данные: {result}")
                 return result
         except Exception as e:
-            print(f"DEBUG GARTH HRV: DailyHRV failed for {date_str}: {e}")
+            garmin_logger.warning(f"DailyHRV failed for {date_str}: {e}")
         
         # Метод 2: Через HRVData класс
         try:
             hrv_data = garth.HRVData.get(date_str)
             if hrv_data:
-                print(f"DEBUG GARTH HRV: HRV данные получены через HRVData для {date_str}")
+                garmin_logger.debug(f"HRV данные получены через HRVData для {date_str}")
                 result = self._convert_hrv_to_dict(hrv_data)
-                print(f"DEBUG GARTH HRV: Конвертированные данные: {result}")
+                garmin_logger.debug(f"Конвертированные данные: {result}")
                 return result
         except Exception as e:
-            print(f"DEBUG GARTH HRV: HRVData failed for {date_str}: {e}")
+            garmin_logger.warning(f"HRVData failed for {date_str}: {e}")
             
         # Метод 3: Через прямой API запрос к HRV endpoint
         try:
@@ -239,17 +239,17 @@ class GarthClient:
                 # Пробуем специфичный HRV endpoint
                 hrv_api_url = f"/hrv-service/hrv/{username}"
                 params = {"fromDate": date_str, "untilDate": date_str}
-                print(f"DEBUG GARTH HRV: Попытка HRV API: {hrv_api_url}")
+                garmin_logger.debug(f"Попытка HRV API: {hrv_api_url}")
                 
                 try:
                     hrv_response = garth.connectapi(hrv_api_url, params=params)
                     if hrv_response:
-                        print(f"DEBUG GARTH HRV: HRV API ответ получен: {type(hrv_response)}")
+                        garmin_logger.debug(f"HRV API ответ получен: {type(hrv_response)}")
                         if isinstance(hrv_response, list) and len(hrv_response) > 0:
                             hrv_entry = hrv_response[0]
                             if 'lastNightAvg' in hrv_entry or 'rmssd' in hrv_entry:
                                 rmssd_val = hrv_entry.get('lastNightAvg') or hrv_entry.get('rmssd')
-                                print(f"DEBUG GARTH HRV: HRV значение из API: {rmssd_val}")
+                                garmin_logger.debug(f"HRV значение из API: {rmssd_val}")
                                 return {
                                     'hrvSummary': {
                                         'lastNightAvg': rmssd_val,
@@ -257,16 +257,16 @@ class GarthClient:
                                     }
                                 }
                 except Exception as hrv_e:
-                    print(f"DEBUG GARTH HRV: HRV-specific API failed: {hrv_e}")
+                    garmin_logger.warning(f"HRV-specific API failed: {hrv_e}")
                 
                 # Пробуем общий daily summary endpoint
                 api_url = f"/usersummary-service/usersummary/daily/{username}"
                 params = {"calendarDate": date_str}
-                print(f"DEBUG GARTH HRV: Попытка daily summary API: {api_url}")
+                garmin_logger.debug(f"Попытка daily summary API: {api_url}")
                 
                 daily_data = garth.connectapi(api_url, params=params)
                 if daily_data and isinstance(daily_data, dict):
-                    print(f"DEBUG GARTH HRV: Daily data ключи: {list(daily_data.keys())}")
+                    garmin_logger.debug(f"Daily data ключи: {list(daily_data.keys())}")
                     
                     # Ищем HRV в разных местах
                     hrv_value = None
@@ -280,7 +280,7 @@ class GarthClient:
                             hrv_value = hrv_data_nested.get('lastNightAvg') or hrv_data_nested.get('rmssd')
                     
                     if hrv_value:
-                        print(f"DEBUG GARTH HRV: HRV найден в daily summary: {hrv_value}")
+                        garmin_logger.debug(f"HRV найден в daily summary: {hrv_value}")
                         return {
                             'hrvSummary': {
                                 'lastNightAvg': hrv_value,
@@ -288,24 +288,24 @@ class GarthClient:
                             }
                         }
         except Exception as e:
-            print(f"DEBUG GARTH HRV: Direct API failed for {date_str}: {e}")
+            garmin_logger.warning(f"Direct API failed for {date_str}: {e}")
             
         # Метод 4: Fallback через общую сводку дня
-        print(f"DEBUG GARTH HRV: HRV методы не сработали, пробуем fallback через daily summary для {date_str}")
+        garmin_logger.debug(f"HRV методы не сработали, пробуем fallback через daily summary для {date_str}")
         daily_summary = self.get_daily_summary_garth(date)
         if daily_summary:
-            print(f"DEBUG GARTH HRV: Daily summary получен, ключи: {list(daily_summary.keys()) if isinstance(daily_summary, dict) else 'не словарь'}")
+            garmin_logger.debug(f"Daily summary получен, ключи: {list(daily_summary.keys()) if isinstance(daily_summary, dict) else 'не словарь'}")
             if 'hrv' in daily_summary:
-                print(f"DEBUG GARTH HRV: HRV данные найдены в daily summary для {date_str}")
+                garmin_logger.debug(f"HRV данные найдены в daily summary для {date_str}")
                 return self._convert_hrv_to_dict(daily_summary['hrv'])
             
-        print(f"DEBUG GARTH HRV: Не удалось получить HRV данные для {date_str}")
+        garmin_logger.warning(f"Не удалось получить HRV данные для {date_str}")
         return None
     
     def _convert_hrv_to_dict(self, hrv_obj):
         """Конвертирует объект HRV из garth в словарь для совместимости"""
         try:
-            print(f"DEBUG CONVERT HRV: Входной тип: {type(hrv_obj)}")
+            garmin_logger.debug(f"Входной тип: {type(hrv_obj)}")
             
             # Если уже словарь, работаем с ним
             if isinstance(hrv_obj, dict):
@@ -322,7 +322,7 @@ class GarthClient:
                     if hasattr(hrv_obj, attr):
                         hrv_dict[attr] = getattr(hrv_obj, attr)
             
-            print(f"DEBUG CONVERT HRV: Ключи словаря: {list(hrv_dict.keys()) if isinstance(hrv_dict, dict) else 'не словарь'}")
+            garmin_logger.debug(f"Ключи словаря: {list(hrv_dict.keys()) if isinstance(hrv_dict, dict) else 'не словарь'}")
             
             # Ищем HRV значение в разных местах
             rmssd_value = None
@@ -330,10 +330,10 @@ class GarthClient:
             # Вариант 1: hrv_summary объект с атрибутами
             if 'hrv_summary' in hrv_dict:
                 hrv_summary = hrv_dict['hrv_summary']
-                print(f"DEBUG CONVERT HRV: Найден hrv_summary, тип: {type(hrv_summary)}")
+                garmin_logger.debug(f"Найден hrv_summary, тип: {type(hrv_summary)}")
                 if hasattr(hrv_summary, 'last_night_avg'):
                     rmssd_value = hrv_summary.last_night_avg
-                    print(f"DEBUG CONVERT HRV: Извлечен last_night_avg из объекта: {rmssd_value}")
+                    garmin_logger.debug(f"Извлечен last_night_avg из объекта: {rmssd_value}")
                 elif hasattr(hrv_summary, 'lastNightAvg'):
                     rmssd_value = hrv_summary.lastNightAvg
                 elif isinstance(hrv_summary, dict):
@@ -353,7 +353,7 @@ class GarthClient:
             if not rmssd_value:
                 rmssd_value = hrv_dict.get('lastNightAvg') or hrv_dict.get('rmssd') or hrv_dict.get('daily_rmssd') or hrv_dict.get('last_night_avg')
             
-            print(f"DEBUG CONVERT HRV: Финальное значение RMSSD: {rmssd_value}")
+            garmin_logger.debug(f"Финальное значение RMSSD: {rmssd_value}")
             
             # Создаем структуру совместимую с garminconnect
             if rmssd_value is not None:
@@ -366,14 +366,14 @@ class GarthClient:
                 }
             
             # Если структура неизвестна, возвращаем как есть с обёрткой
-            print("DEBUG CONVERT HRV: RMSSD не найден, возвращаем сырые данные")
+            garmin_logger.debug("RMSSD не найден, возвращаем сырые данные")
             return {
                 'hrvSummary': hrv_dict,
                 'raw_data': hrv_dict
             }
             
         except Exception as e:
-            print(f"DEBUG CONVERT HRV: Ошибка конвертации HRV объекта: {e}")
+            garmin_logger.warning(f"Ошибка конвертации HRV объекта: {e}")
             import traceback
             traceback.print_exc()
             # В крайнем случае создаем минимальную структуру
@@ -417,7 +417,7 @@ class GarthClient:
             }
             
         except Exception as e:
-            print(f"DEBUG: Ошибка конвертации Sleep объекта: {e}")
+            garmin_logger.warning(f"Ошибка конвертации Sleep объекта: {e}")
             # В крайнем случае создаем минимальную структуру
             return {
                 'sleepTimeSeconds': 0,
@@ -436,14 +436,14 @@ class GarthClient:
         try:
             # Используем правильный endpoint для стресс-данных
             stress_api_url = f"/wellness-service/wellness/dailyStress/{date_str}"
-            print(f"DEBUG STRESS: Попытка wellness stress API: {stress_api_url}")
+            garmin_logger.debug(f"Попытка wellness stress API: {stress_api_url}")
             
             stress_response = garth.connectapi(stress_api_url)
             if stress_response:
-                print("DEBUG STRESS: Stress API ответ получен через wellness")
+                garmin_logger.debug("Stress API ответ получен через wellness")
                 return self._convert_stress_to_dict(stress_response)
         except Exception as e:
-            print(f"DEBUG STRESS: Wellness stress API failed: {e}")
+            garmin_logger.warning(f"Wellness stress API failed: {e}")
         
         # Метод 2: Через endpoint с userId
         try:
@@ -452,24 +452,24 @@ class GarthClient:
                 # Пробуем другой endpoint  
                 stress_api_url = "/wellness-service/wellness/dailyStress"
                 params = {"date": date_str}
-                print(f"DEBUG STRESS: Попытка stress API с параметрами: {stress_api_url}")
+                garmin_logger.debug(f"Попытка stress API с параметрами: {stress_api_url}")
                 
                 stress_response = garth.connectapi(stress_api_url, params=params)
                 if stress_response:
-                    print("DEBUG STRESS: Stress API ответ получен")
+                    garmin_logger.debug("Stress API ответ получен")
                     return self._convert_stress_to_dict(stress_response)
         except Exception as e:
-            print(f"DEBUG STRESS: Stress API с параметрами failed: {e}")
+            garmin_logger.warning(f"Stress API с параметрами failed: {e}")
         
         # Метод 3: Пробуем получить через учетные данные пользователя
         try:
             # Часто стресс включен в данные дня
             user_data_url = f"/usersummary-service/usersummary/daily/{date_str}"
-            print(f"DEBUG STRESS: Попытка usersummary API: {user_data_url}")
+            garmin_logger.debug(f"Попытка usersummary API: {user_data_url}")
             
             user_summary = garth.connectapi(user_data_url)
             if user_summary:
-                print("DEBUG STRESS: User summary получен, ищем стресс")
+                garmin_logger.debug("User summary получен, ищем стресс")
                 if isinstance(user_summary, dict):
                     # Ищем стресс в разных местах
                     if 'averageStressLevel' in user_summary:
@@ -480,34 +480,34 @@ class GarthClient:
                         # Если есть только максимальный, используем его
                         return {'avgStressLevel': user_summary['maxStressLevel']}
         except Exception as e:
-            print(f"DEBUG STRESS: User summary failed: {e}")
+            garmin_logger.warning(f"User summary failed: {e}")
         
         # Метод 4: Возвращаем заглушку, если стресс данные недоступны
-        print(f"DEBUG STRESS: Не удалось получить данные стресса для {date_str}")
+        garmin_logger.warning(f"Не удалось получить данные стресса для {date_str}")
         # Можно вернуть расчетный стресс на основе других данных
         return None
     
     def _convert_stress_to_dict(self, stress_obj):
         """Конвертирует объект стресса в нужный формат"""
         try:
-            print(f"DEBUG CONVERT STRESS: Входной тип: {type(stress_obj)}")
+            garmin_logger.debug(f"Входной тип: {type(stress_obj)}")
             
             # Если это уже число - это средний уровень стресса
             if isinstance(stress_obj, (int, float)):
-                print(f"DEBUG CONVERT STRESS: Простое число: {stress_obj}")
+                garmin_logger.debug(f"Простое число: {stress_obj}")
                 return {'avgStressLevel': stress_obj, 'overallStressLevel': stress_obj}
             
             # Если это словарь
             if isinstance(stress_obj, dict):
                 avg_stress = stress_obj.get('avgStressLevel') or stress_obj.get('overallStressLevel') or stress_obj.get('averageStressLevel')
                 if avg_stress:
-                    print(f"DEBUG CONVERT STRESS: Извлечен уровень из словаря: {avg_stress}")
+                    garmin_logger.debug(f"Извлечен уровень из словаря: {avg_stress}")
                     return {'avgStressLevel': avg_stress, 'overallStressLevel': avg_stress}
             
             # Если это объект с атрибутами
             if hasattr(stress_obj, '__dict__'):
                 stress_dict = stress_obj.__dict__
-                print(f"DEBUG CONVERT STRESS: Ключи объекта: {list(stress_dict.keys())}")
+                garmin_logger.debug(f"Ключи объекта: {list(stress_dict.keys())}")
                 
                 # Ищем средний уровень стресса
                 avg_stress = None
@@ -521,15 +521,15 @@ class GarthClient:
                     avg_stress = stress_dict['stressData'].get('avgStressLevel')
                 
                 if avg_stress:
-                    print(f"DEBUG CONVERT STRESS: Извлечен уровень из объекта: {avg_stress}")
+                    garmin_logger.debug(f"Извлечен уровень из объекта: {avg_stress}")
                     return {'avgStressLevel': avg_stress, 'overallStressLevel': avg_stress}
             
             # Если не смогли извлечь - возвращаем None
-            print("DEBUG CONVERT STRESS: Не удалось извлечь уровень стресса")
+            garmin_logger.warning("Не удалось извлечь уровень стресса")
             return None
             
         except Exception as e:
-            print(f"DEBUG CONVERT STRESS: Ошибка конвертации: {e}")
+            garmin_logger.warning(f"Ошибка конвертации: {e}")
             import traceback
             traceback.print_exc()
             return None
@@ -548,11 +548,11 @@ class GarthClient:
                     params={"calendarDate": date_str}
                 )
                 if summary:
-                    print(f"DEBUG: Daily summary получено для {date_str}")
+                    garmin_logger.debug(f"Daily summary получено для {date_str}")
                     return summary
             return None
         except Exception as e:
-            print(f"DEBUG: Ошибка получения daily summary для {date}: {e}")
+            garmin_logger.warning(f"Ошибка получения daily summary для {date}: {e}")
             return None
     
     def get_wellness_comprehensive(self, date):
@@ -590,20 +590,20 @@ class GarthClient:
                 daily_steps = garth.DailySteps.get(date_str)
                 comprehensive_data['steps'] = daily_steps
             except Exception as e:
-                print(f"DEBUG: DailySteps failed for {date_str}: {e}")
+                garmin_logger.warning(f"DailySteps failed for {date_str}: {e}")
             
             # Проверяем, что хотя бы что-то получено
             has_data = any(comprehensive_data[key] is not None for key in comprehensive_data if key != 'date')
             
             if has_data:
-                print(f"DEBUG: Комплексные данные получены для {date_str}")
+                garmin_logger.debug(f"Комплексные данные получены для {date_str}")
                 return comprehensive_data
             else:
-                print(f"DEBUG: Комплексные данные не получены для {date_str}")
+                garmin_logger.warning(f"Комплексные данные не получены для {date_str}")
                 return None
                 
         except Exception as e:
-            print(f"DEBUG: Ошибка получения комплексных данных для {date}: {e}")
+            garmin_logger.warning(f"Ошибка получения комплексных данных для {date}: {e}")
             return None
     
     def get_training_status(self, date):
@@ -724,27 +724,27 @@ class GarthClient:
             try:
                 profile = garth.UserProfile.get()
                 if profile:
-                    print("DEBUG: Профиль пользователя получен через garth")
+                    garmin_logger.debug("Профиль пользователя получен через garth")
                     normalized = self._normalize_profile(profile)
                     self._cached_profile = normalized
                     return normalized
             except ValidationError as e:
                 self._profile_fetch_failed = True
-                print(f"DEBUG: Ошибка валидации профиля garth: {e}")
+                garmin_logger.warning(f"Ошибка валидации профиля garth: {e}")
             except Exception as e:
                 self._profile_fetch_failed = True
-                print(f"DEBUG: Ошибка получения профиля: {e}")
+                garmin_logger.warning(f"Ошибка получения профиля: {e}")
 
         # Резервный сценарий: получаем профиль напрямую и нормализуем
         try:
             raw_profile = garth.connectapi("/userprofile-service/socialProfile")
             if raw_profile:
-                print("DEBUG: Профиль пользователя получен через резервный socialProfile API")
+                garmin_logger.debug("Профиль пользователя получен через резервный socialProfile API")
                 normalized = self._normalize_profile(raw_profile)
                 self._cached_profile = normalized
                 return normalized
         except Exception as e:
-            print(f"DEBUG: Ошибка резервного получения профиля: {e}")
+            garmin_logger.warning(f"Ошибка резервного получения профиля: {e}")
 
         return None
     

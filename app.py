@@ -3,6 +3,7 @@ from typing import Any, Dict
 
 from config.settings import Settings
 from state import get_state_manager
+from utils.logging_setup import configure_logging
 from utils.streamlit_compat import apply_streamlit_width_compat
 from ui.components import render_chat_management, render_development_tools, render_garmin_connection
 from ui.navigation import (
@@ -34,6 +35,9 @@ from services import (
 )
 
 apply_streamlit_width_compat()
+
+# Legacy-точка входа настраивает логирование приложения (utils/logging_setup.py).
+configure_logging()
 
 st.set_page_config(
     page_title="AI Trainer",
