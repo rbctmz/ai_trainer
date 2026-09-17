@@ -160,3 +160,27 @@ def test_long_history_with_rest_yields_acwr(tmp_path) -> None:
 
     assert acwr["value"] is not None, f"ожидалось значение, причина: {acwr['reason']}"
     assert acwr["value"] < 1.3, f"ACWR={acwr['value']} вне оптимальной зоны при ровной нагрузке"
+
+
+def test_anchor_uses_canonical_athlete_date(tmp_path, monkeypatch) -> None:
+    """Якорь берётся из athlete_local_date, а не из host clock.
+
+    #577 завёл канонический хелпер атлетской даты. При дефолтном
+    ATHLETE_TIMEZONE он совпадает с локальной датой хоста, поэтому ошибку
+    не поймать сравнением значений — подменяем сам источник и проверяем,
+    что он действительно используется.
+    """
+    db = _db(tmp_path, "canonical.db")
+    _seed(db, [50.0] * 60, end_offset_days=0)
+
+    canonical = datetime.now().date() + timedelta(days=40)
+    monkeypatch.setattr(ps, "athlete_local_date", lambda *args, **kwargs: canonical)
+
+    signals, _df = ps._current_signals(db)
+
+    # 40 добавленных нулевых дней гасят острую нагрузку: без канонического
+    # источника якорь остался бы на сегодняшней дате и ATL держался бы на 50.
+    assert signals["load"]["atl"] < 20.0, (
+        f"ATL={signals['load']['atl']}: якорь не взял дату из athlete_local_date"
+    )
+    assert signals["load"]["tsb"] > 0.0

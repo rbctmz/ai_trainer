@@ -111,6 +111,7 @@ from services.planning_contracts import (
     PLANNING_MODES,
 )
 from services.planning_events import discover_intervals_events as discover_intervals_events
+from utils.athlete_time import athlete_local_date
 
 PLANNING_DEMAND_SETTING_KEY = "planning_demand_level"
 
@@ -438,7 +439,7 @@ def _current_signals(
     факт.
     """
     df = db.get_activities(90)
-    anchor = as_of or datetime.now().date()
+    anchor = as_of or athlete_local_date()
     return assemble_signals(activities_df=df, as_of=anchor), df
 
 
