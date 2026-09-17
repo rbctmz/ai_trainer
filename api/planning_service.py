@@ -418,9 +418,28 @@ def _metrics_from_signals(signals: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _current_signals(db: Database) -> tuple[dict[str, Any], pd.DataFrame | None]:
+def _current_signals(
+    db: Database,
+    as_of: Optional[date] = None,
+) -> tuple[dict[str, Any], pd.DataFrame | None]:
+    """Сигналы нагрузки на сегодняшний якорь.
+
+    Issue #597: без ``as_of`` CTL/ATL/TSB замерзали на дате последней
+    тренировки — `BanisterModel` достраивает дни только до последней
+    активности, поэтому отдых не гасил нагрузку. Отсюда `assess_start_load_state`
+    видел глубокую усталость у отдохнувшего спортсмена и резал план
+    guard-факторами 0.75/0.85/0.95. Это второй случай дефекта #139 (первый
+    закрыт в #231); якорь обязателен для всех потребителей — `current_status`,
+    `build_plan`, `apply_adjustment`.
+
+    Допущение: если последняя синхронизация старше якоря, недостающие дни
+    достраиваются нулями и гасят EWMA. Для «сигнала на сегодня» это вернее
+    заморозки на дате последней тренировки, но это допущение о данных, а не
+    факт.
+    """
     df = db.get_activities(90)
-    return assemble_signals(activities_df=df), df
+    anchor = as_of or datetime.now().date()
+    return assemble_signals(activities_df=df, as_of=anchor), df
 
 
 def _current_metrics(db: Database):
