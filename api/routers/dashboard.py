@@ -16,7 +16,7 @@ from api.operational_state import build_operational_state, latest_iso_from_frame
 from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
 from models.banister import tsb_zone
-from state import StateManager
+from utils.app_state import HeadlessState
 from models.dashboard_summary import (
     build_activity_day_tss,
     build_dashboard_summary,
@@ -34,7 +34,7 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 def dashboard_summary(
     demo: bool = False,
     db: Database = Depends(get_database),
-    state: StateManager = Depends(get_headless_state),
+    state: HeadlessState = Depends(get_headless_state),
 ) -> Dict[str, Any]:
     """Command-center summary: today's state, workout, week load, next action."""
     readiness_snapshot = build_readiness_snapshot(db)
@@ -287,7 +287,7 @@ def _calculate_race_projection(
 @router.get("/widgets")
 def dashboard_widgets(
     db: Database = Depends(get_database),
-    state: StateManager = Depends(get_headless_state),
+    state: HeadlessState = Depends(get_headless_state),
 ) -> Dict[str, Any]:
     """Secondary dashboard widgets: Training Score, Daily Outlook, Race Projection."""
     readiness_snapshot = build_readiness_snapshot(db)

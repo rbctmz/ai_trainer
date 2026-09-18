@@ -1,7 +1,7 @@
 """Shared dependencies for the FastAPI layer.
 
 The key idea behind the web migration is that the backend stays Streamlit-free.
-``StateManager`` already supports being constructed around any mapping, so the
+``HeadlessState`` already supports being constructed around any mapping, so the
 API wraps a plain ``dict`` instead of ``st.session_state``. That gives the same
 typed facade (``goal_plan``, ``latest_planning_checkpoint``,
 ``resolved_goal_plan_context`` …) while reading from the local SQLite database,
@@ -15,13 +15,13 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import Any, Dict
+from typing import Dict
 
 from fastapi import Depends, Query
 
 from config.settings import Settings
 from data.database import Database
-from state import StateManager
+from utils.app_state import HeadlessState, make_headless_state as _make_headless_state
 
 
 def _demo_db_path() -> str:
@@ -76,45 +76,17 @@ def get_database(demo: bool = Query(False)) -> Database:
     return demo_database() if demo else real_database()
 
 
-class SessionDict(dict):
-    """Dict with attribute access.
-
-    StateManager.__setattr__ does ``setattr(self._session, key, value)`` (works
-    for Streamlit's SessionState). A plain dict has no attributes, so headless
-    *writes* (e.g. demo seeding) fail. This subclass maps attribute access to
-    items so the same code path works without Streamlit.
-    """
-
-    def __getattr__(self, key: str) -> Any:
-        try:
-            return self[key]
-        except KeyError as exc:
-            raise AttributeError(key) from exc
-
-    def __setattr__(self, key: str, value: Any) -> None:
-        self[key] = value
-
-    def __delattr__(self, key: str) -> None:
-        try:
-            del self[key]
-        except KeyError as exc:
-            raise AttributeError(key) from exc
-
-
-def make_headless_state(database: Database | None = None) -> StateManager:
-    """Build a StateManager backed by an attribute-accessible dict.
+def make_headless_state(database: Database | None = None) -> HeadlessState:
+    """Build a headless state backed by an attribute-accessible dict.
 
     Plain helper (NOT a FastAPI dependency, so it can take a ``database`` arg).
     Pass ``database`` to bind a specific handle, e.g. the demo DB.
     """
-    session: Dict[str, Any] = SessionDict()
-    if database is not None:
-        session["database"] = database
-    return StateManager(session)
+    return _make_headless_state(database)
 
 
-def get_headless_state(db: Database = Depends(get_database)) -> StateManager:
-    """FastAPI dependency: a fresh StateManager backed by an attribute dict.
+def get_headless_state(db: Database = Depends(get_database)) -> HeadlessState:
+    """FastAPI dependency: a fresh HeadlessState backed by an attribute dict.
 
     Binds the request's Database so lazy-loading (e.g. planning checkpoint)
     uses the correct handle — including demo/acceptance isolation.

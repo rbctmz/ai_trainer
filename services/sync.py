@@ -13,9 +13,8 @@ from data.data_processor import ActivityProcessor, resolve_athlete_tss_profile
 from data.data_processor_phase1 import Phase1DataProcessor
 from models.activity_intervals import normalize_garmin_splits_payload
 from services.activity_ingest import ingest_provider_activity, normalize_provider_activity
-from services.data_cache import clear_data_caches
 from services.sync_cursor import resolve_window_from_cursor
-from state import StateManager
+from utils.app_state import HeadlessState
 
 from . import garmin as garmin_service
 from . import intervals_icu as intervals_icu_service
@@ -279,7 +278,7 @@ def build_sync_status_payload(result: GarminSyncResult, days: int | None = None)
 
 
 def sync_garmin_data(
-    state: StateManager,
+    state: HeadlessState,
     days: int | None = None,
     on_progress: SyncProgressCallback | None = None,
     capture_run_id: str | None = None,
@@ -415,7 +414,7 @@ def sync_garmin_data(
                 f"{rejected_readiness}"
             )
 
-    clear_data_caches()
+    _clear_data_caches()
 
     # Scientific capture is derived and fail-open: a valid Garmin sync is not
     # rolled back if the prospective journal cannot be refreshed. Test/fake
@@ -1230,3 +1229,32 @@ __all__ = [
     "resolve_sync_window",
     "sync_garmin_data",
 ]
+
+
+def _clear_data_caches() -> None:
+    """Сбросить кэши данных.
+
+    Импорт ``services.data_cache`` ленивый: модуль тянет Streamlit (``st.cache_data``),
+    и импорт на уровне модуля затянул бы legacy-UI в граф продуктового API
+    (issue #602). По той же причине имя ``clear_data_caches`` остаётся
+    patch-таргетом уровня модуля — тесты подменяют его, поэтому обращаемся
+    через ``globals()``, а не через локальный импорт (локальный затенял бы
+    подмену).
+
+    Обращение через ``sys.modules[__name__]`` даёт ленивый module-level
+    ``__getattr__`` при первом вызове и подменённую функцию — при
+    ``monkeypatch.setattr``.
+    """
+    import sys
+
+    clear = getattr(sys.modules[__name__], "clear_data_caches")
+    clear()
+
+
+def __getattr__(name: str):
+    """Ленивый ``clear_data_caches`` для совместимости с patch-таргетами."""
+    if name == "clear_data_caches":
+        from services.data_cache import clear_data_caches
+
+        return clear_data_caches
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
