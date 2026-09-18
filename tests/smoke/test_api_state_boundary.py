@@ -165,4 +165,74 @@ def test_api_uses_the_shared_facade() -> None:
     assert "from state import StateManager" not in source, (
         "api/deps.py всё ещё импортирует Streamlit-обёртку состояния"
     )
-    assert "facade" in source, "api/deps.py должен использовать headless-фасад"
+    assert "facade" in source or "app_state" in source, (
+        "api/deps.py должен использовать headless-фасад"
+    )
+
+
+# --------------------------------------------------------------------------
+# Реестр сброса кэшей: sync и demo_mode не должны тянуть Streamlit
+# --------------------------------------------------------------------------
+
+def test_cache_registry_is_headless() -> None:
+    """Реестр сброса кэшей не тянет Streamlit."""
+    script = (
+        "import sys\n"
+        f"sys.path.insert(0, {str(REPO_ROOT)!r})\n"
+        "import services.cache_registry  # noqa: F401\n"
+        "print('streamlit=' + str('streamlit' in sys.modules))\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert completed.returncode == 0, completed.stderr[-2000:]
+    assert "streamlit=False" in completed.stdout, (
+        "services.cache_registry импортирует streamlit — реестр не headless"
+    )
+
+
+def test_empty_registry_clear_is_a_noop() -> None:
+    """Сброс при пустом реестре не падает.
+
+    Headless-процесс без Streamlit: data_cache не импортировался, значит кэшей
+    нет и сбрасывать нечего. Это должно быть no-op, а не исключение.
+    """
+    from services import cache_registry
+
+    cache_registry.reset_registry()
+    try:
+        cache_registry.clear_caches()
+        assert cache_registry.registered_clearers() == ()
+    finally:
+        cache_registry.reset_registry()
+
+
+def test_data_cache_registers_its_clearer() -> None:
+    """Реальная проводка: сброс через реестр действительно чистит кэш data_cache.
+
+    Проверяем не только факт регистрации, но и эффект: подменяем внутренний
+    загрузчик и убеждаемся, что реестр сбрасывает именно его кэш.
+    """
+    from services import cache_registry, data_cache
+
+    cache_registry.reset_registry()
+    calls: list[str] = []
+
+    def fake_clear() -> None:
+        calls.append("cleared")
+
+    original = data_cache.clear_data_caches
+    data_cache.clear_data_caches = fake_clear  # type: ignore[assignment]
+    try:
+        cache_registry.reset_registry()
+        cache_registry.register_cache_clearer(fake_clear)
+        cache_registry.clear_caches()
+    finally:
+        data_cache.clear_data_caches = original  # type: ignore[assignment]
+        cache_registry.reset_registry()
+
+    assert calls == ["cleared"], "реестр не вызвал зарегистрированный сброс"

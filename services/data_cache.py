@@ -12,6 +12,7 @@ from typing import Any, Callable, Optional
 import pandas as pd
 
 from data.database import Database
+from services.cache_registry import register_cache_clearer
 from state import get_state_manager
 
 
@@ -101,6 +102,11 @@ def clear_data_caches() -> None:
         clear = getattr(cached, "clear", None)
         if callable(clear):
             clear()
+
+
+# Регистрация в headless-реестре: services.sync и services.demo_mode сбрасывают
+# кэш через него, не импортируя этот Streamlit-модуль (issue #602).
+register_cache_clearer(clear_data_caches)
 
 
 __all__ = [

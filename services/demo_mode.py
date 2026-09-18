@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from services.activity_ingest import backfill_provider_links
+from services.cache_registry import clear_caches
 from utils.app_state import HeadlessState
 
 DEMO_PROVIDER = "mock"
@@ -71,7 +72,7 @@ def activate_demo_mode(state: HeadlessState) -> dict[str, int]:
     database.sync_daily_health(health_data)
     database.sync_training_status(training_status)
     mark_dataset_origin(state, DATASET_ORIGIN_DEMO)
-    _clear_data_caches()
+    clear_caches()
 
     state.clear_cached_context()
     state.current_chat_id = None
@@ -95,7 +96,7 @@ def deactivate_demo_mode(state: HeadlessState) -> None:
     """Clear the temporary demo dataset and leave demo mode."""
     database = state.database
     database.clear_all_data()
-    _clear_data_caches()
+    clear_caches()
     state.reset_planner_overrides()
     state.clear_cached_context()
     state.current_chat_id = None
@@ -292,32 +293,3 @@ __all__ = [
     "mark_real_dataset",
     "restore_demo_mode_session",
 ]
-
-
-def _clear_data_caches() -> None:
-    """Сбросить кэши данных.
-
-    Импорт ``services.data_cache`` ленивый: модуль тянет Streamlit (``st.cache_data``),
-    и импорт на уровне модуля затянул бы legacy-UI в граф продуктового API
-    (issue #602). По той же причине имя ``clear_data_caches`` остаётся
-    patch-таргетом уровня модуля — тесты подменяют его, поэтому обращаемся
-    через ``globals()``, а не через локальный импорт (локальный затенял бы
-    подмену).
-
-    Обращение через ``sys.modules[__name__]`` даёт ленивый module-level
-    ``__getattr__`` при первом вызове и подменённую функцию — при
-    ``monkeypatch.setattr``.
-    """
-    import sys
-
-    clear = getattr(sys.modules[__name__], "clear_data_caches")
-    clear()
-
-
-def __getattr__(name: str):
-    """Ленивый ``clear_data_caches`` для совместимости с patch-таргетами."""
-    if name == "clear_data_caches":
-        from services.data_cache import clear_data_caches
-
-        return clear_data_caches
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
