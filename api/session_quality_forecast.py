@@ -5,7 +5,7 @@ from collections import Counter
 from datetime import date, datetime, timezone
 from hashlib import sha256
 import json
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
@@ -243,7 +243,9 @@ def record_shadow_session_quality_forecast(
     """Record one idempotent revision without feeding it into product decisions."""
     anchor = today or datetime.now().date()
     checkpoint = checkpoint or db.get_latest_planning_checkpoint()
-    if not isinstance(checkpoint, Mapping) or not checkpoint.get("id"):
+    # `restore_goal_plan_from_checkpoint` requires a real dict: a non-dict Mapping
+    # would fall through to the same "no_active_plan" outcome below, only later.
+    if not isinstance(checkpoint, dict) or not checkpoint.get("id"):
         return {"prediction": None, "reason": "no_active_plan"}
     goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
     if not isinstance(goal_plan, Mapping):
@@ -336,7 +338,9 @@ def resolve_session_quality_prediction(
     )
 
 
-def summarize_session_quality_predictions(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
+def summarize_session_quality_predictions(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
     scored = [row for row in rows if row.get("status") == "scored"]
     unscored = [row for row in rows if row.get("status") == "unscored"]
     briers = [float(row["brier_score"]) for row in scored if row.get("brier_score") is not None]

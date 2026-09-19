@@ -554,7 +554,7 @@ def _materialize_matched_row(
     session_id = str(row.get("session_id") or "")
     target_key = f"session:{session_id}"
     match_status = str(row.get("match_status") or "unmatched")
-    match = matches.get(str(row.get("target_key"))) or {}
+    match: Mapping[str, Any] = matches.get(str(row.get("target_key"))) or {}
     if not match:
         from models.plan_actual_reconciliation import (
             resolve_confirmed_replacement_ledger,
@@ -723,7 +723,7 @@ def _invalidate_stale_episode(
     session_id: str,
     session_date: date,
     checkpoint: dict[str, Any] | None,
-    match: dict[str, Any],
+    match: Mapping[str, Any],
     capture_mode: str,
     match_status: str,
 ) -> dict[str, Any] | None:

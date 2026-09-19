@@ -190,16 +190,17 @@ def _normalize_intervals(row: dict[str, Any]) -> ProviderActivity:
     raw_external = row.get("external_id")
     external_id = str(raw_external).strip() if raw_external not in (None, "") else None
     source_namespace = _intervals_source_namespace(row.get("source"))
-    if external_id and source_namespace:
-        external_provider = source_namespace
-    else:
-        external_provider, external_id = None, None
-
     # Only a Garmin-attributed external id anchors on the shared canonical (= the
     # Garmin activity id Garmin itself would use). Everything else stays standalone.
-    if external_provider == GARMIN_NAMESPACE:
+    # Attribution and anchor are decided together, so `canonical_activity_id` is
+    # never an unset external id -- same runtime behaviour, now visible to mypy.
+    external_provider: str | None
+    canonical_activity_id: str
+    if external_id and source_namespace:
+        external_provider = source_namespace
         canonical_activity_id = external_id
     else:
+        external_provider, external_id = None, None
         canonical_activity_id = standalone_canonical_id
 
     provider_tss = _to_float(row.get("icu_training_load"))
