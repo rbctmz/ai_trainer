@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import json
 import math
 
 import pandas as pd
@@ -28,7 +29,7 @@ from models.acwr import (
     classify_acwr,
     compare_with_provider_status,
 )
-from models.signals_engine import assemble_signals
+from models.signals_engine import acwr_metrics, assemble_signals
 
 
 pytestmark = pytest.mark.smoke
@@ -388,3 +389,104 @@ def test_signals_engine_anchor_before_all_activities_is_empty() -> None:
     assert signals["load"]["atl"] == 0.0
     assert signals["load"]["ctl"] == 0.0
     assert signals["load"]["form"] == "Недостаточно данных"
+
+
+
+# --------------------------------------------------------------------------
+# Регрессии первого раунда ревью PR #595: по одному тесту на каждую находку.
+# --------------------------------------------------------------------------
+
+
+def test_activity_rows_are_grouped_into_calendar_days_without_an_anchor() -> None:
+    """P1: без ``as_of`` ряд остаётся календарным — отдых это ноль, две сессии один день.
+
+    Ветка без якоря отдавала по сэмплу на строку активности, поэтому вторая
+    тренировка тех же суток добавляла «день», а дни отдыха исчезали: ACWR считался
+    по ряду, которого не существует, и завышал ``history_days``.
+    """
+    frame = pd.DataFrame(
+        [
+            {"date": "2026-08-01", "tss": 40.0},
+            {"date": "2026-08-01", "tss": 60.0},  # вторая сессия тех же суток
+            {"date": "2026-08-04", "tss": 50.0},  # между ними два дня отдыха
+        ]
+    )
+
+    signal = acwr_metrics(frame)
+
+    # 1–4 августа = 4 календарных дня, а по строкам активностей было бы 3.
+    assert signal["history_days"] == 4
+
+
+def test_double_session_day_does_not_inflate_the_full_window() -> None:
+    """Тот же P1 на полном окне: дубль дня не добавляет сутки к 84-дневной истории."""
+    daily = [50.0] * int(ACWR_MIN_HISTORY_DAYS)
+    frame = _activities_frame(daily)
+    frame = pd.concat([frame, frame.iloc[[10]]], ignore_index=True)
+
+    signal = acwr_metrics(frame)
+
+    assert signal["history_days"] == int(ACWR_MIN_HISTORY_DAYS)
+    assert signal["value"] is not None
+
+
+def test_acwr_is_reachable_with_a_separate_long_history() -> None:
+    """P2: короткий кадр отображения плюс отдельная длинная история делают сигнал достижимым.
+
+    Дашборд собирает сигналы из 30-дневного кадра, тогда как окну ACWR нужно не
+    меньше 84 календарных дней, — из такого кадра значение недостижимо в принципе.
+    """
+    short = _activities_frame([50.0] * 30)
+    long = _activities_frame([50.0] * 90)
+
+    display_only = assemble_signals(activities_df=short)
+    assert display_only["load"]["acwr"]["value"] is None
+    assert display_only["load"]["acwr"]["reason"] == "insufficient_history"
+
+    with_history = assemble_signals(activities_df=short, acwr_activities_df=long)
+    assert with_history["load"]["acwr"]["value"] is not None
+    assert with_history["load"]["acwr"]["history_days"] >= int(ACWR_MIN_HISTORY_DAYS)
+    # Кадр отображения не расширяется: CTL/ATL по-прежнему из короткого окна.
+    assert with_history["load"]["ctl"] == display_only["load"]["ctl"]
+
+
+def test_cross_check_distinguishes_zones_with_equal_severity() -> None:
+    """P2: ``safe`` и ``optimal`` одного уровня severity, но это не совпадение."""
+    assert compare_with_provider_status("safe", "optimal") == "less_acute"
+    assert compare_with_provider_status("optimal", "safe") == "more_acute"
+    assert compare_with_provider_status("safe", "safe") == "match"
+
+
+def test_detrained_athlete_is_gated_by_the_current_ctl() -> None:
+    """P2: пик 14 дней назад и 70 дней отдыха — средняя по окну ещё высока, CTL уже нет."""
+    daily = _steady_then(14, 50.0, [0.0] * 70)
+
+    signal = acwr_signal(daily)
+
+    assert len(daily) == int(ACWR_MIN_HISTORY_DAYS)
+    assert signal["value"] is None
+    assert signal["reason"] == "chronic_load_too_low"
+
+
+def test_published_value_and_status_use_one_representation() -> None:
+    """P2: ``value`` и ``status`` читаются одинаково — 1.3 это уже moderate_risk.
+
+    Классификация шла по неокруглённому отношению (1.296), а наружу уходило
+    округлённое ``value=1.3``, для которого ``classify_acwr`` даёт другую зону.
+    """
+    signal = acwr_signal(_steady_then(120, 50.0, [159.0]))
+
+    assert signal["value"] is not None
+    assert classify_acwr(signal["value"]) == signal["status"]
+    assert signal["percent"] == pytest.approx(signal["value"] * 100, abs=0.1)
+
+
+def test_non_finite_load_cannot_break_the_response() -> None:
+    """P2: ``inf`` — не нагрузка; сигнал обязан остаться конечным и сериализуемым."""
+    signal = acwr_signal(_steady_then(int(ACWR_MIN_HISTORY_DAYS) - 1, 50.0, [float("inf")]))
+
+    for field in ("atl", "ctl", "value", "percent"):
+        value = signal[field]
+        assert value is None or math.isfinite(value), f"{field}={value!r}"
+    # FastAPI сериализует ответы с allow_nan=False: NaN/Infinity здесь — это HTTP 500.
+    json.dumps(signal, allow_nan=False)

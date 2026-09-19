@@ -420,14 +420,21 @@ def calculate_current_status(
     hrv_df: pd.DataFrame,
     sleep_df: pd.DataFrame,
     training_status: dict[str, Any] | None = None,
+    acwr_activities_df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
-    """Build dashboard status from explicitly supplied dataframes."""
+    """Build dashboard status from explicitly supplied dataframes.
+
+    ``acwr_activities_df`` — отдельная, более длинная история только для ACWR:
+    окну нужно не меньше ``ACWR_MIN_HISTORY_DAYS`` календарных дней, а кадр
+    отображения остаётся прежним (находка ревью #595).
+    """
 
     signals = assemble_signals(
         activities_df=activities_df,
         hrv_df=hrv_df,
         sleep_df=sleep_df,
         training_status=training_status,
+        acwr_activities_df=acwr_activities_df,
     )
     status = current_status_from_signals(signals)
 

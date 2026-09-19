@@ -77,6 +77,17 @@ ACWR_STATUS_SEVERITY: dict[str, int] = {
     "high_risk": 3,
 }
 
+#: Порядок статусов для направления расхождения при сверке с провайдером.
+#: Отдельно от ``ACWR_STATUS_SEVERITY``: там ``safe`` и ``optimal`` намеренно
+#: одного уровня (оба «спокойные»), и по нему нельзя отличить недостаточную
+#: нагрузку от оптимальной зоны.
+ACWR_STATUS_ORDER: dict[str, int] = {
+    "safe": 0,
+    "optimal": 1,
+    "moderate_risk": 2,
+    "high_risk": 3,
+}
+
 #: Вердикт сверки нашего значения с провайдерским.
 CROSS_CHECK_MATCH = "match"
 CROSS_CHECK_MORE_ACUTE = "more_acute"
@@ -86,14 +97,20 @@ CROSS_CHECK_INSUFFICIENT = "insufficient_data"
 
 
 def _safe_float(value: Any) -> float:
-    """Привести значение к float; нечисловое и NaN считаем отсутствием нагрузки."""
+    """Привести значение к float; нечисловое и не-конечное считаем отсутствием нагрузки.
+
+    ``NaN`` отвергался и раньше, но ``+inf`` проходил дальше: он утекал в EWMA,
+    превращал отношение в ``NaN`` и валил сериализацию ответа FastAPI
+    (``Out of range float values are not JSON compliant``) — то есть одно битое
+    значение провайдера давало HTTP 500 на дашборде и в планировании.
+    """
     try:
         if value is None:
             return 0.0
         numeric = float(value)
     except (TypeError, ValueError):
         return 0.0
-    if numeric != numeric:  # NaN
+    if not math.isfinite(numeric):  # NaN, +inf, -inf
         return 0.0
     return numeric
 
@@ -175,12 +192,13 @@ def compare_with_provider_status(
     if provider is None:
         return CROSS_CHECK_NO_PROVIDER
 
-    local_severity = ACWR_STATUS_SEVERITY[local]
-    provider_severity = ACWR_STATUS_SEVERITY[provider]
-
-    if local_severity == provider_severity:
+    # Сначала точное равенство: по уровням severity ``safe`` и ``optimal``
+    # неразличимы, поэтому прежняя проверка объявляла совпадением даже пару
+    # «недостаточная нагрузка» ↔ «оптимальная зона».
+    if local == provider:
         return CROSS_CHECK_MATCH
-    if local_severity > provider_severity:
+
+    if ACWR_STATUS_ORDER[local] > ACWR_STATUS_ORDER[provider]:
         return CROSS_CHECK_MORE_ACUTE
     return CROSS_CHECK_LESS_ACUTE
 
@@ -242,15 +260,24 @@ def acwr_signal(
     if history_days < ACWR_MIN_HISTORY_DAYS:
         return _empty(ACWR_REASON_SHORT_HISTORY, atl, ctl)
 
-    if ctl <= 0 or effective_chronic_load(daily) < ACWR_MIN_CHRONIC_LOAD:
+    # Гейт по текущей CTL, а не только по средней нагрузке окна: после долгого
+    # простоя (14 дней по 50 TSS, затем 70 дней отдыха) установившаяся оценка
+    # окна остаётся выше порога, хотя текущая CTL уже упала до 2.7 — и детрени-
+    # рованный атлет получал уверенный ``safe`` вместо отказа по низкой базе.
+    if ctl < ACWR_MIN_CHRONIC_LOAD or effective_chronic_load(daily) < ACWR_MIN_CHRONIC_LOAD:
         return _empty(ACWR_REASON_LOW_CHRONIC_LOAD, atl, ctl)
 
     ratio = atl / ctl
-    status = classify_acwr(ratio)
+    # Статус и публикуемое значение берутся из одного представления: раньше
+    # классификация шла по неокруглённому отношению, а ``value`` округлялось до
+    # двух знаков, поэтому наружу могло уйти ``value=1.3`` со статусом
+    # ``optimal``, хотя ``classify_acwr(1.3)`` — уже ``moderate_risk``.
+    value = round(ratio, 2)
+    status = classify_acwr(value)
 
     return {
-        "value": round(ratio, 2),
-        "percent": round(ratio * 100, 1),
+        "value": value,
+        "percent": round(value * 100, 1),
         "status": status,
         "tone": ACWR_STATUS_TONE[status],
         "label": ACWR_STATUS_LABEL[status],

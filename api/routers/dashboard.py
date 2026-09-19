@@ -15,6 +15,7 @@ from api.deps import get_database, get_headless_state
 from api.operational_state import build_operational_state, latest_iso_from_frame
 from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
+from models.acwr import ACWR_MIN_HISTORY_DAYS
 from models.banister import tsb_zone
 from state import StateManager
 from models.dashboard_summary import (
@@ -51,11 +52,15 @@ def dashboard_summary(
     sleep_df = db.get_sleep_data(7)
 
     latest_training_status = get_latest_training_status(db)
+    # ACWR нужен отдельный длинный ряд: минимум ACWR_MIN_HISTORY_DAYS календарных
+    # дней. 30-дневный кадр остаётся кадром отображения и не расширяется.
+    acwr_activities_df = db.get_activities(ACWR_MIN_HISTORY_DAYS)
     current_status = calculate_current_status(
         activities_df,
         hrv_df,
         sleep_df,
         training_status=latest_training_status,
+        acwr_activities_df=acwr_activities_df,
     )
     current_status = project_readiness_snapshot(current_status, readiness_snapshot)
     summary = build_dashboard_summary(
@@ -308,6 +313,8 @@ def dashboard_widgets(
         hrv_df,
         sleep_df,
         training_status=latest_training_status,
+        # Здесь 90-дневный кадр уже загружен для ramp-rate — он и служит историей ACWR.
+        acwr_activities_df=activities_df,
     )
     current_status = project_readiness_snapshot(current_status, readiness_snapshot)
     signals = current_status.get("signals")

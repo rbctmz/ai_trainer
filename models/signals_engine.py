@@ -82,27 +82,31 @@ def _daily_load_series(
     if df.empty:
         return [], []
 
+    frame = df[["date", "tss"]].copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    frame["tss"] = pd.to_numeric(frame["tss"], errors="coerce").fillna(0.0)
+    frame = frame.dropna(subset=["date"])
+    if frame.empty:
+        return [], []
+
     if as_of is not None:
-        frame = df[["date", "tss"]].copy()
-        frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
-        frame["tss"] = pd.to_numeric(frame["tss"], errors="coerce").fillna(0.0)
-        frame = frame.dropna(subset=["date"])
         anchor_ts = pd.Timestamp(as_of)
         frame = frame[frame["date"] <= anchor_ts]
         if frame.empty:
             return [], []
-        daily = frame.groupby(frame["date"].dt.normalize())["tss"].sum().sort_index()
-        date_range = pd.date_range(start=daily.index.min(), end=anchor_ts, freq="D")
-        daily = daily.reindex(date_range, fill_value=0.0)
-        return daily.tolist(), daily.index.tolist()
+    else:
+        # Без якоря «сегодня» ряд всё равно обязан быть календарным: одна
+        # тренировка — один день. Прежняя ветка отдавала по сэмплу на строку
+        # активности, поэтому две тренировки в сутки удваивали день, а дни
+        # отдыха исчезали — ACWR считался по ряду, которого не существует, и
+        # завышал history_days. Верхняя граница остаётся последней активностью
+        # (поведение «заморожено на последней тренировке» сохраняется).
+        anchor_ts = pd.Timestamp(frame["date"].max()).normalize()
 
-    tss_data: list[float] = []
-    dates: list[Any] = []
-    for _, row in df.iterrows():
-        tss_data.append(_safe_float(row.get("tss"), 0.0))
-        dates.append(row.get("date"))
-
-    return tss_data, dates
+    daily = frame.groupby(frame["date"].dt.normalize())["tss"].sum().sort_index()
+    date_range = pd.date_range(start=daily.index.min(), end=anchor_ts, freq="D")
+    daily = daily.reindex(date_range, fill_value=0.0)
+    return daily.tolist(), daily.index.tolist()
 
 
 def training_load_metrics(
@@ -456,6 +460,7 @@ def assemble_signals(
     training_status: Any = None,
     health_df: pd.DataFrame | None = None,
     as_of: date | None = None,
+    acwr_activities_df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Assemble normalized load/recovery/readiness signals.
 
@@ -463,6 +468,11 @@ def assemble_signals(
     after the last workout) instead of freezing at the last activity date.
     Issue #593: ``load.acwr`` — локальный ACWR; провайдерский ``acwr_status``
     из Intervals.icu идёт только в сверку и не подменяет расчёт.
+
+    ``acwr_activities_df`` — отдельная, более длинная история для ACWR: окну
+    нужно не меньше ``ACWR_MIN_HISTORY_DAYS`` календарных дней, а вызывающие
+    (дашборд) передают в ``activities_df`` окно отображения на 30 дней, из
+    которого сигнал физически недостижим. Кадр отображения при этом не меняется.
     """
     load_activities = _without_multisport_envelopes(
         _frame_or_empty(activities_df)
@@ -472,10 +482,12 @@ def assemble_signals(
     # для dict оставляет только readiness-поля и потерял бы acwr_status.
     provider_acwr_status = provider_status_from_training_status(training_status)
     metrics = training_load_metrics(load_activities, as_of=as_of)
+    acwr_frame = acwr_activities_df if acwr_activities_df is not None else activities_df
+    acwr_load = _without_multisport_envelopes(_frame_or_empty(acwr_frame))
     load = _load_signal(
         metrics,
         acwr_metrics(
-            load_activities,
+            acwr_load,
             as_of=as_of,
             provider_status=provider_acwr_status,
         ),
