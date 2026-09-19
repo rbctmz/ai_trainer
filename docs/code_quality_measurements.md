@@ -1,8 +1,12 @@
 # Инженерные измерения: покрытие и проверка типов
 
 - **Статус:** Current
-- **Снимок:** 2026-09-17, product-код на `07cfee6` (этот PR меняет только `mypy.ini`,
-  `requirements-dev.txt`, README и сам документ)
+- **Снимок:** 2026-09-17, product-код на `07cfee6` (PR #588 меняет только `mypy.ini`,
+  `requirements-dev.txt`, README и сам документ); mypy-числа обновлены срезом
+  [#589](https://github.com/rbctmz/ai_trainer/issues/589)
+- **Пересчёт после #589:** таблица покрытия выше — baseline PR #588; правки типов из
+  #589 сдвигают счётчики в пределах единиц statements (на дереве #589 — 27494/5178,
+  те же 81 %), отдельного пересмысла это не меняет
 - **Issue:** [#587](https://github.com/rbctmz/ai_trainer/issues/587)
 
 Документ фиксирует два измерения качества, которых в репозитории не было: покрытие
@@ -73,15 +77,22 @@ allowlist**, а не полная проверка репозитория: по 
 
 ### Что включено
 
-- `api/routers` — 14 из 17 файлов;
-- `services` — 26 из 34 файлов.
+- `api/routers` — 16 из 17 файлов;
+- `services` — 32 из 34 файлов.
 
 Исключения — существующий долг внутри чистых пакетов, каждое помечено в
-`mypy.ini`: `api.routers.decisions` (2), `api.routers.planning` (1),
-`api.routers.session_quality` (1), `services.comparable_sessions` (18),
-`services.demo_mode` (7), `services.bike_hr_tss_eval` (2), `services.sync` (1),
-`services.activity_ingest` (1), `services.bike_hr_pairs` (1),
-`services.planning_onboarding` (1), `services.recovery_analytics` (1).
+`mypy.ini`:
+
+| Модуль | Ошибок | Причина |
+|---|---:|---|
+| `services/comparable_sessions` | 18 | крупный модуль, отдельный срез |
+| `services/demo_mode` | 7 | демо-фикстуры, отдельный срез |
+| `api.routers.decisions` | 2 | `int(params.get("base_checkpoint_id"))` без guard'а (строки 576, 617) |
+
+`decisions.py` — пробел типизации, а не подтверждённый дефект: у предложений,
+публикуемых циклом, ключ всегда есть (`api/recovery_replan_loop.py:231`). Правка
+потребовала бы либо `cast`, либо смены класса ошибки на fail-closed — это отдельное
+решение, а не механическая правка типов.
 
 ### Текущий долг (не входит в allowlist)
 
@@ -94,7 +105,8 @@ python -m mypy --config-file= --python-version 3.10 \
 ```
 
 Ожидаемый вывод в окружении из `requirements-dev.txt` (Python 3.11, mypy 1.20.2):
-`Found 298 errors in 51 files (checked 145 source files)`.
+`Found 287 errors in 42 files (checked 145 source files)`.
+Срез [#589](https://github.com/rbctmz/ai_trainer/issues/589) снизил долг: 298 → **287**.
 
 Замер зависит от окружения анализатора, а не только от кода: тот же mypy 1.20.2 на
 Python 3.12 сообщает `286 errors in 51 files` и 176 ошибок в `models/` вместо 188
@@ -106,17 +118,19 @@ Python 3.12 сообщает `286 errors in 51 files` и 176 ошибок в `mo
 | Область | Ошибок |
 |---|---:|
 | `models/` | 188 |
-| `api/` | 70 |
-| `services/` | 32 |
+| `api/` | 66 |
+| `services/` | 25 |
 | `data/` | 8 |
 
-По кодам: `arg-type` 115, `union-attr` 52, `assignment` 31, `call-overload` 29,
-`attr-defined` 24, `operator` 12, остальные — единичные.
+По кодам: `arg-type` 108, `union-attr` 52, `call-overload` 29, `assignment` 29,
+`attr-defined` 24, `operator` 12, `var-annotated` 8, остальные — единичные.
 
 Топ файлов: `models/training_planner.py` (46), `models/ai_providers.py` (44),
 `api/planning_service.py` (41), `services/comparable_sessions.py` (18),
 `models/planning_checkpoints.py` (11), `models/ai_tools.py` (10),
-`api/session_feedback.py` (10).
+`api/session_feedback.py` (9), `models/session_scheduler.py` (8),
+`services/demo_mode.py` (7), `models/readiness.py` (7),
+`models/plan_actual_reconciliation.py` (7), `api/today_snapshot.py` (7).
 
 Долг концентрируется в тех же модулях, что и churn (см. TD-006 в
 [`technical_debt_register.md`](technical_debt_register.md)): разрез модуля и
@@ -137,19 +151,3 @@ Python 3.12 сообщает `286 errors in 51 files` и 176 ошибок в `mo
    останется «зелёным» при любом количестве ошибок.
    Проверено на `api/planning_service.py`: без override — `Success: no issues found
    in 1 source file`, с `[mypy-api.planning_service] ignore_errors = False` — 41 ошибка.
-4. `python -m mypy` — убедиться, что проверка включает новый модуль (число
-   проверенных файлов выросло) и разобрать ошибки как обычную правку типов (не
-   менять поведение; при сомнении оставить `Any` и завести отдельный срез).
-5. Обновить таблицы в этом документе: перенести модуль из долга в allowlist и
-   пересчитать числа.
-6. Когда `api/` и `services/` целиком окажутся в allowlist, ставить вопрос о
-   CI-гейте (`python -m mypy` в `ci.yml`) отдельным решением — не в рамках
-   среза измерений.
-
-## 4. Чего здесь сознательно нет
-
-- CI-гейтов для `mypy` и покрытия: сначала измерение и ratchet, потом политика.
-- Порогов покрытия (`--cov-fail-under`): при 39 % в `utils/` любой порог либо
-  бесполезен, либо требует отдельного среза по legacy.
-- Проверки типов в `web/`: там работает `next build` (TypeScript) и ESLint;
-  отдельный инструмент не добавлялся.

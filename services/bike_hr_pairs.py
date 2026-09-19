@@ -64,8 +64,9 @@ def build_bike_hr_pair(row: dict, ftp_on_date, ftp_verified: bool, rhr, lthr):
         for seconds in zone_seconds
     ]
     coverage = None
-    if all(minutes is not None for minutes in zone_minutes):
-        coverage = round(sum(zone_minutes) / moving * 100.0, 3)
+    covered_minutes = [minutes for minutes in zone_minutes if minutes is not None]
+    if len(covered_minutes) == len(zone_minutes):
+        coverage = round(sum(covered_minutes) / moving * 100.0, 3)
 
     return {
         "activity_id": row.get("activity_id"),
