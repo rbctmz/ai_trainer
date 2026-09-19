@@ -75,6 +75,11 @@ These completed ExecPlans describe the current product behavior and the invarian
   issue #444 (personal bike TSS from HR without power) — data inventory,
   candidate comparison, and the M0 decision; the M1–M3 plan outline is a
   proposal, not an implemented contract.
+- [`tooling_verification_stack_execplan.md`](tooling_verification_stack_execplan.md):
+  Class A ExecPlan for the architecture map (CodeBoarding) plus CRAP and
+  mutation-testing gates for Python. Draft: no milestone is implemented yet, and
+  the two new CI gates are advisory until a maintainer adds them to branch
+  protection.
 
 ## Historical and Superseded
 
