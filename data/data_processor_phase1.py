@@ -3,8 +3,12 @@
 """
 
 from datetime import datetime, timezone
+import logging
 from typing import Any, Dict, Optional, Tuple
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
 
 class Phase1DataProcessor:
     """Класс для обработки новых типов данных Фазы 1"""
@@ -46,7 +50,7 @@ class Phase1DataProcessor:
     def process_sleep_data(sleep_raw_data):
         """Обработка сырых данных сна от Garmin с четким приоритетом источников и датой."""
         if not sleep_raw_data or not isinstance(sleep_raw_data, dict):
-            print("DEBUG PROCESSOR: sleep_raw_data пуст или имеет неверный тип.")
+            logger.warning("sleep_raw_data пуст или имеет неверный тип.")
             return None
         
         # Проверяем наличие календарной даты
@@ -58,7 +62,7 @@ class Phase1DataProcessor:
             if end_dt:
                 calendar_date = end_dt.strftime('%Y-%m-%d')
 
-        print(f"DEBUG PROCESSOR: Начинаем обработку данных сна. Ключи: {list(sleep_raw_data.keys())}")
+        logger.debug(f"Начинаем обработку данных сна. Ключи: {list(sleep_raw_data.keys())}")
         
         processed_data = {}
         
@@ -76,7 +80,7 @@ class Phase1DataProcessor:
             # 2. Получаем общее время сна (самый надежный показатель)
             total_minutes = sleep_dto.get('sleepTimeSeconds', 0) // 60
             processed_data['total_sleep_minutes'] = total_minutes
-            print(f"DEBUG PROCESSOR: Общее время сна: {total_minutes} минут.")
+            logger.debug(f"Общее время сна: {total_minutes} минут.")
 
             # 3. Определяем фазы сна по приоритету
             deep_s = sleep_dto.get('deepSleepSeconds')
@@ -85,7 +89,7 @@ class Phase1DataProcessor:
 
             # Приоритет 1: Прямые значения в секундах из dailySleepDTO
             if deep_s is not None and light_s is not None and rem_s is not None:
-                print(f"DEBUG PROCESSOR: ✅ Приоритет 1: Используем прямые значения секунд из DTO (deep={deep_s}, light={light_s}, rem={rem_s}).")
+                logger.debug(f"✅ Приоритет 1: Используем прямые значения секунд из DTO (deep={deep_s}, light={light_s}, rem={rem_s}).")
                 processed_data['deep_sleep_minutes'] = deep_s // 60
                 processed_data['light_sleep_minutes'] = light_s // 60
                 processed_data['rem_sleep_minutes'] = rem_s // 60
@@ -97,19 +101,19 @@ class Phase1DataProcessor:
                 rem_pct = sleep_scores.get('remPercentage', {}).get('value')
                 
                 if deep_pct is not None and light_pct is not None and rem_pct is not None:
-                    print(f"DEBUG PROCESSOR: ✅ Приоритет 2: Рассчитываем фазы из процентов (deep={deep_pct}%, light={light_pct}%, rem={rem_pct}%).")
+                    logger.debug(f"✅ Приоритет 2: Рассчитываем фазы из процентов (deep={deep_pct}%, light={light_pct}%, rem={rem_pct}%).")
                     processed_data['deep_sleep_minutes'] = round(total_minutes * deep_pct / 100)
                     processed_data['light_sleep_minutes'] = round(total_minutes * light_pct / 100)
                     processed_data['rem_sleep_minutes'] = round(total_minutes * rem_pct / 100)
                 else:
-                    print("DEBUG PROCESSOR: ⚠️ Проценты в sleepScores отсутствуют, фазы будут нулевыми.")
+                    logger.warning("⚠️ Проценты в sleepScores отсутствуют, фазы будут нулевыми.")
                     processed_data['deep_sleep_minutes'] = 0
                     processed_data['light_sleep_minutes'] = 0
                     processed_data['rem_sleep_minutes'] = 0
             
             # Приоритет 3: Парсинг массива sleepLevels (менее надежный)
             elif 'sleepLevels' in sleep_raw_data and sleep_raw_data['sleepLevels']:
-                print("DEBUG PROCESSOR: ✅ Приоритет 3: Попытка восстановить фазы из sleepLevels.")
+                logger.debug("✅ Приоритет 3: Попытка восстановить фазы из sleepLevels.")
                 levels = sleep_raw_data['sleepLevels']
                 deep_m, light_m, rem_m = 0, 0, 0
                 awake_count_from_levels = 0
@@ -130,7 +134,7 @@ class Phase1DataProcessor:
                 processed_data['_awake_count_from_levels'] = awake_count_from_levels
             
             else:
-                print("DEBUG PROCESSOR: ❌ Не найден ни один источник данных для фаз сна. Устанавливаем нули.")
+                logger.warning("❌ Не найден ни один источник данных для фаз сна. Устанавливаем нули.")
                 processed_data['deep_sleep_minutes'] = 0
                 processed_data['light_sleep_minutes'] = 0
                 processed_data['rem_sleep_minutes'] = 0
@@ -215,7 +219,7 @@ class Phase1DataProcessor:
                 score = 50 + (deep_rem_ratio * 40) - awakening_penalty + duration_bonus
                 processed_data['sleep_score'] = round(max(0, min(100, score)), 1)
                 processed_data['sleep_score_source'] = 'derived'
-                print(f"DEBUG PROCESSOR:  ক্যাল Расчетный sleep_score: {processed_data['sleep_score']}")
+                logger.debug(f"Расчетный sleep_score: {processed_data['sleep_score']}")
 
             if 'sleep_score_source' not in processed_data:
                 processed_data['sleep_score_source'] = 'legacy_unknown'
@@ -252,10 +256,10 @@ class Phase1DataProcessor:
                     processed_data['sleep_efficiency_source'] = 'derived_sleep_window'
 
         except Exception as e:
-            print(f"❌ КРИТИЧЕСКАЯ ОШИБКА при обработке данных сна: {e}")
+            logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА при обработке данных сна: {e}")
             return None
         
-        print(f"DEBUG PROCESSOR: ✅ Обработка завершена. Результат: {processed_data}")
+        logger.debug(f"✅ Обработка завершена. Результат: {processed_data}")
         return processed_data
 
     @staticmethod
@@ -391,7 +395,7 @@ class Phase1DataProcessor:
                 processed_data['skin_temperature_avg'] = skin_temperature_avg
             
         except Exception as e:
-            print(f"Ошибка обработки показателей здоровья: {e}")
+            logger.warning(f"Ошибка обработки показателей здоровья: {e}")
             return None
         
         return processed_data
@@ -501,7 +505,7 @@ class Phase1DataProcessor:
                     parsed = parsed.tz_convert(None)
                 return parsed.to_pydatetime()
         except Exception as exc:
-            print(f"DEBUG PROCESSOR: Не удалось распарсить временную метку {value}: {exc}")
+            logger.warning(f"Не удалось распарсить временную метку {value}: {exc}")
             return None
 
         return None
@@ -838,7 +842,7 @@ class Phase1DataProcessor:
             if not processed_data:
                 return None
         except Exception as e:
-            print(f"Ошибка обработки статуса тренированности: {e}")
+            logger.warning(f"Ошибка обработки статуса тренированности: {e}")
             return None
         
         return processed_data
@@ -1038,5 +1042,5 @@ class Phase1DataProcessor:
             return None
             
         except Exception as e:
-            print(f"Ошибка расчёта индекса готовности: {e}")
+            logger.warning(f"Ошибка расчёта индекса готовности: {e}")
             return None

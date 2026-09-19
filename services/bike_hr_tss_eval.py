@@ -37,8 +37,11 @@ def _started_at_utc(pair: dict) -> datetime | None:
 
 def _elapsed_minutes(pair: dict) -> float | None:
     for key in ("duration_minutes", "moving_minutes"):
+        raw = pair.get(key)
+        if raw is None:
+            continue
         try:
-            value = float(pair.get(key))
+            value = float(raw)
         except (TypeError, ValueError):
             continue
         if np.isfinite(value) and value > 0:
@@ -119,9 +122,10 @@ def build_episode_candidate_rows(pairs: list[dict]) -> list[dict]:
         values: dict[str, float | None] = {}
         for name, candidate in candidates.items():
             component_values = [candidate(pair) for pair in episode]
+            present_values = [value for value in component_values if value is not None]
             values[name] = (
-                float(sum(component_values))
-                if all(value is not None for value in component_values)
+                float(sum(present_values))
+                if len(present_values) == len(component_values)
                 else None
             )
         if values["target"] is None:
