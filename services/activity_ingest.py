@@ -13,10 +13,13 @@ This is the ExecPlan's "common ingest" contract point (`to_canonical_activity`);
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
 from typing import Any, Callable
 
 from config.settings import Settings
 from services.bike_hr_pairs import record_bike_hr_pair
+
+logger = logging.getLogger(__name__)
 
 # Cross-provider identity namespace. Intervals stores the *source* activity id in
 # ``external_id``; in the Garmin+Intervals beta that source is Garmin, so both a
@@ -187,16 +190,17 @@ def _normalize_intervals(row: dict[str, Any]) -> ProviderActivity:
     raw_external = row.get("external_id")
     external_id = str(raw_external).strip() if raw_external not in (None, "") else None
     source_namespace = _intervals_source_namespace(row.get("source"))
-    if external_id and source_namespace:
-        external_provider = source_namespace
-    else:
-        external_provider, external_id = None, None
-
     # Only a Garmin-attributed external id anchors on the shared canonical (= the
     # Garmin activity id Garmin itself would use). Everything else stays standalone.
-    if external_provider == GARMIN_NAMESPACE:
+    # Attribution and anchor are decided together, so `canonical_activity_id` is
+    # never an unset external id -- same runtime behaviour, now visible to mypy.
+    external_provider: str | None
+    canonical_activity_id: str
+    if external_id and source_namespace:
+        external_provider = source_namespace
         canonical_activity_id = external_id
     else:
+        external_provider, external_id = None, None
         canonical_activity_id = standalone_canonical_id
 
     provider_tss = _to_float(row.get("icu_training_load"))
@@ -307,7 +311,13 @@ def ingest_provider_activity(
         if canonical:
             record_bike_hr_pair(db, canonical)
     except Exception:
-        pass
+        # Отказ производной пары не должен ронять ingest, но обязан быть видимым:
+        # иначе «пара просто не появилась» невозможно отличить от «её не считали».
+        logger.debug(
+            "bike power+HR pair skipped for activity %s",
+            result.get("canonical_activity_id"),
+            exc_info=True,
+        )
     return result
 
 
