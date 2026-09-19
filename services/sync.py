@@ -896,7 +896,13 @@ def _cache_garmin_activity_intervals(
                 str(exc),
             )
         except Exception:
-            pass
+            # Пометка ретрая вспомогательная: её отказ не должен подменять основное
+            # предупреждение ниже, но обязан оставаться видимым в debug-логе.
+            logger.debug(
+                "garmin activity intervals retry marker failed for %s",
+                provider_activity_id,
+                exc_info=True,
+            )
         _append_warning(
             warnings,
             f"⚠️ Структура активности {provider_activity_id} не загружена: {exc}",

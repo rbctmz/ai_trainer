@@ -13,10 +13,13 @@ This is the ExecPlan's "common ingest" contract point (`to_canonical_activity`);
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
 from typing import Any, Callable
 
 from config.settings import Settings
 from services.bike_hr_pairs import record_bike_hr_pair
+
+logger = logging.getLogger(__name__)
 
 # Cross-provider identity namespace. Intervals stores the *source* activity id in
 # ``external_id``; in the Garmin+Intervals beta that source is Garmin, so both a
@@ -307,7 +310,13 @@ def ingest_provider_activity(
         if canonical:
             record_bike_hr_pair(db, canonical)
     except Exception:
-        pass
+        # Отказ производной пары не должен ронять ingest, но обязан быть видимым:
+        # иначе «пара просто не появилась» невозможно отличить от «её не считали».
+        logger.debug(
+            "bike power+HR pair skipped for activity %s",
+            result.get("canonical_activity_id"),
+            exc_info=True,
+        )
     return result
 
 
