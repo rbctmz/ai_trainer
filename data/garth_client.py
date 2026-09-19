@@ -115,7 +115,7 @@ class GarthClient:
                     garmin_logger.debug(f"🔄 Конвертированные данные сна: {converted}")
                     return converted
                 else:
-                    garmin_logger.warning(f"❌ DailySleep.get вернул пустой результат для {date_str}")
+                    garmin_logger.debug(f"❌ DailySleep.get вернул пустой результат для {date_str}")
             except Exception as e:
                 garmin_logger.error(f"❌ DailySleep failed for {date_str}: {e}")
             
@@ -135,7 +135,7 @@ class GarthClient:
                     garmin_logger.debug(f"🔄 Конвертированные данные сна: {converted}")
                     return converted
                 else:
-                    garmin_logger.warning(f"❌ SleepData.list вернул пустой результат для {date_str}")
+                    garmin_logger.debug(f"❌ SleepData.list вернул пустой результат для {date_str}")
             except Exception as e:
                 garmin_logger.error(f"❌ SleepData failed for {date_str}: {e}")
             
@@ -153,7 +153,7 @@ class GarthClient:
                         garmin_logger.log_garth_object(sleep_raw, "ConnectAPI-Sleep")
                         return sleep_raw
                     else:
-                        garmin_logger.warning(f"❌ connectapi вернул пустой результат для {date_str}")
+                        garmin_logger.debug(f"❌ connectapi вернул пустой результат для {date_str}")
                 else:
                     garmin_logger.error("❌ Не удалось получить username для connectapi")
             except Exception as e:
@@ -184,7 +184,7 @@ class GarthClient:
                     garmin_logger.debug(f"Body Battery получен через connectapi для {date_str}")
                     return body_battery
             except Exception as e:
-                garmin_logger.warning(f"Body Battery connectapi failed for {date_str}: {e}")
+                garmin_logger.debug(f"Body Battery connectapi failed for {date_str}: {e}")
             
             # Метод 2: Альтернативный endpoint
             try:
@@ -195,8 +195,10 @@ class GarthClient:
                     garmin_logger.debug(f"Body Battery получен через альтернативный API для {date_str}")
                     return body_battery_alt
             except Exception as e:
-                garmin_logger.warning(f"Body Battery alt API failed for {date_str}: {e}")
+                garmin_logger.debug(f"Body Battery alt API failed for {date_str}: {e}")
             
+            # Ни один метод не сработал — это уже отсутствие данных, а не шум пробы.
+            garmin_logger.warning(f"Body Battery недоступен для {date_str}")
             return None
             
         except Exception as e:
@@ -219,7 +221,7 @@ class GarthClient:
                 garmin_logger.debug(f"Конвертированные данные: {result}")
                 return result
         except Exception as e:
-            garmin_logger.warning(f"DailyHRV failed for {date_str}: {e}")
+            garmin_logger.debug(f"DailyHRV failed for {date_str}: {e}")
         
         # Метод 2: Через HRVData класс
         try:
@@ -230,7 +232,7 @@ class GarthClient:
                 garmin_logger.debug(f"Конвертированные данные: {result}")
                 return result
         except Exception as e:
-            garmin_logger.warning(f"HRVData failed for {date_str}: {e}")
+            garmin_logger.debug(f"HRVData failed for {date_str}: {e}")
             
         # Метод 3: Через прямой API запрос к HRV endpoint
         try:
@@ -257,7 +259,7 @@ class GarthClient:
                                     }
                                 }
                 except Exception as hrv_e:
-                    garmin_logger.warning(f"HRV-specific API failed: {hrv_e}")
+                    garmin_logger.debug(f"HRV-specific API failed: {hrv_e}")
                 
                 # Пробуем общий daily summary endpoint
                 api_url = f"/usersummary-service/usersummary/daily/{username}"
@@ -288,7 +290,7 @@ class GarthClient:
                             }
                         }
         except Exception as e:
-            garmin_logger.warning(f"Direct API failed for {date_str}: {e}")
+            garmin_logger.debug(f"Direct API failed for {date_str}: {e}")
             
         # Метод 4: Fallback через общую сводку дня
         garmin_logger.debug(f"HRV методы не сработали, пробуем fallback через daily summary для {date_str}")
@@ -373,9 +375,9 @@ class GarthClient:
             }
             
         except Exception as e:
-            garmin_logger.warning(f"Ошибка конвертации HRV объекта: {e}")
-            import traceback
-            traceback.print_exc()
+            # Трассировка идёт через логгер: её видимость управляется
+            # AI_TRAINER_LOG_LEVEL и не пробивает настройку прямым stderr.
+            garmin_logger.warning(f"Ошибка конвертации HRV объекта: {e}", exc_info=True)
             # В крайнем случае создаем минимальную структуру
             return {
                 'hrvSummary': {
@@ -443,7 +445,7 @@ class GarthClient:
                 garmin_logger.debug("Stress API ответ получен через wellness")
                 return self._convert_stress_to_dict(stress_response)
         except Exception as e:
-            garmin_logger.warning(f"Wellness stress API failed: {e}")
+            garmin_logger.debug(f"Wellness stress API failed: {e}")
         
         # Метод 2: Через endpoint с userId
         try:
@@ -459,7 +461,7 @@ class GarthClient:
                     garmin_logger.debug("Stress API ответ получен")
                     return self._convert_stress_to_dict(stress_response)
         except Exception as e:
-            garmin_logger.warning(f"Stress API с параметрами failed: {e}")
+            garmin_logger.debug(f"Stress API с параметрами failed: {e}")
         
         # Метод 3: Пробуем получить через учетные данные пользователя
         try:
@@ -480,7 +482,7 @@ class GarthClient:
                         # Если есть только максимальный, используем его
                         return {'avgStressLevel': user_summary['maxStressLevel']}
         except Exception as e:
-            garmin_logger.warning(f"User summary failed: {e}")
+            garmin_logger.debug(f"User summary failed: {e}")
         
         # Метод 4: Возвращаем заглушку, если стресс данные недоступны
         garmin_logger.warning(f"Не удалось получить данные стресса для {date_str}")
@@ -529,9 +531,9 @@ class GarthClient:
             return None
             
         except Exception as e:
-            garmin_logger.warning(f"Ошибка конвертации: {e}")
-            import traceback
-            traceback.print_exc()
+            # Трассировка идёт через логгер: её видимость управляется
+            # AI_TRAINER_LOG_LEVEL и не пробивает настройку прямым stderr.
+            garmin_logger.warning(f"Ошибка конвертации: {e}", exc_info=True)
             return None
 
     def get_daily_summary_garth(self, date):
@@ -590,7 +592,7 @@ class GarthClient:
                 daily_steps = garth.DailySteps.get(date_str)
                 comprehensive_data['steps'] = daily_steps
             except Exception as e:
-                garmin_logger.warning(f"DailySteps failed for {date_str}: {e}")
+                garmin_logger.debug(f"DailySteps failed for {date_str}: {e}")
             
             # Проверяем, что хотя бы что-то получено
             has_data = any(comprehensive_data[key] is not None for key in comprehensive_data if key != 'date')
@@ -730,10 +732,10 @@ class GarthClient:
                     return normalized
             except ValidationError as e:
                 self._profile_fetch_failed = True
-                garmin_logger.warning(f"Ошибка валидации профиля garth: {e}")
+                garmin_logger.debug(f"Ошибка валидации профиля garth: {e}")
             except Exception as e:
                 self._profile_fetch_failed = True
-                garmin_logger.warning(f"Ошибка получения профиля: {e}")
+                garmin_logger.debug(f"Ошибка получения профиля: {e}")
 
         # Резервный сценарий: получаем профиль напрямую и нормализуем
         try:
