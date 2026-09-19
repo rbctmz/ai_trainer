@@ -18,7 +18,8 @@ The user-visible proof arrives in three steps. After Milestone 1, `ARCHITECTURE.
 - [x] (2026-09-19 11:04Z) Classified the change as Class A because it introduces a new verification boundary and new CI gates.
 - [x] (2026-09-19 11:04Z) Confirmed the absence of any coverage or complexity measurement on the current tree, and confirmed that `web/` has no JavaScript unit-test runner.
 - [x] (2026-09-19 11:04Z) Wrote this initial revision of the ExecPlan.
-- [ ] Measure the smoke baseline in a working environment (`python -m pytest tests/smoke -q`) and record the exact pass/fail counts here. The checkout used to author this plan contained no virtual environment (`ls -d ai_trainer_env .venv venv` found none), so no baseline was measured. **(remaining: this measurement; nothing else in Milestone 1 depends on it)**
+- [x] (2026-09-19 11:12Z) Measured the smoke baseline on commit `5420754` (= `origin/main` at `7fc940f` plus a docs-only commit) with a fresh virtual environment built from `requirements-dev.txt`: `1 failed, 2626 passed, 32 skipped in 291.65s`. The failing test is `tests/smoke/test_dsh_pilot_preflight_timeout.py::test_leading_zero_limit_cannot_smuggle_past_the_ceiling`; it passes when run alone. See `Surprises & Discoveries`.
+- [ ] Resolve or explicitly accept the order-dependent smoke failure recorded in `Surprises & Discoveries` before committing any Milestone 2 baseline. A flaky baseline makes both ratchets unusable, so this blocks Milestone 2 even though it is not itself part of the deliverable. **(blocking for Milestone 2)**
 - [ ] Milestone 1: install CodeBoarding, generate the architecture map, commit `ARCHITECTURE.md`, register the MCP server for agents.
 - [ ] Milestone 2: add `pytest-cov` and `radon`, implement the CRAP report, commit the baseline, add smoke tests for the metric.
 - [ ] Milestone 3: add mutation testing, commit the mutation baseline, add the changed-module gate, wire both gates into CI, record the gates in the workflow docs.
@@ -37,6 +38,10 @@ The user-visible proof arrives in three steps. After Milestone 1, `ARCHITECTURE.
 - **Observed**: `docs/technical_debt_register.md` has a snapshot date of 2026-08-16 and lists exactly one open item, `TD-006` (P2, structure, "large modules concentrate churn"). The source is that file.
 - **Inferred**: the missing verification layer is not currently tracked as debt, so this plan introduces new measurement rather than closing a register entry. Consequence: no `TD-XXX` identifier is created or consumed by this work, and the register should not be edited except to link this plan if a reviewer asks.
 - **Verified by**: reading the register's `Сводка` table directly; confirmed one open row.
+
+- **Observed**: the measured smoke baseline is `1 failed, 2626 passed, 32 skipped in 291.65s`. The single failure is `tests/smoke/test_dsh_pilot_preflight_timeout.py::test_leading_zero_limit_cannot_smuggle_past_the_ceiling`. Running that test alone with the same interpreter and the same environment reports `1 passed in 0.52s`. Both results come from captured command output on commit `5420754`, in a fresh virtual environment built from `requirements-dev.txt`.
+- **Inferred**: the failure depends on test execution order or on state left by another test in the suite, rather than on the assertions in the test itself. The cheapest falsifying check is to run the same file on its own (`python -m pytest tests/smoke/test_dsh_pilot_preflight_timeout.py -q`) and then the smoke directory in reverse order; if the file passes in isolation and fails in the suite, the order hypothesis stands, and if it passes in the suite when the suite is split in half, the culprit is in the other half.
+- **Verified by**: the isolated run was executed and passed, so the "the test itself is broken" hypothesis is rejected. The order hypothesis is NOT YET tested, and whether the suite also fails this way in CI on `main` is NOT YET checked. Do not report this as a pre-existing `main` failure until that check runs. The new CRAP and mutation gates from Milestones 2 and 3 both run the same suite, so resolving this must precede Milestone 2's baseline commitment; otherwise a flaky baseline makes both ratchets unusable.
 
 ## Decision Log
 
@@ -147,7 +152,11 @@ Baseline measurement, before any change:
     python -m pytest tests/smoke -q
     python -m pytest -m "not live and not debug and not e2e" tests/ -q
 
-Record both counts. The issue's `### Smoke baseline` section must contain these numbers, not an estimate.
+On commit `5420754` the first command produced:
+
+    1 failed, 2626 passed, 32 skipped, 3 warnings in 291.65s (0:04:51)
+
+The failure was `tests/smoke/test_dsh_pilot_preflight_timeout.py::test_leading_zero_limit_cannot_smuggle_past_the_ceiling`, which passes when run in isolation. The second command has not been run yet: it covers a much larger selection and its count must be recorded here before Milestone 2 commits a coverage baseline, because the CRAP report scores exactly that selection. The issue's `### Smoke baseline` section carries the first number verbatim; do not replace it with an estimate.
 
 Milestone 1:
 
@@ -275,5 +284,7 @@ Modified files: `requirements-dev.txt` (add `pytest-cov`, `radon`), `AGENTS.md` 
 External dependencies and why each is chosen: `pytest-cov` for coverage because it is the pytest integration of `coverage.py`, already the de facto standard and requiring no new infrastructure. `radon` for cyclomatic complexity because it reports per-function complexity for Python without executing the code. `mutmut` for mutation testing because it accepts any test command that reports success through an exit code, supports incremental runs, and exposes a continuous-integration exit flag; `cosmic-ray` is the named alternative. `codeboarding` for the architecture map because it derives components from static analysis of the real tree and serves the result to a coding agent over MCP.
 
 ---
+
+*Note (2026-09-19 11:12Z): second revision, authored by Hermes Agent. Reason: the smoke baseline was measured on commit `5420754` in a fresh virtual environment built from `requirements-dev.txt`. The measurement returned one failure that passes in isolation, so the `Progress`, `Surprises & Discoveries`, and `Concrete Steps` sections were updated to record the numbers, to state the order-dependence hypothesis with its unresolved check, and to add a Milestone 2 blocking item for resolving it. No design decision changed; the `Decision Log` is unchanged because no decision depended on the baseline.*
 
 *Note (2026-09-19 11:04Z): initial revision, authored by Hermes Agent. Reason: the repository has no committed plan for introducing verification metrics; this document creates one so the change class, the milestones, and the acceptance conditions are recorded before any code is written. No revision has yet been made in response to implementation discoveries.*
