@@ -917,6 +917,35 @@ def test_session_without_usage_reports_unavailable_not_zero(pilot: _Pilot) -> No
     assert "tokens_input=0" not in result.stdout
 
 
+def test_partially_unreadable_session_fails_the_measurement(pilot: _Pilot) -> None:
+    """Валидная запись плюс битая строка — заниженный итог, а не зачтённое измерение.
+
+    Находка ревью PR #584: парсер считал ``session_parse_errors``, печатал частичные
+    токены и возвращал 0, а ``emit_metrics`` считал провалом только полное отсутствие
+    usage. Сессия с одной повреждённой строкой JSONL поэтому проходила как измеренная,
+    недосчитав оплаченные токены, шаги и вызовы инструментов. Здесь читаемая запись
+    остаётся посчитанной (ради диагностики), но прогон признаётся незачётным.
+    """
+    pilot.set_session_content(
+        '{"type":"assistant/message","data":{"turn":1,"step":1,'
+        '"usage":{"inputTokens":100,"outputTokens":50,'
+        '"cacheReadTokens":10,"reasoningTokens":5}}}'
+        "\n"
+        '{"type":"step/end","data":'  # обрезанная строка: не валидный JSON
+    )
+    result = pilot.smoke(env=pilot.env())
+
+    assert result.returncode == 1, result.stdout
+    assert result.returncode != 124
+    assert _metric(result, "session_parse_errors") == "1"
+    # Частичные числа напечатаны, иначе диагноз был бы невозможен.
+    assert _metric(result, "usage_records") == "1"
+    assert _metric(result, "tokens_input") == "100"
+    assert _metric(result, "tokens_output") == "50"
+    assert "timed_out=no" in result.stdout
+    assert "прочитана частично" in result.stdout
+
+
 def test_legacy_top_level_usage_is_not_mistaken_for_a_measurement(pilot: _Pilot) -> None:
     """Обе формы usage читаются, а реальное измерение берётся там, где его пишет harness.
 
