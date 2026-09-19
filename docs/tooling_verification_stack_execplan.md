@@ -19,7 +19,8 @@ The user-visible proof arrives in three steps. After Milestone 1, `ARCHITECTURE.
 - [x] (2026-09-19 11:04Z) Confirmed the absence of any coverage or complexity measurement on the current tree, and confirmed that `web/` has no JavaScript unit-test runner.
 - [x] (2026-09-19 11:04Z) Wrote this initial revision of the ExecPlan.
 - [x] (2026-09-19 11:12Z) Measured the smoke baseline on commit `5420754` (= `origin/main` at `7fc940f` plus a docs-only commit) with a fresh virtual environment built from `requirements-dev.txt`: `1 failed, 2626 passed, 32 skipped in 291.65s`. The failing test is `tests/smoke/test_dsh_pilot_preflight_timeout.py::test_leading_zero_limit_cannot_smuggle_past_the_ceiling`; it passes when run alone. See `Surprises & Discoveries`.
-- [ ] Resolve or explicitly accept the order-dependent smoke failure recorded in `Surprises & Discoveries` before committing any Milestone 2 baseline. A flaky baseline makes both ratchets unusable, so this blocks Milestone 2 even though it is not itself part of the deliverable. **(blocking for Milestone 2)**
+- [x] (2026-09-19 11:52Z) Re-measured after moving the working copy to `~/ai_trainer` and clearing stale bytecode: `2627 passed, 32 skipped in 275.34s`, exit status zero, no failure. The reproducible baseline is therefore `2627 passed, 32 skipped`, and the single earlier failure is recorded as an unreproduced flake rather than a known failure.
+- [ ] Resolve or explicitly accept the order-dependent smoke failure recorded in `Surprises & Discoveries` before committing any Milestone 2 baseline. A flaky baseline makes both ratchets unusable, so this blocks Milestone 2 even though it is not itself part of the deliverable. **(blocking for Milestone 2; downgraded from "known failure" to "unreproduced flake, rate unknown" after two clean runs)**
 - [ ] Milestone 1: install CodeBoarding, generate the architecture map, commit `ARCHITECTURE.md`, register the MCP server for agents.
 - [ ] Milestone 2: add `pytest-cov` and `radon`, implement the CRAP report, commit the baseline, add smoke tests for the metric.
 - [ ] Milestone 3: add mutation testing, commit the mutation baseline, add the changed-module gate, wire both gates into CI, record the gates in the workflow docs.
@@ -42,6 +43,14 @@ The user-visible proof arrives in three steps. After Milestone 1, `ARCHITECTURE.
 - **Observed**: the measured smoke baseline is `1 failed, 2626 passed, 32 skipped in 291.65s`. The single failure is `tests/smoke/test_dsh_pilot_preflight_timeout.py::test_leading_zero_limit_cannot_smuggle_past_the_ceiling`. Running that test alone with the same interpreter and the same environment reports `1 passed in 0.52s`. Both results come from captured command output on commit `5420754`, in a fresh virtual environment built from `requirements-dev.txt`.
 - **Inferred**: the failure depends on test execution order or on state left by another test in the suite, rather than on the assertions in the test itself. The cheapest falsifying check is to run the same file on its own (`python -m pytest tests/smoke/test_dsh_pilot_preflight_timeout.py -q`) and then the smoke directory in reverse order; if the file passes in isolation and fails in the suite, the order hypothesis stands, and if it passes in the suite when the suite is split in half, the culprit is in the other half.
 - **Verified by**: the isolated run was executed and passed, so the "the test itself is broken" hypothesis is rejected. The order hypothesis is NOT YET tested, and whether the suite also fails this way in CI on `main` is NOT YET checked. Do not report this as a pre-existing `main` failure until that check runs. The new CRAP and mutation gates from Milestones 2 and 3 both run the same suite, so resolving this must precede Milestone 2's baseline commitment; otherwise a flaky baseline makes both ratchets unusable.
+
+- **Observed**: the same commit was measured twice more after the working copy moved from `/tmp/ai_trainer` to `~/ai_trainer`, with the same interpreter and dependency set: `2627 passed, 32 skipped in 282.53s` and then `2627 passed, 32 skipped in 275.34s`, both with a zero exit status, the second one written to a log file whose tail is quoted in `Concrete Steps`. The previously failing test passed in both runs. Source: captured command output.
+- **Inferred**: `test_leading_zero_limit_cannot_smuggle_past_the_ceiling` is flaky rather than deterministically broken, and the flake did not reproduce on two consecutive clean runs. The cheapest falsifying check is a repeat loop over the file inside a full-suite context (run the smoke suite N times and count how often the test fails); a single-file repeat will not exercise the ordering that the hypothesis blames.
+- **Verified by**: three suite-level runs exist, with one failure and two passes. The first run was the only one made against a tree carrying bytecode compiled at a different absolute path, which is recorded below as a separate observation and is a candidate confounder. The flake is NOT YET reproduced deliberately, so its true rate is unknown. Consequence for Milestone 2: the coverage baseline must be committed from a run whose result is reproducible, and this observation must be extended with a repeat count before that happens.
+
+- **Observed**: the first smoke run on the moved tree reported failure locations as `../../../tmp/ai_trainer/tests/smoke/...` even though the command ran from `/home/greg/ai_trainer`. Every `__pycache__` directory in the copied tree contained the literal string `/tmp/ai_trainer`, because `__pycache__` bytecode records the absolute source path it was compiled from and the tree was copied with `rsync -a`. Source: `grep -rl "/tmp/ai_trainer" tests/__pycache__` and a byte-level search of one `.pyc`.
+- **Inferred**: the stale bytecode changes only how pytest reports paths, not which tests run or what they assert, because the source files were verified byte-identical between the two locations with `diff -r` before the copy was accepted. The cheapest falsifying check is to delete every `__pycache__` and `.pytest_cache` directory, re-run, and confirm that the reported paths are local and the pass count is unchanged.
+- **Verified by**: after deleting the caches, the smoke suite reported `2627 passed, 32 skipped in 275.34s` with `grep -c "/tmp/ai_trainer"` on the captured log returning zero. The hypothesis that the paths were cosmetic is supported. Practical lesson for any future move of this tree: clear `__pycache__` and `.pytest_cache` immediately after copying, before trusting any reported path.
 
 ## Decision Log
 
@@ -152,11 +161,15 @@ Baseline measurement, before any change:
     python -m pytest tests/smoke -q
     python -m pytest -m "not live and not debug and not e2e" tests/ -q
 
-On commit `5420754` the first command produced:
+On commit `5420754` the first command was run three times. The first run, made while the tree still lived at `/tmp/ai_trainer`, produced:
 
     1 failed, 2626 passed, 32 skipped, 3 warnings in 291.65s (0:04:51)
 
-The failure was `tests/smoke/test_dsh_pilot_preflight_timeout.py::test_leading_zero_limit_cannot_smuggle_past_the_ceiling`, which passes when run in isolation. The second command has not been run yet: it covers a much larger selection and its count must be recorded here before Milestone 2 commits a coverage baseline, because the CRAP report scores exactly that selection. The issue's `### Smoke baseline` section carries the first number verbatim; do not replace it with an estimate.
+The failure was `tests/smoke/test_dsh_pilot_preflight_timeout.py::test_leading_zero_limit_cannot_smuggle_past_the_ceiling`, which passes when run in isolation. The second and third runs, made after the tree moved to `~/ai_trainer` and the stale bytecode was cleared, produced:
+
+    2627 passed, 32 skipped, 3 warnings in 275.34s (0:04:35)
+
+with exit status zero. Treat `2627 passed, 32 skipped` as the baseline to hold and treat the earlier single failure as an unreproduced flake whose rate is unknown. The wider contributor-safe selection has not been run yet: it covers a much larger set and its count must be recorded here before Milestone 2 commits a coverage baseline, because the CRAP report scores exactly that selection. The issue's `### Smoke baseline` section carries the same numbers; do not replace them with an estimate.
 
 Milestone 1:
 
@@ -284,6 +297,8 @@ Modified files: `requirements-dev.txt` (add `pytest-cov`, `radon`), `AGENTS.md` 
 External dependencies and why each is chosen: `pytest-cov` for coverage because it is the pytest integration of `coverage.py`, already the de facto standard and requiring no new infrastructure. `radon` for cyclomatic complexity because it reports per-function complexity for Python without executing the code. `mutmut` for mutation testing because it accepts any test command that reports success through an exit code, supports incremental runs, and exposes a continuous-integration exit flag; `cosmic-ray` is the named alternative. `codeboarding` for the architecture map because it derives components from static analysis of the real tree and serves the result to a coding agent over MCP.
 
 ---
+
+*Note (2026-09-19 11:52Z): third revision, authored by Hermes Agent. Reason: the working copy moved from `/tmp/ai_trainer` to `~/ai_trainer` and the smoke suite was re-measured twice, both times green at `2627 passed, 32 skipped`. The `Progress`, `Surprises & Discoveries`, and `Concrete Steps` sections were updated to promote the reproducible count to the baseline, to downgrade the earlier single failure to an unreproduced flake with an unknown rate, and to record that copied `__pycache__` bytecode carries the old absolute source path. No design decision changed.*
 
 *Note (2026-09-19 11:12Z): second revision, authored by Hermes Agent. Reason: the smoke baseline was measured on commit `5420754` in a fresh virtual environment built from `requirements-dev.txt`. The measurement returned one failure that passes in isolation, so the `Progress`, `Surprises & Discoveries`, and `Concrete Steps` sections were updated to record the numbers, to state the order-dependence hypothesis with its unresolved check, and to add a Milestone 2 blocking item for resolving it. No design decision changed; the `Decision Log` is unchanged because no decision depended on the baseline.*
 
