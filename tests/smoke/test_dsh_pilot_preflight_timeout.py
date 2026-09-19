@@ -234,6 +234,37 @@ def _pid_state(pid: int) -> str | None:
     return None
 
 
+def _state_unavailable_reason(pid: int) -> str:
+    """Почему состояние процесса недоступно — деталь для сообщения ``skip``.
+
+    Источники проглатывают свою ошибку и возвращают ``None``, поэтому наружу
+    выходит общее «состояние недоступно». В песочнице агента это читается как
+    платформенное ограничение (macOS), хотя причина другая: ``/proc`` нет, а
+    ``ps`` отклоняется средой с ``PermissionError``. Различаем случаи явно.
+    """
+    proc_reason = "нет /proc" if not os.path.isdir("/proc") else f"нет /proc/{pid}/stat"
+    try:
+        subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            check=False,
+        )
+    except PermissionError:
+        ps_reason = "ps запрещён средой (PermissionError)"
+    except FileNotFoundError:
+        ps_reason = "ps не найден"
+    except (OSError, subprocess.SubprocessError) as exc:
+        ps_reason = f"ps недоступен ({type(exc).__name__})"
+    else:
+        ps_reason = "ps не вернул состояние"
+    return f"{proc_reason}, {ps_reason}"
+
+
 def _pid_alive(pid: int) -> bool:
     """Проверка живости по PID (а не по строке в логе стаба).
 
@@ -958,7 +989,7 @@ def test_liveness_reports_real_zombie_as_terminated() -> None:
     if not hasattr(os, "fork"):
         pytest.skip("нет os.fork на этой платформе")
     if _pid_state(os.getpid()) is None:
-        pytest.skip("состояние процесса недоступно (нет /proc, ps недоступен)")
+        pytest.skip(f"состояние процесса недоступно: {_state_unavailable_reason(os.getpid())}")
 
     pid = os.fork()
     if pid == 0:  # pragma: no cover — дочерняя ветка выходит немедленно
@@ -975,6 +1006,31 @@ def test_liveness_reports_real_zombie_as_terminated() -> None:
         assert not _pid_alive(pid), "зомби посчитан живым — тест снова зависел бы от окружения"
     finally:
         os.waitpid(pid, 0)
+
+
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        (PermissionError(1, "Operation not permitted"), "ps запрещён средой (PermissionError)"),
+        (FileNotFoundError(2, "No such file or directory"), "ps не найден"),
+    ],
+)
+def test_state_unavailable_reason_names_the_ps_failure(
+    monkeypatch: pytest.MonkeyPatch, error: OSError, expected: str
+) -> None:
+    """Сообщение ``skip`` называет причину отказа ``ps``, а не только «недоступно».
+
+    Запрет ``ps`` в песочнице агента и отсутствие ``ps`` на машине — разные
+    ситуации с разными выводами для читателя: первая означает, что гейт покрыт
+    в CI (там есть ``/proc``), вторая — что проверять нечем.
+    """
+
+    def _failing_run(*args: object, **kwargs: object) -> object:
+        raise error
+
+    monkeypatch.setattr(subprocess, "run", _failing_run)
+    reason = _state_unavailable_reason(os.getpid())
+    assert expected in reason, reason
 
 
 def test_prepare_ignores_out_of_range_timeout_settings(pilot: _Pilot) -> None:
