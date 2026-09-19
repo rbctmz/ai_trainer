@@ -1,9 +1,12 @@
 import pandas as pd
 from datetime import date, datetime, timezone
+import logging
 from typing import Optional
 
 from config.settings import Settings
 from utils.product_semantics import normalize_sport_key
+
+logger = logging.getLogger(__name__)
 
 
 def resolve_athlete_ftp_lthr(database):
@@ -377,7 +380,7 @@ class ActivityProcessor:
                 })
                 
             except Exception as e:
-                print(f"Ошибка обработки активности {activity.get('activityId', 'unknown')}: {e}")
+                logger.warning(f"Ошибка обработки активности {activity.get('activityId', 'unknown')}: {e}")
                 continue
         
         if not processed:

@@ -71,7 +71,7 @@ def submit_feedback(
     db: Database = Depends(get_database),
 ) -> dict[str, Any]:
     try:
-        return submit_session_feedback(db, payload.dict())
+        return submit_session_feedback(db, payload.model_dump())
     except (LookupError, StaleFeedbackError, ValueError) as exc:
         _raise_http(exc)
         raise AssertionError("unreachable")
@@ -84,7 +84,7 @@ def correct_feedback(
     db: Database = Depends(get_database),
 ) -> dict[str, Any]:
     try:
-        return correct_session_feedback(db, feedback_id, payload.dict())
+        return correct_session_feedback(db, feedback_id, payload.model_dump())
     except (LookupError, StaleFeedbackError, ValueError) as exc:
         _raise_http(exc)
         raise AssertionError("unreachable")

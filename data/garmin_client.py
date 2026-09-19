@@ -652,6 +652,8 @@ class GarminClient:
                     try:
                         garmin_logger.debug("TRAINING STATUS RAW (%s): %s", method_name, result)
                     except Exception:
+                        # Логирование не должно ломать вызов: сломанный __str__ у
+                        # provider-объекта — не ошибка получения статуса тренированности.
                         pass
                     self._clear_last_error()
                     return result
@@ -773,23 +775,31 @@ class GarminClient:
         # Собираем все данные
         try:
             comprehensive_data['sleep'] = self.get_sleep_data(date)
-        except Exception:
-            pass
+        except Exception as exc:
+            garmin_logger.debug(
+                "comprehensive %s unavailable for %s: %s", "sleep", date_str, exc
+            )
 
         try:
             comprehensive_data['resting_hr'] = self.get_resting_heart_rate(date)
-        except Exception:
-            pass
+        except Exception as exc:
+            garmin_logger.debug(
+                "comprehensive %s unavailable for %s: %s", "resting_hr", date_str, exc
+            )
 
         try:
             comprehensive_data['daily_summary'] = self.get_daily_summary(date)
-        except Exception:
-            pass
+        except Exception as exc:
+            garmin_logger.debug(
+                "comprehensive %s unavailable for %s: %s", "daily_summary", date_str, exc
+            )
 
         try:
             comprehensive_data['steps'] = self.get_daily_steps(date)
-        except Exception:
-            pass
+        except Exception as exc:
+            garmin_logger.debug(
+                "comprehensive %s unavailable for %s: %s", "steps", date_str, exc
+            )
 
         return comprehensive_data
     

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 from typing import Any, Mapping
@@ -27,6 +28,8 @@ from data.subjective_wellness_store import (
 from models.subjective_wellness import utc_timestamp
 from data.data_coverage_store import DataCoverageStore
 from config.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 
 # A version-INDEPENDENT strict `YYYY-MM-DD` shape guard. `date.fromisoformat` alone is
@@ -4619,7 +4622,7 @@ class Database:
         try:
             df = pd.read_sql_query(query, conn, params=(start_date,))
         except Exception as e:
-            print(f"Ошибка при выполнении запроса HRV: {e}")
+            logger.warning(f"Ошибка при выполнении запроса HRV: {e}")
             df = pd.DataFrame() # Возвращаем пустой DataFrame в случае ошибки
         finally:
             conn.close()

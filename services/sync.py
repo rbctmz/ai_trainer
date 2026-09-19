@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import logging
 import time
 import uuid
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Literal, Mapping
 
 from config.settings import Settings
 from data.data_processor import ActivityProcessor, resolve_athlete_tss_profile
@@ -896,7 +896,13 @@ def _cache_garmin_activity_intervals(
                 str(exc),
             )
         except Exception:
-            pass
+            # Пометка ретрая вспомогательная: её отказ не должен подменять основное
+            # предупреждение ниже, но обязан оставаться видимым в debug-логе.
+            logger.debug(
+                "garmin activity intervals retry marker failed for %s",
+                provider_activity_id,
+                exc_info=True,
+            )
         _append_warning(
             warnings,
             f"⚠️ Структура активности {provider_activity_id} не загружена: {exc}",
@@ -963,13 +969,16 @@ def _collect_hrv_data(
                 from utils.observation_provenance import observation_local_date
 
                 source_payload = hrv_summary or hrv_day_data
-                for field, source in (
+                observed_at_sources: tuple[
+                    tuple[str, Literal["utc", "athlete_local"]], ...
+                ] = (
                     ("calendarDate", "athlete_local"),
                     ("startTimestampGMT", "utc"),
                     ("startTimestampLocal", "athlete_local"),
                     ("timestamp", "utc"),
                     ("date", "athlete_local"),
-                ):
+                )
+                for field, source in observed_at_sources:
                     resolved = observation_local_date(source_payload.get(field), source=source)
                     if resolved is not None:
                         rmssd_observed_at = resolved.isoformat()
