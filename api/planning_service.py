@@ -57,7 +57,6 @@ from models.plan_actual_reconciliation import (
 from models.planned_bike_tss import (
     apply_bike_tss_rebalance_preview,
     build_bike_tss_rebalance_preview,
-    repair_bike_tss_materialization,
 )
 from models.planning_targets import (
     DEFAULT_DEMAND_LEVEL,
@@ -2441,47 +2440,6 @@ def confirm_bike_tss_rebalance(
         "base_checkpoint_id": latest_id,
         "checkpoint_source": "bike_tss_rebalance",
         "preview": preview,
-    }
-
-
-def repair_active_bike_tss_materialization(
-    db: Database,
-    *,
-    as_of: date | str | None = None,
-    persist: bool = False,
-) -> Dict[str, Any]:
-    """Repair stale steps left by the pre-fix bike TSS checkpoint."""
-    latest = db.get_latest_planning_checkpoint()
-    if not latest:
-        raise ValueError("no active plan")
-    goal_plan = restore_goal_plan_from_checkpoint(latest)
-    if goal_plan is None:
-        raise ValueError("active plan cannot be restored")
-    resolved_as_of = _parse_as_of(as_of)
-    repaired, changed_dates = repair_bike_tss_materialization(
-        goal_plan,
-        as_of=resolved_as_of,
-    )
-    if not changed_dates:
-        return {
-            "plan_id": None,
-            "base_checkpoint_id": int(latest.get("id") or 0),
-            "changed_dates": [],
-            "confirmation_required": False,
-        }
-    repaired = with_checkpoint_provenance(
-        repaired,
-        source="bike_tss_materialization_repair",
-        parent_checkpoint_id=int(latest.get("id") or 0),
-    )
-    saved = None
-    if persist:
-        saved = db.save_planning_checkpoint(build_planning_checkpoint(repaired))
-    return {
-        "plan_id": str(saved["id"]) if saved else None,
-        "base_checkpoint_id": int(latest.get("id") or 0),
-        "changed_dates": changed_dates,
-        "confirmation_required": not persist,
     }
 
 

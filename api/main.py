@@ -15,9 +15,15 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from utils.logging_setup import configure_logging
+
 # Keep Gemini/gRPC runtime happy (same default as run.sh).
 os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 load_dotenv()
+
+# Точка входа настраивает логирование приложения: без этого диагностика модулей
+# уходила бы в никуда (корневой логгер по умолчанию отдаёт только WARNING+).
+configure_logging()
 
 from api.routers import (  # noqa: E402  (after env setup)
     activities,

@@ -255,9 +255,8 @@ def repair_day(req: RepairDayRequest, db: Database = Depends(get_database)) -> d
 def _active_checkpoint_id(db: Database, *, required: Optional[int] = None) -> int:
     """Active checkpoint id, or fail fast when the caller pinned a stale base (#473)."""
     latest = db.get_latest_planning_checkpoint()
-    latest_id = (
-        int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") is not None else None
-    )
+    latest_raw_id = latest.get("id") if isinstance(latest, dict) else None
+    latest_id = int(latest_raw_id) if latest_raw_id is not None else None
     if required is not None and latest_id != int(required):
         # The repair primitive checks staleness itself, but the route must not
         # silently substitute the latest base when a client pinned an older one.

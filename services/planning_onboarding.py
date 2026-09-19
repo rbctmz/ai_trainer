@@ -122,11 +122,11 @@ def _suggest_goal(frame: pd.DataFrame, trusted: bool) -> tuple[Dict[str, Any], D
             _suggestion(FALLBACK_DISTANCE, BASIS_FALLBACK),
         )
 
-    disciplines = {
+    mapped_goal_types = (
         _SPORT_TO_GOAL.get(str(sport or "").strip().lower())
         for sport in frame["sport"].tolist()
-    }
-    disciplines.discard(None)
+    )
+    disciplines: set[str] = {goal for goal in mapped_goal_types if goal is not None}
     if not disciplines:
         return (
             _suggestion(FALLBACK_GOAL_TYPE, BASIS_FALLBACK),
