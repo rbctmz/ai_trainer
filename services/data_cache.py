@@ -51,6 +51,25 @@ def load_activities(days: int, db_path: Optional[str] = None) -> pd.DataFrame:
     return _load_activities_cached(_resolve_db_path(db_path), days)
 
 
+@st.cache_data(show_spinner=False)
+def _load_activities_between_cached(
+    db_path: str, start_date: str, end_date: str
+) -> pd.DataFrame:
+    return _copy_df(
+        pd.DataFrame(Database(db_path).get_activities_between(start_date, end_date))
+    )
+
+
+def load_activities_between(
+    start_date: str, end_date: str, db_path: Optional[str] = None
+) -> pd.DataFrame:
+    """Ровно запрошенный интервал: `load_activities(N)` на краю окна отдаёт
+    N + 1 календарную дату (находка ревью #614)."""
+    return _load_activities_between_cached(
+        _resolve_db_path(db_path), start_date, end_date
+    )
+
+
 def load_hrv(days: int, db_path: Optional[str] = None) -> pd.DataFrame:
     return _load_hrv_cached(_resolve_db_path(db_path), days)
 
@@ -65,6 +84,7 @@ def load_daily_health(days: int, db_path: Optional[str] = None) -> pd.DataFrame:
 
 def clear_data_caches() -> None:
     _load_activities_cached.clear()
+    _load_activities_between_cached.clear()
     _load_hrv_cached.clear()
     _load_sleep_cached.clear()
     _load_daily_health_cached.clear()
