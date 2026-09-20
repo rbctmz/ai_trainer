@@ -1,0 +1,115 @@
+# Slice Spec — Issue #608: безопасная семантика нагрузки (ACWR без предсказания травмы)
+
+- Issue / PR: #608 / (PR открывается следующим шагом)
+- Author / checker / merge owner: Domain / API Implementer (DSH) / независимый checker — TBD / human merge owner (rbctmz)
+- Date: 2026-09-20
+- Parent: #607 (Daily decision loop v1), слайс 1
+- ExecPlan: `docs/daily_decision_loop_execplan.md` (влит в `main` коммитом `0da0017`)
+
+## Change Class
+
+- Class: **A — Full** (как назначено в #608).
+- Rationale: меняется публичный словарь доменного сигнала и его семантика
+  безопасности. Затрагивает Python-домен, DTO API и пользовательские подписи;
+  требует явного плана совместимости, потому что провайдер присылает значения
+  старого словаря.
+- Automatic escalation triggers checked: новый cross-module public contract — да
+  (переименование публичного enum), поэтому Class A. Migrations/persistence — нет.
+  Live-provider write — нет. Security — нет.
+- Review budget used: 0 / 2
+
+## Проблема (Observed)
+
+`models/acwr.py` отдаёт статус из риск-словаря и подписывает его риск-языком:
+
+    ACWR_STATUS_TONE   = {safe: neutral, optimal: success, moderate_risk: warning, high_risk: danger}
+    ACWR_STATUS_LABEL  = {safe: «Недостаточная нагрузка», optimal: «Оптимальная зона»,
+                          moderate_risk: «Умеренный риск», high_risk: «Высокий риск»}
+
+`classify_acwr` возвращает `safe` / `optimal` / `moderate_risk` / `high_risk`.
+Отношение острой нагрузки к хронической само по себе **не устанавливает
+вероятность травмы**, поэтому «Умеренный риск» и «Высокий риск» — утверждение,
+которого данные не поддерживают. `safe` в обратную сторону объявляет низкое
+отношение безопасным, хотя это лишь ниже обычной базы атлета.
+
+**Где НЕ требуется изменение.** ACWR сегодня ничем не предписывает:
+`_recommendations_for_signals` в `models/signals_engine.py` читает только `tsb` и
+`hrv`, а `load.acwr` только прикрепляется к сигналу. Проверено чтением функции и
+grep по `acwr` в `models/signals_engine.py`. Значит риск — в словаре и в будущей
+возможности связать ACWR с предписанием; чинить существующую связку не нужно.
+
+## Решение по публичному enum
+
+Шкала заменяется на описательную относительно базы атлета:
+
+| Старое | Новое | Подпись | Почему |
+| --- | --- | --- | --- |
+| `safe` | `below_baseline` | «Ниже обычной базы» | не доказательство недотренированности |
+| `optimal` | `expected_band` | «В пределах обычного» | диапазон, а не оптимум здоровья |
+| `moderate_risk` | `elevated` | «Повышенная нагрузка» | отношение, а не риск |
+| `high_risk` | `strongly_elevated` | «Значительно выше базы» | не вероятность травмы |
+
+Тоны (`neutral`/`success`/`warning`/`danger`) сохраняются: это визуальный вес, а не
+утверждение о здоровье. Пороговые значения `0.8` / `1.3` / `1.5` и математика EWMA
+**не меняются** — это non-goal #608.
+
+## Совместимость
+
+Провайдер (Intervals.icu) присылает `acwr_status` в **старом** словаре. Поэтому:
+
+- `provider_status_from_training_status` и сверка продолжают принимать старые
+  строки и отображают их в новую шкалу отдельной таблицей соответствия;
+- это серверный шим совместимости, документированный как таковой, а не
+  браузерное переименование: `web/` не читает `acwr` вообще (проверено grep по
+  `web/`), поэтому молчаливого восстановления старых риск-значений на клиенте
+  быть не может;
+- строковое значение `status` в DTO — breaking change для внешних потребителей
+  DTO; явно фиксируется в PR, contract-артефакт регенерируется.
+
+## Дополнительные поля сигнала
+
+- `limitation` — постоянная строка о том, что ACWR это контекст, а не прогноз
+  травмы; присутствует и в data-gap ветке;
+- `window_days` и `history_days` — покрытие истории видно рядом со значением;
+- `calculation_version` — версия расчёта, чтобы смена семантики была различима;
+- `intervention_eligible: false` — жёсткий контракт: ACWR-единственный вход не
+  даёт права на предписывающее вмешательство. Поле существует, чтобы будущий
+  потребитель не связал отношение с предписанием по умолчанию.
+
+## Non-goals
+
+- Не меняются математика EWMA, окна chronic/acute, пороги и канонический источник
+  нагрузки (#608 non-goal).
+- Нет медицинского диагноза, модели травмы и injury-probability score.
+- Нет авто-мутации плана в этом слайсе.
+- Нет редизайна страницы Today.
+- Нет новых интеграций с провайдерами.
+
+## RED Matrix
+
+| Acceptance criterion | RED-тест | Ожидаемое падение до фикса | GREEN |
+| --- | --- | --- | --- |
+| Ни один пользовательский статус не называет зону safe/optimal/dangerous/injury | `test_no_risk_vocabulary_in_user_facing_status` | текущие подписи содержат «риск» | подписи описательные |
+| Низкое отношение — ниже базы, а не доказательство недотренированности | `test_low_ratio_reads_as_below_baseline` | статус `safe`, подпись «Недостаточная нагрузка» | `below_baseline` |
+| Высокое отношение — повышенная нагрузка, а не вероятность травмы | `test_high_ratio_reads_as_elevated_not_injury` | статус `high_risk`, подпись «Высокий риск» | `strongly_elevated` |
+| Сигнал несёт провенанс, покрытие истории и версию расчёта | `test_signal_exposes_provenance_and_version` | полей нет | поля есть и непусты |
+| Ограничение присутствует и в data-gap ветке | `test_limitation_present_in_data_gap` | поля нет | поле есть |
+| ACWR-единственный вход не даёт предписания | `test_acwr_alone_cannot_prescribe` | поля нет | `intervention_eligible is False` |
+| Численные значения на фиксированных фикстурах не меняются | `test_numeric_fixtures_unchanged` | (зелёный до и после) | отношения и пороги те же |
+| Провайдерский старый словарь по-прежнему сверяется | `test_provider_legacy_vocabulary_still_compares` | (зелёный до и после) | сверка работает через шим |
+
+## Проверки
+
+- focused: `python -m pytest tests/smoke/test_acwr.py -q`
+- новый файл: `python -m pytest tests/smoke/test_acwr_semantics.py -q`
+- contributor-safe: `python -m pytest -m "not live and not debug and not e2e" tests/ -q`
+- контракт: `npm --prefix web run contract:extract -- --check`
+- лексика: `grep -rn "injury\|риск травмы\|high_risk\|moderate_risk" models/acwr.py api/ web/`
+
+## Global Constraints (родительский #607)
+
+- `ASR-REL-2`: недостающие, устаревшие и конфликтующие данные завершаются
+  детерминированным не-предписывающим результатом.
+- `ASR-MOD-2`: семантика безопасности принадлежит серверу, а не React.
+- `ASR-MOD-3`: явный план совместимости для смены enum.
+- `ADR-0001`: общий Python + API; Streamlit своей копии не получает.
