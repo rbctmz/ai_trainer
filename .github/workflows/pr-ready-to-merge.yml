@@ -6,7 +6,7 @@ on:
   issue_comment:
     types: [created, edited, deleted]
   workflow_run:
-    workflows: ["CI", "Link PR to issue", "Project roadmap sync", "PR review signal"]
+    workflows: ["CI", "Link PR to issue", "PR review signal"]
     types: [completed]
   workflow_dispatch:
     inputs:

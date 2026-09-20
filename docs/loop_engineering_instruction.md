@@ -111,13 +111,20 @@ find a real linked PR. If the agent only produced local commits or reports a
 publish blocker, the workflow either asks for the missing publish step or marks
 the issue blocked for environment recovery.
 
-### Roadmap Sync
+### Roadmap Sync (retired)
 
-Workflow: `.github/workflows/project-roadmap-sync.yml`
+The `.github/workflows/project-roadmap-sync.yml` automation was removed on
+2026-09-20. It projected issue and PR state into GitHub Project
+`rbctmz/projects/2`, but the repository secret it depended on
+(`ROADMAP_PROJECT_TOKEN`) was never configured, and the integration token cannot
+write a user-owned Project v2. Every pull request therefore carried a failing
+`sync` check that did not affect mergeability, since the required status check
+for `main` is `Contributor-safe pytest` alone.
 
-Issue and PR state is projected into GitHub Project `rbctmz/projects/2`.
-`Todo`, `In Progress`, and `Done` are workflow outputs. Priority, category, and
-effort remain planning inputs and are not overwritten by automation.
+The board is maintained by hand. The label-driven projections are unaffected:
+`status: queued`, `status: in progress`, and `status: ready to merge` come from
+other workflows. History and the re-instatement preconditions are recorded in
+`docs/project_roadmap_sync_execplan.md`.
 
 ### Review And CI
 
