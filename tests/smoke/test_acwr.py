@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+from datetime import date, timedelta
 import json
 import math
 
@@ -490,3 +491,51 @@ def test_non_finite_load_cannot_break_the_response() -> None:
         assert value is None or math.isfinite(value), f"{field}={value!r}"
     # FastAPI сериализует ответы с allow_nan=False: NaN/Infinity здесь — это HTTP 500.
     json.dumps(signal, allow_nan=False)
+
+
+def test_acwr_history_is_anchored_to_the_anchor_date() -> None:
+    """P2 (раунд 2 #595): без якоря ряд заканчивается последней тренировкой и теряет дни отдыха.
+
+    Кадр с историей до D-84 отдаёт 83 сэмпла, если после последней тренировки
+    прошло два дня отдыха: окно «не дотягивает» до минимума, и атлет с полной
+    историей получает insufficient_history.
+    """
+    anchor = date(2026, 3, 25)
+    frame = pd.DataFrame(
+        [
+            {"date": (anchor - timedelta(days=2 + i)).isoformat(), "tss": 50.0}
+            for i in range(int(ACWR_MIN_HISTORY_DAYS) - 1)
+        ]
+    )
+    short = _activities_frame([50.0] * 30)
+
+    unanchored = assemble_signals(activities_df=short, acwr_activities_df=frame)
+    assert unanchored["load"]["acwr"]["history_days"] == int(ACWR_MIN_HISTORY_DAYS) - 1
+    assert unanchored["load"]["acwr"]["value"] is None
+
+    anchored = assemble_signals(
+        activities_df=short,
+        acwr_activities_df=frame,
+        acwr_as_of=anchor,
+    )
+    # 83 дня тренировок плюс два дня отдыха до якоря.
+    assert anchored["load"]["acwr"]["history_days"] == int(ACWR_MIN_HISTORY_DAYS) + 1
+    assert anchored["load"]["acwr"]["value"] is not None
+
+
+def test_non_finite_load_is_sanitized_before_banister() -> None:
+    """P2 (раунд 2 #595): inf не должен доходить и до CTL/ATL, не только до ACWR.
+
+    Общая нормализация дневного ряда санитизирует нагрузку до обоих расчётов:
+    иначе ACWR уже конечен, а load.ctl/load.atl остаются inf и ответ эндпоинта
+    не сериализуется.
+    """
+    frame = _activities_frame(
+        _steady_then(int(ACWR_MIN_HISTORY_DAYS) - 1, 50.0, [float("inf")])
+    )
+
+    load = assemble_signals(activities_df=frame)["load"]
+
+    for field in ("ctl", "atl", "tsb"):
+        assert math.isfinite(load[field]), f"load.{field}={load[field]!r}"
+    json.dumps(load, allow_nan=False)

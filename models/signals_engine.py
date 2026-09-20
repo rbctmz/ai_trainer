@@ -8,6 +8,7 @@ signal semantics.
 from __future__ import annotations
 
 from datetime import date
+import math
 from typing import Any
 
 import pandas as pd
@@ -27,16 +28,39 @@ def tone_severity(tone: str | None) -> int:
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
+    """Привести к float; нечисловое и не-конечное значение считаем отсутствием.
+
+    ``inf`` опаснее NaN: он проходит арифметику EWMA, превращает отношение в NaN
+    и валит сериализацию ответа (``Out of range float values are not JSON
+    compliant``), поэтому отсекается здесь — в общей нормализации нагрузки, до
+    Banister и до ACWR.
+    """
     try:
         if value is None or pd.isna(value):
             return default
-        return float(value)
+        numeric = float(value)
     except (TypeError, ValueError):
         return default
+    return numeric if math.isfinite(numeric) else default
 
 
 def _frame_or_empty(frame: pd.DataFrame | None) -> pd.DataFrame:
     return frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+
+
+def _sanitize_load_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Не-конечная нагрузка — отсутствие нагрузки, на входе всего контура.
+
+    Одной санитизации внутри ``_daily_load_series`` недостаточно: тот же кадр
+    уходит в Readiness-фьюжн (``models.readiness._tsb_metrics`` со своим Banister)
+    и в ACWR, поэтому ``inf`` отсекается один раз здесь — до всех расчётов.
+    Исходный кадр не мутируется.
+    """
+    if frame.empty or "tss" not in frame.columns:
+        return frame
+    sanitized = frame.copy()
+    sanitized["tss"] = [_safe_float(value) for value in sanitized["tss"]]
+    return sanitized
 
 
 def _latest_row(frame: pd.DataFrame | None) -> dict[str, Any]:
@@ -85,6 +109,9 @@ def _daily_load_series(
     frame = df[["date", "tss"]].copy()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["tss"] = pd.to_numeric(frame["tss"], errors="coerce").fillna(0.0)
+    # Общая санитизация до обоих расчётов: Banister и ACWR читают один и тот же
+    # дневной ряд, поэтому не-конечная нагрузка не должна дойти ни до одного из них.
+    frame["tss"] = [_safe_float(value) for value in frame["tss"]]
     frame = frame.dropna(subset=["date"])
     if frame.empty:
         return [], []
@@ -461,6 +488,7 @@ def assemble_signals(
     health_df: pd.DataFrame | None = None,
     as_of: date | None = None,
     acwr_activities_df: pd.DataFrame | None = None,
+    acwr_as_of: date | None = None,
 ) -> dict[str, Any]:
     """Assemble normalized load/recovery/readiness signals.
 
@@ -474,8 +502,8 @@ def assemble_signals(
     (дашборд) передают в ``activities_df`` окно отображения на 30 дней, из
     которого сигнал физически недостижим. Кадр отображения при этом не меняется.
     """
-    load_activities = _without_multisport_envelopes(
-        _frame_or_empty(activities_df)
+    load_activities = _sanitize_load_frame(
+        _without_multisport_envelopes(_frame_or_empty(activities_df))
     )
     status_frame = _training_status_frame(training_status)
     # Провайдерский статус читаем из исходного объекта: _training_status_frame
@@ -483,12 +511,19 @@ def assemble_signals(
     provider_acwr_status = provider_status_from_training_status(training_status)
     metrics = training_load_metrics(load_activities, as_of=as_of)
     acwr_frame = acwr_activities_df if acwr_activities_df is not None else activities_df
-    acwr_load = _without_multisport_envelopes(_frame_or_empty(acwr_frame))
+    acwr_load = _sanitize_load_frame(
+        _without_multisport_envelopes(_frame_or_empty(acwr_frame))
+    )
+    # Якорь ACWR по умолчанию совпадает с общим ``as_of``, но может быть задан
+    # отдельно: ряду нужно ≥84 календарных дней, и без привязки к сегодняшнему дню
+    # последние дни отдыха не достраиваются нулями, из-за чего окно «не дотягивает»
+    # до минимума у атлета с полной историей.
+    resolved_acwr_as_of = acwr_as_of if acwr_as_of is not None else as_of
     load = _load_signal(
         metrics,
         acwr_metrics(
             acwr_load,
-            as_of=as_of,
+            as_of=resolved_acwr_as_of,
             provider_status=provider_acwr_status,
         ),
     )
