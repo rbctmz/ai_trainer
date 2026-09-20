@@ -129,13 +129,10 @@ def test_versions_are_separate() -> None:
     """
     signal = acwr_signal(_STEADY)
 
-    assert isinstance(signal["calculation_version"], str)
-    assert signal["calculation_version"].strip()
-    assert isinstance(signal["semantics_version"], str)
-    assert signal["semantics_version"].strip()
-    assert signal["calculation_version"] != signal["semantics_version"], (
-        "версии обязаны различаться: смена словаря — не смена математики"
-    )
+    # Точные значения, а не просто «непустая строка»: смена словаря не должна
+    # двигать версию математики, а смена формулы — версию интерпретации.
+    assert signal["calculation_version"] == "acwr-ewma-v1"
+    assert signal["semantics_version"] == "descriptive-v2"
 
 
 def test_limitation_present_in_data_gap() -> None:
