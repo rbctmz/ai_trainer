@@ -222,6 +222,11 @@ Falsifying scenarios родительского #607, которые обяза�
 
 ## Artifacts and Notes
 
+Все артефакты ниже получены на ветке `fix/issue-598-metrics-anchor` (PR #614),
+а не на ветке этого документа: тест `tests/smoke/test_dashboard_metrics_anchor.py`
+и slice spec живут там. На ревизии `38ed4f0` значения «после исправления»
+перепроверены и совпадают с приведёнными.
+
 Воспроизведение шага 0 до исправления. Одна и та же локальная SQLite, один и тот же день, блок три недели со 100/110/120 TSS, закончившийся четырнадцать дней назад.
 
     Путь                                              CTL    ATL    TSB
@@ -241,10 +246,10 @@ Falsifying scenarios родительского #607, которые обяза�
 Транскрипт проверок шага 0:
 
     $ ai_trainer_env/bin/python -m pytest tests/smoke/test_dashboard_metrics_anchor.py -q
-    8 passed in 1.38s
+    9 passed in 1.32s
 
     $ ai_trainer_env/bin/python -m pytest -m "not live and not debug and not e2e" tests/ -q
-    2800 passed, 13 skipped, 38 deselected, 1 warning in 130.63s
+    2801 passed, 13 skipped, 38 deselected, 1 warning in 129.19s
 
     $ ai_trainer_env/bin/python -m ruff check .
     All checks passed!
@@ -252,7 +257,7 @@ Falsifying scenarios родительского #607, которые обяза�
     $ npm --prefix web run contract:extract -- --check
     extract-contract: артефакт актуален (tests/contracts/ts_contract.json)
 
-Slice spec шага 0 лежит в `docs/issue_598_dashboard_metrics_anchor_slice_spec.md` и содержит RED-матрицу, Evidence Boundary Matrix и таблицу публичных контрактов.
+Slice spec шага 0 лежит в `docs/issue_598_dashboard_metrics_anchor_slice_spec.md` на ветке `fix/issue-598-metrics-anchor` и содержит RED-матрицу, Evidence Boundary Matrix и таблицу публичных контрактов.
 
 ## Interfaces and Dependencies
 
@@ -284,5 +289,39 @@ Slice spec шага 0 лежит в `docs/issue_598_dashboard_metrics_anchor_sli
         metrics_activities_df: pd.DataFrame | None = None,
         as_of: date | None = None,
     ) -> dict[str, Any]
+
+Границы канонического окна метрик считаются в одном месте, в
+`models/readiness.py`:
+
+    def load_metrics_window_bounds(anchor: date) -> tuple[str, str]:
+        """Inclusive ISO bounds of the canonical CTL/ATL/TSB window."""
+
+Она возвращает `(anchor - 89, anchor)`. Потребители обязаны брать метрики
+именно этим интервалом, а не `Database.get_activities(N)`: тот режет по
+включительной границе `today - N` и потому отдаёт `N + 1` календарную дату,
+расходясь с каноническим окном на его краю (находка ревью #614). API-роутеры
+используют `db.get_activities_between(*load_metrics_window_bounds(anchor))`,
+легаси-страница — кэшируемый
+`services.data_cache.load_activities_between(start, end)`.
+
+## Revision Notes
+
+- (2026-09-20) Первая версия: создан как живой план инициативы #607 по
+  требованию родительского issue; зафиксированы границы слайсов, шаг 0 и
+  evidence-записи.
+- (2026-09-20) Отмечен шаг 0: слайс #601 поставлен в PR #617, раздел
+  `Progress` и `Outcomes & Retrospective` приведены в соответствие, добавлена
+  запись о том, что не каждый `datetime.now()` в планировщике является
+  атлетской границей.
+- (2026-09-20) Исходы первого раунда ревью PR #615: раздел про полный прогон
+  переписан по проверенному поведению (изоляция базы), `git checkout -- .`
+  убран как безопасный откат, абсолютный путь заменён на корень репозитория,
+  критерии приёмки последующих слайсов перенесены внутрь плана вместо
+  делегирования issue, проба через `workflow_dispatch` помечена как живая
+  запись, провенанс guard 84 исправлен на эмпирический, числа тестов и
+  артефакты привязаны к ветке-источнику. Причина правок: ревью показало, что
+  план не был самодостаточным и в одном месте давал небезопасную инструкцию.
+- (2026-09-20) Проверка `sync` закрыта: секрет `ROADMAP_PROJECT_TOKEN`
+  отсутствует, workflow выведен из эксплуатации в PR #618.
 
 Канонические зависимости, на которые опираются все слайсы: `models/readiness.py::LOAD_METRICS_WINDOW_DAYS` (окно метрик нагрузки, равно 90), `models/readiness.py::_tsb_metrics(activities_df, anchor)` (канонический расчёт CTL/ATL/TSB с якорем), `models/banister.py::tsb_zone(tsb)` (каноническая четырёхзонная классификация формы), `utils/athlete_time.athlete_local_date()` (календарный день атлета) и `services/readiness_snapshot.py::build_readiness_snapshot(db)` (канонический снимок готовности). Новых внешних библиотек этот план не вводит.
