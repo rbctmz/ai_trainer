@@ -55,6 +55,19 @@ After this change, the Roadmap project at `users/rbctmz/projects/2` should stop 
   Rationale: the automation belongs in the repo, but a private user-owned Project v2 cannot be mutated by the default repository token. Failing every PR would be worse than surfacing the missing secret explicitly.
   Date/Author: 2026-06-29 / Codex
 
+- Decision: **retire the automation and delete the workflow**, superseding the
+  decision above.
+  Rationale: the secret was never configured, so every run fell through to
+  `github.token`. That token can read the public project but not write it, so the
+  workflow reached the unguarded `updateProjectV2ItemFieldValue` mutation and
+  failed; for three months every pull request carried a failing `sync` check. The
+  skip-with-warning promised by the decision above was never implemented for the
+  write path, and the check never affected mergeability — the only required status
+  check on `main` is `Contributor-safe pytest`. The label-driven projections are
+  separate workflows that never depended on this token, so retirement costs no
+  working automation.
+  Date/Author: 2026-09-20 / Domain / API Implementer (DSH), PR #618
+
 ## Outcomes & Retrospective
 
 The core state-mapping logic is implemented, and live PR validation immediately exposed the real operational boundary: private user-owned Project v2 access requires a stronger token than `GITHUB_TOKEN`. This follow-up patch keeps the workflow usable in contributor PRs while making the missing secret explicit.
@@ -81,8 +94,27 @@ The core state-mapping logic is implemented, and live PR validation immediately 
   were both closed in June, the board is still usable by hand, and the
   label-driven status projections (`status: queued`, `status: in progress`,
   `status: ready to merge`) are separate workflows that never depended on this
-  token. Re-instating the automation later means adding the secret and completing
-  the item above, not starting over.
+  token.
+
+  **Preconditions for re-instating the automation.** Installing the secret alone
+  is explicitly not sufficient: that is the state this plan spent three months in,
+  and it restores the same unguarded write-failure path. Before the workflow comes
+  back, all of the following must hold.
+
+  1. A credential that can actually write the user-owned Project v2 exists
+     (`ROADMAP_PROJECT_TOKEN`, currently absent from the repository secrets).
+  2. The workflow degrades gracefully on **both** authorization failures — the
+     read (`getProjectItems`) and the write (`setItemStatus`) — not only the read
+     path, which is all the deleted version guarded.
+  3. `workflow_dispatch` completes successfully against the live board with the
+     credential in place, and the resulting item states are inspected, before the
+     event-driven triggers are re-enabled.
+  4. The reinstated workflow is re-subscribed in
+     `.github/workflows/pr-ready-to-merge.yml` under `workflow_run.workflows`. That
+     entry was removed during retirement, so without this step the readiness
+     projection stops noticing sync completion.
+  5. A board snapshot is taken before the first dispatch, because the dispatch path
+     rewrites every item and is not a read-only probe.
 
 ## Context and Orientation
 
