@@ -13,12 +13,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import sqlite3
+import sys
 
 import pytest
 
 from api import planning_service as ps
 from data.database import Database
 from models.training_planner import assess_start_load_state
+from utils.athlete_time import athlete_local_date
 
 
 pytestmark = pytest.mark.smoke
@@ -28,8 +31,16 @@ _HARD_BLOCK = [100.0] * 7 + [110.0] * 7 + [120.0] * 7  # 3 недели нара
 
 
 def _seed(db: Database, days: list[float], end_offset_days: int) -> None:
-    """Записать дневную нагрузку, закончившуюся `end_offset_days` назад."""
-    today = datetime.now().date()
+    """Записать дневную нагрузку, закончившуюся `end_offset_days` назад.
+
+    Даты считаются от того же athlete-local дня, которым продовый код якорит
+    метрики (`api.planning_service` → `utils.athlete_time.athlete_local_date`).
+    Host-часы здесь не годятся: в зоне, где локальная дата уже перешла на
+    следующие сутки (например, Europe/Moscow после 21:00 UTC), последний день
+    блока оказывался «вчера», в окно попадал лишний день отдыха, и тест начинал
+    зависеть от времени прогона (находка ревью PR #599).
+    """
+    today = athlete_local_date()
     block_end = today - timedelta(days=end_offset_days)
     block_start = block_end - timedelta(days=len(days) - 1)
     rows = []
@@ -184,3 +195,28 @@ def test_anchor_uses_canonical_athlete_date(tmp_path, monkeypatch) -> None:
         f"ATL={signals['load']['atl']}: якорь не взял дату из athlete_local_date"
     )
     assert signals["load"]["tsb"] > 0.0
+
+
+def test_seed_uses_the_athlete_local_clock(tmp_path, monkeypatch) -> None:
+    """P2 (ревью #599): фикстура считает даты от athlete-local дня, а не от host-часов.
+
+    Иначе там, где локальная дата уже перешла на следующие сутки, последний день
+    блока оказывается «вчера»: в окно попадает лишний день отдыха и результат
+    начинает зависеть от времени прогона.
+    """
+    shifted = datetime.now().date() + timedelta(days=1)
+    # Патчим имя в самом модуле теста: smoke-тесты импортируются как top-level
+    # модули, и строковый путь через пакет подменил бы другую копию.
+    monkeypatch.setattr(
+        sys.modules[__name__], "athlete_local_date", lambda *args, **kwargs: shifted
+    )
+    db_path = tmp_path / "clock.db"
+    db = Database(str(db_path))
+
+    _seed(db, [50.0] * 60, end_offset_days=0)
+
+    # Читаем сырую таблицу: read-путь отсекает будущие даты относительно
+    # host-часов, и через него подменённый athlete-local день не виден.
+    with sqlite3.connect(db_path) as conn:
+        latest = conn.execute("SELECT MAX(date) FROM activities").fetchone()[0]
+    assert latest == shifted.strftime("%Y-%m-%d")
