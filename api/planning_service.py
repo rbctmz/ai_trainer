@@ -449,7 +449,9 @@ def _current_metrics(db: Database):
 
 
 def _start_week(today: Optional[date] = None) -> date:
-    today = today or datetime.now().date()
+    # Начало недели атлета, а не хоста: при расхождении ATHLETE_TIMEZONE
+    # с зоной сервера план стартовал бы с чужого понедельника (issue #601).
+    today = today or athlete_local_date()
     return today - timedelta(days=today.weekday())  # Monday of current week
 
 
@@ -493,7 +495,7 @@ def current_status(db: Database) -> Dict[str, Any]:
     signals, _df = _current_signals(db)
     metrics = _metrics_from_signals(signals)
     checkpoint = summarize_planning_checkpoint(db.get_latest_planning_checkpoint())
-    today = datetime.now().date()
+    today = athlete_local_date()
     active_constraints = db.get_coach_constraints(
         start_date=today.isoformat(),
         end_date=(today + timedelta(days=30)).isoformat(),
@@ -1032,7 +1034,7 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
     if not checkpoint or not goal_plan:
         return {"has_plan": False}
 
-    today = datetime.now().date()
+    today = athlete_local_date()
     planning_mode = str(goal_plan.get("planning_mode") or "").strip() or "training_goal"
     events = [dict(item) for item in list(goal_plan.get("events") or []) if isinstance(item, dict)]
     confirmed_a_event = next(
@@ -1368,7 +1370,9 @@ def build_plan(
         plan_events,
         goal_type=gt,
         load_state=str(constraint_summary.get("load_state", "balanced")),
-        as_of=datetime.now().date(),
+        # days_until до старта считает атлетский день: иначе тейпер и
+        # гоночная неделя встают не на те даты (issue #601).
+        as_of=athlete_local_date(),
     )
     weekly_tss_plan = [int(row.get("weekly_tss") or 0) for row in weekly_summary]
 
@@ -1984,7 +1988,7 @@ def week_by_week_plan(db: Database) -> Dict[str, Any]:
             "chart": [],
         }
 
-    today = datetime.now().date()
+    today = athlete_local_date()
     weekly_rows: List[tuple[Dict[str, Any], date]] = []
     for raw_week in list(goal_plan.get("weekly_summary") or []):
         if not isinstance(raw_week, dict):
@@ -2511,7 +2515,7 @@ def _refresh_match_recovery(db: Database, session_id: str) -> None:
 
     refresh_recovery_episodes_best_effort(
         db,
-        as_of=date.today(),
+        as_of=athlete_local_date(),
         target_session_ids=[session_id],
     )
 
