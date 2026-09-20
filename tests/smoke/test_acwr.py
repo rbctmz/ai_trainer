@@ -21,9 +21,9 @@ import pytest
 from models.acwr import (
     ACWR_MIN_CHRONIC_LOAD,
     ACWR_MIN_HISTORY_DAYS,
-    ACWR_OPTIMAL_MAX,
-    ACWR_SAFE_THRESHOLD,
-    ACWR_HIGH_RISK_THRESHOLD,
+    ACWR_EXPECTED_BAND_MAX,
+    ACWR_BELOW_BASELINE_THRESHOLD,
+    ACWR_ELEVATED_MAX,
     ACWR_STATUS_TONE,
     acwr_series,
     acwr_signal,
@@ -43,18 +43,18 @@ pytestmark = pytest.mark.smoke
 @pytest.mark.parametrize(
     ("ratio", "expected"),
     [
-        (0.0, "safe"),
-        (0.79, "safe"),
-        (0.7999999, "safe"),
-        (0.8, "optimal"),          # граница -> optimal, не safe
-        (1.0, "optimal"),
-        (1.2999999, "optimal"),
-        (1.3, "moderate_risk"),    # граница -> moderate_risk, не optimal
-        (1.49, "moderate_risk"),
-        (1.4999999, "moderate_risk"),
-        (1.5, "high_risk"),        # граница -> high_risk, не moderate_risk
-        (1.51, "high_risk"),
-        (3.0, "high_risk"),
+        (0.0, "below_baseline"),
+        (0.79, "below_baseline"),
+        (0.7999999, "below_baseline"),
+        (0.8, "expected_band"),          # граница -> optimal, не safe
+        (1.0, "expected_band"),
+        (1.2999999, "expected_band"),
+        (1.3, "elevated"),    # граница -> moderate_risk, не optimal
+        (1.49, "elevated"),
+        (1.4999999, "elevated"),
+        (1.5, "strongly_elevated"),        # граница -> high_risk, не moderate_risk
+        (1.51, "strongly_elevated"),
+        (3.0, "strongly_elevated"),
     ],
 )
 def test_classify_acwr_zone_boundaries(ratio: float, expected: str) -> None:
@@ -62,17 +62,17 @@ def test_classify_acwr_zone_boundaries(ratio: float, expected: str) -> None:
 
 
 def test_threshold_constants_match_gabbett_2016() -> None:
-    assert ACWR_SAFE_THRESHOLD == 0.8
-    assert ACWR_OPTIMAL_MAX == 1.3
-    assert ACWR_HIGH_RISK_THRESHOLD == 1.5
+    assert ACWR_BELOW_BASELINE_THRESHOLD == 0.8
+    assert ACWR_EXPECTED_BAND_MAX == 1.3
+    assert ACWR_ELEVATED_MAX == 1.5
 
 
 def test_every_status_has_a_tone() -> None:
     assert set(ACWR_STATUS_TONE) == {
-        "safe",
-        "optimal",
-        "moderate_risk",
-        "high_risk",
+        "below_baseline",
+        "expected_band",
+        "elevated",
+        "strongly_elevated",
     }
     assert set(ACWR_STATUS_TONE.values()) <= {"success", "neutral", "warning", "danger"}
 
@@ -125,7 +125,7 @@ def test_sustained_overload_raises_acwr_above_optimal() -> None:
     series = acwr_series(daily)
 
     assert series[-1]["atl"] > series[-1]["ctl"]
-    assert series[-1]["acwr"] > ACWR_OPTIMAL_MAX
+    assert series[-1]["acwr"] > ACWR_EXPECTED_BAND_MAX
 
 
 def test_taper_lowers_acwr_below_safe_threshold() -> None:
@@ -133,7 +133,7 @@ def test_taper_lowers_acwr_below_safe_threshold() -> None:
     daily = _steady_then(120, 80.0, [0.0] * 21)
     series = acwr_series(daily)
 
-    assert series[-1]["acwr"] < ACWR_SAFE_THRESHOLD
+    assert series[-1]["acwr"] < ACWR_BELOW_BASELINE_THRESHOLD
 
 
 def test_acwr_series_on_empty_input_is_empty() -> None:
@@ -200,8 +200,8 @@ def test_cold_start_steady_load_is_not_reported_as_high_risk() -> None:
     signal = acwr_signal([50.0] * ACWR_MIN_HISTORY_DAYS)
 
     assert signal["value"] is not None
-    assert signal["status"] == "optimal"
-    assert signal["status"] != "high_risk"
+    assert signal["status"] == "expected_band"
+    assert signal["status"] != "strongly_elevated"
 
 
 def test_exactly_minimum_history_with_real_load_computes() -> None:
@@ -239,16 +239,16 @@ def test_guard_reasons_are_declared_as_constants() -> None:
 @pytest.mark.parametrize(
     ("local", "provider", "expected"),
     [
-        ("optimal", "optimal", "match"),
-        ("optimal", "OPTIMAL", "match"),
-        ("moderate_risk", "optimal", "more_acute"),
-        ("high_risk", "moderate_risk", "more_acute"),
-        ("optimal", "moderate_risk", "less_acute"),
-        ("safe", "high_risk", "less_acute"),
-        ("optimal", None, "no_provider_value"),
-        ("optimal", "", "no_provider_value"),
-        ("optimal", "   ", "no_provider_value"),
-        ("optimal", "неизвестный статус", "no_provider_value"),
+        ("expected_band", "optimal", "match"),
+        ("expected_band", "OPTIMAL", "match"),
+        ("elevated", "optimal", "more_acute"),
+        ("strongly_elevated", "moderate_risk", "more_acute"),
+        ("expected_band", "moderate_risk", "less_acute"),
+        ("below_baseline", "high_risk", "less_acute"),
+        ("expected_band", None, "no_provider_value"),
+        ("expected_band", "", "no_provider_value"),
+        ("expected_band", "   ", "no_provider_value"),
+        ("expected_band", "неизвестный статус", "no_provider_value"),
         (None, "optimal", "insufficient_data"),
         (None, None, "insufficient_data"),
     ],
@@ -263,9 +263,9 @@ def test_signal_carries_provider_cross_check() -> None:
 
     assert signal["value"] is not None
     # Наше значение основное: провайдерский статус его не перезаписывает.
-    assert signal["status"] == "optimal"
+    assert signal["status"] == "expected_band"
     assert signal["cross_check"] == "less_acute"
-    assert signal["provider_status"] == "high_risk"
+    assert signal["provider_status"] == "strongly_elevated"
 
 
 def test_signal_without_provider_value_reports_no_provider_value() -> None:
@@ -295,6 +295,15 @@ def test_signal_shape_is_stable() -> None:
         "reason",
         "cross_check",
         "provider_status",
+        # Провенанс и версии (issue #608): покрытие однозначно только вместе с
+        # постоянными времени обеих EWMA, а математика и интерпретация
+        # версионируются раздельно.
+        "acute_tau_days",
+        "chronic_tau_days",
+        "calculation_version",
+        "semantics_version",
+        "limitation",
+        "intervention_eligible",
     }
     assert signal["percent"] == pytest.approx(signal["value"] * 100, abs=0.1)
     assert isinstance(signal["label"], str) and signal["label"]
@@ -355,8 +364,8 @@ def test_signals_engine_does_not_overwrite_provider_acwr_status() -> None:
     signals = assemble_signals(activities_df=activities, training_status=provider)
 
     acwr = signals["load"]["acwr"]
-    assert acwr["status"] == "optimal"
-    assert acwr["provider_status"] == "high_risk"
+    assert acwr["status"] == "expected_band"
+    assert acwr["provider_status"] == "strongly_elevated"
     assert acwr["cross_check"] == "less_acute"
 
 
@@ -453,9 +462,9 @@ def test_acwr_is_reachable_with_a_separate_long_history() -> None:
 
 def test_cross_check_distinguishes_zones_with_equal_severity() -> None:
     """P2: ``safe`` и ``optimal`` одного уровня severity, но это не совпадение."""
-    assert compare_with_provider_status("safe", "optimal") == "less_acute"
-    assert compare_with_provider_status("optimal", "safe") == "more_acute"
-    assert compare_with_provider_status("safe", "safe") == "match"
+    assert compare_with_provider_status("below_baseline", "optimal") == "less_acute"
+    assert compare_with_provider_status("expected_band", "safe") == "more_acute"
+    assert compare_with_provider_status("below_baseline", "safe") == "match"
 
 
 def test_detrained_athlete_is_gated_by_the_current_ctl() -> None:

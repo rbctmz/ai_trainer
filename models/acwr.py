@@ -8,6 +8,12 @@ Gabbett 2016 (``0.8 / 1.3 / 1.5``).
 ``models/banister.py``, чтобы не держать вторую копию чисел: ATL/CTL уже
 считаются там для TSB, и ACWR обязан использовать ровно те же средние.
 
+Issue #608: публичная шкала описывает положение относительно базы атлета
+(``below_baseline`` / ``expected_band`` / ``elevated`` / ``strongly_elevated``),
+а не риск: отношение острой нагрузки к хронической не устанавливает вероятность
+травмы. Прежний словарь провайдера принимается только на входе шимом
+совместимости и наружу не выходит.
+
 Guard'ы важнее точности: при малой хронической нагрузке отношение взрывается
 (CTL=1, ATL=3 -> ACWR 3.0 при мизерных абсолютных объёмах), поэтому вместо
 ложной тревоги возвращается ``None``.
@@ -20,11 +26,12 @@ from typing import Any, Mapping, Sequence
 from models.banister import BanisterModel
 
 
-# --- Пороги Gabbett 2016 -------------------------------------------------
-
-ACWR_SAFE_THRESHOLD = 0.8
-ACWR_OPTIMAL_MAX = 1.3
-ACWR_HIGH_RISK_THRESHOLD = 1.5
+# --- Пороги ---------------------------------------------------------------
+#: Числа не меняются (non-goal #608) — переименованы только идентификаторы,
+#: чтобы в модуле не оставалось риск-лексики вне шима совместимости.
+ACWR_BELOW_BASELINE_THRESHOLD = 0.8
+ACWR_EXPECTED_BAND_MAX = 1.3
+ACWR_ELEVATED_MAX = 1.5
 
 # --- Guard'ы -------------------------------------------------------------
 
@@ -55,38 +62,71 @@ ACWR_REASON_LOW_CHRONIC_LOAD = "chronic_load_too_low"
 
 # --- Представление -------------------------------------------------------
 
-#: Статус -> (тон, подпись). Тон совместим с тонами signals_engine.
+#: Описательная шкала относительно базы атлета (issue #608).
+ACWR_STATUS_BELOW_BASELINE = "below_baseline"
+ACWR_STATUS_EXPECTED_BAND = "expected_band"
+ACWR_STATUS_ELEVATED = "elevated"
+ACWR_STATUS_STRONGLY_ELEVATED = "strongly_elevated"
+
+#: Статус -> тон. Тон совместим с тонами signals_engine; это визуальный вес,
+#: а не утверждение о здоровье.
 ACWR_STATUS_TONE: dict[str, str] = {
-    "safe": "neutral",
-    "optimal": "success",
-    "moderate_risk": "warning",
-    "high_risk": "danger",
+    ACWR_STATUS_BELOW_BASELINE: "neutral",
+    ACWR_STATUS_EXPECTED_BAND: "success",
+    ACWR_STATUS_ELEVATED: "warning",
+    ACWR_STATUS_STRONGLY_ELEVATED: "danger",
 }
 
 ACWR_STATUS_LABEL: dict[str, str] = {
-    "safe": "Недостаточная нагрузка",
-    "optimal": "Оптимальная зона",
-    "moderate_risk": "Умеренный риск",
-    "high_risk": "Высокий риск",
+    ACWR_STATUS_BELOW_BASELINE: "Ниже обычной базы",
+    ACWR_STATUS_EXPECTED_BAND: "В пределах обычного",
+    ACWR_STATUS_ELEVATED: "Повышенная нагрузка",
+    ACWR_STATUS_STRONGLY_ELEVATED: "Значительно выше базы",
 }
 
 ACWR_STATUS_SEVERITY: dict[str, int] = {
-    "safe": 0,
-    "optimal": 0,
-    "moderate_risk": 2,
-    "high_risk": 3,
+    ACWR_STATUS_BELOW_BASELINE: 0,
+    ACWR_STATUS_EXPECTED_BAND: 0,
+    ACWR_STATUS_ELEVATED: 2,
+    ACWR_STATUS_STRONGLY_ELEVATED: 3,
 }
 
 #: Порядок статусов для направления расхождения при сверке с провайдером.
-#: Отдельно от ``ACWR_STATUS_SEVERITY``: там ``safe`` и ``optimal`` намеренно
-#: одного уровня (оба «спокойные»), и по нему нельзя отличить недостаточную
-#: нагрузку от оптимальной зоны.
+#: Отдельно от ``ACWR_STATUS_SEVERITY``: там нижние две зоны намеренно одного
+#: уровня, и по нему нельзя отличить нагрузку ниже базы от ожидаемого диапазона.
 ACWR_STATUS_ORDER: dict[str, int] = {
-    "safe": 0,
-    "optimal": 1,
-    "moderate_risk": 2,
-    "high_risk": 3,
+    ACWR_STATUS_BELOW_BASELINE: 0,
+    ACWR_STATUS_EXPECTED_BAND: 1,
+    ACWR_STATUS_ELEVATED: 2,
+    ACWR_STATUS_STRONGLY_ELEVATED: 3,
 }
+
+#: Провайдер (Intervals.icu) присылает прежний риск-словарь. Шим отображает его
+#: в публичную шкалу **на входе**; наружу прежнее значение не выходит, иначе
+#: риск-лексика возвращалась бы в DTO в обход acceptance criteria #608.
+ACWR_PROVIDER_LEGACY_STATUS: dict[str, str] = {
+    "safe": ACWR_STATUS_BELOW_BASELINE,
+    "optimal": ACWR_STATUS_EXPECTED_BAND,
+    "moderate_risk": ACWR_STATUS_ELEVATED,
+    "high_risk": ACWR_STATUS_STRONGLY_ELEVATED,
+}
+
+#: Версия математики: формула, окна, пороги. Слайс #608 её не меняет.
+ACWR_CALCULATION_VERSION = "acwr-ewma-v1"
+#: Версия публичной интерпретации: словарь статусов и оговорка.
+ACWR_SEMANTICS_VERSION = "descriptive-v2"
+
+#: Постоянные времени обеих EWMA. Одного «окна» мало: модель экспоненциальная,
+#: и без постоянных покрытие неоднозначно (issue #608).
+_ACWR_TAU = BanisterModel()
+ACWR_ACUTE_TAU_DAYS = int(_ACWR_TAU.tau2)
+ACWR_CHRONIC_TAU_DAYS = int(_ACWR_TAU.tau1)
+
+#: Постоянная оговорка о природе показателя.
+ACWR_LIMITATION = (
+    "ACWR — отношение острой нагрузки к хронической: описательный контекст "
+    "относительно обычной базы атлета, а не прогноз травмы и не медицинская оценка."
+)
 
 #: Вердикт сверки нашего значения с провайдерским.
 CROSS_CHECK_MATCH = "match"
@@ -151,28 +191,38 @@ def acwr_series(daily_load: Sequence[Any] | None) -> list[dict[str, float]]:
 
 
 def classify_acwr(ratio: float) -> str:
-    """Статус по Gabbett 2016.
+    """Описательная зона относительно базы атлета (issue #608).
 
-    Классификация односторонняя по возрастанию: нижняя граница диапазона
-    принадлежит этому диапазону, поэтому ``0.8`` — уже ``optimal``.
+    Пороги 0.8 / 1.3 / 1.5 не меняются: это non-goal #608, переименована только
+    интерпретация. Классификация односторонняя по возрастанию: нижняя граница
+    диапазона принадлежит этому диапазону, поэтому ``0.8`` — уже
+    ``expected_band``.
     """
-    if ratio < ACWR_SAFE_THRESHOLD:
-        return "safe"
-    if ratio < ACWR_OPTIMAL_MAX:
-        return "optimal"
-    if ratio < ACWR_HIGH_RISK_THRESHOLD:
-        return "moderate_risk"
-    return "high_risk"
+    if ratio < ACWR_BELOW_BASELINE_THRESHOLD:
+        return ACWR_STATUS_BELOW_BASELINE
+    if ratio < ACWR_EXPECTED_BAND_MAX:
+        return ACWR_STATUS_EXPECTED_BAND
+    if ratio < ACWR_ELEVATED_MAX:
+        return ACWR_STATUS_ELEVATED
+    return ACWR_STATUS_STRONGLY_ELEVATED
 
 
 def _normalize_status(value: Any) -> str | None:
-    """Нормализовать статус к известному набору или вернуть None."""
+    """Привести статус к публичной шкале или вернуть None.
+
+    Принимает и наш словарь, и прежний словарь провайдера: Intervals.icu
+    по-прежнему присылает ``safe`` / ``optimal`` / ``moderate_risk`` /
+    ``high_risk``. Отображение происходит **на входе**, поэтому наружу старое
+    значение не выходит (issue #608).
+    """
     if value is None:
         return None
     text = str(value).strip().lower()
     if not text:
         return None
-    return text if text in ACWR_STATUS_TONE else None
+    if text in ACWR_STATUS_TONE:
+        return text
+    return ACWR_PROVIDER_LEGACY_STATUS.get(text)
 
 
 def compare_with_provider_status(
@@ -246,6 +296,14 @@ def acwr_signal(
             "reason": reason,
             "cross_check": compare_with_provider_status(None, provider_normalized),
             "provider_status": provider_normalized,
+            "acute_tau_days": ACWR_ACUTE_TAU_DAYS,
+            "chronic_tau_days": ACWR_CHRONIC_TAU_DAYS,
+            "calculation_version": ACWR_CALCULATION_VERSION,
+            "semantics_version": ACWR_SEMANTICS_VERSION,
+            "limitation": ACWR_LIMITATION,
+            #: ACWR-единственный вход не даёт права на предписывающее вмешательство:
+            #: для него нужны свежие corroborating evidence (issue #608).
+            "intervention_eligible": False,
         }
 
     # Один проход EWMA на весь сигнал: guard и значение обязаны читать одну
@@ -288,6 +346,14 @@ def acwr_signal(
         "reason": None,
         "cross_check": compare_with_provider_status(status, provider_normalized),
         "provider_status": provider_normalized,
+        "acute_tau_days": ACWR_ACUTE_TAU_DAYS,
+        "chronic_tau_days": ACWR_CHRONIC_TAU_DAYS,
+        "calculation_version": ACWR_CALCULATION_VERSION,
+        "semantics_version": ACWR_SEMANTICS_VERSION,
+        "limitation": ACWR_LIMITATION,
+        #: ACWR-единственный вход не даёт права на предписывающее вмешательство:
+        #: для него нужны свежие corroborating evidence (issue #608).
+        "intervention_eligible": False,
     }
 
 
