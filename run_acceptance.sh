@@ -48,8 +48,21 @@ export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 
 echo "🧪 Запуск AI Trainer в acceptance mode..."
 echo "📁 Isolated acceptance dir: $ACCEPTANCE_DIR"
-echo "🗃️  Isolated database: $DATABASE_PATH"
 echo "🌐 Port: $ACCEPTANCE_PORT"
+
+# #625 fail-closed: ACCEPTANCE_DB_PATH is an override, and acceptance mode seeds
+# and clears its dataset. Refuse before any process starts if the resolved path
+# is the production database, its -wal/-shm sidecar, or outside this run's root.
+# The refusal deliberately does not echo the path (CI logs stay personal-data free).
+if ! (cd "$SCRIPT_DIR" && "$PYTHON_BIN" -m config.db_paths \
+        --validate-acceptance-db "$DATABASE_PATH" \
+        --acceptance-root "$ACCEPTANCE_ROOT"); then
+    echo "❌ Acceptance runtime остановлен: путь базы не изолирован от рабочей БД."
+    echo "💡 Используйте временный каталог: ACCEPTANCE_DB_PATH=\$ACCEPTANCE_ROOT/session_XXXX/ai_trainer_acceptance.db"
+    exit 2
+fi
+
+echo "🗃️  Isolated database: $DATABASE_PATH"
 echo "⚠️  Этот runtime не затрагивает основную ai_trainer.db"
 
 if [[ "${ACCEPTANCE_SKIP_DOCTOR:-0}" != "1" ]]; then

@@ -76,7 +76,12 @@ def test_sleep_with_demo_data(tmp_path):
 
 def test_get_database_demo_routing(monkeypatch, tmp_path):
     import api.deps as deps
+    from config.settings import Settings
 
+    # #625: the non-demo branch resolves Settings.DATABASE_PATH, so isolate it.
+    # Without this the assertion silently opened the maintainer's dogfood
+    # database instead of an isolated file.
+    monkeypatch.setattr(Settings, "DATABASE_PATH", str(tmp_path / "real.db"))
     monkeypatch.setattr(deps, "DEMO_DB_PATH", str(tmp_path / "demo.db"))
     deps._reset_db_cache()
     real = deps.get_database(demo=False)

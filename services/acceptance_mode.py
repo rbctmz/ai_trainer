@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing import Any
 
+from config.db_paths import assert_safe_acceptance_database
 from config.settings import Settings
 
 from . import demo_mode as demo_mode_service
@@ -85,6 +86,9 @@ def bootstrap_session(state: StateManager) -> dict[str, Any]:
     if not info["enabled"]:
         return info
 
+    # Fail closed before any seeding: an acceptance run must never own dogfood data.
+    _assert_isolated_acceptance_database(state)
+
     if getattr(state, "acceptance_bootstrapped", False):
         return info
 
@@ -107,11 +111,25 @@ def bootstrap_session(state: StateManager) -> dict[str, Any]:
     return info
 
 
+def _assert_isolated_acceptance_database(state: StateManager) -> None:
+    """Fail closed before acceptance mode seeds or clears anything (#625).
+
+    Acceptance mode owns the dataset it runs against: it seeds demo rows and can
+    reset them. ``ACCEPTANCE_DB_PATH`` is an override in ``run_acceptance.sh``, so
+    a typo there previously resolved the production database — and this mode
+    would have wiped it. The check runs before the first write and names the
+    violated invariant without echoing the local path.
+    """
+    database_path = getattr(getattr(state, "database", None), "db_path", None) or Settings.DATABASE_PATH
+    assert_safe_acceptance_database(database_path)
+
+
 def reset_acceptance_dataset(state: StateManager) -> dict[str, int]:
     """Recreate the isolated acceptance dataset from scratch."""
     if not is_acceptance_mode():
         raise RuntimeError("Acceptance reset is available only in acceptance mode.")
 
+    _assert_isolated_acceptance_database(state)
     state.acceptance_bootstrapped = True
     return demo_mode_service.activate_demo_mode(state)
 

@@ -27,6 +27,7 @@ from data.subjective_wellness_store import (
 )
 from models.subjective_wellness import utc_timestamp
 from data.data_coverage_store import DataCoverageStore
+from config.db_paths import guard_connect_path
 from config.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -277,7 +278,14 @@ class Database:
         ``PRAGMA journal_mode=WAL`` gives concurrent readers a consistent
         snapshot without blocking the writer. WAL mode persists in the database
         file and is idempotent to set.
+
+        Fail-closed guardrail (#625): when a test entrypoint armed the guard,
+        connecting to the dogfood database or a ``-wal``/``-shm`` sibling raises
+        BEFORE the file is opened, so a module-level ``Database()`` in a test or
+        diagnostic script cannot write into production data. Inert in the
+        application and in operator CLIs, which do not arm the guard.
         """
+        guard_connect_path(self.db_path)
         conn = sqlite3.connect(self.db_path, timeout=30)
         try:
             conn.execute("PRAGMA busy_timeout = 30000")

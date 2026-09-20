@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
+from config.db_paths import assert_safe
 from services.activity_ingest import backfill_provider_links
 from services.data_cache import clear_data_caches
 from state import StateManager
@@ -52,6 +53,16 @@ def mark_real_dataset(state: StateManager) -> None:
 def activate_demo_mode(state: StateManager) -> dict[str, int]:
     """Replace local cache with a deterministic demo dataset and enable demo mode."""
     database = state.database
+
+    # #625: this path CLEARS the database it is handed. When DEMO_DATABASE_PATH
+    # is misconfigured to the dogfood file, or a caller binds the production
+    # handle, the first statement would destroy real history. Refuse before the
+    # first write instead of trusting the caller's path. A handle without a real
+    # path (a unit-test stub with no file behind it) is not a deletion target, so
+    # the check is skipped rather than guessing at Settings.
+    bound_path = getattr(database, "db_path", None)
+    if bound_path:
+        assert_safe(bound_path, purpose="demo seeding")
 
     database.clear_all_data()
     state.reset_planner_overrides()

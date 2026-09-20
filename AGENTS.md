@@ -98,6 +98,24 @@ Conventional Commits (`feat:`, `fix:`, `refactor:`, `chore:`), subjects <72 char
 - Back up/migrate `ai_trainer.db` with `scripts/sqlite_backup_restore.py` (`backup ... --confirm-stopped` / `restore ...`) — a plain copy misses committed pages in the `-wal` file.
 - `logs/` may contain personal training metrics — redact before publishing branches.
 
+### Destructive boundary for SQLite files (canonical; #622/#625)
+The working database, its `-wal`/`-shm`/`-journal` sidecars, and snapshots of them
+are **never** touched by a test, an acceptance run, or an agent diagnostic — not
+read, not created, not deleted. This is enforced by `config/db_paths.py`
+(`assert_safe`, `TemporaryDatabaseRoot`, `assert_operator_action_target`), not by
+caller discipline:
+
+- temporary checks use their own `mktemp -d` root; never `touch`, `rm`, `truncate`,
+  `cp`, `mv` or a wildcard against `*.db*` in the repository;
+- ignore-rule checks use `git check-ignore --stdin --no-index`, so nothing is
+  materialized on disk (the 2026-09-20 incident began with such a probe);
+- a test session fails closed before the first write when `DATABASE_PATH` resolves
+  to the working database, a sidecar sibling, or any alias of either (symlink,
+  hardlink, case-only spelling);
+- destructive maintenance accepts only the configured production database in an
+  operator-owned application-data directory — never a database inside a checkout —
+  and repeats the resolved target plus exact counts before writing.
+
 ## Web Dev Surfaces
 `/decisions`, `/recovery`, and the shadow `/today` module are hidden behind build-time flag `NEXT_PUBLIC_SHOW_DEV_TOOLS=true` (inlined at build — restarting the dev server after the change is required).
 
