@@ -1,6 +1,8 @@
 import os
 from dotenv import load_dotenv
 
+from config.app_data import default_database_path as _default_database_path
+
 # Загрузка переменных окружения
 load_dotenv()
 
@@ -102,8 +104,15 @@ class Settings:
     PRIMARY_ACTIVITY_SOURCE = _primary_activity_source()
     PRIMARY_WELLNESS_SOURCE = _primary_wellness_source()
 
-    # База данных
-    DATABASE_PATH = os.getenv("DATABASE_PATH", "ai_trainer.db")
+    # База данных.
+    #
+    # Приоритет (#624): явный DATABASE_PATH → платформенный application-data
+    # directory → прежний bare-имя-дефолт (когда домашний каталог не определён).
+    # Раньше рабочая БД по умолчанию лежала в Git checkout и делила судьбу с
+    # исходниками, тестами и агентскими операциями; именно это сделало удаление
+    # 2026-09-20 невосстановимым. Docker не затронут: образ задаёт
+    # DATABASE_PATH=/data/ai_trainer.db явно.
+    DATABASE_PATH = os.getenv("DATABASE_PATH") or _default_database_path() or "ai_trainer.db"
     CHATS_DIR = os.getenv("CHATS_DIR", "chats")
     # Canonical IANA timezone for prospective scientific cutoffs.  Recovery
     # evidence fails closed if this value is invalid.

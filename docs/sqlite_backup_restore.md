@@ -188,6 +188,66 @@ Backup и rollback публикуются atomic no-clobber операцией: 
 `.*.pre-restore-sidecar`, затем повторите restore либо верните quarantine к
 исходным именам `-wal`/`-shm`/`-journal` до открытия SQLite.
 
+## Где живёт рабочая БД (#624)
+
+До #624 дефолт был `ai_trainer.db` относительно текущего каталога, поэтому в
+dogfood-checkout рабочая база лежала рядом с исходниками и делила с ними судьбу.
+Теперь приоритет такой:
+
+1. явный `DATABASE_PATH` (в `.env` или окружении) — всегда выигрывает;
+2. платформенный application-data directory;
+3. прежнее bare-имя `ai_trainer.db` — только если домашний каталог не определён.
+
+| Платформа | Каталог по умолчанию |
+|---|---|
+| macOS | `~/Library/Application Support/ai_trainer/ai_trainer.db` |
+| Linux | `$XDG_DATA_HOME/ai_trainer/ai_trainer.db` или `~/.local/share/ai_trainer/ai_trainer.db` |
+| Windows | `%LOCALAPPDATA%\ai_trainer\ai_trainer.db` |
+| Docker | без изменений — образ задаёт `DATABASE_PATH=/data/ai_trainer.db` |
+
+`AI_TRAINER_APP_DATA` переопределяет каталог на всех платформах (используется
+тестами и acceptance-запусками).
+
+### Перенос существующей рабочей БД из checkout
+
+Если `.env` (или окружение) уже указывает на БД внутри рабочего дерева,
+приложение продолжит использовать именно её. Перенос — одна явная команда; она
+**никогда** не удаляет и не изменяет источник:
+
+```bash
+# 1. Отчёт по агрегатам, ничего не пишет
+python scripts/migrate_database_out_of_checkout.py --dry-run
+
+# 2. Остановите все процессы AI Trainer, затем:
+python scripts/migrate_database_out_of_checkout.py --confirm-stopped
+```
+
+Команда:
+
+- читает источник через validated snapshot primitives #293 (SQLite Backup API),
+  поэтому committed страницы `-wal` переносятся — обычный `cp` их теряет;
+- сначала публикует pre-migration snapshot `<target>.pre-migration-<UTC>.db`;
+- отказывается работать, если source и target совпадают, target — symlink на
+  source, target уже содержит данные, source не проходит `integrity_check` или
+  не содержит строк в ключевых доменах;
+- сверяет после переноса ключевые домены (activities, provider links,
+  checkpoints, coach decisions, plan/actual matches, feedback, readiness) и
+  сообщает о нехватке строк вместо «успеха»;
+- оставляет исходную БД на месте: удалять её нужно вручную и только после
+  проверки, что приложение работает на новом пути.
+
+Если `.env` закреплял старый путь, обновите и его (предыдущая версия файла
+сохраняется рядом с timestamped-суффиксом):
+
+```bash
+python scripts/migrate_database_out_of_checkout.py --confirm-stopped --update-env .env
+```
+
+Автоматическое доказательство:
+`python -m pytest tests/smoke/test_database_relocation.py -q` — перенос committed
+WAL-страниц, отказ при неоднозначном и симлинковом target, сохранность источника
+и rollback при инъецированном отказе, отсутствие персональных строк в dry-run.
+
 ## Автоматическое доказательство
 
 Contributor-safe drill:
