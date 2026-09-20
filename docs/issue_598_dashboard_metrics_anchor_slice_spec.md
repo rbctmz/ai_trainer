@@ -1,9 +1,9 @@
 # Slice Spec — Issue #598: якорь CTL/ATL/TSB на дашборде
 
-- Issue / PR: #598 / (PR открывается этим слайсом)
+- Issue / PR: #598 / #614
 - Author / checker / merge owner: Domain / API Implementer (DSH) / независимый checker — TBD / human merge owner (rbctmz)
 - Date: 2026-09-20
-- Candidate head SHA: TBD (заполняется перед review)
+- Candidate head SHA: 6226267 (implementation commit; review-раунд не открыт)
 - Parent: #607 (Daily decision loop v1), шаг 0 «Truth prerequisites»
 
 ## Change Class
@@ -197,7 +197,7 @@ Score совпадает (полоса насыщена), но текст док
 это не наблюдаемо: `project_readiness_snapshot` подменяет `signals.readiness.drivers`
 каноническими. Дефект не внесён этим слайсом (выход `_readiness_signal` до и после
 фикса побитово совпадает) и требует отдельного решения о readiness-окне —
-follow-up issue с владельцем Domain / API Implementer.
+follow-up issue #616 (владелец Domain / API Implementer; автодиспетч не авторизован).
 
 ## Global Constraints (родительский #607)
 
