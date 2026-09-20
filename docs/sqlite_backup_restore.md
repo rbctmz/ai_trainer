@@ -248,6 +248,55 @@ python scripts/migrate_database_out_of_checkout.py --confirm-stopped --update-en
 WAL-страниц, отказ при неоднозначном и симлинковом target, сохранность источника
 и rollback при инъецированном отказе, отсутствие персональных строк в dry-run.
 
+## Автоматические validated snapshots (#623)
+
+Ручной CLI выше остаётся аварийным инструментом. Штатная защита — автоматические
+snapshots рядом с рабочей БД (вне Git checkout), в `<каталог БД>/snapshots/`
+(`AI_TRAINER_SNAPSHOT_DIR` переопределяет каталог).
+
+Политика:
+
+| Триггер | Когда срабатывает |
+|---|---|
+| `post-sync` | после успешного provider sync (`data_durability` в ответе job) |
+| `post-mutation` | после durable high-value мутаций, с coalescing-окном (по умолчанию 30 минут) |
+| `scheduled-daily` | раз в сутки, если логическая generation изменилась |
+
+Каждый snapshot создаётся только когда generation БД изменилась, поэтому повторный
+sync без изменений не увеличивает набор backup'ов. Generation — это отпечаток
+размера/mtime основной БД и `-wal` плюс счётчики ключевых доменов (никаких
+персональных строк).
+
+Snapshot и manifest:
+
+- создаются теми же validated primitives #293 (SQLite Backup API, atomic publish,
+  `PRAGMA integrity_check`), поэтому committed `-wal` страницы попадают внутрь;
+- manifest содержит schema version, размер, sha256, оба timestamp, source
+  generation, integrity и покрытие ключевых доменов — и **никаких** значений строк;
+- retention: 14 дневных и 8 недельных валидированных версий; последняя валидная
+  дневная и недельная версия не удаляются никогда; артефакты без manifest или с
+  несовпавшим размером не считаются restore candidate и вычищаются.
+
+Отказ backup виден и ничего не откатывает:
+
+- сбой публикации не удаляет уже сохранённые provider/user данные;
+- предыдущий валидный snapshot и исходная БД остаются restoreable (отдельные
+  тесты на disk-full, permission denied, прерванную запись и corrupt snapshot);
+- статус попадает в `data_durability` ответа sync job и в `health` ниже.
+
+```bash
+# снять snapshot вручную (например из cron вместо daily-триггера)
+python -m services.durability snapshot
+
+# состояние backup: healthy / partial / degraded / failed
+python -m services.durability health
+```
+
+`degraded` означает, что последний валидный snapshot старше RPO-цели (24 часа),
+`failed` — что доверенного snapshot'а нет вовсе, `partial` — что рядом лежат
+недоверенные артефакты. Любой из этих статусов — повод разобраться, а не
+игнорировать: успешный sync больше не маскирует проблемы backup.
+
 ## Автоматическое доказательство
 
 Contributor-safe drill:

@@ -133,6 +133,12 @@ class SyncJobManager:
             if isinstance(capture, dict):
                 result["recovery_capture"] = {**capture, "job_id": job_id}
             sync_state = str(result.get("sync_state") or "succeeded")
+            # #623: a successful sync must leave a validated snapshot or a visible
+            # backup failure. The hook never raises, so a backup problem cannot
+            # undo the provider data this sync already stored.
+            backup = _snapshot_after_sync(db)
+            if backup is not None:
+                result["data_durability"] = backup
             self._record_provider_sync_decision(
                 db=db,
                 job_id=job_id,
@@ -268,6 +274,31 @@ class SyncJobManager:
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _snapshot_after_sync(db: Any | None) -> dict[str, Any] | None:
+    """Take a validated snapshot after a successful sync (#623).
+
+    Returns a compact, personal-data-free status for the job payload, or ``None``
+    when there is no database handle to snapshot. Never raises: a backup failure
+    becomes a visible ``failed`` entry instead of being masked by (or rolled back
+    with) the sync result.
+    """
+    db_path = getattr(db, "db_path", None)
+    if not db_path:
+        return None
+
+    from services import durability
+
+    outcome = durability.snapshot_after_sync(db_path)
+    return {
+        "status": outcome.status,
+        "reason": outcome.reason,
+        "error": outcome.error,
+        "snapshot": outcome.manifest.snapshot if outcome.manifest else None,
+        "created_at": outcome.manifest.created_at if outcome.manifest else None,
+        "domains": outcome.manifest.domains if outcome.manifest else None,
+    }
 
 
 # Provider label for generic progress/failure messages. Neither message is

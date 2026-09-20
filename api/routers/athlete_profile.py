@@ -11,12 +11,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from api.deps import get_database
+from api.deps import get_database, snapshot_after_mutation
 from api.operational_state import build_operational_state
 from data.database import Database
 from models.threshold_drift import detect_threshold_drift
 
-router = APIRouter(prefix="/api/athlete-profile", tags=["athlete-profile"])
+# #623: durable high-value mutations leave a coalesced snapshot behind.
+router = APIRouter(prefix="/api/athlete-profile", tags=["athlete-profile"], dependencies=[Depends(snapshot_after_mutation)])
 
 
 @router.get("")

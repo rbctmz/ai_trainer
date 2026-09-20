@@ -440,6 +440,13 @@ def _normalized(payload: dict) -> dict:
     capture = result.get("recovery_capture")
     if isinstance(capture, dict):
         capture["job_id"] = "job-00000001"
+    # #623: the durability block carries per-run identity (snapshot filename and
+    # creation moment). The fixture pins the API *shape*, so those two volatile
+    # values are frozen here — otherwise the artifact churns on every run.
+    durability_state = result.get("data_durability")
+    if isinstance(durability_state, dict):
+        durability_state["created_at"] = "2026-07-23T05:00:05"
+        durability_state["snapshot"] = "job-00000001-snapshot.db"
     return normalized
 
 

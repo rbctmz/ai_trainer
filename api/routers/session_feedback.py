@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.deps import get_database
+from api.deps import get_database, snapshot_after_mutation
 from api.session_feedback import (
     StaleFeedbackError,
     correct_session_feedback,
@@ -21,7 +21,8 @@ from api.session_feedback import (
 from data.database import Database
 
 
-router = APIRouter(prefix="/api/session-feedback", tags=["session-feedback"])
+# #623: durable high-value mutations leave a coalesced snapshot behind.
+router = APIRouter(prefix="/api/session-feedback", tags=["session-feedback"], dependencies=[Depends(snapshot_after_mutation)])
 
 
 class FeedbackValues(BaseModel):

@@ -59,17 +59,9 @@ from scripts.sqlite_backup_restore import (
     check_sqlite_database,
 )
 
-#: Domains whose preservation the issue requires proof of. A table that does not
-#: exist in this checkout's schema is simply reported as absent.
-KEY_DOMAINS: tuple[str, ...] = (
-    "activities",
-    "activity_provider_links",
-    "planning_checkpoints",
-    "coach_decisions",
-    "plan_actual_matches",
-    "session_feedback",
-    "readiness_snapshots",
-)
+# Domains whose preservation the issue requires proof of — shared with the
+# automatic snapshot manifest so both agree on what "the data survived" means.
+from data.durability_domains import KEY_DOMAINS  # noqa: E402  (path bootstrap above)
 
 EXIT_OK = 0
 EXIT_REFUSED = 2

@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import APIRouter, Depends, HTTPException
 
 from api import planning_service
-from api.deps import get_database
+from api.deps import get_database, snapshot_after_mutation
 from api.operational_state import build_operational_state
 from config.settings import Settings
 from data.database import Database
@@ -25,7 +25,8 @@ from services.agent_log import record_agent_decision
 from services.coach_drift import build_coach_drift_report
 from services.intervals_plan_delivery import safe_deliver_active_plan
 
-router = APIRouter(prefix="/api/decisions", tags=["decisions"])
+# #623: durable high-value mutations leave a coalesced snapshot behind.
+router = APIRouter(prefix="/api/decisions", tags=["decisions"], dependencies=[Depends(snapshot_after_mutation)])
 
 
 @router.get("")

@@ -13,10 +13,11 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 
 from api import planning_service
-from api.deps import get_database
+from api.deps import get_database, snapshot_after_mutation
 from data.database import Database
 
-router = APIRouter(prefix="/api/planning", tags=["planning"])
+# #623: durable high-value mutations leave a coalesced snapshot behind.
+router = APIRouter(prefix="/api/planning", tags=["planning"], dependencies=[Depends(snapshot_after_mutation)])
 
 
 class BuildRequest(BaseModel):

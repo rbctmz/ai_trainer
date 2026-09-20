@@ -120,3 +120,28 @@ def get_headless_state(db: Database = Depends(get_database)) -> StateManager:
     uses the correct handle — including demo/acceptance isolation.
     """
     return make_headless_state(database=db)
+
+
+def snapshot_after_mutation(db: Database = Depends(get_database)) -> None:
+    """Take a coalesced snapshot after a mutating request (#623).
+
+    FastAPI dependency attached to the routers that expose durable high-value
+    mutations (planning, coach, decisions, feedback, onboarding, settings). It is
+    deliberately fail-open for the request: a backup problem must never fail or
+    roll back the write the athlete just made. The problem stays visible through
+    ``services.durability.backup_health`` and the post-sync ``data_durability``
+    status instead of being silently dropped.
+
+    Cheap by construction: when the logical generation is unchanged (every
+    read-only request on those routers) nothing is written; inside the coalescing
+    window the snapshot is deferred.
+    """
+    db_path = getattr(db, "db_path", None)
+    if not db_path:
+        return
+    try:
+        from services import durability
+
+        durability.snapshot_after_mutation(db_path)
+    except Exception:  # noqa: BLE001 - durability must not break a product write
+        return None

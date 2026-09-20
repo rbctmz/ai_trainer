@@ -63,7 +63,23 @@
       "prediction": null,
       "reason": "no_active_plan"
     },
-    "session_quality_forecast_error": null
+    "session_quality_forecast_error": null,
+    "data_durability": {
+      "status": "created",
+      "reason": "post-sync",
+      "error": null,
+      "snapshot": "job-00000001-snapshot.db",
+      "created_at": "2026-07-23T05:00:05",
+      "domains": {
+        "activities": 0,
+        "activity_provider_links": 0,
+        "planning_checkpoints": 0,
+        "coach_decisions": 0,
+        "plan_actual_matches": 0,
+        "session_feedback": 0,
+        "readiness_snapshots": 0
+      }
+    }
   },
   "error": null,
   "reused": false,

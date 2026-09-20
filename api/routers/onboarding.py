@@ -16,11 +16,12 @@ from typing import Any, Dict, List, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, StrictFloat, StrictInt
 
-from api.deps import get_database
+from api.deps import get_database, snapshot_after_mutation
 from data.database import Database
 from services import planning_onboarding, planning_profile
 
-router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
+# #623: durable high-value mutations leave a coalesced snapshot behind.
+router = APIRouter(prefix="/api/onboarding", tags=["onboarding"], dependencies=[Depends(snapshot_after_mutation)])
 
 
 class PlanningProfileRequest(BaseModel):

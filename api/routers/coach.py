@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from api.coach_service import resolve_provider, stream_tokens, supports_streaming
-from api.deps import get_database
+from api.deps import get_database, snapshot_after_mutation
 from api.operational_state import build_operational_state, latest_iso_from_database
 from api.readiness_conflicts import build_readiness_conflict_report
 from api.readiness_snapshot import build_readiness_snapshot
@@ -48,7 +48,8 @@ from services.agent_log import PROPOSAL_RESOLVED, record_agent_decision
 from services.intervals_plan_delivery import athlete_local_date
 from utils.product_semantics import tool_label
 
-router = APIRouter(prefix="/api/coach", tags=["coach"])
+# #623: durable high-value mutations leave a coalesced snapshot behind.
+router = APIRouter(prefix="/api/coach", tags=["coach"], dependencies=[Depends(snapshot_after_mutation)])
 
 
 class ChatRequest(BaseModel):

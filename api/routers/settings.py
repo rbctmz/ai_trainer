@@ -14,12 +14,13 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from api.briefing_settings import get_briefing_frequency, set_briefing_frequency
-from api.deps import get_database
+from api.deps import get_database, snapshot_after_mutation
 from data.database import Database
 from models.coach_decisions import NO_REVISIT_REQUIRED
 from services.agent_log import record_agent_decision
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+# #623: durable high-value mutations leave a coalesced snapshot behind.
+router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(snapshot_after_mutation)])
 
 
 class BriefingFrequencyRequest(BaseModel):
