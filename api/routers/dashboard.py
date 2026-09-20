@@ -15,6 +15,7 @@ from api.deps import get_database, get_headless_state
 from api.operational_state import build_operational_state, latest_iso_from_frame
 from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
+from models.acwr import ACWR_MIN_HISTORY_DAYS
 from models.banister import tsb_zone
 from state import StateManager
 from models.dashboard_summary import (
@@ -26,6 +27,12 @@ from models.dashboard_summary import (
     get_latest_training_status,
     project_readiness_snapshot,
 )
+
+#: Окно истории для ACWR: минимум 84 календарных дня плюс неделя запаса, чтобы
+#: ряд не оказался короче минимума, если запись начинается не в первый день
+#: выборки. Оба дашборд-эндпоинта обязаны использовать одно и то же окно, иначе
+#: EWMA стартует с разных точек и один и тот же атлет получает разные зоны.
+_ACWR_HISTORY_DAYS = ACWR_MIN_HISTORY_DAYS + 6
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -51,11 +58,18 @@ def dashboard_summary(
     sleep_df = db.get_sleep_data(7)
 
     latest_training_status = get_latest_training_status(db)
+    # ACWR нужен отдельный длинный ряд: минимум ACWR_MIN_HISTORY_DAYS календарных
+    # дней. 30-дневный кадр остаётся кадром отображения и не расширяется.
+    acwr_activities_df = db.get_activities(_ACWR_HISTORY_DAYS)
     current_status = calculate_current_status(
         activities_df,
         hrv_df,
         sleep_df,
         training_status=latest_training_status,
+        acwr_activities_df=acwr_activities_df,
+        # Якорь — сегодня: без него ряд заканчивается последней тренировкой и
+        # окно теряет дни отдыха после неё.
+        acwr_as_of=datetime.now().date(),
     )
     current_status = project_readiness_snapshot(current_status, readiness_snapshot)
     summary = build_dashboard_summary(
@@ -295,7 +309,7 @@ def dashboard_widgets(
     # assembly remains backward-compatible, then project_readiness_snapshot()
     # replaces today's readiness/CTL/ATL/TSB with the canonical 90-day fusion
     # used by Dashboard summary, Planning, and Coach (issue #152).
-    activities_df = db.get_activities(90)
+    activities_df = db.get_activities(_ACWR_HISTORY_DAYS)
     activities_df_30 = db.get_activities(30)
     sleep_df = db.get_sleep_data(7)
     hrv_df = db.get_hrv_data(30)
@@ -308,6 +322,9 @@ def dashboard_widgets(
         hrv_df,
         sleep_df,
         training_status=latest_training_status,
+        # Тот же кадр (ramp-rate) служит историей ACWR — окно совпадает с /summary.
+        acwr_activities_df=activities_df,
+        acwr_as_of=datetime.now().date(),
     )
     current_status = project_readiness_snapshot(current_status, readiness_snapshot)
     signals = current_status.get("signals")

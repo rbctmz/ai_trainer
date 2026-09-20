@@ -133,3 +133,40 @@ def test_app_exposes_dashboard_route():
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_dashboard_endpoints_use_one_acwr_window(tmp_path):
+    """P2 (раунд 2 #595): /summary и /widgets обязаны считать ACWR по одному окну.
+
+    Разные окна истории (84 против 90 дней) дают разный старт EWMA, поэтому один
+    и тот же атлет в один момент получал разные зоны риска на двух эндпоинтах.
+    """
+    from datetime import timedelta
+
+    from api.routers.dashboard import dashboard_summary, dashboard_widgets
+
+    db = Database(str(tmp_path / "acwr_window.db"))
+    today = datetime.now().date()
+    db.save_activities(
+        [
+            {
+                "activity_id": f"a{i}",
+                "date": (today - timedelta(days=i)).strftime("%Y-%m-%d"),
+                "sport": "cycling",
+                "duration_minutes": 60,
+                "distance_km": 30.0,
+                # Длинная база 50 TSS и резкий день сегодня: окно истории решает,
+                # попадёт ли атлет в optimal или в moderate_risk.
+                "tss": 111.0 if i == 0 else 50.0,
+            }
+            for i in range(100)
+        ]
+    )
+    state = _headless_state()
+
+    summary_acwr = dashboard_summary(db=db, state=state)["signals"]["load"]["acwr"]
+    widgets_acwr = dashboard_widgets(db=db, state=state)["signals"]["load"]["acwr"]
+
+    assert summary_acwr["history_days"] == widgets_acwr["history_days"]
+    assert summary_acwr["value"] == widgets_acwr["value"]
+    assert summary_acwr["status"] == widgets_acwr["status"]
