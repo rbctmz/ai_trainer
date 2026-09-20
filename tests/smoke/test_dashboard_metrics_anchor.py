@@ -31,7 +31,11 @@ import pytest
 from data.database import Database
 from models.banister import tsb_zone
 from models.dashboard_summary import calculate_current_status
-from models.readiness import LOAD_METRICS_WINDOW_DAYS, _tsb_metrics
+from models.readiness import (
+    LOAD_METRICS_WINDOW_DAYS,
+    _tsb_metrics,
+    load_metrics_window_bounds,
+)
 from state import StateManager
 from utils.athlete_time import athlete_local_date
 
@@ -89,7 +93,9 @@ def _dashboard_status(db: Database, *, anchor=None):
         db.get_activities(30),
         db.get_hrv_data(90),
         db.get_sleep_data(7),
-        metrics_activities_df=db.get_activities(LOAD_METRICS_WINDOW_DAYS),
+        metrics_activities_df=pd.DataFrame(
+            db.get_activities_between(*load_metrics_window_bounds(anchor))
+        ),
         as_of=anchor,
     )
 
@@ -220,6 +226,11 @@ def test_legacy_dashboard_status_is_anchored(monkeypatch, tmp_path) -> None:
 
     db = _seed(_db(tmp_path, "legacy.db"), _HARD_BLOCK, end_offset_days=14)
     monkeypatch.setattr(page, "load_activities", lambda days=30: db.get_activities(days))
+    monkeypatch.setattr(
+        page,
+        "load_activities_between",
+        lambda start, end: pd.DataFrame(db.get_activities_between(start, end)),
+    )
     monkeypatch.setattr(page, "load_hrv", lambda days=90: db.get_hrv_data(days))
     monkeypatch.setattr(page, "load_sleep", lambda days=7: db.get_sleep_data(days))
 
@@ -231,6 +242,52 @@ def test_legacy_dashboard_status_is_anchored(monkeypatch, tmp_path) -> None:
     assert status["tsb"] > 0.0, (
         f"легаси-страница показывает TSB={status['tsb']} у отдохнувшего атлета"
     )
+
+
+def test_metrics_frame_matches_the_canonical_window(tmp_path) -> None:
+    """Граница окна: `get_activities(N)` отдаёт N + 1 дату (находка ревью #614).
+
+    Нагрузка ровно за 90 дней до якоря попадала в `get_activities(90)` по
+    включительной границе `today - 90`, но не попадала в канонический
+    snapshot, который читает ровно 90 дат. Из-за этого `load.form` считался
+    от одного ряда, а спроецированный `load.label` — от другого, и один
+    payload снова противоречил себе.
+    """
+    from api.routers.dashboard import dashboard_summary
+
+    anchor = athlete_local_date()
+    edge = anchor - timedelta(days=LOAD_METRICS_WINDOW_DAYS)
+    db = _db(tmp_path, "edge.db")
+    db.save_activities(
+        [
+            {
+                "activity_id": "edge-old",
+                "date": edge.strftime("%Y-%m-%d"),
+                "sport": "cycling",
+                "duration_minutes": 180,
+                "distance_km": 80.0,
+                "tss": 300.0,
+            },
+            {
+                "activity_id": "edge-today",
+                "date": anchor.strftime("%Y-%m-%d"),
+                "sport": "cycling",
+                "duration_minutes": 60,
+                "distance_km": 30.0,
+                "tss": 95.0,
+            },
+        ]
+    )
+
+    payload = dashboard_summary(db=db, state=StateManager({}))
+    load = payload["signals"]["load"]
+
+    expected = tsb_zone(float(load["tsb"]))["label"]
+    assert load["form"] == expected, (
+        f"load.form={load['form']!r} противоречит load.tsb={load['tsb']} "
+        f"(ожидалась зона {expected!r}): метрики считаются не по каноническому окну"
+    )
+    assert load["label"] == expected
 
 
 def test_empty_account_keeps_zero_metrics(tmp_path) -> None:

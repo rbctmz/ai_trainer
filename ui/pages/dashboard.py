@@ -24,14 +24,19 @@ from models.planning_checkpoints import (
     with_checkpoint_provenance,
 )
 from models.planning_execution import rebuild_goal_plan_with_adjustment
-from models.readiness import LOAD_METRICS_WINDOW_DAYS
+from models.readiness import load_metrics_window_bounds
 from services import demo_mode as demo_mode_service
 from services.athlete_aggregates import (
     activity_totals,
     daily_activity_totals,
     sport_distribution,
 )
-from services.data_cache import load_activities, load_hrv, load_sleep
+from services.data_cache import (
+    load_activities,
+    load_activities_between,
+    load_hrv,
+    load_sleep,
+)
 from state import StateManager
 from ui.components.execution_feedback import render_execution_feedback_editor
 from ui.plotly_theme import get_plotly_theme
@@ -54,16 +59,20 @@ def _calculate_current_status(
         hrv_df = load_hrv(90)
     if sleep_df is None:
         sleep_df = load_sleep(7)
+    # Эта страница не применяет project_readiness_snapshot, поэтому без
+    # канонического окна и якоря замороженные CTL/ATL/TSB доходят до атлета
+    # напрямую (issue #598). Окно отображения остаётся 30 дней, а метрики берут
+    # ровно каноническое окно — граница окна важна (находка ревью #614).
+    metrics_anchor = athlete_local_date()
     return _calculate_current_status_headless(
         activities_df,
         hrv_df,
         sleep_df,
         training_status=training_status,
-        # Эта страница не применяет project_readiness_snapshot, поэтому без
-        # канонического окна и якоря замороженные CTL/ATL/TSB доходят до
-        # атлета напрямую (issue #598). Окно отображения остаётся 30 дней.
-        metrics_activities_df=load_activities(LOAD_METRICS_WINDOW_DAYS),
-        as_of=athlete_local_date(),
+        metrics_activities_df=load_activities_between(
+            *load_metrics_window_bounds(metrics_anchor)
+        ),
+        as_of=metrics_anchor,
     )
 
 
