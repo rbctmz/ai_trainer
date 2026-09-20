@@ -487,6 +487,7 @@ def assemble_signals(
     training_status: Any = None,
     health_df: pd.DataFrame | None = None,
     as_of: date | None = None,
+    metrics_activities_df: pd.DataFrame | None = None,
     acwr_activities_df: pd.DataFrame | None = None,
     acwr_as_of: date | None = None,
 ) -> dict[str, Any]:
@@ -501,6 +502,12 @@ def assemble_signals(
     нужно не меньше ``ACWR_MIN_HISTORY_DAYS`` календарных дней, а вызывающие
     (дашборд) передают в ``activities_df`` окно отображения на 30 дней, из
     которого сигнал физически недостижим. Кадр отображения при этом не меняется.
+
+    Issue #598: ``metrics_activities_df`` — такая же отдельная история для
+    CTL/ATL/TSB. Разогрев EWMA (``tau_CTL`` = 42) не укладывается в 30-дневный
+    кадр отображения, поэтому на нём CTL занижен даже без разрыва в данных, а
+    без ``as_of`` метрики вдобавок замерзают на дате последней тренировки.
+    Кадр отображения и вход readiness-фузии при этом не меняются.
     """
     load_activities = _sanitize_load_frame(
         _without_multisport_envelopes(_frame_or_empty(activities_df))
@@ -509,7 +516,14 @@ def assemble_signals(
     # Провайдерский статус читаем из исходного объекта: _training_status_frame
     # для dict оставляет только readiness-поля и потерял бы acwr_status.
     provider_acwr_status = provider_status_from_training_status(training_status)
-    metrics = training_load_metrics(load_activities, as_of=as_of)
+    metrics_frame = (
+        _sanitize_load_frame(
+            _without_multisport_envelopes(_frame_or_empty(metrics_activities_df))
+        )
+        if metrics_activities_df is not None
+        else load_activities
+    )
+    metrics = training_load_metrics(metrics_frame, as_of=as_of)
     acwr_frame = acwr_activities_df if acwr_activities_df is not None else activities_df
     acwr_load = _sanitize_load_frame(
         _without_multisport_envelopes(_frame_or_empty(acwr_frame))

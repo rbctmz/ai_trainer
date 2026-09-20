@@ -17,6 +17,7 @@ from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
 from models.acwr import ACWR_MIN_HISTORY_DAYS
 from models.banister import tsb_zone
+from models.readiness import LOAD_METRICS_WINDOW_DAYS
 from state import StateManager
 from models.dashboard_summary import (
     build_activity_day_tss,
@@ -27,6 +28,7 @@ from models.dashboard_summary import (
     get_latest_training_status,
     project_readiness_snapshot,
 )
+from utils.athlete_time import athlete_local_date
 
 #: Окно истории для ACWR: минимум 84 календарных дня плюс неделя запаса, чтобы
 #: ряд не оказался короче минимума, если запись начинается не в первый день
@@ -60,16 +62,28 @@ def dashboard_summary(
     latest_training_status = get_latest_training_status(db)
     # ACWR нужен отдельный длинный ряд: минимум ACWR_MIN_HISTORY_DAYS календарных
     # дней. 30-дневный кадр остаётся кадром отображения и не расширяется.
-    acwr_activities_df = db.get_activities(_ACWR_HISTORY_DAYS)
+    #
+    # Тот же длинный ряд обслуживает и метрики нагрузки (LOAD_METRICS_WINDOW_DAYS):
+    # разогрев EWMA не укладывается в кадр отображения. Числа сейчас совпадают,
+    # но параметры остаются раздельными — смена ACWR-минимума не должна молча
+    # менять окно CTL/ATL/TSB.
+    history_df = db.get_activities(max(_ACWR_HISTORY_DAYS, LOAD_METRICS_WINDOW_DAYS))
     current_status = calculate_current_status(
         activities_df,
         hrv_df,
         sleep_df,
         training_status=latest_training_status,
-        acwr_activities_df=acwr_activities_df,
+        acwr_activities_df=history_df,
         # Якорь — сегодня: без него ряд заканчивается последней тренировкой и
         # окно теряет дни отдыха после неё.
         acwr_as_of=datetime.now().date(),
+        # CTL/ATL/TSB якорятся на athlete-local день тем же окном, что и
+        # канонический readiness snapshot. Иначе `signals.load` проецируется из
+        # snapshot, а `signals.critical`, `signals.recommendations` и `load.form`
+        # остаются посчитанными от замороженной серии — и ответ противоречит сам
+        # себе (issue #598).
+        metrics_activities_df=history_df,
+        as_of=athlete_local_date(),
     )
     current_status = project_readiness_snapshot(current_status, readiness_snapshot)
     summary = build_dashboard_summary(
@@ -309,7 +323,7 @@ def dashboard_widgets(
     # assembly remains backward-compatible, then project_readiness_snapshot()
     # replaces today's readiness/CTL/ATL/TSB with the canonical 90-day fusion
     # used by Dashboard summary, Planning, and Coach (issue #152).
-    activities_df = db.get_activities(_ACWR_HISTORY_DAYS)
+    activities_df = db.get_activities(max(_ACWR_HISTORY_DAYS, LOAD_METRICS_WINDOW_DAYS))
     activities_df_30 = db.get_activities(30)
     sleep_df = db.get_sleep_data(7)
     hrv_df = db.get_hrv_data(30)
@@ -325,6 +339,10 @@ def dashboard_widgets(
         # Тот же кадр (ramp-rate) служит историей ACWR — окно совпадает с /summary.
         acwr_activities_df=activities_df,
         acwr_as_of=datetime.now().date(),
+        # Метрики нагрузки — по каноническому окну и athlete-local якорю, как в
+        # /summary: иначе один и тот же атлет видит разные CTL/ATL/TSB (issue #598).
+        metrics_activities_df=activities_df,
+        as_of=athlete_local_date(),
     )
     current_status = project_readiness_snapshot(current_status, readiness_snapshot)
     signals = current_status.get("signals")

@@ -24,6 +24,7 @@ from models.planning_checkpoints import (
     with_checkpoint_provenance,
 )
 from models.planning_execution import rebuild_goal_plan_with_adjustment
+from models.readiness import LOAD_METRICS_WINDOW_DAYS
 from services import demo_mode as demo_mode_service
 from services.athlete_aggregates import (
     activity_totals,
@@ -34,6 +35,7 @@ from services.data_cache import load_activities, load_hrv, load_sleep
 from state import StateManager
 from ui.components.execution_feedback import render_execution_feedback_editor
 from ui.plotly_theme import get_plotly_theme
+from utils.athlete_time import athlete_local_date
 
 
 logger = logging.getLogger(__name__)
@@ -57,6 +59,11 @@ def _calculate_current_status(
         hrv_df,
         sleep_df,
         training_status=training_status,
+        # Эта страница не применяет project_readiness_snapshot, поэтому без
+        # канонического окна и якоря замороженные CTL/ATL/TSB доходят до
+        # атлета напрямую (issue #598). Окно отображения остаётся 30 дней.
+        metrics_activities_df=load_activities(LOAD_METRICS_WINDOW_DAYS),
+        as_of=athlete_local_date(),
     )
 
 
