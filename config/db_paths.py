@@ -496,15 +496,15 @@ def guard_connect_path(
     *,
     purpose: str = "opening a SQLite connection",
 ) -> None:
-    """Fail closed when a connection target is dogfood data.
+    """Fail closed when an armed test process targets dogfood data.
 
-    The hook production code calls before opening a database. It always applies
-    the static policy of :func:`assert_safe`, so a test or diagnostic process is
-    refused even when it never declared anything, and additionally enforces the
-    declaration of an armed test entrypoint. Inert for every legitimate
-    application and operator path.
+    The hook is shared by production and test code, so an ordinary application
+    process must be allowed to open its configured production database. Test
+    entrypoints arm the guard and freeze the production identity before module
+    collection; only those processes apply the static classification here.
     """
-    assert_safe(db_path, purpose=purpose, invariant="test-must-not-touch-production-database")
+    if guard_active():
+        assert_safe(db_path, purpose=purpose, invariant="test-must-not-touch-production-database")
     assert_not_protected(db_path, purpose=purpose)
 
 

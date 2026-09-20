@@ -485,20 +485,27 @@ def test_test_session_isolates_the_runtime_database(tmp_path: Path) -> None:
     assert Path(state.database.db_path) == Path(bare.db_path)
 
 
-def test_connection_hook_refuses_production_and_sidecars(production: Path) -> None:
+def test_connection_hook_refuses_production_and_sidecars(armed_guard: Path) -> None:
     """The hook ``data.database`` calls before opening a connection fails closed."""
     from config.db_paths import guard_connect_path
 
-    for candidate in (production, Path(f"{production}-wal")):
+    for candidate in (armed_guard, Path(f"{armed_guard}-wal")):
         with pytest.raises(DatabasePathViolation) as error:
             guard_connect_path(candidate)
         assert error.value.invariant == "test-must-not-touch-production-database"
 
-    assert production.exists() is False, "guard must refuse before creating anything"
-    guard_connect_path(production.parent / "isolated.db")
+    assert armed_guard.exists() is False, "guard must refuse before creating anything"
+    guard_connect_path(armed_guard.parent / "isolated.db")
 
 
-def test_database_object_refuses_production_without_creating_it(production: Path) -> None:
+def test_connection_hook_allows_the_unarmed_application_database(production: Path) -> None:
+    """The runtime application may open its own configured dogfood database."""
+    from config.db_paths import guard_connect_path
+
+    guard_connect_path(production)
+
+
+def test_database_object_refuses_production_without_creating_it(armed_guard: Path) -> None:
     """A bare ``Database()`` in a test can no longer write DDL into dogfood data.
 
     This is the exact shape that let legacy suites reach ``ai_trainer.db``
@@ -507,9 +514,9 @@ def test_database_object_refuses_production_without_creating_it(production: Path
     from data.database import Database
 
     with pytest.raises(DatabasePathViolation):
-        Database(str(production))
-    assert production.exists() is False
-    assert not Path(f"{production}-wal").exists()
+        Database(str(armed_guard))
+    assert armed_guard.exists() is False
+    assert not Path(f"{armed_guard}-wal").exists()
 
 
 def test_database_object_still_opens_isolated_paths(tmp_path: Path) -> None:
