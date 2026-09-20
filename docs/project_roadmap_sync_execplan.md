@@ -96,25 +96,34 @@ The core state-mapping logic is implemented, and live PR validation immediately 
   `status: ready to merge`) are separate workflows that never depended on this
   token.
 
-  **Preconditions for re-instating the automation.** Installing the secret alone
-  is explicitly not sufficient: that is the state this plan spent three months in,
-  and it restores the same unguarded write-failure path. Before the workflow comes
-  back, all of the following must hold.
+  **Preconditions for re-instating the automation.** Installing a write-capable
+  credential is necessary but not sufficient, and the reason is not that it
+  recreates the failed state. During the failed period the secret was *absent*, so
+  the workflow fell through to `github.token`; a real token changes the
+  authentication path rather than restoring the observed integration-token
+  failure. The remaining gates are **resilience** requirements: the deleted
+  workflow guarded only the read path, so a credential that is present but later
+  loses access would reproduce the same unguarded write failure. Before the
+  workflow comes back, all of the following must hold.
 
   1. A credential that can actually write the user-owned Project v2 exists
      (`ROADMAP_PROJECT_TOKEN`, currently absent from the repository secrets).
   2. The workflow degrades gracefully on **both** authorization failures — the
      read (`getProjectItems`) and the write (`setItemStatus`) — not only the read
      path, which is all the deleted version guarded.
-  3. `workflow_dispatch` completes successfully against the live board with the
+  3. A board snapshot is taken **before** the first dispatch, because the dispatch
+     path rewrites every matching item and is not a read-only probe. Without this
+     ordering a maintainer following the list would mutate the board before
+     capturing the recovery baseline.
+  4. `workflow_dispatch` completes successfully against the live board with the
      credential in place, and the resulting item states are inspected, before the
      event-driven triggers are re-enabled.
-  4. The reinstated workflow is re-subscribed in
-     `.github/workflows/pr-ready-to-merge.yml` under `workflow_run.workflows`. That
-     entry was removed during retirement, so without this step the readiness
-     projection stops noticing sync completion.
-  5. A board snapshot is taken before the first dispatch, because the dispatch path
-     rewrites every item and is not a read-only probe.
+  5. The reinstated workflow is re-subscribed in
+     `.github/workflows/pr-ready-to-merge.yml` under `workflow_run.workflows` if
+     prompt event-driven refresh is required. That entry was removed during
+     retirement; without it the readiness projection still recomputes on its
+     15-minute schedule and on every CI completion, so sync completion merely
+     stops being noticed immediately rather than becoming invisible.
 
 ## Context and Orientation
 
