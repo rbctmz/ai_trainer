@@ -11,7 +11,12 @@ ACWR — отношение острой нагрузки к хроническ�
 """
 from __future__ import annotations
 
+from datetime import date, timedelta
+
+import pandas as pd
 import pytest
+
+from models.signals_engine import assemble_signals
 
 from models.acwr import (
     ACWR_STATUS_LABEL,
@@ -101,15 +106,36 @@ def test_steady_ratio_reads_as_expected_band() -> None:
     assert signal["status"] == "expected_band", f"status={signal['status']!r}"
 
 
-def test_signal_exposes_provenance_and_version() -> None:
-    """Сигнал несёт провенанс: покрытие истории, окно и версию расчёта."""
+def test_signal_exposes_provenance() -> None:
+    """Провенанс: история и **обе** постоянные времени EWMA.
+
+    Одного «окна» недостаточно: модель экспоненциальная и использует две
+    постоянные, поэтому без них покрытие неоднозначно.
+    """
     signal = acwr_signal(_STEADY)
 
     assert signal["history_days"] == len(_STEADY)
-    assert isinstance(signal["window_days"], int) and signal["window_days"] > 0
+    assert signal["acute_tau_days"] == 7
+    assert signal["chronic_tau_days"] == 42
+    assert signal["limitation"].strip(), "сигнал обязан нести оговорку о своей природе"
+
+
+def test_versions_are_separate() -> None:
+    """Математика и интерпретация версионируются раздельно.
+
+    Формула, окна и пороги в этом слайсе не меняются, поэтому
+    `calculation_version` описывает математику, а `semantics_version` —
+    публичную интерпретацию. Смешение читалось бы как смена расчёта.
+    """
+    signal = acwr_signal(_STEADY)
+
     assert isinstance(signal["calculation_version"], str)
     assert signal["calculation_version"].strip()
-    assert signal["limitation"].strip(), "сигнал обязан нести оговорку о своей природе"
+    assert isinstance(signal["semantics_version"], str)
+    assert signal["semantics_version"].strip()
+    assert signal["calculation_version"] != signal["semantics_version"], (
+        "версии обязаны различаться: смена словаря — не смена математики"
+    )
 
 
 def test_limitation_present_in_data_gap() -> None:
@@ -119,6 +145,14 @@ def test_limitation_present_in_data_gap() -> None:
     assert short["value"] is None
     assert short["reason"]
     assert short["limitation"].strip()
+    assert short["intervention_eligible"] is False, (
+        "отсутствие значения тоже не даёт права на предписание"
+    )
+    assert short["history_days"] == 10
+    assert short["acute_tau_days"] == 7
+    assert short["chronic_tau_days"] == 42
+    assert short["calculation_version"].strip()
+    assert short["semantics_version"].strip()
 
 
 def test_acwr_alone_cannot_prescribe() -> None:
@@ -153,3 +187,61 @@ def test_provider_legacy_vocabulary_still_compares() -> None:
         == CROSS_CHECK_MORE_ACUTE
     )
     assert compare_with_provider_status(None, "high_risk") == CROSS_CHECK_INSUFFICIENT
+
+
+def test_provider_status_is_never_legacy() -> None:
+    """Старый словарь допустим только на входе, но не в публичном результате.
+
+    Провайдер присылает `high_risk`. Если вернуть его в `provider_status` как
+    есть, риск-лексика возвращается в DTO через чёрный ход, и запрет из
+    acceptance criteria обходится.
+    """
+    signal = acwr_signal(_STEADY, provider_status="high_risk")
+
+    assert signal["provider_status"] in _EXPECTED_SCALE, (
+        f"provider_status={signal['provider_status']!r}: старый словарь ушёл наружу"
+    )
+    assert signal["cross_check"] != CROSS_CHECK_INSUFFICIENT
+
+    gap = acwr_signal([50.0] * 10, provider_status="high_risk")
+    assert gap["provider_status"] in _EXPECTED_SCALE, (
+        "старый словарь не должен проходить наружу даже в data-gap ветке"
+    )
+
+
+def _activities(series: list[float], anchor: date) -> pd.DataFrame:
+    rows = []
+    for index, tss in enumerate(series):
+        day = anchor - timedelta(days=len(series) - 1 - index)
+        rows.append({"date": pd.Timestamp(day), "tss": float(tss), "sport": "cycling"})
+    return pd.DataFrame(rows)
+
+
+def test_acwr_change_does_not_move_recommendations() -> None:
+    """Инвариант: изменение только ACWR не двигает рекомендации.
+
+    TSB и HRV считаются из `activities_df`, ACWR — из отдельного
+    `acwr_activities_df`, поэтому ряд можно поменять, не тронув остальные
+    сигналы. Если рекомендации или critical-статус изменятся от одного лишь
+    отношения нагрузки, значит ACWR де-факто стал предписывающим входом.
+    """
+    anchor = date(2026, 9, 20)
+    load = _activities([50.0] * 120, anchor)
+    steady = _activities([50.0] * 120, anchor)
+    spiked = _activities([50.0] * 113 + [250.0] * 7, anchor)
+
+    base = assemble_signals(
+        activities_df=load, as_of=anchor, acwr_activities_df=steady, acwr_as_of=anchor
+    )
+    other = assemble_signals(
+        activities_df=load, as_of=anchor, acwr_activities_df=spiked, acwr_as_of=anchor
+    )
+
+    assert base["load"]["tsb"] == other["load"]["tsb"], "TSB обязан остаться тем же"
+    assert base["load"]["acwr"]["value"] != other["load"]["acwr"]["value"], (
+        "фикстуры обязаны различаться по ACWR, иначе тест ничего не проверяет"
+    )
+    assert base["recommendations"] == other["recommendations"], (
+        "ACWR не предписывает: рекомендации не должны зависеть от отношения нагрузки"
+    )
+    assert base["critical"] == other["critical"]
