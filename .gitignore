@@ -189,6 +189,10 @@ ai_trainer_env/
 # и удаляются не всегда, поэтому их нельзя коммитить.
 *.db-wal
 *.db-shm
+# Временные SQLite destinations создаются backup/restore CLI с именем
+# `<database>.<random>.tmp`; SQLite добавляет к ним эти WAL-sidecar suffixes.
+*.tmp-wal
+*.tmp-shm
 
 # Logs and temporary files
 *.log
