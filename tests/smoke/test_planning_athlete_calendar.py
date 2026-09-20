@@ -16,7 +16,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -47,17 +47,24 @@ def _athlete_day_is(monkeypatch, days: int):
 def test_start_week_follows_athlete_calendar(monkeypatch) -> None:
     """AC1: начало недели — атлетский понедельник, а не хостовый.
 
-    Сдвиг на сутки всегда меняет понедельник: для любого дня недели
-    начало недели следующего дня отличается от начала текущей недели.
+    Даты фиксированы намеренно. Сдвиг «сегодня + сутки» меняет понедельник
+    только на переходе воскресенье → понедельник, поэтому прежняя версия
+    этого теста падала бы с понедельника по субботу (находка ревью PR #617).
     """
-    shifted = _athlete_day_is(monkeypatch, 1)
-    host_monday = _monday(datetime.now().date())
+    sunday = date(2026, 9, 20)
+    assert sunday.weekday() == 6, "фикстура обязана быть воскресеньем"
 
-    assert ps._start_week() == _monday(shifted), (
-        "_start_week не взял атлетский день: "
-        f"{ps._start_week()} вместо {_monday(shifted)}"
+    monkeypatch.setattr(ps, "athlete_local_date", lambda *args, **kwargs: sunday)
+    assert ps._start_week() == date(2026, 9, 14), (
+        "воскресенье относится к неделе, начавшейся в прошлый понедельник"
     )
-    assert ps._start_week() != host_monday
+
+    monday = date(2026, 9, 21)
+    monkeypatch.setattr(ps, "athlete_local_date", lambda *args, **kwargs: monday)
+    assert ps._start_week() == monday, (
+        "атлетский понедельник обязан начинать новую неделю: "
+        f"получено {ps._start_week()}"
+    )
 
 
 def test_current_status_constraint_window_follows_athlete_calendar(
