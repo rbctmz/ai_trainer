@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import pandas as pd
@@ -26,6 +26,18 @@ from utils.athlete_time import athlete_local_date
 # от того, за сколько дней запрошен отчёт. Каноническое место константы —
 # здесь; models/ai_tools.py реэкспортирует её как COACH_LOAD_METRICS_WINDOW_DAYS.
 LOAD_METRICS_WINDOW_DAYS = 90
+
+
+def load_metrics_window_bounds(anchor: date) -> tuple[str, str]:
+    """Inclusive ISO bounds of the canonical CTL/ATL/TSB window ending at `anchor`.
+
+    `Database.get_activities(days)` режет по **включительной** границе
+    `today - days`, поэтому отдаёт `days + 1` календарных дат и на краю окна
+    расходится с каноническим readiness snapshot, который читает ровно
+    `LOAD_METRICS_WINDOW_DAYS` дат (находка ревью #614).
+    """
+    start = anchor - timedelta(days=LOAD_METRICS_WINDOW_DAYS - 1)
+    return start.isoformat(), anchor.isoformat()
 
 # Личная норма = среднее за 28 завершённых дней (сегодняшний неполный день
 # в базлайн не входит — семантика issue #126).

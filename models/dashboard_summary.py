@@ -422,6 +422,8 @@ def calculate_current_status(
     training_status: dict[str, Any] | None = None,
     acwr_activities_df: pd.DataFrame | None = None,
     acwr_as_of: date | None = None,
+    metrics_activities_df: pd.DataFrame | None = None,
+    as_of: date | None = None,
 ) -> dict[str, Any]:
     """Build dashboard status from explicitly supplied dataframes.
 
@@ -439,6 +441,8 @@ def calculate_current_status(
         hrv_df=hrv_df,
         sleep_df=sleep_df,
         training_status=training_status,
+        metrics_activities_df=metrics_activities_df,
+        as_of=as_of,
         acwr_activities_df=acwr_activities_df,
         acwr_as_of=acwr_as_of,
     )
