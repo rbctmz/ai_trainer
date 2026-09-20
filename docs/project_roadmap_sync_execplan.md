@@ -4,6 +4,16 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 This document must be maintained in accordance with `.agent/PLANS.md`.
 
+> **Retired 2026-09-20.** The workflow this plan describes,
+> `.github/workflows/project-roadmap-sync.yml`, has been removed. It shipped in
+> PR `#28` on 2026-06-29 but never received the `ROADMAP_PROJECT_TOKEN` secret it
+> required, and the repository integration token cannot write a user-owned
+> Project v2. For three months every pull request therefore carried a failing
+> `sync` check. Retirement was chosen over implementing the graceful-degradation
+> item that had stayed open in `Progress` since the day the workflow shipped. The
+> remainder of this document is retained as decision history and is no longer a
+> description of current automation.
+
 ## Purpose / Big Picture
 
 After this change, the Roadmap project at `users/rbctmz/projects/2` should stop drifting away from the repository’s issue automation state. A card like issue `#10` should not sit at `Todo` merely because no one manually edited the board; instead, the project `Status` field should follow the repository source of truth: open queued/blocked work stays `Todo`, active work becomes `In Progress`, and closed or merged work becomes `Done`.
@@ -14,7 +24,7 @@ After this change, the Roadmap project at `users/rbctmz/projects/2` should stop 
 - [x] (2026-06-29 14:43Z) Implemented `.github/workflows/project-roadmap-sync.yml` to sync the project `Status` field from issue labels/state and PR open/merged state, with `workflow_dispatch` support for backfill.
 - [x] (2026-06-29 14:47Z) Published the branch and opened PR `#28`.
 - [x] (2026-06-29 14:53Z) Live validation on PR `#28` showed that repository `GITHUB_TOKEN` cannot resolve the private user-owned Project v2.
-- [ ] Update the workflow to use a dedicated project token when available and degrade to a warning instead of a failing check when project access is unavailable.
+- [x] (2026-09-20) Resolved by **retirement instead of implementation**: the workflow was deleted rather than given `ROADMAP_PROJECT_TOKEN` and a warning on the write path. See `Outcomes & Retrospective`.
 
 ## Surprises & Discoveries
 
@@ -48,6 +58,31 @@ After this change, the Roadmap project at `users/rbctmz/projects/2` should stop 
 ## Outcomes & Retrospective
 
 The core state-mapping logic is implemented, and live PR validation immediately exposed the real operational boundary: private user-owned Project v2 access requires a stronger token than `GITHUB_TOKEN`. This follow-up patch keeps the workflow usable in contributor PRs while making the missing secret explicit.
+
+**Retired 2026-09-20: the automation never worked, and removing it was cheaper than completing it.**
+
+- **Observed**: `gh secret list --repo rbctmz/ai_trainer` returned exactly one
+  secret, `CLAUDE_CODE_OAUTH_TOKEN`. `ROADMAP_PROJECT_TOKEN` was absent, so
+  `${{ secrets.ROADMAP_PROJECT_TOKEN || github.token }}` always fell back to the
+  integration token. Run logs showed `FORBIDDEN` /
+  `Resource not accessible by integration` on `updateProjectV2ItemFieldValue` for
+  project `PVT_kwHOBymzFc4BbL8C`. Source: repository secret listing and
+  `gh run view --log` for runs 35500046058 and 35500231382.
+- **Inferred**: the read path must have succeeded for the run to reach the write
+  mutation at all, which means the workflow's own graceful-skip guard never fired.
+  That guard catches only read failures (`Could not resolve to a ProjectV2`,
+  `NOT_FOUND`); the write path is unguarded. Cheapest falsifying check: read the
+  guard in the workflow file and confirm the mutation is outside it.
+- **Verified by**: the guard covers `getProjectItems()` only, and the unguarded
+  `setItemStatus` mutation is what raised. The 2026-06-29 note in `Progress`
+  claimed `GITHUB_TOKEN` was unable to resolve the project; today the observed
+  failure is on the write, so that note no longer describes the present behavior.
+- **Decision**: retire the automation. The motivating issue `#25` and its PR `#28`
+  were both closed in June, the board is still usable by hand, and the
+  label-driven status projections (`status: queued`, `status: in progress`,
+  `status: ready to merge`) are separate workflows that never depended on this
+  token. Re-instating the automation later means adding the secret and completing
+  the item above, not starting over.
 
 ## Context and Orientation
 
