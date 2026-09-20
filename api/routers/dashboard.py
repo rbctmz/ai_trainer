@@ -17,6 +17,7 @@ from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
 from models.acwr import ACWR_MIN_HISTORY_DAYS
 from models.banister import tsb_zone
+from models.readiness import load_metrics_window_bounds
 from state import StateManager
 from models.dashboard_summary import (
     build_activity_day_tss,
@@ -27,6 +28,7 @@ from models.dashboard_summary import (
     get_latest_training_status,
     project_readiness_snapshot,
 )
+from utils.athlete_time import athlete_local_date
 
 #: Окно истории для ACWR: минимум 84 календарных дня плюс неделя запаса, чтобы
 #: ряд не оказался короче минимума, если запись начинается не в первый день
@@ -61,6 +63,20 @@ def dashboard_summary(
     # ACWR нужен отдельный длинный ряд: минимум ACWR_MIN_HISTORY_DAYS календарных
     # дней. 30-дневный кадр остаётся кадром отображения и не расширяется.
     acwr_activities_df = db.get_activities(_ACWR_HISTORY_DAYS)
+    # Метрики нагрузки берут ровно каноническое окно, отдельно от ACWR-ряда.
+    # `get_activities(N)` режет по включительной границе `today - N`, то есть
+    # отдаёт N + 1 календарную дату и на краю окна расходится с каноническим
+    # readiness snapshot: `load.form` считался от другого ряда, чем
+    # спроецированный `load.label` (находка ревью #614).
+    #
+    # Якорь — athlete-local день: `signals.load` проецируется из snapshot, а
+    # `signals.critical`, `signals.recommendations` и `load.form` считаются
+    # здесь, поэтому обе половины ответа обязаны читать один и тот же ряд
+    # (issue #598).
+    metrics_anchor = athlete_local_date()
+    metrics_activities_df = pd.DataFrame(
+        db.get_activities_between(*load_metrics_window_bounds(metrics_anchor))
+    )
     current_status = calculate_current_status(
         activities_df,
         hrv_df,
@@ -70,6 +86,8 @@ def dashboard_summary(
         # Якорь — сегодня: без него ряд заканчивается последней тренировкой и
         # окно теряет дни отдыха после неё.
         acwr_as_of=datetime.now().date(),
+        metrics_activities_df=metrics_activities_df,
+        as_of=metrics_anchor,
     )
     current_status = project_readiness_snapshot(current_status, readiness_snapshot)
     summary = build_dashboard_summary(
@@ -317,6 +335,10 @@ def dashboard_widgets(
     empty = activities_df is None or activities_df.empty
     empty_30 = activities_df_30 is None or activities_df_30.empty
     latest_training_status = get_latest_training_status(db)
+    metrics_anchor = athlete_local_date()
+    metrics_activities_df = pd.DataFrame(
+        db.get_activities_between(*load_metrics_window_bounds(metrics_anchor))
+    )
     current_status = calculate_current_status(
         activities_df_30 if not empty_30 else pd.DataFrame(),
         hrv_df,
@@ -325,6 +347,11 @@ def dashboard_widgets(
         # Тот же кадр (ramp-rate) служит историей ACWR — окно совпадает с /summary.
         acwr_activities_df=activities_df,
         acwr_as_of=datetime.now().date(),
+        # Метрики нагрузки — ровно каноническое окно и athlete-local якорь, как в
+        # /summary: иначе один и тот же атлет видит разные CTL/ATL/TSB (issue #598,
+        # граница окна — находка ревью #614).
+        metrics_activities_df=metrics_activities_df,
+        as_of=metrics_anchor,
     )
     current_status = project_readiness_snapshot(current_status, readiness_snapshot)
     signals = current_status.get("signals")
