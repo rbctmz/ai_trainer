@@ -58,6 +58,8 @@ cover/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+db.sqlite3-wal
+db.sqlite3-shm
 
 # Flask stuff:
 instance/
@@ -182,6 +184,11 @@ cython_debug/
 ai_trainer_env/
 *.db
 *.db-journal
+# Спутники SQLite в режиме WAL: содержат незачекпойнченные страницы базы,
+# то есть те же личные метрики тренировок. Возникают при каждом открытии базы
+# и удаляются не всегда, поэтому их нельзя коммитить.
+*.db-wal
+*.db-shm
 
 # Logs and temporary files
 *.log
