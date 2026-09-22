@@ -3,7 +3,7 @@
 - Issue / PR: #609 / not opened yet
 - Author / checker / merge owner: Codex (Spec / Architecture Owner) / independent native reviewer / human repository owner
 - Date: 2026-09-21
-- Candidate head SHA: RED checkpoint pending
+- Candidate head SHA: GREEN checkpoint pending
 
 ## Change Class
 
@@ -33,7 +33,7 @@ The first delivery milestone in this branch is intentionally smaller: this spec 
 - [x] Acceptance criteria are observable in the RED matrix and fixtures.
 - [x] Required focused and broad checks are named.
 - [x] Merge and cleanup owner is the human repository owner; implementation does not authorize merge.
-- [ ] Pure composer and provider-free service are GREEN.
+- [x] Pure composer and provider-free service are GREEN.
 - [ ] Additive API/TypeScript contract is extracted and all three consumers use it without recomposition.
 - [ ] Focused, contributor-safe, Ruff, web lint/build, and isolated browser acceptance are green.
 
@@ -133,12 +133,12 @@ on top of its activities, and no window-level load is substituted for the day to
 | --- | --- | --- | --- |
 | Matched single session has one identity, revisions, consistent totals, and unknown cause without explicit evidence | `test_single_session_projection_keeps_identity_revisions_and_day_load` | missing `models.session_projection` / contract | Exact DTO assertions; day equation 52 + 0 + 8 = 60. |
 | Complete bike-to-run brick is one parent with ordered legs and transition | `test_two_leg_brick_is_one_parent_with_ordered_fact_and_no_double_count` | missing composer / leg projection | Two stamped leg ids, two actual ids in start order, transition 6, day equation 73 + 5 = 78. |
-| Partial brick remains incomplete and does not invent run/transition | `test_partial_brick_preserves_only_observed_leg` | missing composer / partial status | One bike fact leg, zero run fact legs, null actual transition, `projection_status=partial`. |
-| Ambiguous candidates require confirmation and cannot claim cause or completion | `test_ambiguous_match_needs_confirmation_without_cause_or_completion` | missing composer / ambiguity contract | Candidate ids retained, attributed ids empty, cause `needs_confirmation`, status not complete. |
+| Partial brick remains incomplete and does not invent run/transition | `test_partial_brick_preserves_only_observed_leg`, `test_partial_run_leg_keeps_second_planned_identity` | missing composer / partial status | Bike-only retains leg 1; run-only retains leg 2; neither invents the missing leg or transition; `projection_status=partial`. |
+| Ambiguous candidates require confirmation and cannot claim cause or completion | `test_ambiguous_match_needs_confirmation_without_cause_or_completion` | missing composer / ambiguity contract | Candidate ids retained, attributed ids empty, cause `needs_confirmation`, status not complete, data quality is `data_gap/ambiguous_match`. |
 | Read is local, bounded, repeatable, and non-mutating | `test_session_projection_read_is_provider_free_and_non_mutating` | missing `services.session_projection` | Provider stub that raises is untouched; tracked SQLite snapshots equal before/after repeated reads. |
-| Multi-session day does not assign a sibling's load to this parent | future GREEN compatibility test | N/A in first five-fixture milestone | `other_matched_tss` contains the sibling load and the de-duplicated day equation holds. |
-| Latest explicit correction wins | future GREEN test on real ledger revisions | N/A in first five-fixture milestone | Confirm/reject/unmatch precedence remains byte-aligned with canonical reconciliation. |
-| Malformed legacy evidence fails closed | future GREEN compatibility test | N/A in first five-fixture milestone | Known facts preserved; invalid claims null; stable reason code. |
+| Multi-session day does not assign a sibling's load to this parent | `test_day_load_keeps_other_matched_session_separate` | added during GREEN self-review | `other_matched_tss` contains the sibling load and the de-duplicated day equation holds. |
+| Latest explicit correction wins | `test_latest_explicit_match_revision_wins_without_a_second_matcher` on real ledger revisions | missing service at RED | Confirm then unmatch revisions pass through canonical reconciliation; response names ids/revisions 1 and 2. |
+| Malformed legacy evidence fails closed | `test_malformed_legacy_numbers_fail_closed_without_losing_known_facts` | missing composer at RED | Known plan identity and actual facts survive; invalid planned values are null with stable reason codes. |
 | API/TS consumers share exact DTO | future API/types/cross-surface tests | N/A until server DTO is GREEN | OpenAPI + contract extractor + Today/Planning/Activity identity/totals equivalence. |
 
 ## ASR / ADR Traceability
@@ -156,10 +156,10 @@ on top of its activities, and no window-level load is substituted for the day to
    - Refactor/contract refresh: none.
    - Verification: focused test file must collect and fail only because the new composer/service contract is absent.
 2. Pure composer + local service:
-   - RED: existing five fixtures plus explicit revision and malformed legacy cases.
-   - GREEN: minimal composer over canonical reconciliation and latest existing revisions.
+   - RED: existing five fixtures plus explicit revision and malformed legacy cases (`7 failed`, missing future modules only).
+   - GREEN: `models/session_projection.py` composes canonical reconciliation; `services/session_projection.py` performs the bounded provider-free read and supplies latest existing match/feedback revisions.
    - Refactor/contract refresh: no API/types yet.
-   - Verification: focused reconciliation, feedback, activity, and service suites; Ruff.
+   - Verification: projection `9 passed`; focused reconciliation/feedback/activity/Today `121 passed`; contributor-safe `2801 passed, 40 skipped, 38 deselected`; full Ruff green. Additional projection cases were added during GREEN self-review for multi-session day load accounting and partial run-leg identity.
 3. Additive API/types + consumer reuse:
    - RED: API/contract and cross-surface identity/totals tests.
    - GREEN: additive route/types and minimal consumer wiring.
@@ -168,12 +168,12 @@ on top of its activities, and no window-level load is substituted for the day to
 
 ## Evidence Bundle
 
-- Head SHA: pending RED checkpoint
-- Changed invariants: specified but not implemented; see RED Matrix.
-- Focused and broad tests: first milestone runs only `tests/smoke/test_session_projection.py`; GREEN requires the #609 focused set, contributor-safe pytest, Ruff, contract checks, web lint/build.
-- CI checks/reruns/flakes: not run yet.
-- Lifecycle/probe evidence: pending RED transcript.
-- Changed contracts: none implemented in this milestone.
+- Head SHA: pending GREEN checkpoint
+- Changed invariants: one parent projection; partial brick remains incomplete; ambiguity needs confirmation; latest explicit revision wins through canonical reconciliation; malformed plan numbers fail closed; same-day load buckets reconcile without assigning sibling load to the target.
+- Focused and broad tests: projection `9 passed`; focused set `121 passed`; contributor-safe `2801 passed, 40 skipped, 38 deselected`; Ruff green.
+- CI checks/reruns/flakes: local only; CI not run because no PR exists. An initial contributor-safe run from the system worktree failed because that directory forbids relative SQLite writes; a second `/tmp` cwd removed SQLite failures but broke repository-relative file tests. The authoritative run used a complete temporary copy in `/private/tmp` and passed.
+- Lifecycle/probe evidence: provider client configured to raise was untouched; repeated reads returned equal DTOs; tracked SQLite table snapshots were unchanged.
+- Changed contracts: additive Python composer and read service only; API/TypeScript remain deliberately unchanged.
 - Unresolved review-thread count: N/A before PR/review.
 - Residual risks and follow-ups: explicit-cause source vocabulary needs validation against existing structured constraints; cross-surface rendering remains later delivery slice and #610 owns design.
 
@@ -181,7 +181,8 @@ on top of its activities, and no window-level load is substituted for the day to
 
 | Severity | Evidence and falsifying check | Gate | Owner/status |
 | --- | --- | --- | --- |
-| N/A | No review round yet. | none | pending RED checkpoint |
+| P2 | GREEN self-review: the initial three-bucket day equation could not reconcile a second planned session. Falsified with a two-parent same-day fixture; `other_matched_tss` now keeps sibling load separate and the five-term identity is tested. | resolved before review | Codex / fixed locally |
+| P2 | GREEN self-review: `needs_confirmation` initially left local `data_quality` as sufficient. The ambiguous fixture now requires `data_gap/ambiguous_match`. | resolved before review | Codex / fixed locally |
 
 ## Native Review Rounds
 
@@ -192,8 +193,8 @@ on top of its activities, and no window-level load is substituted for the day to
 
 ## Final Verdict
 
-- Verdict: BLOCK (RED milestone; implementation intentionally absent)
-- Blocking findings remaining: composer/service/API are not implemented; explicit revision and malformed-legacy REDs join the GREEN milestone before implementation is accepted.
+- Verdict: BLOCK for closing #609; READY for the bounded composer/service checkpoint.
+- Blocking findings remaining: additive API/TypeScript contract and shared Today/Planning/Activity consumption remain delivery slice 3.
 - Review rounds used: 0
 - Accepted risk or follow-up issue: UI decision-story work remains #610; athlete acceptance remains #367.
 - Merge owner final gate: human repository owner after GREEN evidence and accepted native review on the current head.

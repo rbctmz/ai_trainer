@@ -313,6 +313,34 @@ def test_partial_brick_preserves_only_observed_leg() -> None:
     assert result["load"]["day_total_tss"] == 55.0
 
 
+def test_partial_run_leg_keeps_second_planned_identity() -> None:
+    run = _activity(
+        "brick-run",
+        "run",
+        18.0,
+        30.0,
+        "2026-07-08T09:16:00Z",
+    )
+    result = _build_projection(
+        _reconciliation(
+            _brick_row(activities=[run], match_status="ambiguous"),
+        ),
+        session_id="ats_brick",
+    )
+
+    assert result["projection_status"] == "partial"
+    assert result["fact"]["legs"] == [
+        {
+            "planned_leg_id": "ats_brick:2",
+            "leg_index": 2,
+            "activity_id": "brick-run",
+            "sport": "run",
+            "duration_minutes": 30.0,
+            "load_tss": 18.0,
+        }
+    ]
+
+
 def test_ambiguous_match_needs_confirmation_without_cause_or_completion() -> None:
     row = deepcopy(_single_row())
     candidates = [
@@ -351,6 +379,10 @@ def test_ambiguous_match_needs_confirmation_without_cause_or_completion() -> Non
     }
     assert result["confidence"]["status"] == "needs_confirmation"
     assert result["confidence"]["score"] == 0.35
+    assert result["data_quality"] == {
+        "status": "data_gap",
+        "reasons": ["ambiguous_match"],
+    }
     assert result["load"] == {
         "planned_tss": 50.0,
         "matched_tss": 0.0,
@@ -395,3 +427,167 @@ def test_session_projection_read_is_provider_free_and_non_mutating(
     assert first == second
     assert first["evidence_revision"]["provider_status"] == "disabled"
     assert _table_snapshots(db) == before
+
+
+def test_latest_explicit_match_revision_wins_without_a_second_matcher(tmp_path) -> None:
+    from services.session_projection import session_projection_at
+
+    db, plan = _reconciliation_db(tmp_path)
+    target = next(
+        item
+        for item in plan["session_templates"]
+        if item.get("date") == "2026-07-08"
+    )
+    db.save_activities(
+        [
+            {
+                "activity_id": "second-ride",
+                "date": "2026-07-08",
+                "started_at_utc": "2026-07-08T18:00:00Z",
+                "sport": "cycling",
+                "duration_minutes": 30,
+                "tss": 18.0,
+            }
+        ]
+    )
+    common = {
+        "target_key": f"session:{target['session_id']}",
+        "session_id": target["session_id"],
+        "base_checkpoint_id": 1,
+        "session_date": "2026-07-08",
+        "confidence": 1.0,
+        "planned_snapshot": {
+            "session_id": target["session_id"],
+            "sport": "bike",
+            "tss": 22.0,
+        },
+        "actual_snapshot": {"sport": "bike", "role": "easy"},
+        "rule_version": "plan_actual_match_v2",
+    }
+    confirmed = db.save_plan_actual_match(
+        {
+            **common,
+            "fingerprint": "session-projection-confirmed",
+            "match_status": "matched",
+            "match_method": "user_confirmed",
+            "actual_activity_ids": ["actual-2026-07-08"],
+            "evidence": ["athlete selected the morning ride"],
+        }
+    )
+
+    selected = session_projection_at(
+        db,
+        session_id=target["session_id"],
+        as_of="2026-07-13",
+        weeks=1,
+    )
+
+    assert selected["projection_status"] == "matched"
+    assert selected["fact"]["actual_activity_ids"] == ["actual-2026-07-08"]
+    assert selected["confidence"]["match_method"] == "user_confirmed"
+    assert selected["evidence_revision"]["match_revision_id"] == confirmed["id"]
+    assert selected["evidence_revision"]["match_revision"] == 1
+
+    unmatched = db.save_plan_actual_match(
+        {
+            **common,
+            "fingerprint": "session-projection-unmatched",
+            "supersedes_match_id": confirmed["id"],
+            "match_status": "unmatched",
+            "match_method": "user_unmatched",
+            "actual_activity_ids": [],
+            "actual_snapshot": {},
+            "evidence": ["athlete rejected both candidates"],
+        }
+    )
+
+    rejected = session_projection_at(
+        db,
+        session_id=target["session_id"],
+        as_of="2026-07-13",
+        weeks=1,
+    )
+
+    assert rejected["projection_status"] == "unmatched"
+    assert rejected["fact"]["completion_status"] == "not_observed"
+    assert rejected["fact"]["actual_activity_ids"] == []
+    assert rejected["confidence"]["status"] == "confirmed"
+    assert rejected["confidence"]["match_method"] == "user_unmatched"
+    assert rejected["evidence_revision"]["match_revision_id"] == unmatched["id"]
+    assert rejected["evidence_revision"]["match_revision"] == 2
+
+
+def test_malformed_legacy_numbers_fail_closed_without_losing_known_facts() -> None:
+    row = _single_row()
+    row.update(
+        {
+            "tss": "legacy-not-a-number",
+            "duration_minutes": None,
+        }
+    )
+
+    result = _build_projection(
+        _reconciliation(row),
+        session_id="ats_single",
+    )
+
+    assert result["projection_status"] == "data_gap"
+    assert result["plan"]["date"] == "2026-07-08"
+    assert result["plan"]["sport"] == "bike"
+    assert result["plan"]["name"] == "Endurance ride"
+    assert result["plan"]["duration_minutes"] is None
+    assert result["plan"]["load_tss"] is None
+    assert result["fact"]["completion_status"] == "complete"
+    assert result["fact"]["actual_activity_ids"] == ["ride-main"]
+    assert result["fact"]["duration_minutes"] == 61.0
+    assert result["fact"]["load_tss"] == 52.0
+    assert result["deviation"]["duration_delta_minutes"] is None
+    assert result["deviation"]["load_delta_tss"] is None
+    assert result["data_quality"] == {
+        "status": "data_gap",
+        "reasons": ["invalid_planned_duration", "invalid_planned_load"],
+    }
+
+
+def test_day_load_keeps_other_matched_session_separate() -> None:
+    target = _single_row()
+    sibling_activity = _activity(
+        "run-sibling",
+        "run",
+        20.0,
+        30.0,
+        "2026-07-08T12:00:00Z",
+    )
+    sibling = {
+        **_single_row(),
+        "session_id": "ats_sibling",
+        "sport": "run",
+        "tss": 20.0,
+        "actual_activity_ids": ["run-sibling"],
+        "actual_activities": [sibling_activity],
+        "actual_total_tss": 20.0,
+        "actual_duration_minutes": 30.0,
+        "actual_sport": "run",
+    }
+    extra = _activity(
+        "walk-extra",
+        "other",
+        8.0,
+        25.0,
+        "2026-07-08T18:00:00Z",
+    )
+    reconciliation = _reconciliation(target, unplanned=[extra])
+    reconciliation["rows"].append(sibling)
+
+    result = _build_projection(
+        reconciliation,
+        session_id="ats_single",
+    )
+
+    assert result["load"] == {
+        "planned_tss": 50.0,
+        "matched_tss": 52.0,
+        "other_matched_tss": 20.0,
+        "additional_unmatched_tss": 8.0,
+        "day_total_tss": 80.0,
+    }

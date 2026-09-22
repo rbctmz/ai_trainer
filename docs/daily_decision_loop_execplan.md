@@ -28,6 +28,7 @@ AI Trainer не выигрывает за счёт количества дашб
   записано в issue #608 комментарием от 2026-09-20.
 - [ ] Слайс #609 (Class A): каноническая session-first проекция план/факт с эвиденс-обоснованной причиной отклонения.
   - [x] (2026-09-21 20:14Z) Первый ограниченный milestone: slice spec `docs/issue_609_session_first_projection_slice_spec.md` и пять RED-контрактов (single, brick, partial brick, ambiguous, provider-free/non-mutating read). Прогон: `5 failed` по ожидаемой причине — новые `models.session_projection` и `services.session_projection` ещё не реализованы. GREEN, API и UI сознательно не начаты до проверки границы.
+  - [x] (2026-09-22 07:35Z) Второй milestone: добавлены RED для latest explicit revision и malformed legacy (`7 failed` по отсутствующим модулям), затем минимальные чистый composer и provider-free local service. GREEN после self-review: projection `9 passed`, focused `121 passed`, contributor-safe `2801 passed, 40 skipped, 38 deselected`, Ruff зелёный. API/TypeScript/UI не менялись.
 - [ ] Слайс #610: Today decision story — progressive disclosure для что/почему/доказательства/дальше.
 - [ ] Слайс #367: приёмка техническими атлетами; наблюдаемые провалы превращаются в ограниченные issues.
 - [x] (2026-09-20 08:45Z) Follow-up по окну readiness-фузии заведён как #616 без automation-контракта, чтобы не запускать автодиспетч (см. `Decision Log`). Приоритет и назначение — за владельцем.
@@ -109,7 +110,7 @@ AI Trainer не выигрывает за счёт количества дашб
 
 Урок для последующих слайсов: прежде чем называть поверхность сломанной, нужно проверить, не перекрывается ли наблюдаемое значение другим источником в том же ответе. Здесь «очевидный» дефект легаси-страницы оказался лишь половиной картины, а настоящая пользовательская боль жила в API, который выглядел исправным.
 
-Шаг 0 закрыт целиком: #598 и #601 оба поставлены. **Часть 1 слайса #608 поставлена** (PR #620, merge `485cd62`): описательная шкала нагрузки, шим совместимости с прежним словарём провайдера, провенанс и раздельные версии, непредписывающий инвариант. **#609 начат по прямой команде владельца:** граница описана, пять намеренно красных контрактов зафиксировали single/brick/partial/ambiguous/provider-free поведение; продуктовая реализация ещё не начата. Что осталось: GREEN и contract/consumer slices #609, затем #610 и приёмка #367. Часть 2 #608 остаётся отложенной до реального consumer/composer. Этот документ и RED-чекпоинт не авторизуют merge.
+Шаг 0 закрыт целиком: #598 и #601 оба поставлены. **Часть 1 слайса #608 поставлена** (PR #620, merge `485cd62`): описательная шкала нагрузки, шим совместимости с прежним словарём провайдера, провенанс и раздельные версии, непредписывающий инвариант. **#609 выполняется по прямой команде владельца:** граница и RED зафиксированы; чистый composer и provider-free local service GREEN. Что осталось в #609: additive API/TypeScript contract и переиспользование DTO в Today/Planning/Activity без локальной рекомпозиции. Затем #610 и приёмка #367. Часть 2 #608 остаётся отложенной до реального consumer/composer. Этот документ и промежуточный checkpoint не авторизуют merge.
 
 ## Context and Orientation
 
@@ -157,6 +158,22 @@ AI Trainer не выигрывает за счёт количества дашб
     /Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python -m pytest tests/smoke/test_session_projection.py -q
     # RED checkpoint: 5 failed; четыре импорта models.session_projection и
     # один services.session_projection. Иных причин падения нет.
+
+Слайс #609, второй milestone:
+
+    /Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python -m pytest tests/smoke/test_session_projection.py -q
+    # 9 passed
+    /Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python -m pytest tests/smoke/test_session_projection.py tests/smoke/test_plan_actual_reconciliation.py tests/smoke/test_reconciliation_service_migration.py tests/smoke/test_plan_vs_fact.py tests/smoke/test_feedback_planning_handoff.py tests/smoke/test_activity_card.py tests/smoke/test_api_today.py -q
+    # 121 passed
+    /Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python -m ruff check --no-cache .
+    # All checks passed!
+
+Contributor-safe набор запускается из полной временной копии ветки в
+записываемом каталоге, потому что системный каталог worktree запрещает legacy-
+тестам создавать относительные SQLite-файлы. На полной копии:
+
+    /Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python -m pytest -m "not live and not debug and not e2e" tests/ -q
+    # 2801 passed, 40 skipped, 38 deselected
 
 ## Validation and Acceptance
 
@@ -236,6 +253,13 @@ tests/smoke/test_activity_card.py tests/smoke/test_api_today.py -q` — ожид
 
 Это не регрессия существующего кода и не готовность к merge: тесты фиксируют
 будущий контракт, а отсутствующая реализация является ожидаемой причиной RED.
+
+GREEN второго milestone проверяется тем же projection-файлом (`9 passed`) и
+focused-набором (`121 passed`). Provider-free тест подменяет клиент функцией,
+которая немедленно падает при обращении; проекция успешно строится дважды, а
+полные снимки изменяемых SQLite-таблиц до и после совпадают. Explicit confirm и
+следующий `user_unmatched` проходят через существующий reconciliation ledger и
+возвращают ревизии 1 и 2; composer сам приоритет не вычисляет.
 
 **#610 — Today decision story.** Основная поверхность отвечает на «что / почему /
 доказательства / дальше» без перехода на другую страницу; факты, интерпретация и
@@ -388,6 +412,14 @@ Slice spec шага 0 лежит в `docs/issue_598_dashboard_metrics_anchor_sli
 Канонические зависимости, на которые опираются все слайсы: `models/readiness.py::LOAD_METRICS_WINDOW_DAYS` (окно метрик нагрузки, равно 90), `models/readiness.py::_tsb_metrics(activities_df, anchor)` (канонический расчёт CTL/ATL/TSB с якорем), `models/banister.py::tsb_zone(tsb)` (каноническая четырёхзонная классификация формы), `utils/athlete_time.athlete_local_date()` (календарный день атлета) и `services/readiness_snapshot.py::build_readiness_snapshot(db)` (канонический снимок готовности). Новых внешних библиотек этот план не вводит.
 
 ## Revision Notes
+
+- (2026-09-22) Второй milestone #609: после двух дополнительных RED-кейсов
+  реализованы чистый `models/session_projection.py` и provider-free
+  `services/session_projection.py`. Самопроверка добавила отдельный bucket
+  `other_matched_tss`, тест multi-session day и отдельный run-only partial,
+  сохраняющий identity второй ноги; mixed naive/UTC timestamps нормализуются
+  без падения. Зафиксированы focused/Ruff результаты и две неавторитетные
+  попытки полного прогона с неверным cwd.
 
 - (2026-09-21) #609 начат по команде владельца в изолированном worktree:
   добавлен bounded Class A slice spec и пять RED-фактур для single, полного и
