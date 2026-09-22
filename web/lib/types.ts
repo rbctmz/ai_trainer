@@ -1477,6 +1477,98 @@ export interface ReconResponse {
   provider?: { status: string; activity_count?: number; workout_event_count?: number; error?: string };
 }
 
+// --- Planning: canonical single-session projection (#609) ---
+export type SessionProjectionStatus =
+  | "matched"
+  | "partial"
+  | "needs_confirmation"
+  | "unmatched"
+  | "data_gap";
+
+export interface SessionProjectionEvidenceRevision {
+  planning_checkpoint_id: number | null;
+  match_revision_id: number | null;
+  match_revision: number | null;
+  feedback_revision_id: number | null;
+  feedback_revision: number | null;
+  reconciliation_rule_version: string | null;
+  as_of: string | null;
+  provider_status: string | null;
+}
+
+export interface SessionProjectionPlanLeg {
+  leg_id: string;
+  leg_index: number;
+  sport: string;
+  duration_minutes: number | null;
+  load_tss: number | null;
+}
+
+export interface SessionProjectionFactLeg {
+  planned_leg_id: string | null;
+  leg_index: number | null;
+  activity_id: string;
+  sport: string;
+  duration_minutes: number | null;
+  load_tss: number | null;
+}
+
+export interface SessionProjection {
+  schema_version: "session_projection_v1";
+  session_id: string;
+  projection_status: SessionProjectionStatus;
+  evidence_revision: SessionProjectionEvidenceRevision;
+  plan: {
+    date: string;
+    sport: string;
+    role: string;
+    name: string;
+    duration_minutes: number | null;
+    load_tss: number | null;
+    legs: SessionProjectionPlanLeg[];
+    transition: { planned_minutes: number | null };
+  };
+  fact: {
+    completion_status: "complete" | "incomplete" | "needs_confirmation" | "not_observed";
+    actual_activity_ids: string[];
+    candidate_activity_ids: string[];
+    duration_minutes: number | null;
+    load_tss: number | null;
+    legs: SessionProjectionFactLeg[];
+    transition: { actual_minutes: number | null };
+  };
+  deviation: {
+    adherence: PlanAdherence;
+    duration_delta_minutes: number | null;
+    load_delta_tss: number | null;
+    structure_match: boolean | null;
+    transition_delta_minutes: number | null;
+  };
+  cause: {
+    status: "unknown" | "needs_confirmation";
+    code: string;
+    evidence_refs: string[];
+  };
+  confidence: {
+    status: "confirmed" | "partial_evidence" | "needs_confirmation" | "computed" | "data_gap";
+    score: number | null;
+    match_status: string;
+    match_method: string;
+    evidence: string[];
+  };
+  data_quality: {
+    status: "sufficient" | "data_gap";
+    reasons: string[];
+  };
+  load: {
+    planned_tss: number | null;
+    matched_tss: number | null;
+    other_matched_tss: number;
+    additional_unmatched_tss: number;
+    day_total_tss: number;
+  };
+}
+
 export interface RebalanceChange {
   index: number;
   date: string;

@@ -429,6 +429,22 @@ def test_session_projection_read_is_provider_free_and_non_mutating(
     assert _table_snapshots(db) == before
 
 
+def test_session_projection_defaults_to_requested_session_plan_date(tmp_path) -> None:
+    from services.session_projection import session_projection_at
+
+    db, plan = _reconciliation_db(tmp_path)
+    target = next(
+        item
+        for item in plan["session_templates"]
+        if item.get("date") == "2026-07-08"
+    )
+
+    result = session_projection_at(db, session_id=target["session_id"])
+
+    assert result["session_id"] == target["session_id"]
+    assert result["evidence_revision"]["as_of"] == "2026-07-08"
+
+
 def test_latest_explicit_match_revision_wins_without_a_second_matcher(tmp_path) -> None:
     from services.session_projection import session_projection_at
 

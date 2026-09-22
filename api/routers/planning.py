@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field, field_validator
 from api import planning_service
 from api.deps import get_database
 from data.database import Database
+from models.session_projection import SessionProjectionNotFoundError
+from services import session_projection as session_projection_service
 
 router = APIRouter(prefix="/api/planning", tags=["planning"])
 
@@ -451,6 +453,27 @@ def planning_export_workout(
 
 
 # --- Adjust mode -----------------------------------------------------------
+@router.get("/session-projection/{session_id}")
+def planning_session_projection(
+    session_id: str,
+    weeks: Annotated[int, Query(ge=1, le=12)] = 1,
+    as_of: Optional[str] = None,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    """Return the canonical provider-free projection for one plan session."""
+    try:
+        return session_projection_service.session_projection_at(
+            db,
+            session_id=session_id,
+            as_of=as_of,
+            weeks=weeks,
+        )
+    except SessionProjectionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="planned session not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/reconciliation")
 def planning_reconciliation(
     weeks: int = 1,
