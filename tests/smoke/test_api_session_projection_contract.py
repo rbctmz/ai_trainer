@@ -93,3 +93,103 @@ def test_session_projection_types_and_contract_registry_are_declared() -> None:
     assert 'projection_status: SessionProjectionStatus' in types
     assert '"/api/planning/session-projection/{session_id}"' in registry
     assert '"interface": "SessionProjection"' in registry
+
+
+def test_planning_reconciliation_reuses_projection_composer_for_each_row(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    planning_router = importlib.import_module("api.routers.planning")
+    reconciliation = {
+        "has_plan": True,
+        "rows": [
+            {"session_id": "session-1"},
+            {"session_id": "session-2"},
+        ],
+        "unplanned_activities": [],
+    }
+    monkeypatch.setattr(
+        planning_router.planning_service,
+        "reconciliation_at",
+        lambda *_args, **_kwargs: reconciliation,
+    )
+    compose = getattr(
+        planning_router.session_projection_service,
+        "session_projection_from_reconciliation",
+        None,
+    )
+    assert callable(compose), "shared projection-from-snapshot boundary is missing"
+    observed: list[tuple[object, str]] = []
+
+    def fake_compose(db, snapshot, *, session_id):
+        assert snapshot is reconciliation
+        observed.append((db, session_id))
+        return {"schema_version": "session_projection_v1", "session_id": session_id}
+
+    monkeypatch.setattr(
+        planning_router.session_projection_service,
+        "session_projection_from_reconciliation",
+        fake_compose,
+    )
+    db = Database(str(tmp_path / "planning-consumer.db"))
+
+    result = planning_router.planning_reconciliation(
+        weeks=1,
+        as_of="2026-07-08",
+        include_provider=False,
+        db=db,
+    )
+
+    assert observed == [(db, "session-1"), (db, "session-2")]
+    assert [row["session_projection"]["session_id"] for row in result["rows"]] == [
+        "session-1",
+        "session-2",
+    ]
+
+
+def test_activity_detail_reuses_projection_for_matched_session(tmp_path, monkeypatch) -> None:
+    from api.routers import activities as activities_router
+    from tests.smoke.test_plan_intervals import _seed_plan_actual_match_for_activity
+
+    db = Database(str(tmp_path / "activity-consumer.db"))
+    db.save_activities(
+        [
+            {
+                "activity_id": "activity-1",
+                "date": "2026-07-08",
+                "sport": "cycling",
+                "duration_minutes": 60,
+                "tss": 50.0,
+            }
+        ]
+    )
+    _seed_plan_actual_match_for_activity(db, "activity-1", session_id="session-1")
+    sentinel = {"schema_version": "session_projection_v1", "session_id": "session-1"}
+    service = getattr(activities_router, "session_projection_service", None)
+    assert service is not None, "activity projection service boundary is missing"
+    monkeypatch.setattr(service, "session_projection_at", lambda *_a, **_k: sentinel)
+    monkeypatch.setattr(activities_router, "fetch_activity_intervals", lambda *_a: None)
+    monkeypatch.setattr(activities_router, "fetch_activity_power_curve", lambda *_a: None)
+
+    activity = activities_router.get_activity_card("activity-1", db=db)["activity"]
+
+    assert activity["session_id"] == "session-1"
+    assert activity["session_projection"] is sentinel
+
+
+def test_today_planning_and_activity_render_one_shared_projection_component() -> None:
+    component = open(
+        "web/components/session/SessionProjectionSummary.tsx",
+        encoding="utf-8",
+    ).read()
+    today = open("web/app/today/page.tsx", encoding="utf-8").read()
+    planning = open("web/app/planning/page.tsx", encoding="utf-8").read()
+    activities = open("web/app/activities/page.tsx", encoding="utf-8").read()
+
+    assert "SessionProjectionSummary" in component
+    assert "projection.load.planned_tss" in component
+    assert "projection.load.matched_tss" in component
+    assert "projection.load.day_total_tss" in component
+    assert "<SessionProjectionSummary" in today
+    assert "<SessionProjectionSummary" in planning
+    assert "<SessionProjectionSummary" in activities
