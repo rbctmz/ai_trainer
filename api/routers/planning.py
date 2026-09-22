@@ -482,12 +482,37 @@ def planning_reconciliation(
     db: Database = Depends(get_database),
 ) -> dict[str, Any]:
     try:
-        return planning_service.reconciliation_at(
+        result = planning_service.reconciliation_at(
             db,
             weeks=weeks,
             as_of=as_of,
             include_provider=include_provider,
         )
+        local = (
+            result
+            if include_provider is False
+            else planning_service.reconciliation_at(
+                db,
+                weeks=weeks,
+                as_of=as_of,
+                include_provider=False,
+            )
+        )
+        projections = {
+            str(row.get("session_id") or ""): session_projection_service.session_projection_from_reconciliation(
+                db,
+                local,
+                session_id=str(row.get("session_id") or ""),
+            )
+            for row in local.get("rows") or []
+            if isinstance(row, dict) and str(row.get("session_id") or "")
+        }
+        for row in result.get("rows") or []:
+            if isinstance(row, dict):
+                row["session_projection"] = projections.get(
+                    str(row.get("session_id") or "")
+                )
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

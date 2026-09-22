@@ -65,6 +65,20 @@ def session_projection_at(
         as_of=resolved_as_of,
         include_provider=False,
     )
+    return session_projection_from_reconciliation(
+        db,
+        reconciliation,
+        session_id=session_id,
+    )
+
+
+def session_projection_from_reconciliation(
+    db: Database,
+    reconciliation: Mapping[str, Any],
+    *,
+    session_id: str,
+) -> dict[str, Any]:
+    """Compose one DTO from an already-bounded local reconciliation snapshot."""
     match_revision = db.get_latest_plan_actual_match_for_session(session_id)
     feedback = db.get_latest_session_feedback(session_id)
     return build_session_projection(
@@ -75,4 +89,4 @@ def session_projection_at(
     )
 
 
-__all__ = ["session_projection_at"]
+__all__ = ["session_projection_at", "session_projection_from_reconciliation"]

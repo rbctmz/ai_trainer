@@ -108,10 +108,19 @@ def test_planning_reconciliation_reuses_projection_composer_for_each_row(
         ],
         "unplanned_activities": [],
     }
+    local_reconciliation = {
+        **reconciliation,
+        "provider": {"status": "disabled"},
+        "rows": [dict(row) for row in reconciliation["rows"]],
+    }
+
+    def fake_reconciliation(*_args, **kwargs):
+        return local_reconciliation if kwargs["include_provider"] is False else reconciliation
+
     monkeypatch.setattr(
         planning_router.planning_service,
         "reconciliation_at",
-        lambda *_args, **_kwargs: reconciliation,
+        fake_reconciliation,
     )
     compose = getattr(
         planning_router.session_projection_service,
@@ -122,7 +131,7 @@ def test_planning_reconciliation_reuses_projection_composer_for_each_row(
     observed: list[tuple[object, str]] = []
 
     def fake_compose(db, snapshot, *, session_id):
-        assert snapshot is reconciliation
+        assert snapshot is local_reconciliation
         observed.append((db, session_id))
         return {"schema_version": "session_projection_v1", "session_id": session_id}
 

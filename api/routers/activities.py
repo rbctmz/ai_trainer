@@ -28,6 +28,8 @@ from models.plan_vs_fact import (
     plan_replanned_after_delivery,
     select_actual_structure,
 )
+from models.session_projection import SessionProjectionNotFoundError
+from services import session_projection as session_projection_service
 from services.activity_intervals import fetch_activity_intervals, fetch_stream_structure
 from services.best_efforts import fetch_activity_power_curve
 from utils.product_semantics import format_date_label, normalize_sport_key, sport_label
@@ -258,9 +260,25 @@ def get_activity_card(
     item["intervals"] = fetch_activity_intervals(db, activity_id)
     item["power_curve"] = fetch_activity_power_curve(db, activity_id)
     planned_match = db.get_plan_actual_match_for_activity(activity_id)
+    item["session_id"] = None
+    item["session_projection"] = None
     planned_intervals = None
     planned_leg = None
     if planned_match is not None:
+        session_id = str(planned_match.get("session_id") or "").strip()
+        item["session_id"] = session_id or None
+        if session_id:
+            try:
+                item["session_projection"] = session_projection_service.session_projection_at(
+                    db,
+                    session_id=session_id,
+                    as_of=item["date"],
+                    weeks=1,
+                )
+            except (SessionProjectionNotFoundError, ValueError):
+                # Historical matches may reference sessions outside the active
+                # plan. Preserve the activity card without guessing lineage.
+                item["session_projection"] = None
         checkpoint_id = planned_match.get("base_checkpoint_id")
         checkpoint_data = (
             db.get_checkpoint_data(checkpoint_id) if checkpoint_id is not None else None
