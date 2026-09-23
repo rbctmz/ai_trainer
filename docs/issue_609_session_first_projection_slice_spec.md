@@ -10,10 +10,10 @@
 - Class: A
 - Rationale: the slice establishes one evidence-sensitive identity and composition contract across planning, reconciliation, activities, feedback, API, and future web consumers.
 - Automatic escalation triggers checked: public API/TypeScript contract; evidence identity; ambiguous and partial data; cross-surface reuse. No migration, destructive action, credential, or provider-write trigger applies.
-- Review budget used: 1 / 2 rounds
+- Review budget used: 2 / 2 rounds
 - Review trigger mode: manual
-- Review acceptance head SHA: pending delta review on current head
-- Review budget exception: N/A
+- Review acceptance head SHA: pending owner/current-head gate decision after fix `ecd10cfc958476c52f3619816dc993432e1e4dfc`; no third automated review requested
+- Review budget exception: none requested or approved
 
 ## Scope
 
@@ -171,12 +171,14 @@ on top of its activities, and no window-level load is substituted for the day to
 ## Evidence Bundle
 
 - Candidate implementation checkpoint: `537ecf4d59a5e8ffd0ef16eb393a8ccde6ac1612` (PR #631)
+- Follow-up fix checkpoint: `ecd10cfc958476c52f3619816dc993432e1e4dfc` (second-round P1/P2 findings)
 - Changed invariants: one parent projection; partial brick remains incomplete; ambiguity needs confirmation; latest explicit revision wins through canonical reconciliation; malformed plan numbers fail closed; same-day load buckets reconcile without assigning sibling load to the target.
 - Focused and broad tests: updated projection + API/UI contract tests `21 passed`; full Ruff green; Next.js lint and production build green. Contributor-safe run with an isolated temp `DATABASE_PATH`: `2829 passed, 18 skipped, 7 failed`; all seven failures are legacy tests that hardcode SQLite files in the read-only repository root. The changed projection, API/UI, and replacement-lineage tests passed.
-- CI checks/reruns/flakes: the pre-fix head's functional CI checks passed; its Review gate ran before the Codex review arrived. Fixes are pushed through `b95acd4`; current-head CI remains pending read-back.
+- Follow-up fix verification: projection and API/UI contract tests `22 passed`; Ruff on changed Python files green; direct ESLint for Today green; contract extraction freshness green; Next.js production build green. New RED tests reproduced both second-round findings before the fixes.
+- CI checks/reruns/flakes: the pre-fix head's functional CI checks passed; its Review gate ran before the Codex review arrived. Follow-up `ecd10cf` is pushed; current-head CI status is pending read-back.
 - Lifecycle/probe evidence: provider client configured to raise was untouched; repeated reads returned equal DTOs; tracked SQLite table snapshots were unchanged.
 - Changed contracts: additive provider-free API, OpenAPI path, mirrored TypeScript DTO, Planning/Activity envelopes, and shared Today/Planning/Activity rendering.
-- Unresolved review-thread count: 0. Four round-1 findings have written `fixed-in 537ecf4` replies and all four GitHub review threads are resolved; scoped delta review is the remaining reviewer step.
+- Unresolved review-thread count: 0. All six findings have written `fixed-in` replies; all six GitHub review threads are resolved. The second-round P1/P2 findings were fixed in `ecd10cf`.
 - Residual risks and follow-ups: isolated browser clickthrough remains unverified because the available acceptance launcher is Streamlit-only. #610 owns the fuller Today decision story; this slice adds only the shared plan/fact summary.
 
 ## Review Findings
@@ -189,19 +191,21 @@ on top of its activities, and no window-level load is substituted for the day to
 | P2 | Round 1 at `103e20a`: a valid negative transition delta was rejected by the non-negative numeric parser. Added finite signed-delta parsing and a faster-transition regression. | fixed in `537ecf4` | Codex / fixed-in; thread resolved |
 | P2 | Round 1 at `103e20a`: an inherited confirmed replacement match had no revision provenance in the projection. The service now uses the reconciliation replacement resolver and same local ledger evidence. | fixed in `537ecf4` | Codex / fixed-in; thread resolved |
 | P2 | Round 1 at `103e20a`: a timestamp-less partial leg lost its unique sport-to-planned-leg identity. Unique-sport mapping is now independent of chronology; ordering and transition claims remain withheld. | fixed in `537ecf4` | Codex / fixed-in; thread resolved |
+| P2 | Round 2 at `540fd40`: timestamp-less duplicate bike facts both claimed the only planned bike leg in a bike/run brick. A claimed-leg set now enforces one-to-one leg provenance; status counts unique mapped legs, so the missing run leg remains partial/incomplete. Reproduced with two timestamp-less bike activities. | fixed in `ecd10cf` | Codex / fixed-in; thread resolved |
+| P1 | Round 2 at `540fd40`: Today sent a day-level aggregate ID for multi-session days. It now derives parent IDs from leaf `group_id ?? session_id` and deduplicates them, preserving separate parent sessions while collapsing brick legs. The consumer contract pins this behavior. | fixed in `ecd10cf` | Codex / fixed-in; thread resolved |
 
 ## Native Review Rounds
 
 | Round | Reviewed head SHA | Trigger | Findings disposition | Stop / exception decision |
 | ---: | --- | --- | --- | --- |
 | 1 | `103e20a744fab80f9d01fc415c27bdee546fd177` | `@codex review` | Four findings fixed in `537ecf4d59a5e8ffd0ef16eb393a8ccde6ac1612` | continue with scoped delta only |
-| 2 | pending current head | scoped delta after `537ecf4` | pending | stop after this round unless an exception is explicitly documented |
+| 2 | `540fd400b33202a0d3f14403dd745c387909b114` | scoped `@codex review` after `537ecf4` | New P1/P2 findings fixed in `ecd10cfc958476c52f3619816dc993432e1e4dfc` | budget 2/2 reached; no third automated review requested |
 
 ## Final Verdict
 
-- Verdict: round-1 findings are fixed and all four threads are resolved; #631 awaits current-head CI, scoped delta review, owner acceptance, and Next.js browser clickthrough before #609 can close.
-- Blocking findings remaining: no known local implementation blocker; current-head GitHub CI and delta review are pending.
-- Review rounds used: 1 / 2
+- Verdict: all six review findings are fixed and all six threads are resolved; #631 awaits current-head CI and owner acceptance. Next.js browser clickthrough remains unverified.
+- Blocking findings remaining: no known local implementation blocker; current-head GitHub CI and owner/current-head gate decision are pending.
+- Review rounds used: 2 / 2; no third automated round requested.
 - Accepted risk or follow-up issue: UI decision-story work remains #610; athlete acceptance remains #367.
 - Merge owner final gate: human repository owner after GREEN evidence and accepted native review on the current head.
 - Post-merge sync/branch/worktree/progress cleanup: update #609 and the parent ExecPlan, sync Roadmap state, remove isolated worktree only after merge/read-back.
