@@ -420,7 +420,9 @@ Slice spec шага 0 лежит в `docs/issue_598_dashboard_metrics_anchor_sli
   contributor-safe `2835 passed, 16 skipped, 38 deselected`, Ruff, contract
   extraction/inventory, web lint и production build — зелёные. Browser
   clickthrough оставлен как явное ограничение: имеющийся acceptance launcher
-  покрывает Streamlit, не Next.js.
+  покрывает Streamlit, не Next.js. Draft PR #631 открыт и прикреплён к задаче;
+  merge не выполнялся. GitHub CI и независимое native review ожидают read-back,
+  owner acceptance не заявлена.
 
 - (2026-09-22) Второй milestone #609: после двух дополнительных RED-кейсов
   реализованы чистый `models/session_projection.py` и provider-free

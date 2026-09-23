@@ -1,9 +1,9 @@
 # Slice Spec: #609 Session-first plan/fact projection
 
-- Issue / PR: #609 / not opened yet
+- Issue / PR: #609 / draft #631
 - Author / checker / merge owner: Codex (Spec / Architecture Owner) / independent native reviewer / human repository owner
 - Date: 2026-09-23
-- Candidate head SHA: pending UI checkpoint
+- Candidate implementation checkpoint: `80948863b58a138751155c01d73f9895ec94c1de`
 
 ## Change Class
 
@@ -12,7 +12,7 @@
 - Automatic escalation triggers checked: public API/TypeScript contract; evidence identity; ambiguous and partial data; cross-surface reuse. No migration, destructive action, credential, or provider-write trigger applies.
 - Review budget used: 0 / 2 rounds
 - Review trigger mode: manual
-- Review acceptance head SHA: pending GREEN candidate
+- Review acceptance head SHA: pending independent native review
 - Review budget exception: N/A
 
 ## Scope
@@ -140,7 +140,7 @@ on top of its activities, and no window-level load is substituted for the day to
 | Multi-session day does not assign a sibling's load to this parent | `test_day_load_keeps_other_matched_session_separate` | added during GREEN self-review | `other_matched_tss` contains the sibling load and the de-duplicated day equation holds. |
 | Latest explicit correction wins | `test_latest_explicit_match_revision_wins_without_a_second_matcher` on real ledger revisions | missing service at RED | Confirm then unmatch revisions pass through canonical reconciliation; response names ids/revisions 1 and 2. |
 | Malformed legacy evidence fails closed | `test_malformed_legacy_numbers_fail_closed_without_losing_known_facts` | missing composer at RED | Known plan identity and actual facts survive; invalid planned values are null with stable reason codes. |
-| API/TS consumers share exact DTO | future API/types/cross-surface tests | N/A until server DTO is GREEN | OpenAPI + contract extractor + Today/Planning/Activity identity/totals equivalence. |
+| API/TS consumers share exact DTO | `test_planning_reconciliation_reuses_projection_composer_for_each_row`, `test_activity_detail_reuses_projection_for_matched_session`, `test_today_planning_and_activity_render_one_shared_projection_component` | API RED `5 failed`; consumer RED `3 failed` before implementation | API responses use the shared composer; all three consumers render the same identity and day-load buckets. |
 
 ## ASR / ADR Traceability
 
@@ -170,14 +170,14 @@ on top of its activities, and no window-level load is substituted for the day to
 
 ## Evidence Bundle
 
-- Head SHA: pending UI checkpoint
+- Candidate implementation checkpoint: `80948863b58a138751155c01d73f9895ec94c1de` (draft PR #631)
 - Changed invariants: one parent projection; partial brick remains incomplete; ambiguity needs confirmation; latest explicit revision wins through canonical reconciliation; malformed plan numbers fail closed; same-day load buckets reconcile without assigning sibling load to the target.
 - Focused and broad tests: projection `9 passed`; focused set `121 passed`; contributor-safe `2801 passed, 40 skipped, 38 deselected`; Ruff green.
-- CI checks/reruns/flakes: local only; CI not run because no PR exists. An initial contributor-safe run from the system worktree failed because that directory forbids relative SQLite writes; a second `/tmp` cwd removed SQLite failures but broke repository-relative file tests. The authoritative run used a complete temporary copy in `/private/tmp` and passed.
+- CI checks/reruns/flakes: local checks are green; GitHub CI status is pending read-back on draft PR #631. The first contributor-safe run had one harness-only failure because `python` was missing from PATH; the isolated reproduction passed with the repo venv in PATH, followed by a green full run.
 - Lifecycle/probe evidence: provider client configured to raise was untouched; repeated reads returned equal DTOs; tracked SQLite table snapshots were unchanged.
 - Changed contracts: additive provider-free API, OpenAPI path, mirrored TypeScript DTO, Planning/Activity envelopes, and shared Today/Planning/Activity rendering.
 - Unresolved review-thread count: N/A before PR/review.
-- Residual risks and follow-ups: explicit-cause source vocabulary needs validation against existing structured constraints; cross-surface rendering remains later delivery slice and #610 owns design.
+- Residual risks and follow-ups: isolated browser clickthrough remains unverified because the available acceptance launcher is Streamlit-only. #610 owns the fuller Today decision story; this slice adds only the shared plan/fact summary.
 
 ## Review Findings
 
@@ -195,8 +195,8 @@ on top of its activities, and no window-level load is substituted for the day to
 
 ## Final Verdict
 
-- Verdict: BLOCK for closing #609; READY for the bounded composer/service checkpoint.
-- Blocking findings remaining: additive API/TypeScript contract and shared Today/Planning/Activity consumption remain delivery slice 3.
+- Verdict: draft #631 is ready for native review; #609 is not ready to close before owner review/acceptance.
+- Blocking findings remaining: no implementation blocker is known; GitHub CI, native review, owner acceptance, and a Next.js browser clickthrough remain pending.
 - Review rounds used: 0
 - Accepted risk or follow-up issue: UI decision-story work remains #610; athlete acceptance remains #367.
 - Merge owner final gate: human repository owner after GREEN evidence and accepted native review on the current head.
