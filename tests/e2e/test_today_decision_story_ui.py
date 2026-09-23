@@ -122,6 +122,45 @@ def test_today_story_owns_compact_and_full_action_at_mobile_and_desktop(web_stac
             page.get_by_role("button", name="Развернуть брифинг").click()
             assert page.get_by_role("heading", name="Следующее действие").is_visible()
             assert not _has_horizontal_overflow(page), f"overflow compact/full при {width}px"
+
+            pending = {
+                "id": 42,
+                "date": payload["date"],
+                "action": "recovery_replan",
+                "status": "pending",
+                "params": {},
+                "preview": {},
+            }
+            blocked = deepcopy(conflict)
+            blocked["state"] = "conflict_actionable"
+            blocked["pending_proposal"] = pending
+            current["value"] = blocked
+            page.reload(wait_until="domcontentloaded")
+            page.get_by_role("heading", name="Следующее действие").wait_for(timeout=60_000)
+            assert page.get_by_text(
+                "Проверьте отмеченное самочувствие перед решением по сессии.",
+                exact=True,
+            ).is_visible()
+            assert page.get_by_text(
+                "Изменение попадёт в активный план только после подтверждения."
+            ).count() == 0
+
+            allowed = deepcopy(payload)
+            allowed["state"] = "conflict_actionable"
+            allowed["pending_proposal"] = pending
+            allowed["decision_story"]["next_action"].update(
+                kind="review_proposal",
+                summary="Рассмотрите предложение по корректировке.",
+                enabled=True,
+            )
+            current["value"] = allowed
+            page.reload(wait_until="domcontentloaded")
+            approval_notice = page.get_by_text(
+                "Изменение попадёт в активный план только после подтверждения."
+            )
+            approval_notice.wait_for(timeout=60_000)
+            assert approval_notice.is_visible()
+            assert not _has_horizontal_overflow(page), f"overflow proposal при {width}px"
             current["value"] = conflict
 
         assert not web_stack.js_errors, "Ошибки браузера:\n" + "\n".join(web_stack.js_errors)

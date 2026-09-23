@@ -219,7 +219,10 @@ export default function TodayPage() {
             </div>
           ) : null}
 
-          {(state === "conflict_actionable" || state === "conflict") && proposal ? (
+          {(state === "conflict_actionable" || state === "conflict") &&
+          proposal &&
+          decisionStory?.next_action.kind === "review_proposal" &&
+          decisionStory.next_action.enabled ? (
             <ProposalCard
               proposalId={proposal.id}
               action={proposal.action}
