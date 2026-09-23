@@ -51,6 +51,16 @@ def format_tool_result(tool_name: str, data: Any) -> str:
             evidence, ensure_ascii=False, indent=2, default=str,
         )
 
+    if tool_name == "get_pending_proposals":
+        evidence = {
+            key: data[key]
+            for key in ("computed_for", "count", "pending_proposals")
+            if key in data
+        }
+        return "## Активные предложения\n\n" + json.dumps(
+            evidence, ensure_ascii=False, indent=2, default=str,
+        )
+
     if tool_name == "get_performance_metrics":
         tsb_emoji = "🟢" if data["tsb"] > 5 else "🟡" if data["tsb"] > -10 else "🟠" if data["tsb"] > -25 else "🔴"
 

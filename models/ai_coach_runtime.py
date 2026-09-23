@@ -376,6 +376,8 @@ def _execute_tool_to_result(
 # system prompt mandates for a general state/briefing answer, plus the active
 # plan (race date and phase are the costliest things to get wrong).
 GROUNDING_TOOL_CALLS: tuple[tuple[str, Dict[str, Any]], ...] = (
+    ("get_readiness_today", {}),
+    ("get_pending_proposals", {}),
     ("get_performance_metrics", {}),
     ("analyze_hrv_trends", {}),
     ("analyze_training_status", {}),
@@ -501,6 +503,9 @@ def resolve_turn_tool_results(
             history_messages,
             tool_result_formatter,
         )
+        tool_results = _ensure_today_action_context(
+            ai_tools, tool_results, tool_result_formatter
+        )
         return {
             "native": True,
             "tool_results": tool_results,
@@ -517,11 +522,29 @@ def resolve_turn_tool_results(
     rendered_response, tool_results = collect_tool_results(
         raw, ai_tools, tool_result_formatter
     )
+    tool_results = _ensure_today_action_context(
+        ai_tools, tool_results, tool_result_formatter
+    )
     return {
         "native": False,
         "tool_results": tool_results,
         "rendered_response": rendered_response,
     }
+
+
+def _ensure_today_action_context(
+    ai_tools: Any,
+    tool_results: list[Dict[str, Any]],
+    tool_result_formatter: Callable[[str, Any], str],
+) -> list[Dict[str, Any]]:
+    """Keep shared Today action and pending-proposal evidence in tool-backed turns."""
+    if not tool_results:
+        return tool_results
+    present = {entry.get("tool_name") for entry in tool_results}
+    for name in ("get_readiness_today", "get_pending_proposals"):
+        if name not in present:
+            tool_results.append(_execute_tool_to_result(ai_tools, name, {}, tool_result_formatter))
+    return tool_results
 
 
 def collect_tool_results(

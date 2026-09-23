@@ -141,6 +141,7 @@ def build_today_decision_snapshot(
         readiness=snapshot,
         subjective_wellness=snapshot.get("subjective_wellness"),
         primary_action=primary_action,
+        expected_checkpoint_id=checkpoint.get("id") if checkpoint else None,
         rule_versions={
             "readiness": snapshot.get("rule_version"),
             "gate": report.get("rule_version"),
@@ -262,6 +263,7 @@ def build_today_decision_story_from_sources(
     readiness: Mapping[str, Any] | None,
     subjective_wellness: Mapping[str, Any] | None,
     primary_action: Mapping[str, Any] | None,
+    expected_checkpoint_id: Any = None,
     rule_versions: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Read the local session projection and compose the shared story.
@@ -280,6 +282,25 @@ def build_today_decision_story_from_sources(
             projection = {
                 "session_id": str(session_id),
                 "projection_status": "data_gap",
+                "fact": {"completion_status": "not_observed"},
+            }
+        actual_checkpoint_id = (projection.get("evidence_revision") or {}).get(
+            "planning_checkpoint_id"
+        ) if isinstance(projection, Mapping) else None
+        if (
+            expected_checkpoint_id is not None
+            and actual_checkpoint_id != expected_checkpoint_id
+        ):
+            # The projection path may observe a checkpoint created after the
+            # caller froze its plan/action context. Do not combine evidence
+            # from those two boundaries.
+            projection = {
+                "session_id": str(session_id),
+                "projection_status": "data_gap",
+                "evidence_revision": {
+                    "planning_checkpoint_id": actual_checkpoint_id,
+                    "as_of": as_of,
+                },
                 "fact": {"completion_status": "not_observed"},
             }
     versions = dict(rule_versions or {})

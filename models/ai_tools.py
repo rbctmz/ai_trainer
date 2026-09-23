@@ -124,6 +124,7 @@ class AITools:
         self.db = database
         self.hrv_analyzer = HRVAnalyzer()
         self.today_decision_story: Dict[str, Any] | None = None
+        self.today_decision_context: Dict[str, Any] | None = None
         
         # Регистрируем доступные инструменты
         self.tools = {
@@ -766,6 +767,26 @@ class AITools:
         """
         from services.subjective_wellness import build_subjective_wellness
 
+        context = getattr(self, "today_decision_context", None)
+        if isinstance(context, dict):
+            anchor = str(context.get("date") or "")[:10]
+            readiness = context.get("readiness")
+            story = context.get("story")
+            if (
+                len(anchor) == 10
+                and isinstance(readiness, dict)
+                and readiness.get("as_of_date") == anchor
+                and isinstance(story, dict)
+                and story.get("date") == anchor
+            ):
+                return {
+                    "success": True,
+                    "computed_for": anchor,
+                    "readiness": readiness,
+                    "subjective_wellness": readiness.get("subjective_wellness"),
+                    "decision_story": story,
+                }
+
         # Issue #577: the readiness anchor is the athlete calendar day, so this
         # tool and the canonical snapshot share one date around host midnight.
         today = athlete_local_date()
@@ -787,9 +808,6 @@ class AITools:
                 "message": f"Нет данных готовности: {exc}",
                 "subjective_wellness": subjective,
             }
-            today_story = getattr(self, "today_decision_story", None)
-            if today_story is not None:
-                result["decision_story"] = today_story
             return result
 
         snapshot = compute_readiness_today(
@@ -802,15 +820,9 @@ class AITools:
                 "subjective_wellness": subjective,
                 "message": "Недостаточно данных для расчёта готовности",
             }
-            today_story = getattr(self, "today_decision_story", None)
-            if today_story is not None:
-                result["decision_story"] = today_story
             return result
         result = {"success": True, "computed_for": today.isoformat(), "readiness": snapshot,
                   "subjective_wellness": subjective}
-        today_story = getattr(self, "today_decision_story", None)
-        if today_story is not None:
-            result["decision_story"] = today_story
         return result
 
     def get_pending_proposals(self) -> Dict[str, Any]:

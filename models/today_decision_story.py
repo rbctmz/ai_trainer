@@ -11,6 +11,14 @@ TODAY_DECISION_STORY_SCHEMA_VERSION = "today_decision_story_v1"
 _SESSION_STATES = {"matched", "partial", "needs_confirmation", "unmatched", "data_gap"}
 
 
+def _has_non_list(value: Any, key: str) -> bool:
+    return isinstance(value, Mapping) and key in value and not isinstance(value[key], list)
+
+
+def _list_value(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
 def compose_today_decision_story(
     *,
     as_of: str,
@@ -33,6 +41,11 @@ def compose_today_decision_story(
     wellness = _mapping(subjective_wellness)
     action = _mapping(primary_action)
     supplied_versions = _mapping(rule_versions)
+    malformed_evidence = (
+        _has_non_list(session.get("fact"), "actual_activity_ids")
+        or _has_non_list(session.get("fact"), "legs")
+        or _has_non_list(readiness_data, "eligible_inputs")
+    )
     versions = {
         "story": TODAY_DECISION_STORY_SCHEMA_VERSION,
         "readiness": supplied_versions.get("readiness"),
@@ -52,7 +65,21 @@ def compose_today_decision_story(
     action_kind = str(action.get("kind") or "inspect_evidence")
     action_reason = str(action.get("reason") or "Действие требует проверки доказательств.")
 
-    if session_status == "needs_confirmation":
+    if malformed_evidence:
+        session_status = "data_gap"
+        interpretation_status = "data_gap"
+        recommendation = {
+            "kind": "non_prescriptive_review",
+            "summary": "Недостаточно данных, чтобы объяснить план и факт.",
+        }
+        next_action = {
+            "kind": "inspect_evidence",
+            "summary": "Проверьте данные сессии и сопоставление.",
+            "enabled": True,
+            "changes_plan": False,
+            "clearance_claim": False,
+        }
+    elif session_status == "needs_confirmation":
         interpretation_status = "needs_confirmation"
         recommendation = {
             "kind": "confirm_match",
@@ -134,7 +161,7 @@ def compose_today_decision_story(
             ),
             "freshness": _readiness_freshness(readiness_data, anchor),
             "status": readiness_data.get("status") or "unknown",
-            "eligible_inputs": list(readiness_data.get("eligible_inputs") or []),
+            "eligible_inputs": _list_value(readiness_data.get("eligible_inputs")),
         },
         injury["evidence"],
     ]
@@ -148,9 +175,9 @@ def compose_today_decision_story(
             "completion_status": fact_source.get("completion_status") or "not_observed",
             "plan": deepcopy(plan),
             "actual": {
-                "activity_ids": list(fact_source.get("actual_activity_ids") or []),
+                "activity_ids": _list_value(fact_source.get("actual_activity_ids")),
                 "load_tss": _number(fact_source.get("load_tss")),
-                "legs": deepcopy(list(fact_source.get("legs") or [])),
+                "legs": deepcopy(_list_value(fact_source.get("legs"))),
                 "transition": deepcopy(fact_source.get("transition")),
             },
             "deviation": deepcopy(deviation),

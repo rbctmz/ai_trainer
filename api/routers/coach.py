@@ -49,7 +49,7 @@ from models.coach_narrative_evidence import (
 )
 from models.ai_tools import AITools
 from models.chat_manager import ChatManager
-from api.planning_service import get_active_plan
+from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.coach_tool_presenter import format_tool_result
 from services.agent_log import PROPOSAL_RESOLVED, record_agent_decision
 from services.intervals_plan_delivery import athlete_local_date
@@ -71,6 +71,13 @@ class ChatRenameRequest(BaseModel):
 
 def _sse(event: dict[str, Any]) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+def _load_coach_plan_boundary(db: Database) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Read one checkpoint and restore the plan from that exact boundary."""
+    checkpoint = _latest_checkpoint(db)
+    plan = restore_goal_plan_from_checkpoint(checkpoint) if checkpoint else None
+    return checkpoint, plan
 
 
 def _resolve_coach_today_action(
@@ -126,10 +133,9 @@ def coach_chat(
     history = chat_manager.get_chat_messages(chat_id)[:-1]
     ai_tools = AITools(db)
     load_metrics_context = _load_metrics_context(ai_tools)
-    goal_plan = get_active_plan(db)
     # Keep the same checkpoint boundary as the Today snapshot, which captures
     # the active plan before the recovery loop can create a new checkpoint.
-    today_checkpoint = _latest_checkpoint(db)
+    today_checkpoint, goal_plan = _load_coach_plan_boundary(db)
     latest_data_at = latest_iso_from_database(db)
     has_data = latest_data_at is not None
     readiness_snapshot = (
@@ -202,7 +208,15 @@ def coach_chat(
                 "readiness": readiness_snapshot.get("rule_version"),
                 "gate": readiness_conflicts.get("rule_version"),
             },
+            expected_checkpoint_id=today_checkpoint.get("id")
+            if today_checkpoint
+            else None,
         )
+        ai_tools.today_decision_context = {
+            "date": local_today.isoformat(),
+            "readiness": readiness_snapshot,
+            "story": ai_tools.today_decision_story,
+        }
 
     def stream() -> Iterator[str]:
         message_id = str(uuid.uuid4())[:8]

@@ -34,6 +34,27 @@ class _DummyProvider:
         return self.response
 
 
+class _NativeToolProvider:
+    def __init__(self):
+        self.round = 0
+
+    def supports_native_tools(self):
+        return True
+
+    def is_available(self):
+        return True
+
+    def generate_with_tools(self, _messages, _schemas, *, system_prompt):
+        assert system_prompt
+        self.round += 1
+        if self.round == 1:
+            return {
+                "text": "Проверю активный план.",
+                "tool_calls": [{"id": "call-1", "name": "get_active_plan", "arguments": {}}],
+            }
+        return {"text": "Ответ по плану.", "tool_calls": []}
+
+
 class _DummyContext:
     def __enter__(self):
         return self
@@ -506,8 +527,44 @@ def test_grounding_toolset_covers_mandated_briefing_minimum():
         "analyze_training_status",
         "get_upcoming_workouts",
         "get_active_plan",
+        "get_readiness_today",
+        "get_pending_proposals",
     ):
         assert mandated in grounding_names
+
+
+def test_native_plan_call_also_gets_today_story_and_pending_proposals():
+    story = {"date": "2026-09-23", "next_action": {"kind": "inspect_evidence"}}
+    responses = {
+        "get_active_plan": {"success": True, "result": {"name": "Plan"}},
+        "get_readiness_today": {
+            "success": True,
+            "result": {
+                "computed_for": "2026-09-23",
+                "decision_story": story,
+                "subjective_wellness": {"date": "2026-09-23"},
+            },
+        },
+        "get_pending_proposals": {
+            "success": True,
+            "result": {"computed_for": "2026-09-23", "pending_proposals": []},
+        },
+    }
+    ai_tools = _DummyAiTools(responses=responses)
+    turn = ai_coach_runtime.resolve_turn_tool_results(
+        provider=_NativeToolProvider(),
+        ai_tools=ai_tools,
+        user_input="Что делать сегодня?",
+        history_messages=[],
+        tool_result_formatter=lambda name, data: f"{name}:{data}",
+    )
+
+    names = [entry["tool_name"] for entry in turn["tool_results"]]
+    assert turn["native"] is True
+    assert names == ["get_active_plan", "get_readiness_today", "get_pending_proposals"]
+    readiness = turn["tool_results"][1]["raw_result"]
+    assert readiness["decision_story"] == story
+    assert readiness["subjective_wellness"]["date"] == "2026-09-23"
 
 
 def test_finalize_without_provider_keeps_previous_behavior():

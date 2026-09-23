@@ -1,6 +1,8 @@
 """Behavior contract for issue #610's server-owned decision story."""
 from __future__ import annotations
 
+import pytest
+
 def _compose(**kwargs):
     from models.today_decision_story import compose_today_decision_story
 
@@ -161,6 +163,35 @@ def test_today_story_separates_fact_interpretation_and_recommendation() -> None:
     assert {item["kind"] for item in story["evidence"]} >= {"session", "readiness"}
 
 
+@pytest.mark.parametrize(
+    ("location", "field"),
+    [
+        ("fact", "actual_activity_ids"),
+        ("fact", "legs"),
+        ("readiness", "eligible_inputs"),
+    ],
+)
+def test_malformed_list_dto_fails_closed_to_data_gap(location: str, field: str) -> None:
+    inputs = _inputs()
+    if location == "fact":
+        inputs["session_projection"]["fact"][field] = 7
+    else:
+        inputs["readiness"][field] = {"unexpected": "shape"}
+
+    story = _compose(**inputs)
+
+    assert story["fact"]["projection_status"] == "data_gap"
+    assert story["next_action"]["kind"] == "inspect_evidence"
+    assert story["next_action"]["changes_plan"] is False
+    if field == "actual_activity_ids":
+        assert story["fact"]["actual"]["activity_ids"] == []
+    elif field == "legs":
+        assert story["fact"]["actual"]["legs"] == []
+    else:
+        readiness = next(row for row in story["evidence"] if row["kind"] == "readiness")
+        assert readiness["eligible_inputs"] == []
+
+
 def test_current_injury_self_report_overrides_clearance_with_review_only() -> None:
     story = _compose(**_inputs(wellness=_wellness(injury=2)))
 
@@ -281,17 +312,71 @@ def test_coach_read_adapter_uses_shared_story_without_database_writes(tmp_path) 
     assert _table_snapshots(db) == before
 
 
+def test_projection_from_changed_checkpoint_fails_closed(monkeypatch) -> None:
+    from api import today_snapshot
+
+    monkeypatch.setattr(today_snapshot, "session_projection_at", lambda *a, **k: _session())
+    story = today_snapshot.build_today_decision_story_from_sources(
+        object(),  # type: ignore[arg-type]
+        as_of="2026-09-23",
+        session_id="session-1",
+        readiness=_readiness(),
+        subjective_wellness=_wellness(),
+        primary_action={"kind": "follow_plan", "enabled": True},
+        expected_checkpoint_id=6,
+    )
+
+    assert story["fact"]["projection_status"] == "data_gap"
+    assert story["fact"]["plan"] == {}
+    assert story["next_action"]["kind"] == "inspect_evidence"
+
+
+def test_coach_plan_and_checkpoint_share_one_read_boundary(monkeypatch) -> None:
+    from api.routers import coach
+
+    checkpoint = {"id": 31, "goal_plan": {"name": "frozen"}}
+    calls = []
+
+    def latest(_db):
+        calls.append("checkpoint")
+        return checkpoint
+
+    def restore(value):
+        calls.append(("restore", value["id"]))
+        return {"name": "frozen"}
+
+    monkeypatch.setattr(coach, "_latest_checkpoint", latest)
+    monkeypatch.setattr(coach, "restore_goal_plan_from_checkpoint", restore)
+    frozen_checkpoint, plan = coach._load_coach_plan_boundary(object())
+
+    assert frozen_checkpoint is checkpoint
+    assert plan == {"name": "frozen"}
+    assert calls == ["checkpoint", ("restore", 31)]
+
+
 def test_coach_readiness_tool_includes_the_same_story_when_attached(tmp_path) -> None:
-    from data.database import Database
     from models.coach_tool_presenter import format_tool_result
     from models.ai_tools import AITools
 
-    db = Database(str(tmp_path / "coach-story.db"))
-    tool = AITools(db)
-    expected = {"schema_version": "today_decision_story_v1", "next_action": {"kind": "follow_plan"}}
-    tool.today_decision_story = expected
+    tool = object.__new__(AITools)
+    wellness = _wellness(day="2026-09-23", injury=1)
+    readiness = {"as_of_date": "2026-09-23", "subjective_wellness": wellness}
+    expected = {
+        "schema_version": "today_decision_story_v1",
+        "date": "2026-09-23",
+        "next_action": {"kind": "follow_plan"},
+    }
+    tool.today_decision_context = {
+        "date": "2026-09-23",
+        "readiness": readiness,
+        "story": expected,
+    }
 
+    # Host/athlete time crossing midnight after the route captured its frozen
+    # context must not pair that story with a newly computed day.
     result = tool.get_readiness_today()
+    assert result["computed_for"] == "2026-09-23"
+    assert result["subjective_wellness"] == wellness
     assert result["decision_story"] == expected
     assert '"decision_story"' in format_tool_result("get_readiness_today", result)
     assert '"kind": "follow_plan"' in format_tool_result("get_readiness_today", result)
