@@ -1,18 +1,18 @@
 # Slice Spec: #610 Today decision story
 
-- Issue / PR: #610 / not opened
+- Issue / PR: #610 / #632 (draft)
 - Author / checker / merge owner: Codex (Spec / Architecture Owner) / independent reviewer / human repository owner
 - Date: 2026-09-23
-- Candidate head SHA: `440d1795b2313c7ea071e42565fdf3e630a2c58d` (base; no slice commit yet)
+- Review-fix code head SHA: `a428f533405df726b5eca6eef8ae639967d689eb` (pushed; CI pending)
 
 ## Change Class
 
 - Class: A
 - Rationale: this is the primary safety-sensitive composition of plan/fact, readiness, athlete-reported observations, and next action, with an additive API contract and web/Coach consumers.
 - Automatic escalation triggers checked: public API/TypeScript contract; safety-sensitive evidence; cross-surface consistency; accessibility/mobile states. No new persistence, provider write, migration, or external delivery is in scope.
-- Review budget used: 1 / 2 rounds
+- Review budget used: 2 / 2 rounds
 - Review trigger mode: manual
-- Review acceptance head SHA: owner delta read-back accepted on base `440d1795`; no further semantic review requested for the three test-evidence refinements
+- Review acceptance head SHA: owner delta read-back accepted on base `440d1795`; native review of `20694750cb48894fab6bda3aab67869f9b2c846f` produced five findings, fixed after that head; current-head acceptance pending
 - Review budget exception: N/A
 
 ## Scope
@@ -128,7 +128,8 @@
 - CI checks/reruns/flakes: `python -m ruff check --no-cache .`, `git diff --check`, `npm --prefix web run contract:extract -- --check`, `npm --prefix web run contract:inventory`, `npm --prefix web run lint`, and `npm --prefix web run build` passed. Isolated `tests/e2e/test_today_decision_story_ui.py` passed twice (`1 passed` each), including after the final Coach action/session resolver change. Web lint/build and Playwright wrote only ignored worktree artifacts and used temporary E2E databases.
 - Lifecycle/probe evidence: Coach read adapter's before/after table snapshots match for the tracked SQLite tables. A regression fixture with a pending proposal based on checkpoint 1 and active checkpoint 2 resolves to `inspect_evidence`, matching Today; `/api/today` continues its pre-existing recovery-loop writes and is not claimed read-only.
 - Changed contracts: additive `TodayResponse.decision_story: TodayDecisionStory`; `web/lib/types.ts` and generated `tests/contracts/ts_contract.json` updated. Coach `get_readiness_today` attaches the same composer DTO in the existing tool result.
-- Unresolved review-thread count: pending
+- Review-fix verification: `44 passed` across `test_today_decision_story.py`, `test_api_today.py`, and `test_coach_fresh_context.py` on the pushed code head. Web lint/build, the Today browser regression at 390/1280 px, and the existing web-stack E2E passed after the UI fix. Final Luna follow-up also passed 16 focused tests, Ruff, and `git diff --check`.
+- Unresolved review-thread count: 0 of 5; all five received written `fixed-in` replies and were resolved on GitHub after the code push.
 - Residual risks and follow-ups: no prescriptive symptom threshold beyond the explicit current injury response is introduced. Explicit screen-reader assertions and Today loading/empty/error/stale browser states remain unverified. Independent review and owner acceptance are pending. Existing `/api/today` continues its current recovery-loop write lifecycle; only the pure composer and Coach source adapter carry a no-write contract.
 
 ## Review Findings
@@ -146,13 +147,13 @@
 | Round | Reviewed head SHA | Trigger | Findings disposition | Stop / exception decision |
 | ---: | --- | --- | --- | --- |
 | 1 | Base `440d1795`, working-tree spec/RED before clarification | Manual independent read-only review supplied by owner | Four findings addressed; owner completed delta read-back and accepted the rule. Three further test-evidence refinements were incorporated without reopening semantics. | GREEN authorized; no further review round requested |
-| 2 | N/A | N/A | Not requested | Not started |
+| 2 | `20694750cb48894fab6bda3aab67869f9b2c846f` | Manual `@codex review` | Five findings: malformed list DTO, mixed Coach checkpoint, stale Coach readiness/story pairing, Today proposal action bypass, and missing fallback grounding. Fixes in `af53916`, `5651f20`, and `a428f53`; focused backend and browser regressions pass. | Full-diff budget exhausted; no further full-diff trigger |
 
 ## Final Verdict
 
 - Verdict: IN PROGRESS
-- Blocking findings remaining: independent review; explicit screen-reader and loading/empty/error/stale browser checks; human owner acceptance and merge.
-- Review rounds used: 1
+- Blocking findings remaining: current-head review acceptance, explicit screen-reader and loading/empty/error/stale browser checks, human owner acceptance and merge.
+- Review rounds used: 2
 - Accepted risk or follow-up issue: none accepted yet.
 - Merge owner final gate: human repository owner.
-- Post-merge sync/branch/worktree/progress cleanup: pending; no PR or merge created.
+- Post-merge sync/branch/worktree/progress cleanup: pending; draft PR #632 is open, no merge created.
