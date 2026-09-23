@@ -2,8 +2,8 @@
 
 - Issue / PR: #609 / not opened yet
 - Author / checker / merge owner: Codex (Spec / Architecture Owner) / independent native reviewer / human repository owner
-- Date: 2026-09-21
-- Candidate head SHA: GREEN checkpoint pending
+- Date: 2026-09-23
+- Candidate head SHA: pending UI checkpoint
 
 ## Change Class
 
@@ -34,8 +34,9 @@ The first delivery milestone in this branch is intentionally smaller: this spec 
 - [x] Required focused and broad checks are named.
 - [x] Merge and cleanup owner is the human repository owner; implementation does not authorize merge.
 - [x] Pure composer and provider-free service are GREEN.
-- [ ] Additive API/TypeScript contract is extracted and all three consumers use it without recomposition.
-- [ ] Focused, contributor-safe, Ruff, web lint/build, and isolated browser acceptance are green.
+- [x] Additive API/TypeScript contract is extracted and all three consumers use the shared projection without browser-side recomposition.
+- [x] Focused, contributor-safe, Ruff, web lint/build, and contract inventory checks are green.
+- [ ] Isolated browser clickthrough: the repository's `run_acceptance.sh` launches the legacy Streamlit surface, not the Next.js routes changed here; a web-specific isolated acceptance harness is not available in this worktree.
 
 ## Public Contracts
 
@@ -43,8 +44,8 @@ The first delivery milestone in this branch is intentionally smaller: this spec 
 | --- | --- | --- |
 | Python pure composer | changed compatibly | `build_session_projection(reconciliation, *, session_id, match_revision=None, feedback=None) -> dict[str, Any]`; new module and RED fixtures. |
 | Python read service | changed compatibly | `session_projection_at(db, *, session_id, as_of=None, weeks=1) -> dict[str, Any]`; always calls canonical `reconciliation_at(..., include_provider=False)` and performs no write. |
-| HTTP API | changed compatibly | Future additive `GET /api/planning/session-projection/{session_id}`; response mirrors the DTO below. OpenAPI/API tests plus contract extraction are required in GREEN. |
-| TypeScript | changed compatibly | Future additive `SessionProjection` mirror in `web/lib/types.ts`; `contract:extract -- --check` and API inventory must remain green. |
+| HTTP API | changed compatibly | Additive `GET /api/planning/session-projection/{session_id}`; Planning includes the same projection per reconciliation row, and Activity includes the proven session id plus projection when the active checkpoint can resolve it. OpenAPI/API tests plus contract extraction cover the route. |
+| TypeScript | changed compatibly | `SessionProjection` mirror in `web/lib/types.ts`; Today fetches by session id, while Planning and Activity consume the server projection. `contract:extract -- --check` and API inventory are green. |
 | SQLite schema/data | unchanged | Existing planning checkpoint, plan/actual ledger, feedback fact, and activities are read only. No migration, cursor, or new row. |
 | Provider/config/CLI | unchanged | No credentials, provider client, environment variable, or command is added. |
 | User-visible wording | unchanged in RED milestone | Final wording and layout remain #610/UI scope; stable machine statuses are introduced server-side first. |
@@ -161,19 +162,20 @@ on top of its activities, and no window-level load is substituted for the day to
    - Refactor/contract refresh: no API/types yet.
    - Verification: projection `9 passed`; focused reconciliation/feedback/activity/Today `121 passed`; contributor-safe `2801 passed, 40 skipped, 38 deselected`; full Ruff green. Additional projection cases were added during GREEN self-review for multi-session day load accounting and partial run-leg identity.
 3. Additive API/types + consumer reuse:
-   - RED: API/contract and cross-surface identity/totals tests.
-   - GREEN: additive route/types and minimal consumer wiring.
-   - Refactor/contract refresh: extract TypeScript contract; remove local recomposition only where replaced.
-   - Verification: focused suites, contributor-safe pytest, Ruff, contract check, web lint/build, isolated browser acceptance.
+   - RED: API route/errors/types and shared-consumer tests; API RED `5 failed`, then consumer RED `3 failed` at their respective checkpoints.
+   - GREEN: additive route and typed DTO; Planning composes from one provider-free snapshot, Activity carries identity from the immutable match, and Today/Planning/Activity render the shared summary component.
+   - Refactor/contract refresh: TypeScript contract extracted; dynamic API path explicitly declared in inventory; no matching or load composition in the browser.
+   - Verification: focused projection/API/consumer suites `60 passed`, then `117 passed` before UI GREEN; contributor-safe `2835 passed, 16 skipped, 38 deselected`; full Ruff green; contract extraction freshness and API inventory green; web lint and production build green. First broad pass had one harness-only failure (`python` missing from PATH); isolated reproduction was green with the repository venv added to PATH, then the complete pass succeeded.
+   - Browser acceptance remains outstanding: current acceptance launcher is Streamlit-only and does not exercise the Next.js pages. No claim of browser clickthrough is made.
 
 ## Evidence Bundle
 
-- Head SHA: pending GREEN checkpoint
+- Head SHA: pending UI checkpoint
 - Changed invariants: one parent projection; partial brick remains incomplete; ambiguity needs confirmation; latest explicit revision wins through canonical reconciliation; malformed plan numbers fail closed; same-day load buckets reconcile without assigning sibling load to the target.
 - Focused and broad tests: projection `9 passed`; focused set `121 passed`; contributor-safe `2801 passed, 40 skipped, 38 deselected`; Ruff green.
 - CI checks/reruns/flakes: local only; CI not run because no PR exists. An initial contributor-safe run from the system worktree failed because that directory forbids relative SQLite writes; a second `/tmp` cwd removed SQLite failures but broke repository-relative file tests. The authoritative run used a complete temporary copy in `/private/tmp` and passed.
 - Lifecycle/probe evidence: provider client configured to raise was untouched; repeated reads returned equal DTOs; tracked SQLite table snapshots were unchanged.
-- Changed contracts: additive Python composer and read service only; API/TypeScript remain deliberately unchanged.
+- Changed contracts: additive provider-free API, OpenAPI path, mirrored TypeScript DTO, Planning/Activity envelopes, and shared Today/Planning/Activity rendering.
 - Unresolved review-thread count: N/A before PR/review.
 - Residual risks and follow-ups: explicit-cause source vocabulary needs validation against existing structured constraints; cross-surface rendering remains later delivery slice and #610 owns design.
 

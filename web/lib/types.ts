@@ -189,6 +189,8 @@ export interface HrvSummary {
 // --- Activities ---
 export interface Activity {
   activity_id: string;
+  session_id?: string | null;
+  session_projection?: SessionProjection | null;
   date: string;
   date_label?: string;
   sport: string;
@@ -1445,6 +1447,7 @@ export interface ReconRow {
   actual_total_tss: number;
   actual_duration_minutes: number;
   composite_execution?: CompositeExecutionProjection | null;
+  session_projection?: SessionProjection | null;
 }
 
 export interface ReconResponse {

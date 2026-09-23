@@ -29,6 +29,7 @@ AI Trainer не выигрывает за счёт количества дашб
 - [ ] Слайс #609 (Class A): каноническая session-first проекция план/факт с эвиденс-обоснованной причиной отклонения.
   - [x] (2026-09-21 20:14Z) Первый ограниченный milestone: slice spec `docs/issue_609_session_first_projection_slice_spec.md` и пять RED-контрактов (single, brick, partial brick, ambiguous, provider-free/non-mutating read). Прогон: `5 failed` по ожидаемой причине — новые `models.session_projection` и `services.session_projection` ещё не реализованы. GREEN, API и UI сознательно не начаты до проверки границы.
   - [x] (2026-09-22 07:35Z) Второй milestone: добавлены RED для latest explicit revision и malformed legacy (`7 failed` по отсутствующим модулям), затем минимальные чистый composer и provider-free local service. GREEN после self-review: projection `9 passed`, focused `121 passed`, contributor-safe `2801 passed, 40 skipped, 38 deselected`, Ruff зелёный. API/TypeScript/UI не менялись.
+  - [x] (2026-09-23) Третий milestone: API/TS RED `5 failed` → GREEN; добавлен `GET /api/planning/session-projection/{session_id}`, typed DTO, OpenAPI/registry и Activity/Planning API reuse. Consumer RED `3 failed` → shared summary component подключён в Today, Planning и Activity. Contributor-safe `2835 passed, 16 skipped, 38 deselected`; Ruff, contract freshness/inventory, web lint и production build зелёные. Первый полный прогон выявил только harness-сбой `run_web.sh`: `python` отсутствовал в PATH. Отдельное воспроизведение и повторный полный прогон с venv в PATH прошли. Изолированный browser clickthrough не заявлен: текущий `run_acceptance.sh` запускает Streamlit, а слайс меняет Next.js.
 - [ ] Слайс #610: Today decision story — progressive disclosure для что/почему/доказательства/дальше.
 - [ ] Слайс #367: приёмка техническими атлетами; наблюдаемые провалы превращаются в ограниченные issues.
 - [x] (2026-09-20 08:45Z) Follow-up по окну readiness-фузии заведён как #616 без automation-контракта, чтобы не запускать автодиспетч (см. `Decision Log`). Приоритет и назначение — за владельцем.
@@ -412,6 +413,14 @@ Slice spec шага 0 лежит в `docs/issue_598_dashboard_metrics_anchor_sli
 Канонические зависимости, на которые опираются все слайсы: `models/readiness.py::LOAD_METRICS_WINDOW_DAYS` (окно метрик нагрузки, равно 90), `models/readiness.py::_tsb_metrics(activities_df, anchor)` (канонический расчёт CTL/ATL/TSB с якорем), `models/banister.py::tsb_zone(tsb)` (каноническая четырёхзонная классификация формы), `utils/athlete_time.athlete_local_date()` (календарный день атлета) и `services/readiness_snapshot.py::build_readiness_snapshot(db)` (канонический снимок готовности). Новых внешних библиотек этот план не вводит.
 
 ## Revision Notes
+
+- (2026-09-23) Третий milestone #609 завершён в изолированной ветке:
+  опубликованы API/TS и consumer checkpoints; Today, Planning и Activity теперь
+  используют один DTO с общей identity и bucket-итогами. Верификация:
+  contributor-safe `2835 passed, 16 skipped, 38 deselected`, Ruff, contract
+  extraction/inventory, web lint и production build — зелёные. Browser
+  clickthrough оставлен как явное ограничение: имеющийся acceptance launcher
+  покрывает Streamlit, не Next.js.
 
 - (2026-09-22) Второй milestone #609: после двух дополнительных RED-кейсов
   реализованы чистый `models/session_projection.py` и provider-free

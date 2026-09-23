@@ -16,6 +16,7 @@ import { PostWorkoutFeedbackCard } from "@/components/today/PostWorkoutFeedbackC
 import { AdherenceStrip } from "@/components/today/AdherenceStrip";
 import { SubjectiveWellnessCard } from "@/components/dashboard/SubjectiveWellnessCard";
 import { WorkoutStrip } from "@/components/WorkoutStrip";
+import { SessionProjectionSummary } from "@/components/session/SessionProjectionSummary";
 
 const STATE_META: Record<
   string,
@@ -120,6 +121,13 @@ export default function TodayPage() {
   const pendingMatch = data?.feedback?.prompts.find(
     (prompt) => prompt.state === "pending_match",
   );
+  const projectionSessionIds = session
+    ? session.sessions && session.sessions.length > 1
+      ? session.sessions.flatMap((leaf) => (leaf.session_id ? [leaf.session_id] : []))
+      : session.session_id
+        ? [session.session_id]
+        : []
+    : [];
 
   const frequency = data?.briefing?.frequency ?? "daily";
   // Only a `silence` day may collapse — is_quiet_day can also be true for a
@@ -356,6 +364,9 @@ export default function TodayPage() {
                   ) : (
                     <TodaySteps steps={session.steps || []} />
                   )}
+                  {projectionSessionIds.map((sessionId) => (
+                    <SessionProjectionSummary key={sessionId} sessionId={sessionId} />
+                  ))}
                 </div>
               ) : (
                 <p className="mt-1 text-sm text-ink-soft">
