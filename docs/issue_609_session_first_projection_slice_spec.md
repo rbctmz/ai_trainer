@@ -173,10 +173,10 @@ on top of its activities, and no window-level load is substituted for the day to
 - Candidate implementation checkpoint: `537ecf4d59a5e8ffd0ef16eb393a8ccde6ac1612` (PR #631)
 - Changed invariants: one parent projection; partial brick remains incomplete; ambiguity needs confirmation; latest explicit revision wins through canonical reconciliation; malformed plan numbers fail closed; same-day load buckets reconcile without assigning sibling load to the target.
 - Focused and broad tests: updated projection + API/UI contract tests `21 passed`; full Ruff green; Next.js lint and production build green. Contributor-safe run with an isolated temp `DATABASE_PATH`: `2829 passed, 18 skipped, 7 failed`; all seven failures are legacy tests that hardcode SQLite files in the read-only repository root. The changed projection, API/UI, and replacement-lineage tests passed.
-- CI checks/reruns/flakes: the pre-fix head's functional CI checks passed; its Review gate ran before the Codex review arrived. GitHub checks for fix head `537ecf4` are pending read-back.
+- CI checks/reruns/flakes: the pre-fix head's functional CI checks passed; its Review gate ran before the Codex review arrived. Fixes are pushed through `b95acd4`; current-head CI remains pending read-back.
 - Lifecycle/probe evidence: provider client configured to raise was untouched; repeated reads returned equal DTOs; tracked SQLite table snapshots were unchanged.
 - Changed contracts: additive provider-free API, OpenAPI path, mirrored TypeScript DTO, Planning/Activity envelopes, and shared Today/Planning/Activity rendering.
-- Unresolved review-thread count: four round-1 findings were fixed in `537ecf4`; replies/resolution are being applied before requesting a bounded delta review.
+- Unresolved review-thread count: 0. Four round-1 findings have written `fixed-in 537ecf4` replies and all four GitHub review threads are resolved; scoped delta review is the remaining reviewer step.
 - Residual risks and follow-ups: isolated browser clickthrough remains unverified because the available acceptance launcher is Streamlit-only. #610 owns the fuller Today decision story; this slice adds only the shared plan/fact summary.
 
 ## Review Findings
@@ -185,10 +185,10 @@ on top of its activities, and no window-level load is substituted for the day to
 | --- | --- | --- | --- |
 | P2 | GREEN self-review: the initial three-bucket day equation could not reconcile a second planned session. Falsified with a two-parent same-day fixture; `other_matched_tss` now keeps sibling load separate and the five-term identity is tested. | resolved before review | Codex / fixed locally |
 | P2 | GREEN self-review: `needs_confirmation` initially left local `data_quality` as sufficient. The ambiguous fixture now requires `data_gap/ambiguous_match`. | resolved before review | Codex / fixed locally |
-| P1 | Round 1 at `103e20a`: Today queried composite legs instead of the parent session. The Today consumer contract now pins parent identity and the page requests the parent projection once. | fixed in `537ecf4` | Codex / fixed-in pending |
-| P2 | Round 1 at `103e20a`: a valid negative transition delta was rejected by the non-negative numeric parser. Added finite signed-delta parsing and a faster-transition regression. | fixed in `537ecf4` | Codex / fixed-in pending |
-| P2 | Round 1 at `103e20a`: an inherited confirmed replacement match had no revision provenance in the projection. The service now uses the reconciliation replacement resolver and same local ledger evidence. | fixed in `537ecf4` | Codex / fixed-in pending |
-| P2 | Round 1 at `103e20a`: a timestamp-less partial leg lost its unique sport-to-planned-leg identity. Unique-sport mapping is now independent of chronology; ordering and transition claims remain withheld. | fixed in `537ecf4` | Codex / fixed-in pending |
+| P1 | Round 1 at `103e20a`: Today queried composite legs instead of the parent session. The Today consumer contract now pins parent identity and the page requests the parent projection once. | fixed in `537ecf4` | Codex / fixed-in; thread resolved |
+| P2 | Round 1 at `103e20a`: a valid negative transition delta was rejected by the non-negative numeric parser. Added finite signed-delta parsing and a faster-transition regression. | fixed in `537ecf4` | Codex / fixed-in; thread resolved |
+| P2 | Round 1 at `103e20a`: an inherited confirmed replacement match had no revision provenance in the projection. The service now uses the reconciliation replacement resolver and same local ledger evidence. | fixed in `537ecf4` | Codex / fixed-in; thread resolved |
+| P2 | Round 1 at `103e20a`: a timestamp-less partial leg lost its unique sport-to-planned-leg identity. Unique-sport mapping is now independent of chronology; ordering and transition claims remain withheld. | fixed in `537ecf4` | Codex / fixed-in; thread resolved |
 
 ## Native Review Rounds
 
@@ -199,7 +199,7 @@ on top of its activities, and no window-level load is substituted for the day to
 
 ## Final Verdict
 
-- Verdict: round-1 findings are fixed; #631 awaits post-fix CI, scoped delta review, owner acceptance, and Next.js browser clickthrough before #609 can close.
+- Verdict: round-1 findings are fixed and all four threads are resolved; #631 awaits current-head CI, scoped delta review, owner acceptance, and Next.js browser clickthrough before #609 can close.
 - Blocking findings remaining: no known local implementation blocker; current-head GitHub CI and delta review are pending.
 - Review rounds used: 1 / 2
 - Accepted risk or follow-up issue: UI decision-story work remains #610; athlete acceptance remains #367.
