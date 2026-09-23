@@ -6,6 +6,10 @@ from typing import Any, Mapping
 
 from data.database import Database
 from models.session_projection import build_session_projection
+from models.plan_actual_reconciliation import (
+    iter_parent_sessions,
+    resolve_confirmed_replacement_ledger,
+)
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.session_identity import ensure_session_identities
 from services.reconciliation import reconciliation_at
@@ -79,13 +83,82 @@ def session_projection_from_reconciliation(
     session_id: str,
 ) -> dict[str, Any]:
     """Compose one DTO from an already-bounded local reconciliation snapshot."""
-    match_revision = db.get_latest_plan_actual_match_for_session(session_id)
+    match_revision = _effective_match_revision(db, session_id)
     feedback = db.get_latest_session_feedback(session_id)
     return build_session_projection(
         reconciliation,
         session_id=session_id,
         match_revision=match_revision,
         feedback=feedback,
+    )
+
+
+def _effective_match_revision(
+    db: Database,
+    session_id: str,
+) -> Mapping[str, Any] | None:
+    """Return the match revision reconciliation uses for this active session.
+
+    Reconciliation may inherit an explicit confirmation from a uniquely
+    claimed replacement predecessor. Preserve that same ledger provenance in
+    the projection instead of looking up only the replacement's new ID.
+    """
+    current = db.get_latest_plan_actual_match_for_session(session_id)
+    if current is not None:
+        return current
+
+    checkpoint = db.get_latest_planning_checkpoint()
+    plan = restore_goal_plan_from_checkpoint(checkpoint)
+    if not plan:
+        return None
+    parent_sessions = iter_parent_sessions(plan.get("session_templates") or [])
+    current_entry = next(
+        (
+            entry
+            for entry in parent_sessions
+            if str(entry["session"].get("session_id") or "").strip()
+            == session_id
+        ),
+        None,
+    )
+    if current_entry is None:
+        return None
+
+    session_date = str(current_entry.get("date") or "")[:10]
+    if not session_date:
+        return None
+    ledger_rows = db.get_latest_plan_actual_matches(
+        start_date=session_date,
+        end_date=session_date,
+    )
+    latest_ledger = {
+        str(row.get("target_key")): row
+        for row in ledger_rows or []
+        if isinstance(row, Mapping) and row.get("target_key")
+    }
+    current_session_ids = {
+        str(entry["session"].get("session_id") or "").strip()
+        for entry in parent_sessions
+        if str(entry["session"].get("session_id") or "").strip()
+    }
+    replacement_claim_counts: dict[str, int] = {}
+    for entry in parent_sessions:
+        predecessor_id = str(
+            entry["session"].get("replaces_session_id") or ""
+        ).strip()
+        if predecessor_id:
+            replacement_claim_counts[predecessor_id] = (
+                replacement_claim_counts.get(predecessor_id, 0) + 1
+            )
+
+    session = current_entry["session"]
+    predecessor_id = str(session.get("replaces_session_id") or "").strip()
+    return resolve_confirmed_replacement_ledger(
+        {"date": session_date, "sport": session.get("sport")},
+        latest_ledger,
+        predecessor_id=predecessor_id,
+        current_session_ids=current_session_ids,
+        replacement_claim_counts=replacement_claim_counts,
     )
 
 

@@ -341,6 +341,42 @@ def test_partial_run_leg_keeps_second_planned_identity() -> None:
     ]
 
 
+def test_partial_brick_maps_unique_sport_even_when_start_time_is_missing() -> None:
+    bike = _activity("brick-bike", "bike", 55.0, 70.0, "")
+    result = _build_projection(
+        _reconciliation(
+            _brick_row(activities=[bike], match_status="ambiguous"),
+        ),
+        session_id="ats_brick",
+    )
+
+    assert result["projection_status"] == "partial"
+    assert result["fact"]["legs"][0]["planned_leg_id"] == "ats_brick:1"
+    assert result["fact"]["legs"][0]["leg_index"] == 1
+    assert result["fact"]["transition"] == {"actual_minutes": None}
+    assert result["deviation"]["structure_match"] is None
+
+
+def test_faster_than_planned_transition_keeps_negative_delta() -> None:
+    bike = _activity(
+        "brick-bike", "bike", 55.0, 70.0, "2026-07-08T08:00:00Z"
+    )
+    run = _activity(
+        "brick-run", "run", 18.0, 30.0, "2026-07-08T09:14:00Z"
+    )
+    row = _brick_row(activities=[bike, run], match_status="matched")
+    row["composite_execution"]["actual_transition_minutes"] = 4.0
+    row["composite_execution"]["transition_delta_minutes"] = -1.0
+
+    result = _build_projection(
+        _reconciliation(row),
+        session_id="ats_brick",
+    )
+
+    assert result["fact"]["transition"] == {"actual_minutes": 4.0}
+    assert result["deviation"]["transition_delta_minutes"] == -1.0
+
+
 def test_ambiguous_match_needs_confirmation_without_cause_or_completion() -> None:
     row = deepcopy(_single_row())
     candidates = [
@@ -531,6 +567,66 @@ def test_latest_explicit_match_revision_wins_without_a_second_matcher(tmp_path) 
     assert rejected["confidence"]["match_method"] == "user_unmatched"
     assert rejected["evidence_revision"]["match_revision_id"] == unmatched["id"]
     assert rejected["evidence_revision"]["match_revision"] == 2
+
+
+def test_projection_reports_inherited_confirmed_predecessor_revision(tmp_path) -> None:
+    from data.database import Database
+    from models.planning_checkpoints import build_planning_checkpoint
+    from models.session_identity import ensure_session_identities
+    from services.session_projection import session_projection_at
+    from tests.smoke.test_issue_529_match_handoff import (
+        DAY_ISO,
+        _activity as _replacement_activity,
+        _confirmed_ledger,
+        _plan,
+        _session,
+    )
+
+    original = _plan(_session("bike", "quality", 60.0))
+    predecessor_id = original["session_templates"][0]["sessions"][0]["session_id"]
+    replacement = deepcopy(original)
+    replacement["daily_plan"][0] = (
+        replacement["daily_plan"][0][0],
+        45.0,
+        {"bike": 45.0, "run": 0.0, "swim": 0.0},
+    )
+    replacement["session_templates"][0]["sessions"][0]["total_tss"] = 45.0
+    replacement["session_templates"][0]["sessions"][0]["duration_minutes"] = 45
+    replacement["session_templates"][0]["duration_minutes"] = 45
+    replacement["weekly_summary"][0].update({"weekly_tss": 45, "bike": 45.0})
+    replacement["weekly_tss_plan"] = [45]
+    current = ensure_session_identities(replacement, previous_goal_plan=original)
+    current_session = current["session_templates"][0]["sessions"][0]
+    current_id = current_session["session_id"]
+    assert current_id != predecessor_id
+    assert current_session["replaces_session_id"] == predecessor_id
+
+    db = Database(str(tmp_path / "replacement-projection.db"))
+    original_checkpoint = db.save_planning_checkpoint(
+        build_planning_checkpoint(original)
+    )
+    db.save_activities([_replacement_activity()])
+    confirmed = db.save_plan_actual_match(
+        {
+            **_confirmed_ledger(predecessor_id),
+            "base_checkpoint_id": int(original_checkpoint["id"]),
+        }
+    )
+    db.save_planning_checkpoint(build_planning_checkpoint(current))
+
+    projection = session_projection_at(
+        db,
+        session_id=current_id,
+        as_of=DAY_ISO,
+        weeks=1,
+    )
+
+    assert projection["projection_status"] == "matched"
+    assert projection["confidence"]["match_method"] == "user_confirmed"
+    assert projection["fact"]["actual_activity_ids"] == [
+        "issue-529-bike-actual"
+    ]
+    assert projection["evidence_revision"]["match_revision_id"] == confirmed["id"]
 
 
 def test_malformed_legacy_numbers_fail_closed_without_losing_known_facts() -> None:

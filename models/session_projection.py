@@ -30,6 +30,19 @@ def _number(value: Any) -> float | None:
     return round(number, 1)
 
 
+def _signed_number(value: Any) -> float | None:
+    """Parse a finite numeric delta without discarding valid negative values."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return round(number, 1)
+
+
 def _integer(value: Any) -> int | None:
     number = _number(value)
     if number is None or not number.is_integer():
@@ -159,7 +172,7 @@ def _fact_legs(
             # Equal cardinality makes position the evidence. A sport mismatch
             # is a structural deviation, not a reason to erase the planned leg.
             planned = plan_legs[position]
-        elif ordered:
+        else:
             sport_candidates = [
                 leg
                 for leg in plan_legs
@@ -330,7 +343,9 @@ def build_session_projection(
         else {}
     )
     actual_transition = _number(composite.get("actual_transition_minutes"))
-    transition_delta = _number(composite.get("transition_delta_minutes"))
+    transition_delta = _signed_number(
+        composite.get("transition_delta_minutes")
+    )
     structure_match = composite.get("structure_match")
     if status == "partial":
         structure_match = None
