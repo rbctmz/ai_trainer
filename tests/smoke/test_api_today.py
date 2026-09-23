@@ -225,6 +225,8 @@ def test_today_empty_db_is_no_plan(tmp_path) -> None:
     assert payload["state"] == "no_plan"
     assert payload["snapshot_version"] == "today_decision_snapshot_v2"
     assert payload["primary_action"]["kind"] == "open_planning"
+    assert payload["decision_story"]["next_action"]["kind"] == "open_planning"
+    assert payload["decision_story"]["schema_version"] == "today_decision_story_v1"
     assert payload["proposal"]["relation"] == "none"
     assert payload["forecast"]["affects_decision"] is False
     assert payload["pending_proposal"] is None

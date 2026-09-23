@@ -21,6 +21,8 @@ from models.planning_checkpoints import (
     summarize_checkpoint_provenance,
 )
 from models.readiness_conflicts import ROLE_LABELS_RU
+from models.today_decision_story import compose_today_decision_story
+from services.session_projection import session_projection_at
 
 TODAY_SNAPSHOT_VERSION = "today_decision_snapshot_v2"
 
@@ -132,6 +134,18 @@ def build_today_decision_snapshot(
         readiness_error=readiness_error,
     )
     gate = _project_gate(loop_result, report)
+    decision_story = build_today_decision_story_from_sources(
+        db,
+        as_of=as_of,
+        session_id=(session or {}).get("session_id"),
+        readiness=snapshot,
+        subjective_wellness=snapshot.get("subjective_wellness"),
+        primary_action=primary_action,
+        rule_versions={
+            "readiness": snapshot.get("rule_version"),
+            "gate": report.get("rule_version"),
+        },
+    )
 
     has_data = checkpoint is not None or readiness is not None
     checkpoint_provenance = summarize_checkpoint_provenance(checkpoint)
@@ -151,6 +165,7 @@ def build_today_decision_snapshot(
         "state": state,
         "reason": reason,
         "primary_action": primary_action,
+        "decision_story": decision_story,
         "readiness": readiness,
         "readiness_source": "canonical_snapshot",
         "subjective_wellness": snapshot.get("subjective_wellness"),
@@ -237,6 +252,52 @@ def _feedback_block(
             "primary": None,
             "metrics": {},
         }
+
+
+def build_today_decision_story_from_sources(
+    db: Database,
+    *,
+    as_of: str,
+    session_id: Any,
+    readiness: Mapping[str, Any] | None,
+    subjective_wellness: Mapping[str, Any] | None,
+    primary_action: Mapping[str, Any] | None,
+    rule_versions: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Read the local session projection and compose the shared story.
+
+    This adapter is provider-free and read-only. It does not run the recovery
+    loop; callers remain responsible for supplying the action already chosen
+    by their own lifecycle.
+    """
+    projection = None
+    if session_id:
+        try:
+            projection = session_projection_at(
+                db, session_id=str(session_id), as_of=as_of, weeks=1
+            )
+        except Exception:
+            projection = {
+                "session_id": str(session_id),
+                "projection_status": "data_gap",
+                "fact": {"completion_status": "not_observed"},
+            }
+    versions = dict(rule_versions or {})
+    versions["story"] = "today_decision_story_v1"
+    evidence_revision = (projection or {}).get("evidence_revision")
+    versions["session"] = (
+        evidence_revision.get("reconciliation_rule_version")
+        if isinstance(evidence_revision, Mapping)
+        else None
+    )
+    return compose_today_decision_story(
+        as_of=as_of,
+        session_projection=projection,
+        readiness=readiness,
+        subjective_wellness=subjective_wellness,
+        primary_action=primary_action,
+        rule_versions=versions,
+    )
 
 
 def _latest_checkpoint(db: Database) -> dict[str, Any] | None:
@@ -911,6 +972,7 @@ def _compact_steps(value: Any) -> list[dict[str, Any]]:
 
 __all__ = [
     "TODAY_SNAPSHOT_VERSION",
+    "build_today_decision_story_from_sources",
     "build_coach_session_evidence",
     "build_today_decision_snapshot",
 ]

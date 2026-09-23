@@ -43,7 +43,7 @@ def format_tool_result(tool_name: str, data: Any) -> str:
             key: data[key]
             for key in (
                 "computed_for", "measured_status", "message", "readiness",
-                "subjective_wellness",
+                "subjective_wellness", "decision_story",
             )
             if key in data
         }

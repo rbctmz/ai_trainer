@@ -123,6 +123,7 @@ class AITools:
     def __init__(self, database: Database):
         self.db = database
         self.hrv_analyzer = HRVAnalyzer()
+        self.today_decision_story: Dict[str, Any] | None = None
         
         # Регистрируем доступные инструменты
         self.tools = {
@@ -780,25 +781,37 @@ class AITools:
                 self.db.get_activities(COACH_LOAD_METRICS_WINDOW_DAYS), today
             )
         except Exception as exc:
-            return {
+            result = {
                 "success": True, "computed_for": today.isoformat(),
                 "measured_status": "unavailable",
                 "message": f"Нет данных готовности: {exc}",
                 "subjective_wellness": subjective,
             }
+            today_story = getattr(self, "today_decision_story", None)
+            if today_story is not None:
+                result["decision_story"] = today_story
+            return result
 
         snapshot = compute_readiness_today(
             sleep_df, hrv_df, health_df, training_df, activities_df, today=today
         )
         if not snapshot:
-            return {
+            result = {
                 "success": True,
                 "computed_for": today.isoformat(),
                 "subjective_wellness": subjective,
                 "message": "Недостаточно данных для расчёта готовности",
             }
-        return {"success": True, "computed_for": today.isoformat(), "readiness": snapshot,
-                "subjective_wellness": subjective}
+            today_story = getattr(self, "today_decision_story", None)
+            if today_story is not None:
+                result["decision_story"] = today_story
+            return result
+        result = {"success": True, "computed_for": today.isoformat(), "readiness": snapshot,
+                  "subjective_wellness": subjective}
+        today_story = getattr(self, "today_decision_story", None)
+        if today_story is not None:
+            result["decision_story"] = today_story
+        return result
 
     def get_pending_proposals(self) -> Dict[str, Any]:
         """Активные предложения контура (pending) — recovery replan и правки плана.

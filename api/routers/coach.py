@@ -5,7 +5,7 @@ import json
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, Mapping, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -17,7 +17,14 @@ from api.operational_state import build_operational_state, latest_iso_from_datab
 from api.readiness_conflicts import build_readiness_conflict_report
 from api.readiness_snapshot import build_readiness_snapshot
 from api.recovery_replan_loop import run_recovery_replan_loop
-from api.today_snapshot import build_coach_session_evidence
+from api.today_snapshot import (
+    _day_session,
+    _latest_checkpoint,
+    _resolve_proposal,
+    _resolve_state,
+    build_coach_session_evidence,
+    build_today_decision_story_from_sources,
+)
 from config.settings import Settings
 from data.database import Database
 from models.ai_coach_runtime import (
@@ -66,6 +73,24 @@ def _sse(event: dict[str, Any]) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
+def _resolve_coach_today_action(
+    db: Database,
+    *,
+    checkpoint: Mapping[str, Any] | None,
+    loop_result: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Resolve Coach's story action through the canonical Today proposal gate."""
+    proposal = _resolve_proposal(db, loop_result, checkpoint)
+    _state, _reason, action = _resolve_state(
+        checkpoint=checkpoint,
+        report=loop_result.get("readiness_conflicts") or {},
+        outcome=loop_result.get("outcome"),
+        proposal=proposal,
+        readiness_error=None,
+    )
+    return action
+
+
 def _chat_manager() -> ChatManager:
     # Honors Settings.CHATS_DIR, so acceptance/demo isolation keeps working.
     return ChatManager()
@@ -102,6 +127,9 @@ def coach_chat(
     ai_tools = AITools(db)
     load_metrics_context = _load_metrics_context(ai_tools)
     goal_plan = get_active_plan(db)
+    # Keep the same checkpoint boundary as the Today snapshot, which captures
+    # the active plan before the recovery loop can create a new checkpoint.
+    today_checkpoint = _latest_checkpoint(db)
     latest_data_at = latest_iso_from_database(db)
     has_data = latest_data_at is not None
     readiness_snapshot = (
@@ -151,6 +179,30 @@ def coach_chat(
             "proposal_gap": str(exc),
             "readiness_conflicts": readiness_conflicts,
         }
+
+    if local_today is not None:
+        today_action = _resolve_coach_today_action(
+            db,
+            checkpoint=today_checkpoint,
+            loop_result=recovery_replan,
+        )
+        today_session = _day_session(
+            readiness_conflicts,
+            goal_plan,
+            local_today.isoformat(),
+        )
+        ai_tools.today_decision_story = build_today_decision_story_from_sources(
+            db,
+            as_of=local_today.isoformat(),
+            session_id=(today_session or {}).get("session_id"),
+            readiness=readiness_snapshot,
+            subjective_wellness=readiness_snapshot.get("subjective_wellness"),
+            primary_action=today_action,
+            rule_versions={
+                "readiness": readiness_snapshot.get("rule_version"),
+                "gate": readiness_conflicts.get("rule_version"),
+            },
+        )
 
     def stream() -> Iterator[str]:
         message_id = str(uuid.uuid4())[:8]

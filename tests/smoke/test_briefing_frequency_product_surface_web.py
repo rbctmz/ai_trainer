@@ -51,11 +51,12 @@ def test_today_page_computes_compact_day_conservatively_off_existing_state() -> 
     assert 'state === "silence"' in source
 
 
-def test_today_page_renders_compact_summary_line_with_reload_free_expand() -> None:
+def test_today_compact_view_uses_server_story_action_with_reload_free_expand() -> None:
     source = _source("web/app/today/page.tsx")
 
-    assert "План в силе" in source
-    assert "Развернуть брифинг" in source
+    assert "TodayDecisionStoryCompact" in source
+    assert "nextAction={decisionStory.next_action}" in source
+    assert "onExpand={() => setExpanded(true)}" in source
     assert "setExpanded(true)" in source
     assert "useState(false)" in source
 
