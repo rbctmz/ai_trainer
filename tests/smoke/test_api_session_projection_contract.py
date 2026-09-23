@@ -200,7 +200,9 @@ def test_today_planning_and_activity_render_one_shared_projection_component() ->
     assert "projection.load.matched_tss" in component
     assert "projection.load.day_total_tss" in component
     assert "<SessionProjectionSummary" in today
-    assert "session?.session_id ? [session.session_id] : []" in today
+    assert "session?.sessions !== undefined" in today
+    assert ".map((leaf) => leaf.group_id ?? leaf.session_id)" in today
+    assert "new Set(" in today
     assert "session.sessions.flatMap" not in today
     assert "<SessionProjectionSummary" in planning
     assert "<SessionProjectionSummary" in activities

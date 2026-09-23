@@ -121,7 +121,17 @@ export default function TodayPage() {
   const pendingMatch = data?.feedback?.prompts.find(
     (prompt) => prompt.state === "pending_match",
   );
-  const projectionSessionIds = session?.session_id ? [session.session_id] : [];
+  const projectionSessionIds = session?.sessions !== undefined
+    ? Array.from(
+        new Set(
+          session.sessions
+            .map((leaf) => leaf.group_id ?? leaf.session_id)
+            .filter((sessionId): sessionId is string => Boolean(sessionId)),
+        ),
+      )
+    : session?.session_id
+      ? [session.session_id]
+      : [];
 
   const frequency = data?.briefing?.frequency ?? "daily";
   // Only a `silence` day may collapse — is_quiet_day can also be true for a

@@ -357,6 +357,31 @@ def test_partial_brick_maps_unique_sport_even_when_start_time_is_missing() -> No
     assert result["deviation"]["structure_match"] is None
 
 
+def test_duplicate_timestamp_less_sport_facts_claim_a_planned_leg_once() -> None:
+    bike_one = _activity("brick-bike-1", "bike", 42.0, 55.0, "")
+    bike_two = _activity("brick-bike-2", "bike", 13.0, 15.0, "")
+    result = _build_projection(
+        _reconciliation(
+            _brick_row(
+                activities=[bike_one, bike_two],
+                match_status="matched",
+            ),
+        ),
+        session_id="ats_brick",
+    )
+
+    mapped_leg_ids = [
+        leg["planned_leg_id"]
+        for leg in result["fact"]["legs"]
+        if leg["planned_leg_id"] is not None
+    ]
+    assert mapped_leg_ids == ["ats_brick:1"]
+    assert result["projection_status"] == "partial"
+    assert result["fact"]["completion_status"] == "incomplete"
+    assert "actual_leg_mapping_unproven" in result["data_quality"]["reasons"]
+    assert "missing_planned_leg" in result["data_quality"]["reasons"]
+
+
 def test_faster_than_planned_transition_keeps_negative_delta() -> None:
     bike = _activity(
         "brick-bike", "bike", 55.0, 70.0, "2026-07-08T08:00:00Z"

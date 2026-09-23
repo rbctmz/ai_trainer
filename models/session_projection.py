@@ -165,6 +165,7 @@ def _fact_legs(
         reasons.append("actual_leg_order_unproven")
     projected: list[dict[str, Any]] = []
     complete_cardinality = len(activities) == len(plan_legs)
+    claimed_leg_indexes: set[int] = set()
     for position, activity in enumerate(activities):
         activity_sport = str(activity.get("sport") or "")
         planned: Mapping[str, Any] | None = None
@@ -178,10 +179,15 @@ def _fact_legs(
                 for leg in plan_legs
                 if str(leg.get("sport") or "") == activity_sport
             ]
-            if len(sport_candidates) == 1:
+            if (
+                len(sport_candidates) == 1
+                and int(sport_candidates[0]["leg_index"]) not in claimed_leg_indexes
+            ):
                 planned = sport_candidates[0]
             else:
                 reasons.append("actual_leg_mapping_unproven")
+        if planned is not None:
+            claimed_leg_indexes.add(int(planned["leg_index"]))
         projected.append(
             {
                 "planned_leg_id": planned.get("leg_id") if planned else None,
@@ -303,6 +309,12 @@ def build_session_projection(
         reasons.append("invalid_planned_load")
     legs = _plan_legs(row, target, reasons)
     fact_legs, _fact_ordered = _fact_legs(row, legs, reasons)
+    mapped_fact_leg_indexes = {
+        int(fact_leg["leg_index"])
+        for fact_leg in fact_legs
+        if fact_leg.get("planned_leg_id") is not None
+        and fact_leg.get("leg_index") is not None
+    }
     critical_gap = any(
         reason
         in {
@@ -317,7 +329,7 @@ def build_session_projection(
     status = _projection_status(
         row,
         plan_leg_count=len(legs),
-        fact_leg_count=len(fact_legs),
+        fact_leg_count=len(mapped_fact_leg_indexes),
         critical_gap=critical_gap,
     )
     if status == "partial" and "missing_planned_leg" not in reasons:
