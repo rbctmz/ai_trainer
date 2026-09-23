@@ -156,6 +156,93 @@ def test_planning_reconciliation_reuses_projection_composer_for_each_row(
     ]
 
 
+def test_planning_reconciliation_keeps_provider_rows_separate_from_local_projection(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from api.routers.planning import planning_reconciliation
+    from tests.smoke.test_api_planning import _reconciliation_db
+
+    db, _plan = _reconciliation_db(tmp_path)
+    db.save_activities(
+        [
+            {
+                "activity_id": "second-bike-2026-07-07",
+                "date": "2026-07-07",
+                "sport": "cycling",
+                "duration_minutes": 45,
+                "tss": 35.0,
+            }
+        ]
+    )
+    session_id = next(
+        template["sessions"][0]["session_id"]
+        for template in _plan["session_templates"]
+        if template["date"] == "2026-07-07"
+    )
+
+    from services import reconciliation as reconciliation_service
+
+    def provider_evidence(_start, _end, *, include_provider):
+        if not include_provider:
+            return [], [], {"status": "disabled"}
+        return (
+            [
+                {
+                    "id": "icu-activity-1",
+                    "external_id": "actual-2026-07-07",
+                    "paired_event_id": "icu-event-1",
+                    "start_date_local": "2026-07-07T09:00:00",
+                    "type": "Ride",
+                }
+            ],
+            [
+                {
+                    "id": "icu-event-1",
+                    "external_id": f"ai_trainer:{session_id}",
+                    "category": "WORKOUT",
+                    "start_date_local": "2026-07-07T07:00:00",
+                    "type": "Ride",
+                }
+            ],
+            {"status": "available"},
+        )
+
+    monkeypatch.setattr(
+        reconciliation_service,
+        "_provider_reconciliation_evidence",
+        provider_evidence,
+    )
+
+    provider_result = planning_reconciliation(
+        weeks=1,
+        as_of="2026-07-07",
+        include_provider=True,
+        db=db,
+    )
+    provider_row = next(
+        row for row in provider_result["rows"] if row["session_id"] == session_id
+    )
+
+    assert provider_row["match_status"] == "matched"
+    assert provider_row["match_method"] == "ai_trainer_external_id"
+    assert provider_row["actual_activity_ids"] == ["actual-2026-07-07"]
+    assert "session_projection" not in provider_row
+
+    local_result = planning_reconciliation(
+        weeks=1,
+        as_of="2026-07-07",
+        include_provider=False,
+        db=db,
+    )
+    local_row = next(
+        row for row in local_result["rows"] if row["session_id"] == session_id
+    )
+
+    assert local_row["match_status"] == "ambiguous"
+    assert local_row["session_projection"]["projection_status"] == "needs_confirmation"
+
+
 def test_activity_detail_reuses_projection_for_matched_session(tmp_path, monkeypatch) -> None:
     from api.routers import activities as activities_router
     from tests.smoke.test_plan_intervals import _seed_plan_actual_match_for_activity

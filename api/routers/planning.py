@@ -488,23 +488,19 @@ def planning_reconciliation(
             as_of=as_of,
             include_provider=include_provider,
         )
-        local = (
-            result
-            if include_provider is False
-            else planning_service.reconciliation_at(
-                db,
-                weeks=weeks,
-                as_of=as_of,
-                include_provider=False,
-            )
-        )
+        if include_provider:
+            # The embedded projection is canonical and provider-free. Keep
+            # provider-enriched reconciliation rows intact without attaching
+            # a projection composed from a different matching snapshot.
+            return result
+
         projections = {
             str(row.get("session_id") or ""): session_projection_service.session_projection_from_reconciliation(
                 db,
-                local,
+                result,
                 session_id=str(row.get("session_id") or ""),
             )
-            for row in local.get("rows") or []
+            for row in result.get("rows") or []
             if isinstance(row, dict) and str(row.get("session_id") or "")
         }
         for row in result.get("rows") or []:
