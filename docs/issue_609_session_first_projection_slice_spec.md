@@ -1,18 +1,18 @@
 # Slice Spec: #609 Session-first plan/fact projection
 
-- Issue / PR: #609 / draft #631
+- Issue / PR: #609 / PR #631
 - Author / checker / merge owner: Codex (Spec / Architecture Owner) / independent native reviewer / human repository owner
 - Date: 2026-09-23
-- Candidate implementation checkpoint: `80948863b58a138751155c01d73f9895ec94c1de`
+- Candidate implementation checkpoint: `537ecf4d59a5e8ffd0ef16eb393a8ccde6ac1612`
 
 ## Change Class
 
 - Class: A
 - Rationale: the slice establishes one evidence-sensitive identity and composition contract across planning, reconciliation, activities, feedback, API, and future web consumers.
 - Automatic escalation triggers checked: public API/TypeScript contract; evidence identity; ambiguous and partial data; cross-surface reuse. No migration, destructive action, credential, or provider-write trigger applies.
-- Review budget used: 0 / 2 rounds
+- Review budget used: 1 / 2 rounds
 - Review trigger mode: manual
-- Review acceptance head SHA: pending independent native review
+- Review acceptance head SHA: pending delta review on current head
 - Review budget exception: N/A
 
 ## Scope
@@ -170,13 +170,13 @@ on top of its activities, and no window-level load is substituted for the day to
 
 ## Evidence Bundle
 
-- Candidate implementation checkpoint: `80948863b58a138751155c01d73f9895ec94c1de` (draft PR #631)
+- Candidate implementation checkpoint: `537ecf4d59a5e8ffd0ef16eb393a8ccde6ac1612` (PR #631)
 - Changed invariants: one parent projection; partial brick remains incomplete; ambiguity needs confirmation; latest explicit revision wins through canonical reconciliation; malformed plan numbers fail closed; same-day load buckets reconcile without assigning sibling load to the target.
-- Focused and broad tests: projection `9 passed`; focused set `121 passed`; contributor-safe `2801 passed, 40 skipped, 38 deselected`; Ruff green.
-- CI checks/reruns/flakes: local checks are green; GitHub CI status is pending read-back on draft PR #631. The first contributor-safe run had one harness-only failure because `python` was missing from PATH; the isolated reproduction passed with the repo venv in PATH, followed by a green full run.
+- Focused and broad tests: updated projection + API/UI contract tests `21 passed`; full Ruff green; Next.js lint and production build green. Contributor-safe run with an isolated temp `DATABASE_PATH`: `2829 passed, 18 skipped, 7 failed`; all seven failures are legacy tests that hardcode SQLite files in the read-only repository root. The changed projection, API/UI, and replacement-lineage tests passed.
+- CI checks/reruns/flakes: the pre-fix head's functional CI checks passed; its Review gate ran before the Codex review arrived. GitHub checks for fix head `537ecf4` are pending read-back.
 - Lifecycle/probe evidence: provider client configured to raise was untouched; repeated reads returned equal DTOs; tracked SQLite table snapshots were unchanged.
 - Changed contracts: additive provider-free API, OpenAPI path, mirrored TypeScript DTO, Planning/Activity envelopes, and shared Today/Planning/Activity rendering.
-- Unresolved review-thread count: N/A before PR/review.
+- Unresolved review-thread count: four round-1 findings were fixed in `537ecf4`; replies/resolution are being applied before requesting a bounded delta review.
 - Residual risks and follow-ups: isolated browser clickthrough remains unverified because the available acceptance launcher is Streamlit-only. #610 owns the fuller Today decision story; this slice adds only the shared plan/fact summary.
 
 ## Review Findings
@@ -185,19 +185,23 @@ on top of its activities, and no window-level load is substituted for the day to
 | --- | --- | --- | --- |
 | P2 | GREEN self-review: the initial three-bucket day equation could not reconcile a second planned session. Falsified with a two-parent same-day fixture; `other_matched_tss` now keeps sibling load separate and the five-term identity is tested. | resolved before review | Codex / fixed locally |
 | P2 | GREEN self-review: `needs_confirmation` initially left local `data_quality` as sufficient. The ambiguous fixture now requires `data_gap/ambiguous_match`. | resolved before review | Codex / fixed locally |
+| P1 | Round 1 at `103e20a`: Today queried composite legs instead of the parent session. The Today consumer contract now pins parent identity and the page requests the parent projection once. | fixed in `537ecf4` | Codex / fixed-in pending |
+| P2 | Round 1 at `103e20a`: a valid negative transition delta was rejected by the non-negative numeric parser. Added finite signed-delta parsing and a faster-transition regression. | fixed in `537ecf4` | Codex / fixed-in pending |
+| P2 | Round 1 at `103e20a`: an inherited confirmed replacement match had no revision provenance in the projection. The service now uses the reconciliation replacement resolver and same local ledger evidence. | fixed in `537ecf4` | Codex / fixed-in pending |
+| P2 | Round 1 at `103e20a`: a timestamp-less partial leg lost its unique sport-to-planned-leg identity. Unique-sport mapping is now independent of chronology; ordering and transition claims remain withheld. | fixed in `537ecf4` | Codex / fixed-in pending |
 
 ## Native Review Rounds
 
 | Round | Reviewed head SHA | Trigger | Findings disposition | Stop / exception decision |
 | ---: | --- | --- | --- | --- |
-| 1 | pending | manual | pending | continue |
-| 2 | pending | verification | pending | stop unless documented exception |
+| 1 | `103e20a744fab80f9d01fc415c27bdee546fd177` | `@codex review` | Four findings fixed in `537ecf4d59a5e8ffd0ef16eb393a8ccde6ac1612` | continue with scoped delta only |
+| 2 | pending current head | scoped delta after `537ecf4` | pending | stop after this round unless an exception is explicitly documented |
 
 ## Final Verdict
 
-- Verdict: draft #631 is ready for native review; #609 is not ready to close before owner review/acceptance.
-- Blocking findings remaining: no implementation blocker is known; GitHub CI, native review, owner acceptance, and a Next.js browser clickthrough remain pending.
-- Review rounds used: 0
+- Verdict: round-1 findings are fixed; #631 awaits post-fix CI, scoped delta review, owner acceptance, and Next.js browser clickthrough before #609 can close.
+- Blocking findings remaining: no known local implementation blocker; current-head GitHub CI and delta review are pending.
+- Review rounds used: 1 / 2
 - Accepted risk or follow-up issue: UI decision-story work remains #610; athlete acceptance remains #367.
 - Merge owner final gate: human repository owner after GREEN evidence and accepted native review on the current head.
 - Post-merge sync/branch/worktree/progress cleanup: update #609 and the parent ExecPlan, sync Roadmap state, remove isolated worktree only after merge/read-back.
