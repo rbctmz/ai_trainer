@@ -122,6 +122,12 @@
         {"state": "demo", "expect": 200, "query_params": {"weeks": "1"}}
       ]
     },
+    "/api/planning/session-projection/{session_id}": {
+      "interface": "SessionProjection",
+      "scenarios": [
+        {"state": "demo", "expect": 200, "path_params": {"session_id": "first_planned_session_id"}}
+      ]
+    },
     "/api/planning/history": {
       "interface": "PlanningHistory",
       "scenarios": [

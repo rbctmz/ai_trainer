@@ -27,6 +27,9 @@ AI Trainer не выигрывает за счёт количества дашб
   сценарий не на чем до появления реального consumer/composer. Решение владельца
   записано в issue #608 комментарием от 2026-09-20.
 - [ ] Слайс #609 (Class A): каноническая session-first проекция план/факт с эвиденс-обоснованной причиной отклонения.
+  - [x] (2026-09-21 20:14Z) Первый ограниченный milestone: slice spec `docs/issue_609_session_first_projection_slice_spec.md` и пять RED-контрактов (single, brick, partial brick, ambiguous, provider-free/non-mutating read). Прогон: `5 failed` по ожидаемой причине — новые `models.session_projection` и `services.session_projection` ещё не реализованы. GREEN, API и UI сознательно не начаты до проверки границы.
+  - [x] (2026-09-22 07:35Z) Второй milestone: добавлены RED для latest explicit revision и malformed legacy (`7 failed` по отсутствующим модулям), затем минимальные чистый composer и provider-free local service. GREEN после self-review: projection `9 passed`, focused `121 passed`, contributor-safe `2801 passed, 40 skipped, 38 deselected`, Ruff зелёный. API/TypeScript/UI не менялись.
+  - [x] (2026-09-23) Третий milestone: API/TS RED `5 failed` → GREEN; добавлен `GET /api/planning/session-projection/{session_id}`, typed DTO, OpenAPI/registry и Activity/Planning API reuse. Consumer RED `3 failed` → shared summary component подключён в Today, Planning и Activity. Contributor-safe `2835 passed, 16 skipped, 38 deselected`; Ruff, contract freshness/inventory, web lint и production build зелёные. Первый полный прогон выявил только harness-сбой `run_web.sh`: `python` отсутствовал в PATH. Отдельное воспроизведение и повторный полный прогон с venv в PATH прошли. Изолированный browser clickthrough не заявлен: текущий `run_acceptance.sh` запускает Streamlit, а слайс меняет Next.js.
 - [ ] Слайс #610: Today decision story — progressive disclosure для что/почему/доказательства/дальше.
 - [ ] Слайс #367: приёмка техническими атлетами; наблюдаемые провалы превращаются в ограниченные issues.
 - [x] (2026-09-20 08:45Z) Follow-up по окну readiness-фузии заведён как #616 без automation-контракта, чтобы не запускать автодиспетч (см. `Decision Log`). Приоритет и назначение — за владельцем.
@@ -70,7 +73,21 @@ AI Trainer не выигрывает за счёт количества дашб
 запускалась.
 - **Verified by**: частично. Диффа в workflow нет — слайсы #598 и #615 не трогают ни `.github/`, ни настройки проекта. Успешные `pull_request`-запуски того же workflow ранее в тот же день (например, 35494509442 в 06:32Z) при разборе лога **не выполняли** никакой мутации проекта, то есть их «success» ничего не доказывает про работоспособность токена. Логи более ранних запусков уже недоступны (`gh run view --log` возвращает 0 строк), поэтому проверить, мутировали ли они проект, не удалось. **Дополнено 2026-09-20, первопричина установлена.** `gh secret list --repo rbctmz/ai_trainer` показывает единственный секрет `CLAUDE_CODE_OAUTH_TOKEN`: `ROADMAP_PROJECT_TOKEN` в репозитории отсутствует, поэтому подстановка всегда падала на `github.token`, который не может писать в user-owned Projects v2. Workflow выведен из эксплуатации в PR #618, раздел `Progress` это отражает. Итог: инфраструктурный дефект, а не регрессия слайса; **Verified by** — вывод `gh secret list` и логи запусков 35500046058 / 35500231382. Прежняя запись `NOT YET` относилась только к моменту, когда секрет ещё не был проверен. Уточнение по наблюдаемости: workflow срабатывает на `pull_request: [opened, reopened, edited, closed]`, но не на `synchronize`, поэтому после последующих пушей проверка `sync` исчезает из списка `gh pr checks` — повторный прогон происходит при редактировании PR, и падение воспроизводится снова.
 
+**Partial brick уже существует как доказательство, но не как session-first состояние.**
+
+- **Observed**: `build_reconciliation` при наличии только одного authoritative external leg сохраняет эту активность в `actual_activities`, ставит родителю `match_status = ambiguous` и evidence «найдена только часть ног»; `project_composite_execution` при этом видит только доступный вид спорта.
+- **Inferred**: #609 не должен повторно матчить bike/run. Он должен перевести уже доказанную частичную атрибуцию в отдельный `projection_status = partial`, сохранить bike-факт и не превращать отсутствующий run в кандидата или завершение.
+- **Verified by**: дешёвая проверка — существующий код ветки `models/plan_actual_reconciliation.py` (ветка `stable` / `has_all_composite_legs`) и RED fixture `test_partial_brick_preserves_only_observed_leg`. GREEN ещё не выполнен.
+
 ## Decision Log
+
+- Decision: #609 строится как чистый composer существующего reconciliation-снимка плюс provider-free read-service, а не как новый matcher или новая таблица.
+  Rationale: `models.plan_actual_reconciliation.build_reconciliation` уже владеет приоритетом явных ревизий, кандидатами, фактическими активностями и partial composite evidence. Новый слой должен только нормализовать одну родительскую сессию и назвать использованные ревизии. Дешёвая опровергающая проверка — partial brick с одним external leg: существующий reconciliation уже сохраняет доступную активность при `match_status=ambiguous`, поэтому повторное сопоставление не требуется.
+  Date/Author: 2026-09-21, Spec / Architecture Owner (Codex).
+
+- Decision: в DTO #609 `cause` отделён от `deviation` и по умолчанию равен `unknown/no_explicit_cause_evidence`; неоднозначность даёт `needs_confirmation/ambiguous_match`.
+  Rationale: величина нагрузки, совпадение вида спорта и свободный текст сами по себе не доказывают причину отклонения. `supported` допустим только с адресуемой структурированной ссылкой на authoritative match lineage, feedback fact или constraint; иначе слой нарушил бы fail-closed границу #609.
+  Date/Author: 2026-09-21, Spec / Architecture Owner (Codex).
 
 - Decision: слайс #598 классифицирован как **Class B — Standard**, а не Class A.
   Rationale: публичный контракт не меняется (форма DTO и `web/lib/types.ts` те же, меняются значения внутри существующих полей), нет миграций, нового persistent state, live-provider записи и новых архитектурных границ. Все шесть automatic escalation triggers из `docs/AI_Feature_Development_Workflow.md` проверены поимённо.
@@ -94,7 +111,7 @@ AI Trainer не выигрывает за счёт количества дашб
 
 Урок для последующих слайсов: прежде чем называть поверхность сломанной, нужно проверить, не перекрывается ли наблюдаемое значение другим источником в том же ответе. Здесь «очевидный» дефект легаси-страницы оказался лишь половиной картины, а настоящая пользовательская боль жила в API, который выглядел исправным.
 
-Шаг 0 закрыт целиком: #598 и #601 оба поставлены. **Часть 1 слайса #608 поставлена** (PR #620, merge `485cd62`): описательная шкала нагрузки, шим совместимости с прежним словарём провайдера, провенанс и раздельные версии, непредписывающий инвариант. Что осталось: **часть 2 слайса #608** — положительный corroborated-intervention сценарий, который не реализуется до появления реального consumer/composer, — затем слайсы #609 и #610 и приёмка #367. Ни один из них не авторизован этим документом: roadmap-комментарий #607 прямо оговаривает, что он не выполняет auto-dispatch и не авторизует merge.
+Шаг 0 закрыт целиком: #598 и #601 оба поставлены. **Часть 1 слайса #608 поставлена** (PR #620, merge `485cd62`): описательная шкала нагрузки, шим совместимости с прежним словарём провайдера, провенанс и раздельные версии, непредписывающий инвариант. **#609 выполняется по прямой команде владельца:** граница и RED зафиксированы; чистый composer и provider-free local service GREEN. Что осталось в #609: additive API/TypeScript contract и переиспользование DTO в Today/Planning/Activity без локальной рекомпозиции. Затем #610 и приёмка #367. Часть 2 #608 остаётся отложенной до реального consumer/composer. Этот документ и промежуточный checkpoint не авторизуют merge.
 
 ## Context and Orientation
 
@@ -110,7 +127,7 @@ AI Trainer не выигрывает за счёт количества дашб
 
 Слайс #608 — безопасная семантика нагрузки. Локальный ACWR (`models/acwr.py`, добавлен в #593/#595) считал полезное отношение, но его пользовательский словарь содержал safety/risk-лексику: полосы назывались safe, optimal, moderate_risk, high_risk. ACWR сам по себе не устанавливает вероятность травмы. **Часть 1 поставлена** (PR #620, merge `485cd62`): шкала заменена на описательную относительно базы атлета (`below_baseline` / `expected_band` / `elevated` / `strongly_elevated`), прежний словарь провайдера принимается только на входе шимом совместимости, сигнал несёт провенанс (`history_days`, `acute_tau_days`, `chronic_tau_days`), раздельные версии математики и интерпретации, постоянную оговорку и `intervention_eligible: false`. EWMA-математика, окна и пороги не менялись. **Часть 2** — положительный сценарий «предписание разрешено свежими симптомами или ограничениями» — остаётся в #608: ACWR не участвует ни в одном предписании, поэтому реализовывать и проверять сценарий пока не на чем.
 
-Слайс #609 — session-first план/факт. Сегодня план, reconciliation, карточка активности, обратная связь и готовность уже отдают почти все нужные доказательства, но нет единой серверной проекции, которая объясняет одну запланированную сессию против одной объединённой фактической. Работа: определить одну каноническую read-only проекцию поверх существующих доказательств, сохранив стабильный родительский идентификатор плановой сессии, упорядоченные идентификаторы сегментов, идентификаторы фактических активностей, ревизию сопоставления и ревизию доказательств. Brick представляется как одна родительская сессия с упорядоченными сегментами и переходом; частичный brick остаётся незавершённым, доступный сегмент сохраняется, синтетический второй сегмент не выдумывается. Неоднозначные активности дают статус «требуется подтверждение» и не порождают уверенной причины или утверждения о выполнении. Сопоставленная нагрузка, несопоставленная дополнительная нагрузка и итог дня выставляются раздельно и арифметически согласованно. Никакого второго матчера и никакого переписывания исторических сопоставлений.
+Слайс #609 — session-first план/факт. Сегодня план, reconciliation, карточка активности, обратная связь и готовность уже отдают почти все нужные доказательства, но нет единой серверной проекции, которая объясняет одну запланированную сессию против одной объединённой фактической. Работа: определить одну каноническую read-only проекцию поверх существующих доказательств, сохранив стабильный родительский идентификатор плановой сессии, упорядоченные идентификаторы сегментов, идентификаторы фактических активностей, ревизию сопоставления и ревизию доказательств. Brick представляется как одна родительская сессия с упорядоченными сегментами и переходом; частичный brick остаётся незавершённым, доступный сегмент сохраняется, синтетический второй сегмент не выдумывается. Неоднозначные активности дают статус «требуется подтверждение» и не порождают уверенной причины или утверждения о выполнении. Сопоставленная нагрузка, несопоставленная дополнительная нагрузка и итог дня выставляются раздельно и арифметически согласованно. Никакого второго матчера и никакого переписывания исторических сопоставлений. Порядок доставки зафиксирован в slice spec: (1) spec + пять RED fixtures; (2) чистый composer + local service и compatibility cases; (3) additive API/types и переиспользование Today/Planning/Activity. Первый пункт выполнен, следующие не начаты.
 
 Слайс #610 — Today decision story. Композиция плана, факта, состояния, объяснения и следующего действия в основную поверхность с progressive disclosure. Сначала решение, затем объяснение, технические метрики по запросу. Факты, интерпретация и рекомендация остаются разными полями контракта и разным содержимым интерфейса. Противоречивые или недостаточные доказательства завершаются объяснением или вопросом, а не выдуманной причиной и не предписанием. Раскрытие деталей не делает запрос к провайдеру и не запускает альтернативный доменный расчёт.
 
@@ -136,6 +153,28 @@ AI Trainer не выигрывает за счёт количества дашб
     npm --prefix web run contract:extract -- --check
 
 Для следующего кодового слайса порядок такой: сначала slice spec в `docs/` по шаблону `docs/templates/slice_spec_review_template.md`, затем RED-тест, который падает по правильной причине, затем минимальная реализация, затем focused-набор, затем полный contributor-safe набор, затем web lint/build, если затронут `web/`. Ветка должна содержать номер issue в имени (`fix/issue-<N>-<slug>` или `feat/issue-<N>-<slug>`), а тело PR — строку `Closes #<N>`, иначе projection готовности к merge не сработает.
+
+Слайс #609, первый milestone (текущая ветка `codex/issue-609-session-projection`):
+
+    /Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python -m pytest tests/smoke/test_session_projection.py -q
+    # RED checkpoint: 5 failed; четыре импорта models.session_projection и
+    # один services.session_projection. Иных причин падения нет.
+
+Слайс #609, второй milestone:
+
+    /Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python -m pytest tests/smoke/test_session_projection.py -q
+    # 9 passed
+    /Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python -m pytest tests/smoke/test_session_projection.py tests/smoke/test_plan_actual_reconciliation.py tests/smoke/test_reconciliation_service_migration.py tests/smoke/test_plan_vs_fact.py tests/smoke/test_feedback_planning_handoff.py tests/smoke/test_activity_card.py tests/smoke/test_api_today.py -q
+    # 121 passed
+    /Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python -m ruff check --no-cache .
+    # All checks passed!
+
+Contributor-safe набор запускается из полной временной копии ветки в
+записываемом каталоге, потому что системный каталог worktree запрещает legacy-
+тестам создавать относительные SQLite-файлы. На полной копии:
+
+    /Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python -m pytest -m "not live and not debug and not e2e" tests/ -q
+    # 2801 passed, 40 skipped, 38 deselected
 
 ## Validation and Acceptance
 
@@ -206,6 +245,22 @@ tests/smoke/test_plan_vs_fact.py tests/smoke/test_feedback_planning_handoff.py
 tests/smoke/test_activity_card.py tests/smoke/test_api_today.py -q` — ожидается
 зелёный прогон на фикстурах одиночной сессии, brick, частичного brick и
 неоднозначного матча.
+
+До GREEN отдельно воспроизводится намеренный RED milestone:
+
+    /Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python -m pytest tests/smoke/test_session_projection.py -q
+    # 5 failed: ModuleNotFoundError только для ещё не реализованных
+    # models.session_projection / services.session_projection
+
+Это не регрессия существующего кода и не готовность к merge: тесты фиксируют
+будущий контракт, а отсутствующая реализация является ожидаемой причиной RED.
+
+GREEN второго milestone проверяется тем же projection-файлом (`9 passed`) и
+focused-набором (`121 passed`). Provider-free тест подменяет клиент функцией,
+которая немедленно падает при обращении; проекция успешно строится дважды, а
+полные снимки изменяемых SQLite-таблиц до и после совпадают. Explicit confirm и
+следующий `user_unmatched` проходят через существующий reconciliation ledger и
+возвращают ревизии 1 и 2; composer сам приоритет не вычисляет.
 
 **#610 — Today decision story.** Основная поверхность отвечает на «что / почему /
 доказательства / дальше» без перехода на другую страницу; факты, интерпретация и
@@ -359,6 +414,30 @@ Slice spec шага 0 лежит в `docs/issue_598_dashboard_metrics_anchor_sli
 
 ## Revision Notes
 
+- (2026-09-23) Третий milestone #609 завершён в изолированной ветке:
+  опубликованы API/TS и consumer checkpoints; Today, Planning и Activity теперь
+  используют один DTO с общей identity и bucket-итогами. Верификация:
+  contributor-safe `2835 passed, 16 skipped, 38 deselected`, Ruff, contract
+  extraction/inventory, web lint и production build — зелёные. Browser
+  clickthrough оставлен как явное ограничение: имеющийся acceptance launcher
+  покрывает Streamlit, не Next.js. Draft PR #631 открыт и прикреплён к задаче;
+  merge не выполнялся. GitHub CI и независимое native review ожидают read-back,
+  owner acceptance не заявлена.
+
+- (2026-09-22) Второй milestone #609: после двух дополнительных RED-кейсов
+  реализованы чистый `models/session_projection.py` и provider-free
+  `services/session_projection.py`. Самопроверка добавила отдельный bucket
+  `other_matched_tss`, тест multi-session day и отдельный run-only partial,
+  сохраняющий identity второй ноги; mixed naive/UTC timestamps нормализуются
+  без падения. Зафиксированы focused/Ruff результаты и две неавторитетные
+  попытки полного прогона с неверным cwd.
+
+- (2026-09-21) #609 начат по команде владельца в изолированном worktree:
+  добавлен bounded Class A slice spec и пять RED-фактур для single, полного и
+  частичного brick, ambiguous match и provider-free/non-mutating read. Зафиксирован
+  архитектурный выбор «composer + local service поверх canonical reconciliation»;
+  GREEN, API и UI отложены до проверки границы.
+
 - (2026-09-20) Исходы второго раунда ревью PR #615 (scoped delta): убраны
   реальные метрики сна из evidence-записи (P1 — в документе остались дата,
   фазы, счёт и провайдер из личной базы; заменены описанием без чисел),
@@ -400,4 +479,3 @@ Slice spec шага 0 лежит в `docs/issue_598_dashboard_metrics_anchor_sli
   ревью показало, что living-разделы разошлись между собой, а проверка части 1
   не была воспроизводима по одному этому документу; заодно исправлен разорванный
   абзац приёмки #608.
-
