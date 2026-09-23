@@ -192,6 +192,18 @@ def test_malformed_list_dto_fails_closed_to_data_gap(location: str, field: str) 
         assert readiness["eligible_inputs"] == []
 
 
+def test_story_list_fields_are_detached_from_source_dto() -> None:
+    inputs = _inputs()
+    story = _compose(**inputs)
+
+    inputs["session_projection"]["fact"]["actual_activity_ids"].append("later-activity")
+    inputs["readiness"]["eligible_inputs"].append("later-input")
+
+    assert story["fact"]["actual"]["activity_ids"] == ["activity-1"]
+    readiness = next(row for row in story["evidence"] if row["kind"] == "readiness")
+    assert readiness["eligible_inputs"] == ["sleep", "hrv"]
+
+
 def test_current_injury_self_report_overrides_clearance_with_review_only() -> None:
     story = _compose(**_inputs(wellness=_wellness(injury=2)))
 
@@ -380,6 +392,18 @@ def test_coach_readiness_tool_includes_the_same_story_when_attached(tmp_path) ->
     assert result["decision_story"] == expected
     assert '"decision_story"' in format_tool_result("get_readiness_today", result)
     assert '"kind": "follow_plan"' in format_tool_result("get_readiness_today", result)
+
+
+def test_pending_proposal_presenter_preserves_read_failure() -> None:
+    from models.coach_tool_presenter import format_tool_result
+
+    rendered = format_tool_result(
+        "get_pending_proposals",
+        {"success": False, "error": "read failed"},
+    )
+
+    assert '"success": false' in rendered
+    assert '"error": "read failed"' in rendered
 
 
 def test_coach_story_action_uses_today_proposal_checkpoint_relation() -> None:

@@ -54,7 +54,7 @@ def format_tool_result(tool_name: str, data: Any) -> str:
     if tool_name == "get_pending_proposals":
         evidence = {
             key: data[key]
-            for key in ("computed_for", "count", "pending_proposals")
+            for key in ("success", "error", "computed_for", "count", "pending_proposals")
             if key in data
         }
         return "## Активные предложения\n\n" + json.dumps(

@@ -16,7 +16,7 @@ def _has_non_list(value: Any, key: str) -> bool:
 
 
 def _list_value(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
+    return list(value) if isinstance(value, list) else []
 
 
 def compose_today_decision_story(
