@@ -1205,7 +1205,7 @@ function AdjustMode({
 }) {
   const { mutate: mutateGlobal } = useSWRConfig();
   const { data, mutate } = useSWR<ReconResponse>(
-    hasPlan ? "/api/planning/reconciliation?weeks=1" : null,
+    hasPlan ? "/api/planning/reconciliation?weeks=1&include_provider=false" : null,
     fetcher,
   );
   const [previewResult, setPreviewResult] = useState<RebalancePreviewResult | null>(null);

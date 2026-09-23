@@ -186,6 +186,50 @@ def test_activity_detail_reuses_projection_for_matched_session(tmp_path, monkeyp
     assert activity["session_projection"] is sentinel
 
 
+def test_activity_detail_uses_unique_local_reconciliation_parent(tmp_path, monkeypatch) -> None:
+    from api.routers import activities as activities_router
+    from tests.smoke.test_api_planning import _reconciliation_db
+
+    db, _plan = _reconciliation_db(tmp_path)
+    monkeypatch.setattr(activities_router, "fetch_activity_intervals", lambda *_a: None)
+    monkeypatch.setattr(activities_router, "fetch_activity_power_curve", lambda *_a: None)
+
+    activity = activities_router.get_activity_card(
+        "actual-2026-07-07", db=db
+    )["activity"]
+
+    assert activity["session_id"] == "ats_bb49d5a3ba37cce39db5bdd2"
+    assert activity["session_projection"]["session_id"] == activity["session_id"]
+    assert activity["session_projection"]["projection_status"] == "matched"
+
+
+def test_activity_detail_fails_closed_for_ambiguous_local_match(tmp_path, monkeypatch) -> None:
+    from api.routers import activities as activities_router
+    from tests.smoke.test_api_planning import _reconciliation_db
+
+    db, _plan = _reconciliation_db(tmp_path)
+    db.save_activities(
+        [
+            {
+                "activity_id": "second-bike-2026-07-07",
+                "date": "2026-07-07",
+                "sport": "cycling",
+                "duration_minutes": 45,
+                "tss": 35.0,
+            }
+        ]
+    )
+    monkeypatch.setattr(activities_router, "fetch_activity_intervals", lambda *_a: None)
+    monkeypatch.setattr(activities_router, "fetch_activity_power_curve", lambda *_a: None)
+
+    activity = activities_router.get_activity_card(
+        "actual-2026-07-07", db=db
+    )["activity"]
+
+    assert activity["session_id"] is None
+    assert activity["session_projection"] is None
+
+
 def test_today_planning_and_activity_render_one_shared_projection_component() -> None:
     component = open(
         "web/components/session/SessionProjectionSummary.tsx",
