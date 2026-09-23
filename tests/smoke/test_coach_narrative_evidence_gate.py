@@ -1609,7 +1609,7 @@ def test_streaming_route_never_emits_unsafe_provider_text_and_audits_gate(
         "build_coach_session_evidence",
         lambda _db, **_kwargs: {"status": "empty", "rows": []},
     )
-    monkeypatch.setattr(coach_mod, "get_active_plan", lambda _db: None)
+    monkeypatch.setattr(coach_mod, "_load_coach_plan_boundary", lambda _db: (None, None))
     def _recovery(*_args, **kwargs):
         turn_anchors["recovery_today"] = kwargs.get("today")
         return {

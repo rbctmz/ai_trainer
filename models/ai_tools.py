@@ -837,8 +837,37 @@ class AITools:
             return {"success": False, "error": f"Не удалось прочитать предложения: {exc}"}
 
         proposals = []
+        today_context = getattr(self, "today_decision_context", None)
+        context_date = (
+            today_context.get("date")
+            if isinstance(today_context, dict)
+            else None
+        )
+        checkpoint_id = (
+            today_context.get("checkpoint_id")
+            if isinstance(today_context, dict)
+            else None
+        )
         for row in rows:
             item = dict(row) if isinstance(row, dict) else {}
+            if isinstance(today_context, dict):
+                params = item.get("params")
+                params = params if isinstance(params, dict) else {}
+                is_recovery = (
+                    item.get("action") == "recovery_replan"
+                    or item.get("source") == "recovery_replan"
+                )
+                if "base_checkpoint_id" in params or is_recovery:
+                    try:
+                        base_checkpoint_id = int(params.get("base_checkpoint_id"))
+                    except (TypeError, ValueError):
+                        base_checkpoint_id = None
+                    try:
+                        active_checkpoint_id = int(checkpoint_id)
+                    except (TypeError, ValueError):
+                        active_checkpoint_id = None
+                    if base_checkpoint_id != active_checkpoint_id:
+                        continue
             proposals.append(
                 {
                     "id": item.get("id"),
@@ -850,7 +879,9 @@ class AITools:
             )
         return {
             "success": True,
-            "computed_for": athlete_local_date().isoformat(),
+            "computed_for": str(context_date)[:10]
+            if context_date
+            else athlete_local_date().isoformat(),
             "count": len(proposals),
             "pending_proposals": proposals,
         }

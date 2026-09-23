@@ -284,9 +284,16 @@ def build_today_decision_story_from_sources(
                 "projection_status": "data_gap",
                 "fact": {"completion_status": "not_observed"},
             }
-        actual_checkpoint_id = (projection.get("evidence_revision") or {}).get(
-            "planning_checkpoint_id"
-        ) if isinstance(projection, Mapping) else None
+        evidence_revision = (
+            projection.get("evidence_revision")
+            if isinstance(projection, Mapping)
+            else None
+        )
+        actual_checkpoint_id = (
+            evidence_revision.get("planning_checkpoint_id")
+            if isinstance(evidence_revision, Mapping)
+            else None
+        )
         if (
             expected_checkpoint_id is not None
             and actual_checkpoint_id != expected_checkpoint_id

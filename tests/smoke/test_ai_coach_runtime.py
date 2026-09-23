@@ -132,6 +132,27 @@ def test_prompts_anchor_today_as_single_date_source(monkeypatch):
         assert "ошибочна" in prompt
 
 
+def test_synthesis_prompt_uses_frozen_today_anchor():
+    class Provider:
+        system_prompt = ""
+
+        def generate_response(self, _prompt, system_prompt=""):
+            self.system_prompt = system_prompt
+            return "ok"
+
+    provider = Provider()
+    ai_coach_runtime.synthesize_ai_chat_response(
+        provider=provider,
+        history_messages=[],
+        user_input="Что делать сегодня?",
+        tool_results=[],
+        today="2026-09-23",
+    )
+
+    assert "Сегодня: 2026-09-23" in provider.system_prompt
+    assert "Сегодня: 2026-09-24" not in provider.system_prompt
+
+
 def test_prompts_warn_that_todays_data_row_may_be_partial():
     with_tools = ai_coach_runtime.create_chat_system_prompt_with_tools(None)
     synthesis = ai_coach_runtime.create_chat_synthesis_system_prompt()

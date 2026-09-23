@@ -343,6 +343,63 @@ def test_projection_from_changed_checkpoint_fails_closed(monkeypatch) -> None:
     assert story["next_action"]["kind"] == "inspect_evidence"
 
 
+def test_malformed_projection_revision_fails_closed(monkeypatch) -> None:
+    from api import today_snapshot
+
+    projection = _session()
+    projection["evidence_revision"] = 7
+    monkeypatch.setattr(today_snapshot, "session_projection_at", lambda *a, **k: projection)
+    story = today_snapshot.build_today_decision_story_from_sources(
+        object(),  # type: ignore[arg-type]
+        as_of="2026-09-23",
+        session_id="session-1",
+        readiness=_readiness(),
+        subjective_wellness=_wellness(),
+        primary_action={"kind": "follow_plan", "enabled": True},
+        expected_checkpoint_id=7,
+    )
+
+    assert story["fact"]["projection_status"] == "data_gap"
+    assert story["fact"]["plan"] == {}
+    assert story["next_action"]["kind"] == "inspect_evidence"
+
+
+def test_pending_proposals_omit_stale_recovery_checkpoint(tmp_path) -> None:
+    from models.ai_tools import AITools
+
+    class ProposalReader:
+        def get_coach_proposals(self, *, days: int, status: str) -> list[dict]:
+            assert (days, status) == (14, "pending")
+            return [
+                {
+                    "id": 1,
+                    "action": "recovery_replan",
+                    "status": "pending",
+                    "params": {"base_checkpoint_id": 1},
+                },
+                {
+                    "id": 2,
+                    "action": "recovery_replan",
+                    "status": "pending",
+                    "params": {"base_checkpoint_id": 2},
+                },
+                {
+                    "id": 3,
+                    "action": "plan_adjustment",
+                    "status": "pending",
+                    "params": {"base_checkpoint_id": 1},
+                },
+            ]
+
+    tool = object.__new__(AITools)
+    tool.db = ProposalReader()
+    tool.today_decision_context = {"checkpoint_id": 2}
+
+    result = tool.get_pending_proposals()
+
+    assert [row["id"] for row in result["pending_proposals"]] == [2]
+
+
 def test_coach_plan_and_checkpoint_share_one_read_boundary(monkeypatch) -> None:
     from api.routers import coach
 

@@ -214,6 +214,7 @@ def coach_chat(
         )
         ai_tools.today_decision_context = {
             "date": local_today.isoformat(),
+            "checkpoint_id": today_checkpoint.get("id") if today_checkpoint else None,
             "readiness": readiness_snapshot,
             "story": ai_tools.today_decision_story,
         }
@@ -317,7 +318,10 @@ def coach_chat(
                     user_input=message,
                     tool_results=tool_results,
                 )
-                synthesis_system_prompt = create_chat_synthesis_system_prompt(goal_plan=goal_plan)
+                synthesis_system_prompt = create_chat_synthesis_system_prompt(
+                    goal_plan=goal_plan,
+                    today=local_today,
+                )
                 streamed_final = ""
                 for delta in stream_tokens(
                     provider,
@@ -342,6 +346,7 @@ def coach_chat(
                             user_input=message,
                             tool_results=tool_results,
                             goal_plan=goal_plan,
+                            today=local_today,
                         )
                         or _rendered_response
                     )
@@ -376,6 +381,7 @@ def coach_chat(
                     user_input=message,
                     tool_results=tool_results,
                     goal_plan=goal_plan,
+                    today=local_today,
                 )
             final = gate_result.delivered_text
             for chunk in _chunk(final):
