@@ -10,7 +10,7 @@
 - Class: A
 - Rationale: this is the primary safety-sensitive composition of plan/fact, readiness, athlete-reported observations, and next action, with an additive API contract and web/Coach consumers.
 - Automatic escalation triggers checked: public API/TypeScript contract; safety-sensitive evidence; cross-surface consistency; accessibility/mobile states. No new persistence, provider write, migration, or external delivery is in scope.
-- Review budget used: 2 / 2 full-diff rounds; two scoped delta follow-ups
+- Review budget used: 3 / 2 native rounds, plus the pre-GREEN independent read-back. The third native round exceeded the repository cap; a privileged owner exception is required before acceptance.
 - Review trigger mode: manual
 - Review acceptance head SHA: owner delta read-back accepted on base `440d1795`; native reviews of `20694750` and scoped deltas of `3d11bde` and `104a102` were addressed; current-head acceptance pending
 - Review budget exception: N/A
@@ -33,8 +33,9 @@
 - [x] RED fixtures cover normal, current negative injury self-rating, stale/missing self-report, ambiguous/partial session projection, and provider-free disclosure.
 - [x] Additive API/TypeScript contract is extracted and freshness/inventory checks pass.
 - [x] `decision_story.next_action` has priority over legacy `state`/`reason` in both compact and expanded Today; Coach uses the same story composer and canonical action/session resolvers; no browser-side policy logic.
-- [ ] Keyboard/screen-reader, 390 px and 1280 px browser acceptance, loading/empty/error/stale states, no overflow, and no console errors pass.
-- [x] Focused tests, contributor-safe suite, Ruff, web lint/build, and isolated browser acceptance are recorded in the integration evidence below; explicit screen-reader and loading/empty/error/stale browser checks remain unverified.
+- [x] Keyboard and accessibility-tree assertions, 390 px and 1280 px browser acceptance, loading/empty/error/stale states, no overflow, and no unexpected console errors pass.
+- [ ] Spoken-output verification with VoiceOver or NVDA remains unperformed.
+- [x] Focused tests, contributor-safe suite, Ruff, web lint/build, and isolated browser acceptance are recorded in the integration evidence below.
 - [x] Merge and worktree cleanup remain with the human repository owner.
 
 ## Public Contracts
@@ -128,11 +129,11 @@
 - CI checks/reruns/flakes: `python -m ruff check --no-cache .`, `git diff --check`, `npm --prefix web run contract:extract -- --check`, `npm --prefix web run contract:inventory`, `npm --prefix web run lint`, and `npm --prefix web run build` passed. Isolated `tests/e2e/test_today_decision_story_ui.py` passed twice (`1 passed` each), including after the final Coach action/session resolver change. Web lint/build and Playwright wrote only ignored worktree artifacts and used temporary E2E databases.
 - Lifecycle/probe evidence: Coach read adapter's before/after table snapshots match for the tracked SQLite tables. A regression fixture with a pending proposal based on checkpoint 1 and active checkpoint 2 resolves to `inspect_evidence`, matching Today; `/api/today` continues its pre-existing recovery-loop writes and is not claimed read-only.
 - Changed contracts: additive `TodayResponse.decision_story: TodayDecisionStory`; `web/lib/types.ts` and generated `tests/contracts/ts_contract.json` updated. Coach `get_readiness_today` attaches the same composer DTO in the existing tool result.
-- Review-fix verification: `44 passed` across `test_today_decision_story.py`, `test_api_today.py`, and `test_coach_fresh_context.py` after the first code push; backend follow-ups passed `203` then `206` focused tests, Ruff, and `git diff --check`. Web lint/build, the Today browser regression at 390/1280 px, and the existing web-stack E2E passed after the UI fix.
+- Review-fix verification: `44 passed` across `test_today_decision_story.py`, `test_api_today.py`, and `test_coach_fresh_context.py` after the first code push; backend follow-ups passed `203` then `206` focused tests, Ruff, and `git diff --check`. UI acceptance commit `974bbe6` passed two isolated browser E2E tests, web lint/build, and `git diff --check`; it checks keyboard focus/Enter, accessible status/alert roles, loading/no-plan/error/missing-story/stale states, 390/1280 px overflow, and rejects unexpected failed HTTP responses or console errors.
 - CI at `3d11bde`: `27 failed, 2810 passed, 38 skipped, 39 deselected`; five direct Coach regression failures were fixed in `a8b9cb5`. CI at `b23b397` then had `22 failed, 2818 passed, 38 skipped, 39 deselected`; web contract and E2E passed. A read-only archive of current `main` (`9434584`) reproduced the exact same 22 failing test IDs in the affected ten modules under `TZ=UTC` (`22 failed, 100 passed`), while `TZ=Europe/Moscow` passed all 122. This identifies an existing CI date/timezone boundary, not a fix or green CI claim for this PR.
 - CI at `104a102`: `2840 passed, 38 skipped, 39 deselected`; web contract and E2E passed. Its Review gate failed because no native review had yet been submitted for that head; the subsequent scoped review produced three findings.
 - Review threads: 11 findings total across the native reviews; live resolution status is tracked in GitHub. The latest two P2 fixes are in `c635c7e`; the P3 CI-status correction is this evidence update.
-- Residual risks and follow-ups: no prescriptive symptom threshold beyond the explicit current injury response is introduced. Explicit screen-reader assertions and Today loading/empty/error/stale browser states remain unverified. Independent review and owner acceptance are pending. Existing `/api/today` continues its current recovery-loop write lifecycle; only the pure composer and Coach source adapter carry a no-write contract.
+- Residual risks and follow-ups: no prescriptive symptom threshold beyond the explicit current injury response is introduced. Keyboard and accessibility-tree assertions passed, but spoken output with VoiceOver/NVDA remains unverified. Human owner acceptance and a review-budget exception are pending. Existing `/api/today` continues its current recovery-loop write lifecycle; only the pure composer and Coach source adapter carry a no-write contract.
 
 ## Review Findings
 
@@ -155,11 +156,13 @@ Scoped delta review on `3d11bde` found three P2s: synthesis date drift, stale ch
 
 Scoped delta review on `104a102` found two P2s (checkpoint sentinel and explicit-date Today grounding) and one P3 (outdated CI status in this header). The P2s were fixed in `c635c7e` with focused regressions; the P3 was corrected in this documentation update.
 
+The connector submitted three native reviews (`2069475`, `3d11bde`, `104a102`) although the automated cap is two. The third was requested as a scoped delta after the cap; this process deviation is not treated as an extra free round. All 11 findings received written dispositions and their threads were resolved. The current post-budget fix head requires privileged `review-budget-exception` plus fresh `status: review accepted`, without requesting another native review.
+
 ## Final Verdict
 
 - Verdict: IN PROGRESS
-- Blocking findings remaining: current-head review acceptance and CI, explicit screen-reader and loading/empty/error/stale browser checks, human owner acceptance and merge.
-- Review rounds used: 2
+- Blocking findings remaining: current-head CI, spoken VoiceOver/NVDA verification or an explicit owner decision on that residual, privileged review-budget exception and current-head review acceptance, human owner merge decision.
+- Native review rounds used: 3 of 2 allowed; exception pending.
 - Accepted risk or follow-up issue: none accepted yet.
 - Merge owner final gate: human repository owner.
 - Post-merge sync/branch/worktree/progress cleanup: pending; draft PR #632 is open, no merge created.
