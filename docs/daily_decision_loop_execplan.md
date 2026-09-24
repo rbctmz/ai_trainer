@@ -30,7 +30,16 @@ AI Trainer не выигрывает за счёт количества дашб
   - [x] (2026-09-21 20:14Z) Первый ограниченный milestone: slice spec `docs/issue_609_session_first_projection_slice_spec.md` и пять RED-контрактов (single, brick, partial brick, ambiguous, provider-free/non-mutating read). Прогон: `5 failed` по ожидаемой причине — новые `models.session_projection` и `services.session_projection` ещё не реализованы. GREEN, API и UI сознательно не начаты до проверки границы.
   - [x] (2026-09-22 07:35Z) Второй milestone: добавлены RED для latest explicit revision и malformed legacy (`7 failed` по отсутствующим модулям), затем минимальные чистый composer и provider-free local service. GREEN после self-review: projection `9 passed`, focused `121 passed`, contributor-safe `2801 passed, 40 skipped, 38 deselected`, Ruff зелёный. API/TypeScript/UI не менялись.
   - [x] (2026-09-23) Третий milestone: API/TS RED `5 failed` → GREEN; добавлен `GET /api/planning/session-projection/{session_id}`, typed DTO, OpenAPI/registry и Activity/Planning API reuse. Consumer RED `3 failed` → shared summary component подключён в Today, Planning и Activity. Contributor-safe `2835 passed, 16 skipped, 38 deselected`; Ruff, contract freshness/inventory, web lint и production build зелёные. Первый полный прогон выявил только harness-сбой `run_web.sh`: `python` отсутствовал в PATH. Отдельное воспроизведение и повторный полный прогон с venv в PATH прошли. Изолированный browser clickthrough не заявлен: текущий `run_acceptance.sh` запускает Streamlit, а слайс меняет Next.js.
-- [ ] Слайс #610: Today decision story — progressive disclosure для что/почему/доказательства/дальше.
+- [x] (2026-09-23) #609 смержен владельцем: merge commit `440d1795` содержит head `2ef734b`; session-first проекция стала исходной границей #610. Browser clickthrough #609 по-прежнему не заявлен.
+- [ ] Слайс #610 (Class A): Today decision story — реализация и интеграционные проверки завершены локально; ожидает независимое ревью и owner acceptance.
+  - [x] (2026-09-23 13:59Z) Начальный milestone в отдельном worktree от `440d1795`: прочитаны issue #610, roadmap-комментарий #607, parent ExecPlan, ASR catalog, ADD analysis, ADR-0001 и slice-spec template. Создана bounded slice spec и четыре RED-теста: `4 failed` только из-за отсутствующего `models.today_decision_story`. GREEN не начат.
+  - [x] (2026-09-23) Владелец принял delta read-back: свежий self-report `injury != Нет` даёт только review; отсутствие свежего ответа сохраняет действие gate с caveat. Добавлены тесты на `status=current` из-за другого wellness-ответа и partial DTO по #609 (`planned_leg_id`, `leg_index`, `activity_id`).
+  - [x] (2026-09-23) Domain/API GREEN в изолированном worktree: pure `models/today_decision_story.py`, additive `/api/today` contract, Coach получает тот же story через read-only адаптер; no-write proof по table snapshots.
+  - [x] (2026-09-23) Интегрированы compact/full Today и Coach. Coach использует pre-loop checkpoint, `_resolve_proposal`, `_resolve_state` и `_day_session` из Today boundary. Регрессия: pending proposal с `base_checkpoint_id=1` при активном checkpoint 2 должна давать `inspect_evidence`.
+  - [x] (2026-09-23) Проверки: focused story/API/Coach `37 passed`; combined focused regressions `50 passed`; contributor-safe suite из свежей временной копии с отдельной SQLite `2827 passed, 40 skipped, 39 deselected`; Ruff, contract freshness/inventory, web lint/build прошли. Today Playwright прошёл дважды на 390/1280 px, включая повтор после финального Coach parity изменения.
+  - [x] (2026-09-23 14:01Z) Проверена граница Coach: `models/ai_tools.py::get_readiness_today` выполняет локальные чтения, но `build_today_decision_snapshot` вызывает `run_recovery_replan_loop`, который сохраняет решения и может публиковать proposal. Coach будет потреблять чистый composer через read-only адаптер, не Today builder.
+  - [x] (2026-09-23 14:14Z) Приняты замечания независимого read-only review: выбрано, что свежий injury-ответ не обязателен для сохранения существующего `follow_plan`, но без свежего ответа история обязана явно запретить формулировку «без симптомов/допуск»; добавлен UI RED для приоритета next action в compact/full; read-only гарантия ограничена Coach adapter, а `/api/today` описан с существующими loop-записями; fixture #609 исправлена. Повторный RED: 5 composer-тестов падают только из-за отсутствующего модуля, UI контракт падает на отсутствии `decision_story` в текущем Today.
+  - [ ] Независимое ревью и owner acceptance. Отдельные screen-reader и browser states loading/empty/error/stale ещё не проверялись; PR/merge не создавались.
 - [ ] Слайс #367: приёмка техническими атлетами; наблюдаемые провалы превращаются в ограниченные issues.
 - [x] (2026-09-20 08:45Z) Follow-up по окну readiness-фузии заведён как #616 без automation-контракта, чтобы не запускать автодиспетч (см. `Decision Log`). Приоритет и назначение — за владельцем.
 - [x] (2026-09-20) Инфраструктура: проверка `sync` падала на PR #614/#615 с `FORBIDDEN` на мутации Projects v2. Первопричина найдена — секрет `ROADMAP_PROJECT_TOKEN` в репозитории отсутствует (`gh secret list` показывает только `CLAUDE_CODE_OAUTH_TOKEN`). Workflow выведен из эксплуатации в PR #618, потому что на мерж он не влиял: обязательная проверка для `main` — только `Contributor-safe pytest`.
@@ -111,7 +120,7 @@ AI Trainer не выигрывает за счёт количества дашб
 
 Урок для последующих слайсов: прежде чем называть поверхность сломанной, нужно проверить, не перекрывается ли наблюдаемое значение другим источником в том же ответе. Здесь «очевидный» дефект легаси-страницы оказался лишь половиной картины, а настоящая пользовательская боль жила в API, который выглядел исправным.
 
-Шаг 0 закрыт целиком: #598 и #601 оба поставлены. **Часть 1 слайса #608 поставлена** (PR #620, merge `485cd62`): описательная шкала нагрузки, шим совместимости с прежним словарём провайдера, провенанс и раздельные версии, непредписывающий инвариант. **#609 выполняется по прямой команде владельца:** граница и RED зафиксированы; чистый composer и provider-free local service GREEN. Что осталось в #609: additive API/TypeScript contract и переиспользование DTO в Today/Planning/Activity без локальной рекомпозиции. Затем #610 и приёмка #367. Часть 2 #608 остаётся отложенной до реального consumer/composer. Этот документ и промежуточный checkpoint не авторизуют merge.
+Шаг 0 закрыт целиком: #598 и #601 оба поставлены. **Часть 1 слайса #608 поставлена** (PR #620, merge `485cd62`): описательная шкала нагрузки, шим совместимости с прежним словарём провайдера, провенанс и раздельные версии, непредписывающий инвариант. **#609 поставлен** (PR #631, merge commit `440d1795`; head `2ef734b`): каноническая provider-free session projection и её API/TypeScript reuse в Today/Planning/Activity; browser clickthrough не заявлен. **#610 реализован локально и ожидает независимого ревью/owner acceptance:** additive story contract потребляется Today и Coach; composer сохраняет границы plan/fact/evidence и не добавляет запись состояния. Полные проверки и незакрытые accessibility/browser states перечислены выше. Затем — приёмка #367. Часть 2 #608 остаётся отложенной до реального, отдельно специфицированного consumer/composer. Этот документ и промежуточный checkpoint не авторизуют merge.
 
 ## Context and Orientation
 
@@ -479,3 +488,41 @@ Slice spec шага 0 лежит в `docs/issue_598_dashboard_metrics_anchor_sli
   ревью показало, что living-разделы разошлись между собой, а проверка части 1
   не была воспроизводима по одному этому документу; заодно исправлен разорванный
   абзац приёмки #608.
+- (2026-09-23) Начат #610: добавлены `docs/issue_610_today_decision_story_slice_spec.md`
+  и контрактные RED-тесты. Независимый read-only review выявил неоднозначность
+  вокруг отсутствующего свежего injury self-report, риск противоречия compact
+  Today и неверно широкое заявление о read-only `/api/today`; все три пункта
+  уточнены в spec, #609 fixture исправлена по реальной DTO-форме. Повторный RED:
+  пять composer-тестов падают из-за отсутствующего `models.today_decision_story`,
+  UI contract — из-за отсутствия приоритета `decision_story.next_action`.
+  Coach read-only граница подтверждена: не вызывать из Coach Today builder,
+  потому что recovery loop сохраняет решение и может публиковать proposal.
+  GREEN ожидает delta read-back; UI реализация остаётся handoff UI-специалисту.
+- (2026-09-23) Owner delta read-back #610 принят без нового семантического review
+  круга. Закреплены case `status=current` из-за другого wellness-ответа и
+  фактура partial session строго по DTO #609 (две плановые ноги, одна фактическая
+  с `planned_leg_id`, `leg_index`, `activity_id`). Domain/API GREEN добавил чистый
+  `models/today_decision_story.py`, `decision_story` в `/api/today`, read-only
+  source adapter и вложение того же DTO в `get_readiness_today` для Coach; Coach
+  presenter сохраняет DTO в контексте, prompt запрещает переинтерпретировать
+  его action. Добавлен TypeScript contract
+  и регенерирован `ts_contract.json`. Проверено: focused tests `36 passed` (один
+  исходный source-text UI probe удалён как недостаточное доказательство), Ruff,
+  `git diff --check`, contract extraction/check — зелёные. Web lint заблокирован:
+  в worktree нет зависимостей, а main-checkout CLI несовместим; web build не запускался.
+  Компактный/полный Today
+  ещё не реализован; обязательный UI/browser handoff 390/1280 px остаётся перед
+  завершением #610. Коммит/PR/merge не создавались.
+
+- (2026-09-23) Supervisor / Integrator собрал backend/API и Today UI в том же
+  изолированном worktree. Исправлен action parity дефект: Coach теперь использует
+  pre-loop checkpoint и canonical Today proposal/session resolvers; regression
+  фиксирует stale pending proposal => `inspect_evidence`. Исправлено сохранение
+  поведения `AITools` при legacy construction через `object.__new__`; устаревшая
+  source-text проверка compact Today обновлена и поведение проверено браузером.
+  На свежей временной копии contributor-safe suite: `2827 passed, 40 skipped,
+  39 deselected`; focused `37 passed`; additional focused regressions `50 passed`;
+  Ruff, contract freshness/inventory, web lint/build, E2E 390/1280 и
+  `git diff --check` зелёные. Рабочая SQLite не использовалась. Отдельные
+  screen-reader и loading/empty/error/stale browser состояния не проверялись.
+  PR/merge не создавались; далее — независимое ревью и owner gate.

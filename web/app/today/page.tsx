@@ -17,26 +17,10 @@ import { AdherenceStrip } from "@/components/today/AdherenceStrip";
 import { SubjectiveWellnessCard } from "@/components/dashboard/SubjectiveWellnessCard";
 import { WorkoutStrip } from "@/components/WorkoutStrip";
 import { SessionProjectionSummary } from "@/components/session/SessionProjectionSummary";
-
-const STATE_META: Record<
-  string,
-  { title: string; icon: string; tone: string }
-> = {
-  silence: { title: "План в силе", icon: "✓", tone: "text-tone-success" },
-  conflict_actionable: {
-    title: "Есть предложение",
-    icon: "!",
-    tone: "text-tone-warning",
-  },
-  conflict_unactionable: {
-    title: "Конфликт требует внимания",
-    icon: "!",
-    tone: "text-tone-warning",
-  },
-  conflict: { title: "Есть предложение", icon: "!", tone: "text-tone-warning" },
-  data_gap: { title: "Данных недостаточно", icon: "…", tone: "text-ink-soft" },
-  no_plan: { title: "Плана нет", icon: "→", tone: "text-ink-soft" },
-};
+import {
+  TodayDecisionStoryCompact,
+  TodayDecisionStoryFull,
+} from "@/components/today/TodayDecisionStory";
 
 function formatHumanDate(iso: string): string {
   try {
@@ -108,7 +92,7 @@ export default function TodayPage() {
   const [frequencySaving, setFrequencySaving] = useState(false);
 
   const state = data?.state ?? "silence";
-  const meta = STATE_META[state] ?? STATE_META.silence;
+  const decisionStory = data?.decision_story;
   const readiness = data?.readiness ?? null;
   const session = data?.session ?? null;
   const proposal = data?.pending_proposal ?? null;
@@ -134,13 +118,13 @@ export default function TodayPage() {
       : [];
 
   const frequency = data?.briefing?.frequency ?? "daily";
-  // Only a `silence` day may collapse — is_quiet_day can also be true for a
-  // no_plan/data_gap day (gate silence/no-data + no proposal + no conflict),
-  // but those still have their own thing to say and must stay full-screen.
+  // The server story owns today's action. A legacy quiet gate must not hide a
+  // different next action in the compact briefing.
   const isCompact =
     frequency === "conflicts_only" &&
     Boolean(data?.briefing?.is_quiet_day) &&
     state === "silence" &&
+    decisionStory?.next_action.kind === "follow_plan" &&
     !expanded;
 
   async function toggleBriefingFrequency() {
@@ -159,14 +143,23 @@ export default function TodayPage() {
 
   return (
     <main className="mx-auto max-w-2xl space-y-5">
-      {isLoading ? <div className="h-48 animate-pulse rounded-card bg-surface" /> : null}
+      {isLoading ? (
+        <div
+          role="status"
+          aria-label="Загрузка страницы Сегодня"
+          aria-live="polite"
+          className="h-48 animate-pulse rounded-card bg-surface"
+        >
+          <span className="sr-only">Загружается экран «Сегодня»</span>
+        </div>
+      ) : null}
       {error ? (
-        <div className="rounded-card border border-tone-danger/30 bg-tone-danger/10 p-4 text-sm text-tone-danger">
+        <div role="alert" className="rounded-card border border-tone-danger/30 bg-tone-danger/10 p-4 text-sm text-tone-danger">
           Не удалось загрузить «Сегодня». Проверьте, что ./run_web.sh запущен.
         </div>
       ) : null}
       {notice ? (
-        <div className="rounded-card border border-tone-success/30 bg-tone-success/10 p-4 text-sm text-tone-success">
+        <div role="status" className="rounded-card border border-tone-success/30 bg-tone-success/10 p-4 text-sm text-tone-success">
           {notice}
         </div>
       ) : null}
@@ -183,15 +176,7 @@ export default function TodayPage() {
             <div>
               <p className="text-sm text-ink-faint">{formatHumanDate(data.date)}</p>
               {!isCompact ? (
-                <>
-                  <div className="mt-1 flex items-center gap-2">
-                    <span className={`text-xl font-bold ${meta.tone}`}>{meta.icon}</span>
-                    <h1 className="text-2xl font-bold text-ink">{meta.title}</h1>
-                  </div>
-                  {data.reason ? (
-                    <p className="mt-1 text-sm text-ink-soft">{data.reason}</p>
-                  ) : null}
-                </>
+                <h1 className="mt-1 text-2xl font-bold text-ink">Сегодня</h1>
               ) : null}
             </div>
             <button
@@ -205,25 +190,29 @@ export default function TodayPage() {
             </button>
           </header>
 
-          <SubjectiveWellnessCard data={data.subjective_wellness} />
-
           {isCompact ? (
-            <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
-              <p className="text-sm text-ink">
-                План в силе
-                {session ? ` · ${session.name}` : ""}
-                {readiness ? ` · Readiness ${Math.round(readiness.score)}` : ""}
-              </p>
-              <button
-                type="button"
-                onClick={() => setExpanded(true)}
-                className="mt-2 text-sm font-medium text-accent"
-              >
-                Развернуть брифинг
-              </button>
-            </section>
+            <>
+              {decisionStory ? (
+                <TodayDecisionStoryCompact
+                  nextAction={decisionStory.next_action}
+                  onExpand={() => setExpanded(true)}
+                />
+              ) : null}
+              <SubjectiveWellnessCard data={data.subjective_wellness} />
+            </>
           ) : (
             <>
+          {decisionStory ? (
+            <TodayDecisionStoryFull
+              story={decisionStory}
+              nextAction={decisionStory.next_action}
+            />
+          ) : (
+            <section role="alert" className="rounded-card border border-tone-warning/30 bg-tone-warning/10 p-4 text-sm text-ink-soft">
+              История решения недоступна. Проверьте данные перед действием.
+            </section>
+          )}
+          <SubjectiveWellnessCard data={data.subjective_wellness} />
           {state === "no_plan" ? (
             <div className="rounded-card border border-surface-border bg-surface p-6 text-center shadow-card">
               <p className="text-sm text-ink-soft">
@@ -239,7 +228,10 @@ export default function TodayPage() {
             </div>
           ) : null}
 
-          {(state === "conflict_actionable" || state === "conflict") && proposal ? (
+          {(state === "conflict_actionable" || state === "conflict") &&
+          proposal &&
+          decisionStory?.next_action.kind === "review_proposal" &&
+          decisionStory.next_action.enabled ? (
             <ProposalCard
               proposalId={proposal.id}
               action={proposal.action}

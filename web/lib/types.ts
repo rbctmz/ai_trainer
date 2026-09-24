@@ -2018,7 +2018,44 @@ export interface TodayBriefing {
   is_quiet_day: boolean;
 }
 
+export interface TodayDecisionStory {
+  schema_version: "today_decision_story_v1" | string;
+  date: string;
+  fact: {
+    session_id: string | null;
+    projection_status: string;
+    completion_status: string;
+    plan: Record<string, unknown>;
+    actual: {
+      activity_ids: string[];
+      load_tss: number | null;
+      legs: Array<Record<string, unknown>>;
+      transition: Record<string, unknown> | null;
+    };
+    deviation: Record<string, unknown>;
+    cause: Record<string, unknown>;
+    evidence_revision: Record<string, unknown>;
+  };
+  interpretation: {
+    status: string;
+    summary: string;
+    caveat: string | null;
+    rule_versions: Record<string, unknown>;
+  };
+  recommendation: { kind: string; summary: string; rule_version?: string };
+  next_action: {
+    kind: string;
+    summary: string;
+    enabled: boolean;
+    changes_plan: boolean;
+    clearance_claim: false;
+    caveat?: string;
+  };
+  evidence: Array<Record<string, unknown>>;
+}
+
 export interface TodayResponse {
+  decision_story: TodayDecisionStory;
   subjective_wellness?: SubjectiveWellness | null;
   snapshot_version: "today_decision_snapshot_v2" | string;
   date: string;
