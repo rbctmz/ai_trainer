@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, Optional
 
 from config.settings import Settings
@@ -492,6 +492,7 @@ def resolve_turn_tool_results(
     history_messages: Iterable[Dict[str, Any]],
     tool_result_formatter: Callable[[str, Any], str],
     response_contract: Any = None,
+    today: Any = None,
 ) -> Dict[str, Any]:
     """Единая точка выбора пути добычи tool_results для хода коуча.
 
@@ -517,7 +518,11 @@ def resolve_turn_tool_results(
             tool_result_formatter,
         )
         tool_results = _ensure_today_action_context(
-            ai_tools, tool_results, tool_result_formatter, user_input=user_input
+            ai_tools,
+            tool_results,
+            tool_result_formatter,
+            user_input=user_input,
+            today=today,
         )
         return {
             "native": True,
@@ -536,7 +541,11 @@ def resolve_turn_tool_results(
         raw, ai_tools, tool_result_formatter
     )
     tool_results = _ensure_today_action_context(
-        ai_tools, tool_results, tool_result_formatter, user_input=user_input
+        ai_tools,
+        tool_results,
+        tool_result_formatter,
+        user_input=user_input,
+        today=today,
     )
     return {
         "native": False,
@@ -551,9 +560,10 @@ def _ensure_today_action_context(
     tool_result_formatter: Callable[[str, Any], str],
     *,
     user_input: str,
+    today: Any = None,
 ) -> list[Dict[str, Any]]:
     """Keep shared Today action and pending-proposal evidence in tool-backed turns."""
-    if not tool_results or not _requests_today_action_context(user_input):
+    if not tool_results or not _requests_today_action_context(user_input, today=today):
         return tool_results
     present = {entry.get("tool_name") for entry in tool_results}
     for name in ("get_readiness_today", "get_pending_proposals"):
@@ -562,9 +572,9 @@ def _ensure_today_action_context(
     return tool_results
 
 
-def _requests_today_action_context(user_input: str) -> bool:
+def _requests_today_action_context(user_input: str, *, today: Any = None) -> bool:
     normalized = str(user_input or "").casefold()
-    return any(
+    if any(
         marker in normalized
         for marker in (
             "сегодня",
@@ -579,7 +589,16 @@ def _requests_today_action_context(user_input: str) -> bool:
             "can i train",
             "what should i do",
         )
-    )
+    ):
+        return True
+    if today is None:
+        return False
+    try:
+        frozen_date = date.fromisoformat(str(today)[:10]).isoformat()
+    except (TypeError, ValueError):
+        return False
+    next_date = (date.fromisoformat(frozen_date) + timedelta(days=1)).isoformat()
+    return frozen_date in normalized or next_date in normalized
 
 
 def collect_tool_results(

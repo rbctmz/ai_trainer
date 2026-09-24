@@ -863,7 +863,9 @@ class AITools:
                     except (TypeError, ValueError):
                         base_checkpoint_id = None
                     try:
-                        active_checkpoint_id = int(checkpoint_id)
+                        active_checkpoint_id = (
+                            int(checkpoint_id) if checkpoint_id is not None else 0
+                        )
                     except (TypeError, ValueError):
                         active_checkpoint_id = None
                     if base_checkpoint_id != active_checkpoint_id:

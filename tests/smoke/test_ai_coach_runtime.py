@@ -588,6 +588,41 @@ def test_native_plan_call_also_gets_today_story_and_pending_proposals():
     assert readiness["subjective_wellness"]["date"] == "2026-09-23"
 
 
+@pytest.mark.parametrize(
+    ("today", "user_input"),
+    [
+        ("2026-09-24", "Можно ли выполнить тренировку 2026-09-24?"),
+        ("2026-09-24", "Можно ли выполнить тренировку 2026-09-25?"),
+    ],
+)
+def test_explicit_frozen_today_date_gets_today_action_context(today, user_input):
+    responses = {
+        "get_active_plan": {"success": True, "result": {"name": "Plan"}},
+        "get_readiness_today": {
+            "success": True,
+            "result": {"computed_for": "2026-09-24", "decision_story": {"date": "2026-09-24"}},
+        },
+        "get_pending_proposals": {
+            "success": True,
+            "result": {"computed_for": "2026-09-24", "pending_proposals": []},
+        },
+    }
+    turn = ai_coach_runtime.resolve_turn_tool_results(
+        provider=_NativeToolProvider(),
+        ai_tools=_DummyAiTools(responses=responses),
+        user_input=user_input,
+        history_messages=[],
+        tool_result_formatter=lambda name, data: f"{name}:{data}",
+        today=today,
+    )
+
+    assert [entry["tool_name"] for entry in turn["tool_results"]] == [
+        "get_active_plan",
+        "get_readiness_today",
+        "get_pending_proposals",
+    ]
+
+
 def test_finalize_without_provider_keeps_previous_behavior():
     ai_tools = _DummyAiTools()
 

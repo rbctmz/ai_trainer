@@ -266,6 +266,7 @@ def coach_chat(
                 user_input=message,
                 history_messages=history,
                 tool_result_formatter=format_tool_result,
+                today=local_today,
             )
             _rendered_response = turn["rendered_response"]
             tool_results = turn["tool_results"]

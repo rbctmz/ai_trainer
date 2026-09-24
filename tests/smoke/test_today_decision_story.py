@@ -400,6 +400,30 @@ def test_pending_proposals_omit_stale_recovery_checkpoint(tmp_path) -> None:
     assert [row["id"] for row in result["pending_proposals"]] == [2]
 
 
+def test_pending_build_proposal_keeps_zero_checkpoint_sentinel() -> None:
+    from models.ai_tools import AITools
+
+    class ProposalReader:
+        def get_coach_proposals(self, *, days: int, status: str) -> list[dict]:
+            assert (days, status) == (14, "pending")
+            return [
+                {
+                    "id": 9,
+                    "action": "plan_build",
+                    "status": "pending",
+                    "params": {"base_checkpoint_id": 0},
+                }
+            ]
+
+    tool = object.__new__(AITools)
+    tool.db = ProposalReader()
+    tool.today_decision_context = {"checkpoint_id": None}
+
+    result = tool.get_pending_proposals()
+
+    assert [row["id"] for row in result["pending_proposals"]] == [9]
+
+
 def test_coach_plan_and_checkpoint_share_one_read_boundary(monkeypatch) -> None:
     from api.routers import coach
 
