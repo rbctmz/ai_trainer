@@ -17,6 +17,13 @@ const completionNames: Record<TodayDecisionStory["fact"]["completion_status"], s
   not_observed: "данных о выполнении нет",
 };
 
+const freshnessNames: Record<string, string> = {
+  current: "актуально",
+  stale: "устарело",
+  unknown: "неизвестно",
+  missing: "нет данных",
+};
+
 function visibleValue(value: unknown): string | null {
   if (typeof value === "string" && value.trim()) return value;
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
@@ -29,7 +36,10 @@ function EvidenceRow({ item }: { item: Record<string, unknown> }) {
   const detail = visibleValue(item.value_label) ?? visibleValue(item.status);
   const source = visibleValue(item.source);
   const date = visibleValue(item.observation_date);
-  const freshness = visibleValue(item.freshness);
+  const freshnessValue = visibleValue(item.freshness);
+  const freshness = freshnessValue
+    ? freshnessNames[freshnessValue] ?? freshnessValue
+    : null;
   const revision = visibleValue(item.ref);
 
   return (

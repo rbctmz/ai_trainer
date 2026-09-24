@@ -143,14 +143,23 @@ export default function TodayPage() {
 
   return (
     <main className="mx-auto max-w-2xl space-y-5">
-      {isLoading ? <div className="h-48 animate-pulse rounded-card bg-surface" /> : null}
+      {isLoading ? (
+        <div
+          role="status"
+          aria-label="Загрузка страницы Сегодня"
+          aria-live="polite"
+          className="h-48 animate-pulse rounded-card bg-surface"
+        >
+          <span className="sr-only">Загружается экран «Сегодня»</span>
+        </div>
+      ) : null}
       {error ? (
-        <div className="rounded-card border border-tone-danger/30 bg-tone-danger/10 p-4 text-sm text-tone-danger">
+        <div role="alert" className="rounded-card border border-tone-danger/30 bg-tone-danger/10 p-4 text-sm text-tone-danger">
           Не удалось загрузить «Сегодня». Проверьте, что ./run_web.sh запущен.
         </div>
       ) : null}
       {notice ? (
-        <div className="rounded-card border border-tone-success/30 bg-tone-success/10 p-4 text-sm text-tone-success">
+        <div role="status" className="rounded-card border border-tone-success/30 bg-tone-success/10 p-4 text-sm text-tone-success">
           {notice}
         </div>
       ) : null}
@@ -199,7 +208,7 @@ export default function TodayPage() {
               nextAction={decisionStory.next_action}
             />
           ) : (
-            <section className="rounded-card border border-tone-warning/30 bg-tone-warning/10 p-4 text-sm text-ink-soft">
+            <section role="alert" className="rounded-card border border-tone-warning/30 bg-tone-warning/10 p-4 text-sm text-ink-soft">
               История решения недоступна. Проверьте данные перед действием.
             </section>
           )}
