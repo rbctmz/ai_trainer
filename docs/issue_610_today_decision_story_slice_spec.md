@@ -3,16 +3,16 @@
 - Issue / PR: #610 / #632 (draft)
 - Author / checker / merge owner: Codex (Spec / Architecture Owner) / independent reviewer / human repository owner
 - Date: 2026-09-23
-- Review-fix code head SHA: `a8b9cb5f8c572fc43bd89043b0ae87dbebaf3818` (pushed; CI pending)
+- Latest review-fix code commit: `c635c7e21c4349c44ebb7976fd8a1a67b765bd11`; completed CI results and their exact heads are recorded below. See PR #632 checks for the current head.
 
 ## Change Class
 
 - Class: A
 - Rationale: this is the primary safety-sensitive composition of plan/fact, readiness, athlete-reported observations, and next action, with an additive API contract and web/Coach consumers.
 - Automatic escalation triggers checked: public API/TypeScript contract; safety-sensitive evidence; cross-surface consistency; accessibility/mobile states. No new persistence, provider write, migration, or external delivery is in scope.
-- Review budget used: 2 / 2 full-diff rounds; one scoped delta follow-up
+- Review budget used: 2 / 2 full-diff rounds; two scoped delta follow-ups
 - Review trigger mode: manual
-- Review acceptance head SHA: owner delta read-back accepted on base `440d1795`; native review of `20694750cb48894fab6bda3aab67869f9b2c846f` and scoped delta review of `3d11bde9ce3125561568dbce74db588f10c35af7` are addressed; current-head acceptance pending
+- Review acceptance head SHA: owner delta read-back accepted on base `440d1795`; native reviews of `20694750` and scoped deltas of `3d11bde` and `104a102` were addressed; current-head acceptance pending
 - Review budget exception: N/A
 
 ## Scope
@@ -128,9 +128,10 @@
 - CI checks/reruns/flakes: `python -m ruff check --no-cache .`, `git diff --check`, `npm --prefix web run contract:extract -- --check`, `npm --prefix web run contract:inventory`, `npm --prefix web run lint`, and `npm --prefix web run build` passed. Isolated `tests/e2e/test_today_decision_story_ui.py` passed twice (`1 passed` each), including after the final Coach action/session resolver change. Web lint/build and Playwright wrote only ignored worktree artifacts and used temporary E2E databases.
 - Lifecycle/probe evidence: Coach read adapter's before/after table snapshots match for the tracked SQLite tables. A regression fixture with a pending proposal based on checkpoint 1 and active checkpoint 2 resolves to `inspect_evidence`, matching Today; `/api/today` continues its pre-existing recovery-loop writes and is not claimed read-only.
 - Changed contracts: additive `TodayResponse.decision_story: TodayDecisionStory`; `web/lib/types.ts` and generated `tests/contracts/ts_contract.json` updated. Coach `get_readiness_today` attaches the same composer DTO in the existing tool result.
-- Review-fix verification: `44 passed` across `test_today_decision_story.py`, `test_api_today.py`, and `test_coach_fresh_context.py` after the first code push; final backend follow-up passed `203` focused tests, Ruff, and `git diff --check`. Web lint/build, the Today browser regression at 390/1280 px, and the existing web-stack E2E passed after the UI fix.
+- Review-fix verification: `44 passed` across `test_today_decision_story.py`, `test_api_today.py`, and `test_coach_fresh_context.py` after the first code push; backend follow-ups passed `203` then `206` focused tests, Ruff, and `git diff --check`. Web lint/build, the Today browser regression at 390/1280 px, and the existing web-stack E2E passed after the UI fix.
 - CI at `3d11bde`: `27 failed, 2810 passed, 38 skipped, 39 deselected`; five direct Coach regression failures were fixed in `a8b9cb5`. CI at `b23b397` then had `22 failed, 2818 passed, 38 skipped, 39 deselected`; web contract and E2E passed. A read-only archive of current `main` (`9434584`) reproduced the exact same 22 failing test IDs in the affected ten modules under `TZ=UTC` (`22 failed, 100 passed`), while `TZ=Europe/Moscow` passed all 122. This identifies an existing CI date/timezone boundary, not a fix or green CI claim for this PR.
-- Unresolved review-thread count: 0 of 8; all eight received written `fixed-in` replies and were resolved on GitHub after the relevant code pushes.
+- CI at `104a102`: `2840 passed, 38 skipped, 39 deselected`; web contract and E2E passed. Its Review gate failed because no native review had yet been submitted for that head; the subsequent scoped review produced three findings.
+- Review threads: 11 findings total across the native reviews; live resolution status is tracked in GitHub. The latest two P2 fixes are in `c635c7e`; the P3 CI-status correction is this evidence update.
 - Residual risks and follow-ups: no prescriptive symptom threshold beyond the explicit current injury response is introduced. Explicit screen-reader assertions and Today loading/empty/error/stale browser states remain unverified. Independent review and owner acceptance are pending. Existing `/api/today` continues its current recovery-loop write lifecycle; only the pure composer and Coach source adapter carry a no-write contract.
 
 ## Review Findings
@@ -152,10 +153,12 @@
 
 Scoped delta review on `3d11bde` found three P2s: synthesis date drift, stale checkpoint proposals, and malformed evidence revision. All were fixed in `a8b9cb5`, answered in their inline threads, and resolved; no further full-diff review was requested.
 
+Scoped delta review on `104a102` found two P2s (checkpoint sentinel and explicit-date Today grounding) and one P3 (outdated CI status in this header). The P2s were fixed in `c635c7e` with focused regressions; the P3 was corrected in this documentation update.
+
 ## Final Verdict
 
 - Verdict: IN PROGRESS
-- Blocking findings remaining: current-head review acceptance and green CI, explicit screen-reader and loading/empty/error/stale browser checks, human owner acceptance and merge.
+- Blocking findings remaining: current-head review acceptance and CI, explicit screen-reader and loading/empty/error/stale browser checks, human owner acceptance and merge.
 - Review rounds used: 2
 - Accepted risk or follow-up issue: none accepted yet.
 - Merge owner final gate: human repository owner.
