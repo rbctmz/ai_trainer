@@ -105,13 +105,21 @@ export default function TodayPage() {
               {session.sessions.map((leaf, index) => (
                 <div
                   key={leaf.session_id || `${leaf.sport}-${index}`}
-                  className="rounded-lg bg-surface-muted p-2.5"
+                  className="rounded-lg bg-surface-muted p-3"
                 >
-                  <div className="text-xs font-medium text-ink">
+                  {leaf.kind === "brick_leg" && index > 0 && session.sessions?.[index - 1]?.kind === "brick_leg" && (
+                    (leaf.group_id && leaf.group_id === session.sessions[index - 1].group_id) ||
+                    (!leaf.group_id && !session.sessions[index - 1].group_id && session.kind === "composite")
+                  ) ? (
+                    <div className="mb-3 border-b border-accent/30 pb-3 text-sm font-medium text-accent">
+                      ↓ Переход{session.kind === "composite" && session.transition_minutes != null ? ` · ${session.transition_minutes} мин` : " к следующему этапу"}
+                    </div>
+                  ) : null}
+                  <div className="text-sm font-medium text-ink">
                     {index + 1}. {workoutLabel(leaf.name)}
                     {leaf.kind === "brick_leg" ? (
                       <span className="ml-1 rounded bg-accent/10 px-1 text-[10px] font-medium text-accent">
-                        связка · этап {leaf.leg_index}
+                        брик · этап {leaf.leg_index}
                       </span>
                     ) : null}
                     <span className="ml-1 font-normal text-ink-faint">
@@ -123,10 +131,11 @@ export default function TodayPage() {
               ))}
             </div>
           ) : session.kind === "composite" && session.legs?.length ? (
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {session.legs.map((leg) => (
+            <div className="mt-3 grid gap-2">
+              {session.legs.map((leg, index) => (
                 <div key={leg.leg_index} className="rounded-lg bg-surface-muted p-2.5">
-                  <div className="text-xs font-medium text-ink">
+                  {index > 0 ? <div className="mb-3 text-sm font-medium text-accent">↓ Переход{session.transition_minutes != null ? ` · ${session.transition_minutes} мин` : " к следующему этапу"}</div> : null}
+                  <div className="text-sm font-medium text-ink">
                     {leg.leg_index}. {workoutLabel(leg.template_name || leg.sport || "Этап")}
                     <span className="ml-1 font-normal text-ink-faint">
                       {leg.duration_minutes} мин · {leg.target_tss} TSS
@@ -171,7 +180,7 @@ export default function TodayPage() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl space-y-5">
+    <main className="w-full space-y-5">
       {isLoading ? (
         <div
           role="status"
@@ -267,6 +276,7 @@ export default function TodayPage() {
           decisionStory?.next_action.kind === "review_proposal" &&
           decisionStory.next_action.enabled ? (
             <ProposalCard
+              presentation="today"
               proposalId={proposal.id}
               action={proposal.action}
               status={proposal.status}
