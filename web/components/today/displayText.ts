@@ -46,7 +46,7 @@ export function workoutLabel(name: string): string {
 
 export function decisionText(text: string): string {
   // Translate enum words inside an existing explanation; never generate a reason.
-  return text.replace(
+  return text.replace(/Garmin readiness/g, "Оценка Garmin").replace(
     /Готовность (\w+) \(([\d.]+)\/100\) не противоречит сессиям ближайших (\d+) дн\. — вмешательство не требуется\./g,
     "Оценка восстановления: $1 — $2 из 100. По этим данным план на ближайшие $3 дн. не требует изменений.",
   ).replace(/\b(ready|optimal|reduced|critical|low|unknown|data_gap)\b/g,

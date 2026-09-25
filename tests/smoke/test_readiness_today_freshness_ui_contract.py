@@ -58,7 +58,7 @@ def test_types_expose_the_freshness_and_provenance_contract() -> None:
 
 
 def test_today_renders_dated_observation_labels_from_server_status() -> None:
-    source = _source("web/app/today/page.tsx")
+    source = _source("web/components/today/ReadinessSummary.tsx")
 
     assert "observationDateLabel" in source
     for label in (
@@ -77,7 +77,7 @@ def test_today_renders_dated_observation_labels_from_server_status() -> None:
 
 
 def test_today_surfaces_the_freshness_verdict_and_blocked_reason() -> None:
-    source = _source("web/app/today/page.tsx")
+    source = _source("web/components/today/ReadinessSummary.tsx")
 
     assert "readiness.freshness" in source
     assert 'readiness.freshness.state === "data_gap"' in source
@@ -88,12 +88,12 @@ def test_today_surfaces_the_freshness_verdict_and_blocked_reason() -> None:
     assert "no_confirmed_today_primary_recovery_measurement" in source
     assert "no_intervention_eligible_factors" in source
     # A descriptive score that is not backed by fresh measurements is labelled.
-    assert "предварительно" in source
+    assert "предварительно" in source.lower()
 
 
 def test_today_does_not_recompute_readiness_business_rules() -> None:
     """The page may only map server values to labels."""
-    source = _source("web/app/today/page.tsx")
+    source = _source("web/components/today/ReadinessSummary.tsx")
 
     # No threshold arithmetic on the intervention channel or its inputs.
     for forbidden in (
@@ -105,5 +105,5 @@ def test_today_does_not_recompute_readiness_business_rules() -> None:
     ):
         assert forbidden not in source
     # Coverage is labelled honestly instead of being presented as freshness.
-    assert "покрытие факторов" in source
-    assert "описательная уверенность" in source
+    assert "Полнота данных" in source
+    assert "Это не оценка их свежести" in source

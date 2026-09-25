@@ -52,6 +52,7 @@ def test_readable_today_preserves_action_and_uncertainty(web_stack):
     reason = "Готовность ready (68.0/100) не противоречит сессиям ближайших 3 дн. — вмешательство не требуется."
     story = payload["decision_story"]
     story["next_action"].update(kind="follow_plan", summary=reason, enabled=True)
+    story["next_action"].pop("caveat", None)
     story["interpretation"].update(status="consistent", summary=reason, caveat=None)
     story["recommendation"].update(kind="follow_plan", summary=reason)
     story["fact"]["completion_status"] = "not_observed"
@@ -74,8 +75,8 @@ def test_readable_today_preserves_action_and_uncertainty(web_stack):
             page.set_viewport_size({"width": width, "height": 1000})
             current["value"] = payload
             page.goto(f"{web_stack.web_base}/today", wait_until="networkidle")
-            page.get_by_role("heading", name="План остаётся без изменений").wait_for()
-            region = page.get_by_role("region", name="Решение на сегодня")
+            page.get_by_role("region", name="Сводка на сегодня").wait_for()
+            region = page.get_by_role("region", name="Сводка на сегодня")
             assert region.get_by_text("Оценка восстановления: нормальная", exact=False).count() == 1
             assert page.get_by_text("Восстановительный бег", exact=True).is_visible()
             assert page.get_by_text("6:00–6:30 /км", exact=False).count() == 3
@@ -85,10 +86,13 @@ def test_readable_today_preserves_action_and_uncertainty(web_stack):
             assert not _has_horizontal_overflow(page)
             if artifacts:
                 page.screenshot(path=str(artifacts / f"today-{width}.png"), full_page=True)
-            region.get_by_text("На каких данных основано").click()
+                region.screenshot(path=str(artifacts / f"summary-{width}.png"))
+            region.get_by_text("Показатели и объяснение").click()
             assert region.get_by_text("Intervals.icu", exact=False).is_visible()
             assert region.get_by_text("Нормальная", exact=True).is_visible()
             assert "snapshot_123" not in region.inner_text()
+            if artifacts:
+                region.screenshot(path=str(artifacts / f"details-{width}.png"))
             assert not _has_horizontal_overflow(page)
 
             stale = deepcopy(payload)
@@ -97,7 +101,7 @@ def test_readable_today_preserves_action_and_uncertainty(web_stack):
             current["value"] = stale
             page.reload(wait_until="networkidle")
             assert region.get_by_text("Свежего ответа о травме нет", exact=False).is_visible()
-            region.get_by_text("На каких данных основано").click()
+            region.get_by_text("Показатели и объяснение").click()
             assert region.get_by_text("Данные устарели", exact=False).is_visible()
 
             conflict = deepcopy(payload)
@@ -108,7 +112,7 @@ def test_readable_today_preserves_action_and_uncertainty(web_stack):
             conflict["decision_story"]["recommendation"].update(kind="non_prescriptive_review", summary="Свежая самооценка травмы требует внимания.")
             current["value"] = conflict
             page.reload(wait_until="networkidle")
-            assert page.get_by_role("heading", name="Перед тренировкой нужно уточнение").is_visible()
+            assert page.get_by_role("heading", name="Нужно уточнить данные").is_visible()
             assert page.get_by_role("heading", name="План остаётся без изменений").count() == 0
             assert region.get_by_text("Свежая самооценка травмы требует внимания.", exact=True).count() == 1
             assert not _has_horizontal_overflow(page)
@@ -123,6 +127,75 @@ def test_readable_today_preserves_action_and_uncertainty(web_stack):
             current["value"] = ambiguous
             page.reload(wait_until="networkidle")
             assert region.get_by_role("link", name="Уточнить выполненную тренировку").get_attribute("href") == "/planning?session_id=session%20one"
+        assert not web_stack.js_errors
+    finally:
+        page.unroute("**/api/today?demo=1", serve)
+
+
+def test_one_visual_readiness_and_dated_explanation(web_stack):
+    """One score before disclosure; unknown measurement dates never disappear."""
+    page = web_stack.page
+    payload = _today_payload(web_stack.api_base)
+    payload["state"] = "silence"
+    payload["briefing"] = {"frequency": "daily", "is_quiet_day": True}
+    reason = "Готовность ready (68.0/100) не противоречит сессиям ближайших 3 дн. — вмешательство не требуется."
+    payload["decision_story"]["next_action"].update(kind="follow_plan", summary=reason)
+    payload["decision_story"]["interpretation"].update(summary=reason, caveat=None)
+    payload["decision_story"]["recommendation"].update(summary=reason)
+    payload["readiness"].update(
+        score=68, status="ready", stale=False, is_provisional=False,
+        freshness={"state": "fresh", "confirmed_today": ["tsb"], "outdated": [],
+                   "unverified": ["rhr", "training_readiness"], "invalid": [], "missing": [], "blocked_reason": None},
+        drivers=[
+            {"key": "rhr", "label": "Пульс покоя", "score": 80, "evidence": "Пульс покоя 47 уд/мин против базовых 48.5", "observation_status": "unverified"},
+            {"key": "tsb", "label": "Баланс нагрузки", "score": 60, "evidence": "TSB −18.1", "observation_status": "confirmed_today"},
+            {"key": "training_readiness", "label": "Оценка Garmin", "score": 81, "evidence": "Garmin readiness 81/100", "observation_status": "unverified"},
+        ],
+    )
+    current = {"value": payload}
+
+    def serve(route):
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(current["value"], ensure_ascii=False))
+
+    page.route("**/api/today?demo=1", serve)
+    try:
+        for width in (390, 1280):
+            page.set_viewport_size({"width": width, "height": 1000})
+            current["value"] = payload
+            page.goto(f"{web_stack.web_base}/today", wait_until="networkidle")
+            summary = page.get_by_role("region", name="Сводка на сегодня")
+            indicator = summary.get_by_role("meter", name="Восстановление")
+            assert indicator.count() == 1
+            assert indicator.get_attribute("aria-valuenow") == "68"
+            assert page.get_by_role("meter", name="Восстановление").count() == 1
+            assert "Оценка восстановления: нормальная" not in summary.inner_text()
+            assert "почему — 3 факторов" not in page.locator("main").inner_text()
+            assert page.get_by_role("heading", name="План остаётся без изменений").count() == 0
+            summary.get_by_text("Показатели и объяснение").click()
+            assert summary.get_by_text("дата измерения неизвестна", exact=False).count() == 2
+            assert summary.get_by_text("Пульс покоя 47 уд/мин", exact=False).count() == 1
+            assert summary.get_by_text("Оценка Garmin 81/100", exact=False).count() == 1
+            assert "Garmin readiness" not in summary.inner_text()
+            assert not _has_horizontal_overflow(page)
+
+            stale = deepcopy(payload)
+            stale["readiness"]["freshness"].update(state="data_gap", confirmed_today=[], unverified=["rhr"], missing=["sleep"], blocked_reason="no_confirmed_today_primary_recovery_measurement")
+            stale["readiness"]["is_provisional"] = True
+            stale["decision_story"]["next_action"].update(kind="inspect_evidence", summary="Сегодняшние данные восстановления не подтверждены.")
+            current["value"] = stale
+            page.reload(wait_until="networkidle")
+            assert summary.get_by_text("Предварительно", exact=True).is_visible()
+            assert summary.get_by_text("Сегодняшние данные восстановления не подтверждены.", exact=True).is_visible()
+            summary.get_by_text("Показатели и объяснение").click()
+            assert summary.get_by_text("нет подтверждённого сегодняшнего первичного измерения", exact=False).is_visible()
+            assert summary.get_by_text("нет данных: Сон", exact=False).is_visible()
+
+            missing = deepcopy(stale)
+            missing["readiness"] = None
+            current["value"] = missing
+            page.reload(wait_until="networkidle")
+            assert summary.get_by_text("Нет оценки", exact=True).is_visible()
+            assert summary.get_by_role("meter").count() == 0
         assert not web_stack.js_errors
     finally:
         page.unroute("**/api/today?demo=1", serve)
