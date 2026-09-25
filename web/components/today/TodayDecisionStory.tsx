@@ -1,164 +1,101 @@
 "use client";
 
-import type { TodayDecisionStory } from "@/lib/types";
+import Link from "next/link";
+import type { TodayDecisionStory, TodayReadiness } from "@/lib/types";
+import { decisionText } from "./displayText";
 
 type NextAction = TodayDecisionStory["next_action"];
-
-const evidenceNames: Record<string, string> = {
-  session: "Сессия",
-  readiness: "Готовность",
-  subjective_wellness: "Самооценка травмы",
+const actionNames: Record<string, string> = {
+  follow_plan: "План остаётся без изменений",
+  inspect_evidence: "Перед тренировкой нужно уточнение",
+  confirm_match: "Уточните, какая тренировка выполнена",
+  review_proposal: "Есть предложение изменить план",
+  sync_or_wait: "Нужны свежие данные",
+  open_planning: "Начните с плана тренировок",
 };
-
-const completionNames: Record<TodayDecisionStory["fact"]["completion_status"], string> = {
-  complete: "выполнено",
-  incomplete: "не полностью выполнено",
-  needs_confirmation: "нужно подтвердить сопоставление",
-  not_observed: "данных о выполнении нет",
+const statusNames: Record<string, string> = {
+  ready: "Нормальная", optimal: "Оптимальная", reduced: "Сниженная", low: "Низкая",
+  critical: "Критически низкая", unknown: "Не определена", data_gap: "Недостаточно данных",
+  matched: "Выполненная тренировка связана с планом", partial: "Выполнена часть тренировки",
+  needs_confirmation: "Нужно уточнить связь с планом", unmatched: "Выполнение не найдено",
 };
-
 const freshnessNames: Record<string, string> = {
-  current: "актуально",
-  stale: "устарело",
-  unknown: "неизвестно",
-  missing: "нет данных",
+  current: "Актуальные данные", stale: "Данные устарели", unknown: "Актуальность не подтверждена",
+  missing: "Нет данных", unavailable: "Данные недоступны",
 };
-
-function visibleValue(value: unknown): string | null {
-  if (typeof value === "string" && value.trim()) return value;
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  return null;
+function text(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }
-
+function dateLabel(value: string): string {
+  const date = new Date(`${value}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? "Дата неизвестна" : date.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+}
 function EvidenceRow({ item }: { item: Record<string, unknown> }) {
-  const kind = visibleValue(item.kind) ?? "unknown";
-  const label = evidenceNames[kind] ?? "Данные";
-  const detail = visibleValue(item.value_label) ?? visibleValue(item.status);
-  const source = visibleValue(item.source);
-  const date = visibleValue(item.observation_date);
-  const freshnessValue = visibleValue(item.freshness);
-  const freshness = freshnessValue
-    ? freshnessNames[freshnessValue] ?? freshnessValue
-    : null;
-  const revision = visibleValue(item.ref);
-
+  const kind = text(item.kind) ?? "unknown";
+  const label = ({ session: "Выполнение тренировки", readiness: "Оценка восстановления", subjective_wellness: "Самооценка травмы" } as Record<string, string>)[kind] ?? "Данные";
+  const status = text(item.status);
+  const detail = text(item.value_label) ?? (status ? statusNames[status] ?? "Оценка не определена" : null);
+  const source = ({ intervals: "Intervals.icu", garmin: "Garmin", canonical_snapshot: "Сводная оценка восстановления", session_projection: "План и загруженные активности" } as Record<string, string>)[String(item.source)] ?? "Источник не указан";
+  const date = text(item.observation_date);
+  const freshness = freshnessNames[String(item.freshness)] ?? "Актуальность не подтверждена";
   return (
-    <li className="min-w-0 rounded-lg bg-surface-muted p-3 text-sm">
-      <p className="font-medium text-ink">{label}</p>
-      {detail ? <p className="mt-1 text-ink-soft">{detail}</p> : null}
-      <p className="mt-1 break-words text-xs text-ink-faint">
-        {[
-          source ? `источник: ${source}` : null,
-          date ? `наблюдение: ${date}` : null,
-          freshness ? `свежесть: ${freshness}` : null,
-          revision ? `ссылка: ${revision}` : null,
-        ]
-          .filter(Boolean)
-          .join(" · ")}
-      </p>
+    <li className="min-w-0 border-t border-surface-border py-3 first:border-0">
+      <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+        <p className="font-medium text-ink">{label}</p>
+        {detail ? <p className="text-ink-soft">{detail}</p> : null}
+      </div>
+      <p className="mt-1 text-xs text-ink-faint">{source} · {date ? dateLabel(date) : "Дата неизвестна"} · {freshness}</p>
     </li>
   );
 }
 
-export function TodayDecisionStoryCompact({
-  nextAction,
-  onExpand,
-}: {
-  nextAction: NextAction;
-  onExpand: () => void;
-}) {
+export function TodayDecisionStoryCompact({ nextAction, onExpand }: { nextAction: NextAction; onExpand: () => void }) {
   return (
-    <section
-      aria-labelledby="today-decision-compact-title"
-      className="min-w-0 rounded-card border border-surface-border bg-surface p-4 shadow-card"
-    >
-      <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-        Сегодня · следующий шаг
-      </p>
-      <h2 id="today-decision-compact-title" className="mt-1 break-words text-base font-semibold text-ink">
-        {nextAction.summary}
-      </h2>
-      <button
-        type="button"
-        onClick={onExpand}
-        className="mt-3 text-sm font-medium text-accent"
-      >
-        Развернуть брифинг
-      </button>
+    <section aria-label="Решение на сегодня" className="min-w-0 rounded-card border border-surface-border bg-surface p-5 shadow-card">
+      <h2 className="text-xl font-semibold text-ink">{actionNames[nextAction.kind] ?? "Решение на сегодня"}</h2>
+      <p className="mt-2 break-words text-sm leading-relaxed text-ink-soft">{decisionText(nextAction.summary)}</p>
+      <button type="button" onClick={onExpand} className="mt-3 text-sm font-medium text-accent">Показать тренировку и объяснение</button>
     </section>
   );
 }
 
-export function TodayDecisionStoryFull({
-  story,
-  nextAction,
-}: {
-  story: TodayDecisionStory;
-  nextAction: NextAction;
-}) {
-  const planName = visibleValue(story.fact.plan.name) ?? "Сессия не указана";
-  const plannedLoad = visibleValue(story.fact.plan.load_tss);
-  const actualLoad = visibleValue(story.fact.actual.load_tss);
-  const loadDelta = visibleValue(story.fact.deviation.load_delta_tss);
-  const hasAttributedFact = !["not_observed", "needs_confirmation"].includes(
-    story.fact.completion_status,
+export function TodayDecisionStoryFull({ story, nextAction, readiness }: { story: TodayDecisionStory; nextAction: NextAction; readiness?: TodayReadiness | null }) {
+  // Deduplicate only identical explanations; distinct server facts and caveats survive.
+  const explanations = Array.from(new Set([
+    nextAction.summary, story.interpretation.summary, story.recommendation.summary,
+  ].map(decisionText).filter(Boolean))).filter((value, index, all) =>
+    !all.some((other, otherIndex) => otherIndex !== index && other.length > value.length && other.includes(value)),
   );
-  const versions = Object.entries(story.interpretation.rule_versions)
-    .map(([key, value]) => [key, visibleValue(value)] as const)
-    .filter((entry): entry is readonly [string, string] => entry[1] !== null);
-
+  const completed = story.fact.completion_status === "complete" || story.fact.completion_status === "incomplete";
+  const actualLoad = story.fact.actual.load_tss;
+  const drivers = readiness?.drivers.length ? readiness.drivers : readiness?.factors ?? [];
   return (
-    <section
-      aria-labelledby="today-decision-title"
-      className="min-w-0 rounded-card border border-surface-border bg-surface p-4 shadow-card"
-    >
-      <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-        Сегодня · решение
-      </p>
-      <h2 id="today-decision-title" className="mt-1 text-lg font-semibold text-ink">
-        Следующее действие
-      </h2>
-      <p className="mt-1 break-words text-sm text-ink">{nextAction.summary}</p>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="min-w-0 rounded-lg bg-surface-muted p-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Что известно</h3>
-          <p className="mt-1 break-words text-sm font-medium text-ink">{planName}</p>
-          <p className="mt-1 text-xs text-ink-soft">
-            План: {plannedLoad ? `${plannedLoad} TSS` : "нагрузка неизвестна"}
-            {" · "}Факт: {hasAttributedFact
-              ? actualLoad ? `${actualLoad} TSS` : "нагрузка неизвестна"
-              : "нет подтверждённых данных"}
-          </p>
-          <p className="mt-1 text-xs text-ink-faint">
-            Выполнение: {completionNames[story.fact.completion_status]}
-            {hasAttributedFact && loadDelta ? ` · отклонение: ${loadDelta} TSS` : ""}
-          </p>
-        </div>
-        <div className="min-w-0 rounded-lg bg-surface-muted p-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Почему</h3>
-          <p className="mt-1 break-words text-sm text-ink-soft">{story.interpretation.summary}</p>
-        </div>
+    <section aria-label="Решение на сегодня" className="min-w-0 rounded-card border border-surface-border bg-surface p-5 shadow-card sm:p-6">
+      <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Решение на сегодня</p>
+      <h2 className="mt-2 text-xl font-semibold leading-snug text-ink sm:text-2xl">{actionNames[nextAction.kind] ?? "Следующий шаг"}</h2>
+      <div className="mt-3 space-y-2 text-sm leading-relaxed text-ink-soft">
+        {explanations.map((value) => <p key={value} className="break-words">{value}</p>)}
       </div>
-
-      <div className="mt-3 border-t border-surface-border pt-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Рекомендация</h3>
-        <p className="mt-1 break-words text-sm text-ink-soft">{story.recommendation.summary}</p>
-      </div>
-
-      <details className="mt-3 border-t border-surface-border pt-3">
-        <summary className="cursor-pointer text-sm font-medium text-accent">
-          Доказательства и версии правил
-        </summary>
-        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-          {story.evidence.map((item, index) => (
-            <EvidenceRow key={`${String(item.kind ?? "evidence")}-${index}`} item={item} />
-          ))}
-        </ul>
-        <p className="mt-3 break-words text-xs text-ink-faint">
-          Версия истории: {story.schema_version}
-          {versions.map(([key, value]) => ` · ${key}: ${value}`).join("")}
+      {completed ? (
+        <p className="mt-3 text-sm text-ink-soft">
+          {story.fact.completion_status === "complete" ? "Тренировка выполнена." : "Тренировка выполнена частично."}
+          {actualLoad != null ? ` Фактическая нагрузка: ${actualLoad} TSS.` : " Нагрузка выполненной тренировки неизвестна."}
         </p>
+      ) : null}
+      {nextAction.kind === "confirm_match" && nextAction.enabled ? (
+        <Link href={story.fact.session_id ? `/planning?session_id=${encodeURIComponent(story.fact.session_id)}` : "/planning"} className="mt-4 inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground">Уточнить выполненную тренировку</Link>
+      ) : null}
+      <details className="mt-4 border-t border-surface-border pt-3">
+        <summary className="cursor-pointer text-sm font-medium text-accent">На каких данных основано</summary>
+        {drivers.length > 0 ? (
+          <div className="mt-4 text-sm text-ink-soft">
+            <h3 className="font-medium text-ink">Что входит в оценку восстановления</h3>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              {drivers.map((driver, index) => driver.evidence ? <li key={index}>{decisionText(String(driver.evidence))}</li> : null)}
+            </ul>
+          </div>
+        ) : null}
+        <ul className="mt-2 text-sm">{story.evidence.map((item, index) => <EvidenceRow key={index} item={item} />)}</ul>
       </details>
     </section>
   );

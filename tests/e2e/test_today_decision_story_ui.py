@@ -86,22 +86,21 @@ def test_today_story_owns_compact_and_full_action_at_mobile_and_desktop(web_stac
         for width in (390, 1280):
             page.set_viewport_size({"width": width, "height": 900})
             page.goto(f"{web_stack.web_base}/today", wait_until="domcontentloaded")
-            page.get_by_role("heading", name="Следующее действие").wait_for(timeout=60_000)
+            page.get_by_role("region", name="Решение на сегодня").wait_for(timeout=60_000)
             assert page.get_by_text(
                 "Проверьте отмеченное самочувствие перед решением по сессии.",
                 exact=True,
             ).is_visible()
             assert page.get_by_text("План в силе", exact=True).count() == 0
-            assert page.get_by_role("button", name="Развернуть брифинг").count() == 0
+            assert page.get_by_role("button", name="Показать тренировку и объяснение").count() == 0
             wellness = page.get_by_role("region", name="Самочувствие из Intervals.icu")
             assert wellness.get_by_text("Дискомфорт", exact=True).is_visible()
-            story = page.get_by_role("region", name="Следующее действие")
-            assert story.get_by_text("Факт: нет подтверждённых данных").is_visible()
-            assert story.get_by_text("Выполнение: данных о выполнении нет").is_visible()
+            story = page.get_by_role("region", name="Решение на сегодня")
+            assert story.get_by_text("Тренировка выполнена.", exact=False).count() == 0
             assert story.get_by_text("not_observed").count() == 0
             assert not _has_horizontal_overflow(page), f"горизонтальный overflow при {width}px"
 
-            evidence_summary = page.get_by_text("Доказательства и версии правил")
+            evidence_summary = page.get_by_text("На каких данных основано")
             evidence_summary.focus()
             page.keyboard.press("Enter")
             assert story.get_by_text("Самооценка травмы", exact=True).is_visible()
@@ -116,14 +115,14 @@ def test_today_story_owns_compact_and_full_action_at_mobile_and_desktop(web_stac
             current["value"] = quiet
             page.reload(wait_until="domcontentloaded")
             page.get_by_role(
-                "heading", name="Следуйте текущему плану с учётом доступных данных."
+                "heading", name="План остаётся без изменений"
             ).wait_for(timeout=60_000)
-            assert page.get_by_role("button", name="Развернуть брифинг").is_visible()
-            expand = page.get_by_role("button", name="Развернуть брифинг")
+            assert page.get_by_role("button", name="Показать тренировку и объяснение").is_visible()
+            expand = page.get_by_role("button", name="Показать тренировку и объяснение")
             expand.focus()
             assert expand.evaluate("element => document.activeElement === element")
             page.keyboard.press("Enter")
-            assert page.get_by_role("heading", name="Следующее действие").is_visible()
+            assert page.get_by_role("region", name="Решение на сегодня").is_visible()
             assert not _has_horizontal_overflow(page), f"overflow compact/full при {width}px"
 
             pending = {
@@ -139,7 +138,7 @@ def test_today_story_owns_compact_and_full_action_at_mobile_and_desktop(web_stac
             blocked["pending_proposal"] = pending
             current["value"] = blocked
             page.reload(wait_until="domcontentloaded")
-            page.get_by_role("heading", name="Следующее действие").wait_for(timeout=60_000)
+            page.get_by_role("region", name="Решение на сегодня").wait_for(timeout=60_000)
             assert page.get_by_text(
                 "Проверьте отмеченное самочувствие перед решением по сессии.",
                 exact=True,
@@ -216,7 +215,7 @@ def test_today_loading_empty_error_and_stale_states_are_accessible(web_stack) ->
     loading = page.get_by_role("status", name="Загрузка страницы Сегодня")
     assert loading.is_visible()
     page.evaluate("window.__releaseTodayFetch()")
-    page.get_by_role("heading", name="Следующее действие").wait_for(timeout=60_000)
+    page.get_by_role("region", name="Решение на сегодня").wait_for(timeout=60_000)
     assert not _has_horizontal_overflow(page)
 
     def fail_today(route) -> None:
@@ -247,7 +246,7 @@ def test_today_loading_empty_error_and_stale_states_are_accessible(web_stack) ->
 
     page.route("**/api/today?demo=1", serve_empty)
     page.reload(wait_until="domcontentloaded")
-    page.get_by_role("heading", name="Следующее действие").wait_for(timeout=60_000)
+    page.get_by_role("region", name="Решение на сегодня").wait_for(timeout=60_000)
     page.get_by_text(
         "Построй план — и этот экран каждое утро будет отвечать на вопрос",
         exact=False,
@@ -287,15 +286,15 @@ def test_today_loading_empty_error_and_stale_states_are_accessible(web_stack) ->
     for width in (390, 1280):
         page.set_viewport_size({"width": width, "height": 900})
         page.reload(wait_until="domcontentloaded")
-        expand = page.get_by_role("button", name="Развернуть брифинг")
+        expand = page.get_by_role("button", name="Показать тренировку и объяснение")
         expand.wait_for(timeout=60_000)
         expand.focus()
         page.keyboard.press("Enter")
-        story = page.get_by_role("region", name="Следующее действие")
-        evidence = story.get_by_text("Доказательства и версии правил")
+        story = page.get_by_role("region", name="Решение на сегодня")
+        evidence = story.get_by_text("На каких данных основано")
         evidence.focus()
         page.keyboard.press("Enter")
-        story.get_by_text("свежесть: устарело", exact=False).wait_for()
+        story.get_by_text("Данные устарели", exact=False).wait_for()
         assert not _has_horizontal_overflow(page), f"overflow stale state при {width}px"
     new_console_errors = web_stack.js_errors[initial_console_errors:]
     expected_http_error = [
