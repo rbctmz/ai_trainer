@@ -33,18 +33,18 @@ from models.ai_tools import AITools
 from models.coach_tool_presenter import format_tool_result
 from models.planning_checkpoints import build_planning_checkpoint
 from models.workout_catalog import materialize_session_template
-
+from tests.athlete_clock import athlete_now, athlete_today
 
 pytestmark = pytest.mark.smoke
 
-_STRUCTURED_DATE = date.today()
-_UNMATERIALIZED_DATE = date.today() + timedelta(days=1)
-_REST_DATE = date.today() + timedelta(days=2)
+_STRUCTURED_DATE = athlete_today()
+_UNMATERIALIZED_DATE = athlete_today() + timedelta(days=1)
+_REST_DATE = athlete_today() + timedelta(days=2)
 
 
 def _goal_plan() -> dict:
     """План на три сессии: структурированная, без структуры и день отдыха."""
-    start_week = date.today() - timedelta(days=date.today().weekday())
+    start_week = athlete_today() - timedelta(days=athlete_today().weekday())
     structured = dict(
         materialize_session_template(
             phase="Taper",
@@ -115,7 +115,7 @@ def _goal_plan() -> dict:
         },
         "planner_mix": None,
         "planner_weights": None,
-        "plan_revision": datetime.now().isoformat(),
+        "plan_revision": athlete_now().isoformat(),
         "near_term_edit_version": 0,
         "near_term_edit_rollback_target_checkpoint_id": None,
     }
@@ -355,12 +355,12 @@ def test_tool_label_is_human_readable() -> None:
 # Коуч видел в колонке цели литерал "pace" вместо чисел. В живом плане это 113
 # целей из 272, то есть все беговые сессии.
 
-_RUN_DATE = date.today() + timedelta(days=3)
+_RUN_DATE = athlete_today() + timedelta(days=3)
 
 
 def _run_goal_plan() -> dict:
     """План из одной беговой сессии с pace-целями от порогового темпа."""
-    start_week = date.today() - timedelta(days=date.today().weekday())
+    start_week = athlete_today() - timedelta(days=athlete_today().weekday())
     session = dict(
         materialize_session_template(
             phase="Race Week",
@@ -408,7 +408,7 @@ def _run_goal_plan() -> dict:
         },
         "planner_mix": None,
         "planner_weights": None,
-        "plan_revision": datetime.now().isoformat(),
+        "plan_revision": athlete_now().isoformat(),
         "near_term_edit_version": 0,
         "near_term_edit_rollback_target_checkpoint_id": None,
     }
@@ -455,9 +455,9 @@ def test_presenter_renders_run_pace_not_the_bare_type(
 # #644: нормализованный статус, граница brick-ног, единый источник маркеров
 # ---------------------------------------------------------------------------
 
-_LEGACY_DATE = date.today() + timedelta(days=4)
-_BRICK_DATE = date.today() + timedelta(days=5)
-_DEGENERATE_DATE = date.today() + timedelta(days=6)
+_LEGACY_DATE = athlete_today() + timedelta(days=4)
+_BRICK_DATE = athlete_today() + timedelta(days=5)
+_DEGENERATE_DATE = athlete_today() + timedelta(days=6)
 
 
 def _step(name: str, seconds: int, kind: str = "work") -> dict:
@@ -472,7 +472,7 @@ def _step(name: str, seconds: int, kind: str = "work") -> dict:
 
 def _edge_goal_plan() -> dict:
     """Три пограничные сессии: legacy-статус, brick-день и вырожденные шаги."""
-    start_week = date.today() - timedelta(days=date.today().weekday())
+    start_week = athlete_today() - timedelta(days=athlete_today().weekday())
     legacy = dict(
         materialize_session_template(
             phase="Taper",
@@ -569,7 +569,7 @@ def _edge_goal_plan() -> dict:
         },
         "planner_mix": None,
         "planner_weights": None,
-        "plan_revision": datetime.now().isoformat(),
+        "plan_revision": athlete_now().isoformat(),
         "near_term_edit_version": 0,
         "near_term_edit_rollback_target_checkpoint_id": None,
     }

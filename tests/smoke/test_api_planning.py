@@ -5,7 +5,7 @@ Contributor-safe: temp SQLite seeded with a little history, no network/AI.
 from __future__ import annotations
 
 import importlib
-from datetime import date, datetime, timedelta
+from datetime import timedelta
 from time import perf_counter
 
 import pytest
@@ -13,11 +13,11 @@ import pytest
 from tests.smoke._reference_dates import pinned_reference_events
 
 from data.database import Database
-
+from tests.athlete_clock import athlete_now, athlete_today
 
 def _seeded_db(tmp_path) -> Database:
     db = Database(str(tmp_path / "plan.db"))
-    base = datetime.now()
+    base = athlete_now()
     rows = []
     for i in range(28):
         rows.append(
@@ -32,7 +32,6 @@ def _seeded_db(tmp_path) -> Database:
         )
     db.save_activities(rows)
     return db
-
 
 def _running_leaf_prescriptions(goal_plan):
     """Yield materialized run singles and run brick legs from a stored plan."""
@@ -82,7 +81,7 @@ def test_training_goal_builds_rolling_horizon_without_race(tmp_path):
 def test_later_a_anchors_plan_while_earlier_b_is_local_overlay(tmp_path):
     from api import planning_service as ps
 
-    today = datetime.now().date()
+    today = athlete_now().date()
     b_date, a_date = pinned_reference_events(today)
     db = _seeded_db(tmp_path)
     result = ps.build_plan(
@@ -132,7 +131,7 @@ def test_event_goal_without_confirmed_a_is_rejected_without_checkpoint(tmp_path)
             event_date=None,
             events=[
                 {
-                    "date": (datetime.now().date() + timedelta(weeks=4)).isoformat(),
+                    "date": (athlete_now().date() + timedelta(weeks=4)).isoformat(),
                     "priority": "B",
                     "label": "Tune-up",
                     "confirmed": True,
@@ -293,7 +292,7 @@ def test_b_overlay_persists_protected_days_and_resumes(tmp_path):
     from api import planning_service as ps
 
     db = _seeded_db(tmp_path)
-    today = datetime.now().date()
+    today = athlete_now().date()
     b_date, _a_date = pinned_reference_events(today)
     ps.build_plan(
         db,
@@ -411,7 +410,7 @@ def _db_with_daily_tss(tmp_path, name: str, daily_tss_oldest_first: list[float])
     # One row per day, oldest first, ending today -- current_status() reads
     # db.get_activities(90), so every sequence here stays well under that.
     db = Database(str(tmp_path / name))
-    base = datetime.now()
+    base = athlete_now()
     n = len(daily_tss_oldest_first)
     rows = [
         {
@@ -464,7 +463,7 @@ def test_build_plan_contract(tmp_path):
     from api.planning_service import build_plan
 
     db = _seeded_db(tmp_path)
-    event = (datetime.now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
+    event = (athlete_now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
     plan = build_plan(
         db,
         goal_type="triathlon",
@@ -501,7 +500,7 @@ def test_sixteen_week_preview_meets_planning_latency_asr(tmp_path):
     from api.planning_service import build_plan
 
     db = Database(str(tmp_path / "planning-latency.db"))
-    event = (datetime.now().date() + timedelta(weeks=16)).isoformat()
+    event = (athlete_now().date() + timedelta(weeks=16)).isoformat()
 
     started = perf_counter()
     plan = build_plan(
@@ -525,7 +524,7 @@ def test_build_plan_applies_active_coach_constraints(tmp_path):
     from models.ai_coach_runtime import create_chat_synthesis_system_prompt
 
     db = _seeded_db(tmp_path)
-    protected_date = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
+    protected_date = (athlete_now() + timedelta(days=2)).strftime("%Y-%m-%d")
     db.save_coach_constraint(
         date=protected_date,
         kind="forced_rest",
@@ -533,7 +532,7 @@ def test_build_plan_applies_active_coach_constraints(tmp_path):
         note="Тестовый отдых",
     )
 
-    event = (datetime.now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
+    event = (athlete_now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
     result = ps.build_plan(
         db,
         goal_type="triathlon",
@@ -750,7 +749,7 @@ def test_user_match_correction_appends_ledger_and_changes_reconciliation(
     )
     assert saved["match_method"] == "user_confirmed"
     assert saved["revision"] == 1
-    assert refresh_calls == [(date.today(), [target["session_id"]])]
+    assert refresh_calls == [(athlete_today(), [target["session_id"]])]
 
     result = ps.reconciliation_at(
         db,
@@ -1200,7 +1199,7 @@ def test_export_and_adjust_active_plan(tmp_path):
     from api import planning_service as ps
 
     db = _seeded_db(tmp_path)
-    event = (datetime.now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
+    event = (athlete_now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
     ps.build_plan(
         db,
         goal_type="triathlon",
@@ -1245,7 +1244,7 @@ def test_apply_adjustment_preserves_active_coach_constraints(tmp_path):
     from api import planning_service as ps
 
     db = _seeded_db(tmp_path)
-    event = (datetime.now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
+    event = (athlete_now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
     ps.build_plan(
         db,
         goal_type="triathlon",
@@ -1258,7 +1257,7 @@ def test_apply_adjustment_preserves_active_coach_constraints(tmp_path):
 
     initial_plan = ps.get_active_plan(db)
     assert initial_plan
-    today = datetime.now().date()
+    today = athlete_now().date()
     protected_index = next(
         index
         for index, item in enumerate(initial_plan["daily_plan"])
@@ -1293,7 +1292,7 @@ def test_build_run_goal_maps_distance(tmp_path):
     from api.planning_service import build_plan
 
     db = _seeded_db(tmp_path)
-    event = (datetime.now() + timedelta(weeks=6)).strftime("%Y-%m-%d")
+    event = (athlete_now() + timedelta(weeks=6)).strftime("%Y-%m-%d")
     plan = build_plan(
         db,
         goal_type="run",
