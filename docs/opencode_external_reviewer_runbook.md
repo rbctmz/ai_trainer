@@ -47,7 +47,7 @@ Inspect configured providers without copying credential values into the report:
 
 ```bash
 opencode --version
-opencode providers list
+opencode auth list
 opencode models
 opencode agent list
 ```
@@ -55,14 +55,32 @@ opencode agent list
 `opencode models` is a catalog, not proof of authorization, quota, billing, or
 runtime availability.
 
+Command surface verified against OpenCode 1.1.30. Two corrections to earlier
+revisions of this runbook:
+
+- `opencode providers list` does not exist; the command prints the top-level
+  help instead of failing loudly. The credential inventory is
+  `opencode auth list`, which prints provider names and the auth file path and
+  no secret values.
+- `opencode run` has no `--dir` flag. The project root is the working
+  directory of the process, so scope a review by changing directory first
+  rather than by passing a path.
+
+Sandbox note: OpenCode writes its own state under `~/.local/share/opencode`.
+An agent running in a workspace-write sandbox must be allowed to write there,
+otherwise every `opencode` invocation fails with
+`EPERM: operation not permitted` before it can do anything. That is a sandbox
+restriction, not a broken installation; verify with
+`touch ~/.local/share/opencode/.probe` before concluding the tool is
+unavailable.
+
 ## 2. Model smoke check
 
 Before each real assignment, require a minimal response from the exact model:
 
 ```bash
-opencode run \
+cd /private/tmp && opencode run \
   --agent plan \
-  --dir /private/tmp \
   --model <provider/model> \
   --title model-smoke-<short-name> \
   "Reply with exactly MODEL_OK. Do not use tools."
@@ -84,9 +102,8 @@ billing, quota, provider, or OpenCode-version changes.
 Use one bounded prompt. Replace all angle-bracket placeholders before running:
 
 ```bash
-opencode run \
+cd <absolute-repository-path> && opencode run \
   --agent plan \
-  --dir <absolute-repository-path> \
   --model <verified-provider/model> \
   --title <audit-title> \
   "Conduct a strictly read-only audit of <PR or exact diff>. Do not edit, create, delete, rename, or format repository files. Do not install dependencies or use the network. Do not access backups/, .env files, logs/, ai_trainer.db, or personal data. Read AGENTS.md and the relevant acceptance criteria, non-goals, ASRs, slice spec, and ExecPlan. Focus on <named invariants>. Apply Observed / Inferred / Verified by and perform one cheap falsifying check before naming a bug. You may run only: <one allowed test command>. Report P1/P2 findings with exact file and line, violated invariant, reproduction, impact, and minimal correction. List suggestions separately. If there are no blocking findings, say so explicitly. Do not change files."
