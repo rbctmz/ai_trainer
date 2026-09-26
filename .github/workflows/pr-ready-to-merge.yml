@@ -317,6 +317,7 @@ jobs:
             const ACCEPTED_LABEL = 'status: review accepted';
             const EXCEEDED_LABEL = 'status: review budget exceeded';
             const EXCEPTION_LABEL = 'review-budget-exception';
+            const WAIVER_LABEL = 'status: native review waived';
             const OK_CONCLUSIONS = new Set(['success', 'skipped', 'neutral']);
             const IGNORED_CHECK_NAMES = new Set(['ready-to-merge', 'Review gate']);
 
