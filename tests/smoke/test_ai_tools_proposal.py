@@ -1,7 +1,7 @@
 """Smoke coverage for proposal tools (propose_plan_build, propose_plan_adjustment)."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
@@ -9,14 +9,13 @@ from api import planning_service
 from data.database import Database
 from models.ai_coach_runtime import create_chat_system_prompt_with_tools
 from models.ai_tools import AITools
-
+from tests.athlete_clock import athlete_now
 
 pytestmark = pytest.mark.smoke
 
-
 def _seeded_db(tmp_path) -> Database:
     db = Database(str(tmp_path / "proposal.db"))
-    base = datetime.now()
+    base = athlete_now()
     rows = []
     for i in range(35):
         rows.append(
@@ -32,9 +31,8 @@ def _seeded_db(tmp_path) -> Database:
     db.save_activities(rows)
     return db
 
-
 def _build_active_triathlon_plan(db: Database) -> None:
-    event_date = (datetime.now() + timedelta(weeks=8)).strftime("%Y-%m-%d")
+    event_date = (athlete_now() + timedelta(weeks=8)).strftime("%Y-%m-%d")
     planning_service.build_plan(
         db,
         goal_type="triathlon",
@@ -73,7 +71,7 @@ def test_propose_plan_build_missing_event_date(tmp_path) -> None:
 
 def test_propose_plan_build_returns_proposal(tmp_path) -> None:
     tools = AITools(_seeded_db(tmp_path))
-    event_date = (datetime.now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
+    event_date = (athlete_now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
 
     result = tools.execute_tool(
         "propose_plan_build",
@@ -225,7 +223,7 @@ def test_create_plan_constraint_without_active_plan_requires_approval(tmp_path) 
 
     assert result["success"] is True, result.get("error")
     payload = result["result"]
-    expected_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    expected_date = (athlete_now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
     assert payload["is_proposal"] is True
     assert payload["action"] == "create_plan_constraint"
@@ -256,7 +254,7 @@ def test_create_plan_constraint_applies_exact_preview_after_approval(tmp_path) -
     protected_index = next(
         index
         for index, item in enumerate(active_plan["daily_plan"])
-        if item[0].date() >= datetime.now().date() and float(item[1] or 0) > 0
+        if item[0].date() >= athlete_now().date() and float(item[1] or 0) > 0
     )
     protected_date = active_plan["daily_plan"][protected_index][0].strftime("%Y-%m-%d")
     before_checkpoint_id = int(db.get_latest_planning_checkpoint()["id"])
