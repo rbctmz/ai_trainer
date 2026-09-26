@@ -64,7 +64,7 @@ CODEOWNERS, роняет CI.
 - [x] (2026-09-26 20:05Z) Широкий прогон на дереве среза: `2933 passed, 13 skipped, 40 deselected`; `ruff check .` — «All checks passed!».
 - [x] (2026-09-26 20:07Z) PR #657 открыт, issue #650 обновлён каноническим `Class A — Full`, ссылкой на план и non-goals.
 - [x] (2026-09-26 20:20Z) Независимый checker: read-only аудит OpenCode (`--agent plan`, модель `deepseek/deepseek-v4-pro`, коммит `6baabf5`, единственная разрешённая команда — `pytest tests/smoke/test_ci_policy_guard_coverage.py -q`) дал **0 P1/P2** и 5 предложений; диспозиции — комментарий к PR #657, hardening вынесен в #658.
-- [ ] После мержа: запись метрик (Class A) в `docs/engineering_process_metrics.md`, удаление ветки, закрытие пунктов slice-спеки.
+- [x] (2026-09-26 20:30Z) После мержа: PR #657 влит как `167da97`, ветка `ci/issue-650-codeowners-guard-coverage` удалена локально и на origin, локальный `main` синхронизирован, на смерженном дереве 16 passed и `ruff` чистый, запись Class A добавлена в `docs/engineering_process_metrics.md`, пункты slice-спеки закрыты.
 
 ## Surprises & Discoveries
 
@@ -241,6 +241,8 @@ GitHub при оценке PR. Новый тестовый файл обязан
 `Contributor-safe pytest`.
 
 ---
+
+Ревизия 3 (2026-09-26, 20:30Z): закрыт последний пункт `Progress` — срез смержен (`167da97`), ветка удалена, `main` синхронизирован, запись Class A внесена в метрики, пункты slice-спеки заполнены. Причина: ExecPlan — живой документ, и после мержа он обязан отражать факт, а не намерение.
 
 Ревизия 2 (2026-09-26, 20:25Z): записаны результаты независимого аудита (0 P1/P2, пять suggestions), решение не чинить их в открытом PR и follow-up #658; закрыты пункты `Progress` про широкий прогон, PR и аудитора; заполнены `Outcomes & Retrospective`. Код после аудита не менялся — дельта относительно проверенного `6baabf5` только документационная.
 
