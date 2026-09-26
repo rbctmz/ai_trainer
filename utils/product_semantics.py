@@ -115,6 +115,7 @@ TOOL_LABELS_RU = {
     "get_active_plan": "Активный план",
     "get_upcoming_workouts": "Ближайшие тренировки",
     "get_workout_structure": "Структура тренировки",
+    "get_activity_structure": "Структура активности",
     "propose_plan_build": "Предложение плана",
     "propose_plan_adjustment": "Предложение корректировки",
 }

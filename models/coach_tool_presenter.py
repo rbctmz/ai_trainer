@@ -72,6 +72,29 @@ def _pace_label(seconds: Any) -> str:
 _PACE_UNIT_SUFFIX = {"seconds_per_km": " /км", "seconds_per_100m": " /100м"}
 
 
+def _interval_duration_label(seconds: Any) -> str:
+    """Длительность отрезка факта: всегда M:SS, как в вебе (formatIntervalTime)."""
+    try:
+        total = max(0, int(round(float(seconds))))
+    except (TypeError, ValueError):
+        return "—"
+    minutes, rest = divmod(total, 60)
+    return f"{minutes}:{rest:02d}"
+
+
+def _interval_distance_label(distance_km: Any) -> str:
+    """Дистанция отрезка так же, как в вебе: < 1 км — метры (formatIntervalDistance)."""
+    try:
+        value = float(distance_km)
+    except (TypeError, ValueError):
+        return "—"
+    if value < 0:
+        return "—"
+    if value >= 1:
+        return f"{math.floor(value * 10 + 0.5) / 10} км"
+    return f"{math.floor(value * 1000 + 0.5)} м"
+
+
 def _step_target_label(target: Any) -> str:
     """Цель шага текстом: процент от FTP для мощности, темп для pace."""
     if not isinstance(target, dict):
@@ -187,6 +210,84 @@ def _session_structure_block(session: Any) -> str:
                 f"| {_step_duration_label(seconds)} | {_step_target_label(target)} |"
             )
     return "\n".join(lines)
+
+
+def _activity_structure_block(activity: Any) -> str:
+    """Markdown-блок фактической структуры активности для контекста модели."""
+    if not isinstance(activity, dict):
+        return f"ℹ️ **{activity}**"
+    date_label = activity.get("date_label") or format_date_label(
+        activity.get("date"), "weekday_short"
+    )
+    sport = activity.get("sport_label") or sport_label(activity.get("sport"))
+    facts = [f"**{activity.get('name') or 'Активность'}** — {sport}"]
+    if activity.get("duration_minutes") is not None:
+        facts.append(f"{activity['duration_minutes']} мин")
+    if activity.get("distance_km") is not None:
+        facts.append(f"{activity['distance_km']} км")
+    if activity.get("tss") is not None:
+        facts.append(f"TSS {activity['tss']}")
+    lines = [f"## 📊 Структура выполненной активности — {date_label}", "", ", ".join(facts)]
+
+    intervals = list(activity.get("intervals") or [])
+    if not intervals:
+        note = activity.get("message") or "Структура этой активности недоступна."
+        lines += ["", f"⚠️ {note}"]
+        return chr(10).join(lines)
+
+    source_label = {
+        "intervals": "Intervals.icu",
+        "garmin": "круги Garmin",
+    }.get(str(activity.get("source") or ""))
+    meta = []
+    if source_label:
+        meta.append(f"источник: {source_label}")
+    meta.append(f"отрезков: {len(intervals)}")
+    if activity.get("paired_event_id") is not None:
+        meta.append("спарено с плановой сессией")
+    # compliance провайдер отдаёт уже в процентах (веб: Math.round(...)%), а
+    # 0.0 — заглушка неспаренной активности, а не нулевое соответствие (#462).
+    compliance = activity.get("compliance")
+    if compliance is not None:
+        try:
+            if float(compliance) > 0:
+                meta.append(f"соответствие плану {round(float(compliance))}%")
+        except (TypeError, ValueError):
+            pass
+    lines += ["", " · ".join(meta)]
+
+    columns = [("duration_seconds", "Время"), ("distance_km", "Дистанция")]
+    for key, title in (
+        ("avg_watts", "Мощность"),
+        ("avg_hr", "ЧСС"),
+        ("avg_cadence", "Каденс"),
+        ("training_load", "Нагрузка"),
+    ):
+        if any(row.get(key) is not None for row in intervals if isinstance(row, dict)):
+            columns.append((key, title))
+    lines += [
+        "",
+        "| # | " + " | ".join(title for _, title in columns) + " |",
+        "|---|" + "|".join("---" for _ in columns) + "|",
+    ]
+    for row in intervals:
+        if not isinstance(row, dict):
+            continue
+        cells = []
+        for key, _ in columns:
+            value = row.get(key)
+            if value is None:
+                cells.append("—")
+            elif key == "duration_seconds":
+                cells.append(_interval_duration_label(value))
+            elif key == "distance_km":
+                cells.append(_interval_distance_label(value))
+            elif key == "avg_watts":
+                cells.append(f"{value} Вт")
+            else:
+                cells.append(str(value))
+        lines.append(f"| {row.get('index')} | " + " | ".join(cells) + " |")
+    return chr(10).join(lines)
 
 
 def format_tool_result(tool_name: str, data: Any) -> str:
@@ -889,6 +990,16 @@ def format_tool_result(tool_name: str, data: Any) -> str:
         if not sessions:
             return f"ℹ️ **{data.get('message', 'Сессия не найдена')}**"
         return "\n\n".join(_session_structure_block(session) for session in sessions)
+
+    elif tool_name == "get_activity_structure":
+        if not isinstance(data, dict):
+            return f"ℹ️ **{data}**"
+        if data.get("error"):
+            return f"❌ **{data['error']}**"
+        activities = list(data.get("activities") or [])
+        if not activities:
+            return f"ℹ️ **{data.get('message', 'Активность не найдена')}**"
+        return "\n\n".join(_activity_structure_block(item) for item in activities)
 
     elif tool_name == "propose_plan_build":
         preview = data.get("preview", {}) if isinstance(data, dict) else {}
