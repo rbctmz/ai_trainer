@@ -217,11 +217,11 @@ def test_sync_service_runs_pipeline_and_emits_progress(monkeypatch: pytest.Monke
     progress_updates: list[sync_service.SyncProgressUpdate] = []
     cache_cleared = False
 
-    def fake_clear_data_caches() -> None:
+    def fake_clear_caches() -> None:
         nonlocal cache_cleared
         cache_cleared = True
 
-    monkeypatch.setattr(sync_service, "clear_data_caches", fake_clear_data_caches)
+    monkeypatch.setattr(sync_service, "clear_caches", fake_clear_caches)
 
     result = sync_service.sync_garmin_data(
         state,
@@ -286,7 +286,7 @@ def test_sync_garmin_data_calls_athlete_profile_sync_before_resolving_activity_t
     profile before it resolves any activity's TSS this run, so a freshly
     synced FTP applies immediately rather than only on the next sync."""
     state = _StubState(_StubDatabase(_make_database(tmp_path)))
-    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+    monkeypatch.setattr(sync_service, "clear_caches", lambda: None)
 
     call_order: list[str] = []
 
@@ -312,7 +312,7 @@ def test_sync_garmin_data_folds_athlete_profile_failure_into_warnings(monkeypatc
     """A real Intervals.icu failure (not just "not configured") must show up
     as a warning, not silently disappear or abort the Garmin sync."""
     state = _StubState(_StubDatabase(_make_database(tmp_path)))
-    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+    monkeypatch.setattr(sync_service, "clear_caches", lambda: None)
     monkeypatch.setattr(
         sync_service.intervals_icu_service,
         "sync_athlete_profile",
@@ -364,7 +364,7 @@ def test_defensive_capture_boundary_logs_once_and_keeps_notices_clean(
         raise RuntimeError("wrapper exploded at /private/athlete.db")
 
     monkeypatch.setattr(recovery_analytics, "capture_post_sync_recovery_state", _boom)
-    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+    monkeypatch.setattr(sync_service, "clear_caches", lambda: None)
     caplog.set_level(logging.WARNING, logger="services.sync")
 
     result = sync_service.sync_garmin_data(state, days=1)
@@ -442,7 +442,7 @@ def test_sync_garmin_uses_shared_capture_once_with_explicit_run_identity(
         }
 
     monkeypatch.setattr(recovery_analytics, "capture_post_sync_recovery_state", fake_capture)
-    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+    monkeypatch.setattr(sync_service, "clear_caches", lambda: None)
 
     run_id = str(uuid.uuid4())
     result = sync_service.sync_garmin_data(
@@ -485,7 +485,7 @@ def test_sync_garmin_capture_failure_keeps_data_and_marks_partial(
             },
         },
     )
-    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+    monkeypatch.setattr(sync_service, "clear_caches", lambda: None)
 
     result = sync_service.sync_garmin_data(
         state,
@@ -534,7 +534,7 @@ def test_sync_garmin_generates_a_full_uuid_for_direct_callers(
         }
 
     monkeypatch.setattr(recovery_analytics, "capture_post_sync_recovery_state", fake_capture)
-    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+    monkeypatch.setattr(sync_service, "clear_caches", lambda: None)
 
     sync_service.sync_garmin_data(state, days=1)
 
@@ -609,7 +609,7 @@ def test_sync_warns_when_a_stale_readiness_write_is_rejected(monkeypatch: pytest
     """#565: отклонение не теряется молча — синк-слой сообщает о нём в warnings."""
     db = _make_database(tmp_path)
     state = _ReadinessSyncState(_RejectingReadinessDatabase(db))
-    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+    monkeypatch.setattr(sync_service, "clear_caches", lambda: None)
 
     result = sync_service.sync_garmin_data(state, days=1)
 
@@ -619,7 +619,7 @@ def test_sync_warns_when_a_stale_readiness_write_is_rejected(monkeypatch: pytest
 
 def test_sync_service_retries_transient_sleep_errors(monkeypatch: pytest.MonkeyPatch, tmp_path):
     state = _FlakySleepState(_StubDatabase(_make_database(tmp_path)))
-    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+    monkeypatch.setattr(sync_service, "clear_caches", lambda: None)
     monkeypatch.setattr(sync_service.time, "sleep", lambda _seconds: None)
 
     result = sync_service.sync_garmin_data(state, days=1, on_progress=None)
