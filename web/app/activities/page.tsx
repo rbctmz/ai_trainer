@@ -16,6 +16,7 @@ import {
 } from "@/lib/types";
 import { DrillDownHeader } from "@/components/ui/DrillDownHeader";
 import { StripBar, StripSegment } from "@/components/WorkoutStrip";
+import { SessionProjectionSummary } from "@/components/session/SessionProjectionSummary";
 
 const TSS_SOURCE_LABELS: Record<string, string> = {
   power: "по мощности",
@@ -601,6 +602,8 @@ function ActivityCardModal({
     activity.plan_vs_fact,
   );
   const fallbackPlanVsFact = useRef(activity.plan_vs_fact);
+  const [sessionId, setSessionId] = useState<string | null | undefined>(activity.session_id);
+  const [sessionProjection, setSessionProjection] = useState(activity.session_projection);
   const [plannedIntervals, setPlannedIntervals] = useState<
     PlanVsFactStep[] | null | undefined
   >(activity.planned_intervals);
@@ -642,6 +645,8 @@ function ActivityCardModal({
           setPowerCurve(res.activity.power_curve ?? null);
           setPlanVsFact(res.activity.plan_vs_fact ?? null);
           setPlannedIntervals(res.activity.planned_intervals ?? null);
+          setSessionId(res.activity.session_id);
+          setSessionProjection(res.activity.session_projection ?? null);
         }
       })
       .catch(() => {
@@ -650,6 +655,8 @@ function ActivityCardModal({
           setPowerCurve(fallbackPowerCurve.current ?? null);
           setPlanVsFact(fallbackPlanVsFact.current ?? null);
           setPlannedIntervals(fallbackPlannedIntervals.current ?? null);
+          setSessionId(activity.session_id);
+          setSessionProjection(activity.session_projection ?? null);
         }
       })
       .finally(() => {
@@ -660,7 +667,7 @@ function ActivityCardModal({
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, activity.session_id, activity.session_projection]);
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -780,6 +787,11 @@ function ActivityCardModal({
             </p>
           )}
         </div>
+
+        <SessionProjectionSummary
+          sessionId={sessionId}
+          projection={sessionProjection}
+        />
 
         <div className="mt-4 rounded-md border border-surface-border bg-surface p-3">
           <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">

@@ -34,6 +34,27 @@ class _DummyProvider:
         return self.response
 
 
+class _NativeToolProvider:
+    def __init__(self):
+        self.round = 0
+
+    def supports_native_tools(self):
+        return True
+
+    def is_available(self):
+        return True
+
+    def generate_with_tools(self, _messages, _schemas, *, system_prompt):
+        assert system_prompt
+        self.round += 1
+        if self.round == 1:
+            return {
+                "text": "Проверю активный план.",
+                "tool_calls": [{"id": "call-1", "name": "get_active_plan", "arguments": {}}],
+            }
+        return {"text": "Ответ по плану.", "tool_calls": []}
+
+
 class _DummyContext:
     def __enter__(self):
         return self
@@ -109,6 +130,27 @@ def test_prompts_anchor_today_as_single_date_source(monkeypatch):
         assert "ЕДИНСТВЕННЫЙ источник текущей даты" in prompt
         # История разговора с другой «сегодняшней» датой не должна побеждать якорь.
         assert "ошибочна" in prompt
+
+
+def test_synthesis_prompt_uses_frozen_today_anchor():
+    class Provider:
+        system_prompt = ""
+
+        def generate_response(self, _prompt, system_prompt=""):
+            self.system_prompt = system_prompt
+            return "ok"
+
+    provider = Provider()
+    ai_coach_runtime.synthesize_ai_chat_response(
+        provider=provider,
+        history_messages=[],
+        user_input="Что делать сегодня?",
+        tool_results=[],
+        today="2026-09-23",
+    )
+
+    assert "Сегодня: 2026-09-23" in provider.system_prompt
+    assert "Сегодня: 2026-09-24" not in provider.system_prompt
 
 
 def test_prompts_warn_that_todays_data_row_may_be_partial():
@@ -506,8 +548,79 @@ def test_grounding_toolset_covers_mandated_briefing_minimum():
         "analyze_training_status",
         "get_upcoming_workouts",
         "get_active_plan",
+        "get_readiness_today",
+        "get_pending_proposals",
     ):
         assert mandated in grounding_names
+
+
+def test_native_plan_call_also_gets_today_story_and_pending_proposals():
+    story = {"date": "2026-09-23", "next_action": {"kind": "inspect_evidence"}}
+    responses = {
+        "get_active_plan": {"success": True, "result": {"name": "Plan"}},
+        "get_readiness_today": {
+            "success": True,
+            "result": {
+                "computed_for": "2026-09-23",
+                "decision_story": story,
+                "subjective_wellness": {"date": "2026-09-23"},
+            },
+        },
+        "get_pending_proposals": {
+            "success": True,
+            "result": {"computed_for": "2026-09-23", "pending_proposals": []},
+        },
+    }
+    ai_tools = _DummyAiTools(responses=responses)
+    turn = ai_coach_runtime.resolve_turn_tool_results(
+        provider=_NativeToolProvider(),
+        ai_tools=ai_tools,
+        user_input="Что делать сегодня?",
+        history_messages=[],
+        tool_result_formatter=lambda name, data: f"{name}:{data}",
+    )
+
+    names = [entry["tool_name"] for entry in turn["tool_results"]]
+    assert turn["native"] is True
+    assert names == ["get_active_plan", "get_readiness_today", "get_pending_proposals"]
+    readiness = turn["tool_results"][1]["raw_result"]
+    assert readiness["decision_story"] == story
+    assert readiness["subjective_wellness"]["date"] == "2026-09-23"
+
+
+@pytest.mark.parametrize(
+    ("today", "user_input"),
+    [
+        ("2026-09-24", "Можно ли выполнить тренировку 2026-09-24?"),
+        ("2026-09-24", "Можно ли выполнить тренировку 2026-09-25?"),
+    ],
+)
+def test_explicit_frozen_today_date_gets_today_action_context(today, user_input):
+    responses = {
+        "get_active_plan": {"success": True, "result": {"name": "Plan"}},
+        "get_readiness_today": {
+            "success": True,
+            "result": {"computed_for": "2026-09-24", "decision_story": {"date": "2026-09-24"}},
+        },
+        "get_pending_proposals": {
+            "success": True,
+            "result": {"computed_for": "2026-09-24", "pending_proposals": []},
+        },
+    }
+    turn = ai_coach_runtime.resolve_turn_tool_results(
+        provider=_NativeToolProvider(),
+        ai_tools=_DummyAiTools(responses=responses),
+        user_input=user_input,
+        history_messages=[],
+        tool_result_formatter=lambda name, data: f"{name}:{data}",
+        today=today,
+    )
+
+    assert [entry["tool_name"] for entry in turn["tool_results"]] == [
+        "get_active_plan",
+        "get_readiness_today",
+        "get_pending_proposals",
+    ]
 
 
 def test_finalize_without_provider_keeps_previous_behavior():

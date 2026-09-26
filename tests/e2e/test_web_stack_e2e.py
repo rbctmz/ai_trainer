@@ -22,15 +22,6 @@ import pytest
 
 pytestmark = pytest.mark.e2e
 
-TODAY_STATE_TITLES = (
-    "План в силе",
-    "Есть предложение",
-    "Конфликт требует внимания",
-    "Данных недостаточно",
-    "Плана нет",
-)
-
-
 def test_main_user_journey(web_stack) -> None:
     page = web_stack.page
 
@@ -50,7 +41,7 @@ def test_main_user_journey(web_stack) -> None:
         page.wait_for_url("**/today", timeout=60_000)
         today_h1 = page.locator("h1").first
         today_h1.wait_for(state="visible", timeout=60_000)
-        assert today_h1.inner_text().strip() in TODAY_STATE_TITLES, (
+        assert today_h1.inner_text().strip() == "Сегодня", (
             f"«Сегодня» в неожиданном состоянии: {today_h1.inner_text()!r}"
         )
 

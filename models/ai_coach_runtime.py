@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, Optional
 
 from config.settings import Settings
@@ -19,13 +19,22 @@ from models.coach_narrative_evidence import (
 from utils.product_semantics import format_date_label
 
 
-def _today_context_line() -> str:
+def _today_context_line(today: Any = None) -> str:
     """Explicit 'today' anchor for prompts.
 
     Tool results only ever carry historical per-day dates (and the freshest
     row can lag behind the real day if Garmin sync hasn't caught up), so
     without this the model has to guess "today" from data rows and drifts.
     """
+    if today is not None:
+        try:
+            anchor = date.fromisoformat(str(today)[:10])
+            return (
+                f"Сегодня: {anchor.isoformat()} ({format_date_label(anchor, 'weekday_short')}); "
+                f"часовой пояс спортсмена: {Settings.ATHLETE_TIMEZONE}"
+            )
+        except (TypeError, ValueError):
+            pass
     calendar = resolve_calendar_evidence(
         athlete_timezone=Settings.ATHLETE_TIMEZONE,
         observed_at_utc=datetime.now(timezone.utc),
@@ -119,6 +128,7 @@ def create_chat_system_prompt_with_tools(ai_tools: Any, data_context: Any = None
 • Если вопрос требует период/дату, вызывай инструмент с параметром days/start/end, а затем цитируй фактические значения из результата
 • Метрики CTL/ATL/TSB и анализ нагрузки получай через соответствующие инструменты, вместо общих оценок
 • subjective_wellness из get_readiness_today — отдельные дневные оценки из Intervals.icu. Используй date, status и state каждого поля; received_at — время получения, provider_updated_at — изменение записи дня, а не момент ответа. Не называй запись утренней или ручной без подтверждения. Не спрашивай повторно поля из answered_current_keys; уточнять контекст и отсутствующие ответы можно. Старые/invalid/missing оценки не означают норму. Это не диагноз и не основание автоматически менять план, TSS или readiness. Субъективный стресс не равен стрессу устройства, sleepQuality не равен sleepScore.
+• Если get_readiness_today содержит decision_story, это общий с Today серверный источник действия на сегодня: опирайся на decision_story.next_action и его evidence/freshness, не заменяй их собственным выводом по legacy-полям. Свежая самооценка травмы не «Нет» означает только проверку данных без диагноза и изменения плана; отсутствие/устаревание ответа не означает «Нет» и не является clearance.
 • Утверждать «данных HRV нет» или «readiness нет» можно ТОЛЬКО если инструмент был вызван и вернул пустой результат
 • Для предложения собрать новый план ОБЯЗАТЕЛЬНО вызывай **propose_plan_build** с параметрами goal_type, distance, event_date, available_hours. Не описывай такой план только словами.
 • Для предложения скорректировать активный план ОБЯЗАТЕЛЬНО вызывай **propose_plan_adjustment**. Не обещай корректировку без вызова инструмента.
@@ -149,13 +159,17 @@ def create_native_chat_system_prompt(ai_tools: Any = None) -> str:
     return create_chat_system_prompt_with_tools(None)
 
 
-def create_chat_synthesis_system_prompt(goal_plan: Optional[Dict] = None) -> str:
+def create_chat_synthesis_system_prompt(
+    goal_plan: Optional[Dict] = None,
+    *,
+    today: Any = None,
+) -> str:
     """System prompt for the final user-facing answer after tool execution."""
     phase_ctx = _build_phase_context(goal_plan)
     return f"""
 Ты — персональный AI тренер по выносливости.{phase_ctx}
 
-{_today_context_line()} — это ЕДИНСТВЕННЫЙ источник текущей даты. Если называешь дату в ответе (например, в заголовке брифинга) — используй эту дату, а не последнюю дату из результатов инструментов. Если ранее в разговоре или в данных фигурирует другая «сегодняшняя» дата — она ошибочна, исправь её. Строка данных за сегодняшнюю дату может быть неполной (день не закончился): низкие шаги или активные минуты за сегодня НЕ считай спадом активности.
+{_today_context_line(today)} — это ЕДИНСТВЕННЫЙ источник текущей даты. Если называешь дату в ответе (например, в заголовке брифинга) — используй эту дату, а не последнюю дату из результатов инструментов. Если ранее в разговоре или в данных фигурирует другая «сегодняшняя» дата — она ошибочна, исправь её. Строка данных за сегодняшнюю дату может быть неполной (день не закончился): низкие шаги или активные минуты за сегодня НЕ считай спадом активности.
 
 Ты уже получил результаты нужных инструментов и теперь должен дать
 ЗАВЕРШЁННЫЙ финальный ответ пользователю.
@@ -375,6 +389,8 @@ def _execute_tool_to_result(
 # system prompt mandates for a general state/briefing answer, plus the active
 # plan (race date and phase are the costliest things to get wrong).
 GROUNDING_TOOL_CALLS: tuple[tuple[str, Dict[str, Any]], ...] = (
+    ("get_readiness_today", {}),
+    ("get_pending_proposals", {}),
     ("get_performance_metrics", {}),
     ("analyze_hrv_trends", {}),
     ("analyze_training_status", {}),
@@ -476,6 +492,7 @@ def resolve_turn_tool_results(
     history_messages: Iterable[Dict[str, Any]],
     tool_result_formatter: Callable[[str, Any], str],
     response_contract: Any = None,
+    today: Any = None,
 ) -> Dict[str, Any]:
     """Единая точка выбора пути добычи tool_results для хода коуча.
 
@@ -500,6 +517,13 @@ def resolve_turn_tool_results(
             history_messages,
             tool_result_formatter,
         )
+        tool_results = _ensure_today_action_context(
+            ai_tools,
+            tool_results,
+            tool_result_formatter,
+            user_input=user_input,
+            today=today,
+        )
         return {
             "native": True,
             "tool_results": tool_results,
@@ -516,11 +540,65 @@ def resolve_turn_tool_results(
     rendered_response, tool_results = collect_tool_results(
         raw, ai_tools, tool_result_formatter
     )
+    tool_results = _ensure_today_action_context(
+        ai_tools,
+        tool_results,
+        tool_result_formatter,
+        user_input=user_input,
+        today=today,
+    )
     return {
         "native": False,
         "tool_results": tool_results,
         "rendered_response": rendered_response,
     }
+
+
+def _ensure_today_action_context(
+    ai_tools: Any,
+    tool_results: list[Dict[str, Any]],
+    tool_result_formatter: Callable[[str, Any], str],
+    *,
+    user_input: str,
+    today: Any = None,
+) -> list[Dict[str, Any]]:
+    """Keep shared Today action and pending-proposal evidence in tool-backed turns."""
+    if not tool_results or not _requests_today_action_context(user_input, today=today):
+        return tool_results
+    present = {entry.get("tool_name") for entry in tool_results}
+    for name in ("get_readiness_today", "get_pending_proposals"):
+        if name not in present:
+            tool_results.append(_execute_tool_to_result(ai_tools, name, {}, tool_result_formatter))
+    return tool_results
+
+
+def _requests_today_action_context(user_input: str, *, today: Any = None) -> bool:
+    normalized = str(user_input or "").casefold()
+    if any(
+        marker in normalized
+        for marker in (
+            "сегодня",
+            "на сегодня",
+            "today",
+            "завтра",
+            "tomorrow",
+            "что делать",
+            "стоит ли тренироваться",
+            "можно тренироваться",
+            "should i train",
+            "can i train",
+            "what should i do",
+        )
+    ):
+        return True
+    if today is None:
+        return False
+    try:
+        frozen_date = date.fromisoformat(str(today)[:10]).isoformat()
+    except (TypeError, ValueError):
+        return False
+    next_date = (date.fromisoformat(frozen_date) + timedelta(days=1)).isoformat()
+    return frozen_date in normalized or next_date in normalized
 
 
 def collect_tool_results(
@@ -550,6 +628,7 @@ def synthesize_ai_chat_response(
     tool_results: Iterable[Dict[str, Any]],
     response_contract: Any = None,
     goal_plan: Optional[Dict] = None,
+    today: Any = None,
     correction_hint: str | None = None,
 ) -> str:
     """Run the second pass that turns tool results into a final user answer."""
@@ -562,7 +641,7 @@ def synthesize_ai_chat_response(
     )
     return provider.generate_response(
         synthesis_prompt,
-        create_chat_synthesis_system_prompt(goal_plan=goal_plan),
+        create_chat_synthesis_system_prompt(goal_plan=goal_plan, today=today),
     )
 
 
@@ -575,6 +654,7 @@ def revalidate_with_correction(
     user_input: str,
     tool_results: Iterable[Dict[str, Any]],
     goal_plan: Optional[Dict] = None,
+    today: Any = None,
     response_contract: Any = None,
 ) -> CoachNarrativeGateResult:
     """Retry one rejected narrative with a corrective hint, then re-validate.
@@ -598,6 +678,7 @@ def revalidate_with_correction(
             tool_results=tool_results,
             response_contract=response_contract,
             goal_plan=goal_plan,
+            today=today,
             correction_hint=corrective,
         )
         corrected = apply_response_contract_to_final_response(corrected, response_contract)

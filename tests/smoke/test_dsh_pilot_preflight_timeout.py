@@ -1,4 +1,4 @@
-"""Жёсткий таймаут платного smoke в ``scripts/dsh_pilot_preflight.sh``.
+"""Жёсткий таймаут платного smoke и агрегация токенов в ``scripts/dsh_pilot_preflight.sh``.
 
 Реального модельного вызова и сети здесь нет: ``dsh`` подменён стабом в
 ``tmp_path/bin``, который умеет зависать (игнорируя SIGTERM), запускать потомка и
@@ -9,14 +9,27 @@
 ``timed_out``/``timeout_seconds`` (и эффективный grace — ``timeout_grace_seconds``),
 а обычные пути (успех, код возврата модели) и прежний гейтинг не меняются.
 
+Сессия синтетическая, но в **реальной вложенной форме** harness 0.1.0-rc.6
+(снята с сохранённой сессии пилота #577): сверенный шаг модели —
+``{"type":"assistant/message","data":{"turn":..,"step":..,"usage":{..}}}``, а
+стриминговый чанк того же шага — ``{"type":"assistant/chunk","data":{"chunk":
+{"type":"usage","usage":{..}}}}`` с теми же числами. Обе записи описывают один
+запрос, поэтому тест закрепляет и то, что токены собираются, и то, что один шаг
+не считается дважды (``usage_duplicate_records_skipped``). Парсер, читавший
+usage только в корне записи (``rec["usage"]``), давал ``tokens_*=0`` на реальной
+сессии — это и был измеренный пробел пилота #577. Отдельным тестом закреплено,
+что вложенная форма читается, а верхнеуровневая распознаётся только там, где она
+единственная.
+
 Отдельно закрыт вопрос границ: ``DSH_PILOT_TIMEOUT_SECONDS`` принимается только
-в ``1..300``, ``DSH_PILOT_TIMEOUT_GRACE_SECONDS`` — только в ``1..10``, а значения
+в ``1..900``, ``DSH_PILOT_TIMEOUT_GRACE_SECONDS`` — только в ``1..10``, а значения
 вне диапазона, ``0``, отрицательные, нечисловые и **явно пустые** отвергаются до
-платного вызова (ноль обращений к стабу, exit 1) — иначе «жёсткий лимит 300 c»
+платного вызова (ноль обращений к стабу, exit 1) — иначе «жёсткий лимит 600 c»
 был бы обещанием, которое снимается одной переменной окружения. Допуск верхних
 границ проверяется без ожидания: стаб завершается сразу, поэтому тест на
-``300``/``10`` подтверждает, что значение прошло валидацию и платный прогон
-действительно начался, — а не то, что лимит кто-то выдержал.
+``900``/``10`` подтверждает, что значение прошло валидацию и платный прогон
+действительно начался, — а не то, что лимит кто-то выдержал; отдельная проверка
+времени (`elapsed < 20`) падает, если границу начнут «проверять» ожиданием.
 
 Процессные гарантии закрыты четырьмя независимыми тестами: (1) группа умирает по
 таймауту; (2) потомок, переживший своего лидера, добивается, а прогон не
@@ -29,13 +42,17 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 import pytest
@@ -45,6 +62,69 @@ pytestmark = pytest.mark.smoke
 
 ROOT = Path(__file__).resolve().parents[2]
 PREFLIGHT = ROOT / "scripts" / "dsh_pilot_preflight.sh"
+
+# Сохранённая сессия единственного авторизованного платного прогона пилота
+# (#577). Каталог `logs/` в git не попадает, поэтому тест, читающий её,
+# пропускается там, где артефакта нет; сама сессия не изменяется и не коммитится.
+PRESERVED_PILOT_SESSION = (
+    ROOT
+    / "logs"
+    / "dsh-pilot-577"
+    / "sessions"
+    / "--private-tmp-dsh-pilot-577-wt--"
+    / "session-82e185f4-86d3-46d2-b963-74da0d1e347a"
+    / "session.jsonl.zstd"
+)
+
+# Синтетическая сессия в РЕАЛЬНОЙ вложенной форме harness 0.1.0-rc.6: на каждый
+# шаг — стриминговый чанк с usage и сверенное сообщение с теми же числами (две
+# записи одного запроса), плюс вызов инструмента. Сумма по шагам = 11/7/3/1,
+# то есть ровно те числа, что печатают метрики; без дедупликации было бы вдвое
+# больше.
+SESSION_NESTED_SHAPE = "\n".join(
+    [
+        # Шаг 1: ожидается usage {"inputTokens": 8, "outputTokens": 5,
+        # "cacheReadTokens": 2, "reasoningTokens": 1}.
+        '{"type":"assistant/chunk","seq":2,"time":2,"data":{"turn":1,"step":1,'
+        '"chunk":{"type":"usage","usage":{"inputTokens":8,"outputTokens":5,'
+        '"cacheReadTokens":2,"reasoningTokens":1}}}}',
+        '{"type":"tool/call","seq":3,"time":3,"data":{"turn":1,"step":1,'
+        '"callId":"call_1","name":"read","arguments":"{}"}}',
+        '{"type":"assistant/message","seq":4,"time":4,"data":{"turn":1,"step":1,'
+        '"message":{"role":"assistant","content":[]},'
+        '"usage":{"inputTokens":8,"outputTokens":5,"cacheReadTokens":2,"reasoningTokens":1}}}',
+        '{"type":"step/end","seq":5,"time":5,"data":{"turn":1,"step":1}}',
+        # Шаг 2: ожидается usage {"inputTokens": 3, "outputTokens": 2,
+        # "cacheReadTokens": 1, "reasoningTokens": 0}.
+        '{"type":"assistant/chunk","seq":6,"time":6,"data":{"turn":1,"step":2,'
+        '"chunk":{"type":"usage","usage":{"inputTokens":3,"outputTokens":2,'
+        '"cacheReadTokens":1,"reasoningTokens":0}}}}',
+        '{"type":"assistant/message","seq":7,"time":7,"data":{"turn":1,"step":2,'
+        '"message":{"role":"assistant","content":[]},'
+        '"usage":{"inputTokens":3,"outputTokens":2,"cacheReadTokens":1,"reasoningTokens":0}}}',
+        '{"type":"step/end","seq":8,"time":8,"data":{"turn":1,"step":2}}',
+        '{"type":"user/message","seq":9,"time":9,"data":{"content":[{"type":"text","text":"go"}]}}',
+    ]
+)
+
+# Сессия без единой записи usage: метрики обязаны сказать «недоступно», а не
+# напечатать нули (ноль токенов — это утверждение об измерении, которого не было).
+SESSION_WITHOUT_USAGE = "\n".join(
+    [
+        '{"type":"step/end","seq":2,"time":2,"data":{"turn":1,"step":1}}',
+        '{"type":"tool/call","seq":3,"time":3,"data":{"turn":1,"step":1,'
+        '"callId":"call_1","name":"read","arguments":"{}"}}',
+        '{"type":"user/message","seq":4,"time":4,"data":{"content":[{"type":"text","text":"go"}]}}',
+    ]
+)
+
+# Форма прежних стабов и прежнего парсера: usage в КОРНЕ записи. Harness так не
+# пишет — в реальной сессии usage лежит в `data` (см. runbook), поэтому такая
+# сессия обязана дать «недоступно», а не посчитанные числа.
+SESSION_FLAT_SHAPE = (
+    '{"type":"step/end","usage":{"inputTokens":11,"outputTokens":7,'
+    '"cacheReadTokens":3,"reasoningTokens":1}}'
+)
 
 # Стаб `dsh`: бесплатные вызовы отвечают как закреплённый профиль, «платный»
 # прогон эмулируется по STUB_MODE. В режиме sleep_forever стаб игнорирует SIGTERM
@@ -84,10 +164,10 @@ log "paid-run pid=$$ mode=${STUB_MODE:-normal} cwd=$PWD"
 write_session() {
   if [ "${STUB_SESSION:-no}" = "yes" ]; then
     mkdir -p "${DSH_HOME:?}/sessions/stub-session"
-    printf '%s\\n' \\
-      '{"type":"step/end","usage":{"inputTokens":11,"outputTokens":7,"cacheReadTokens":3,"reasoningTokens":1}}' \\
-      '{"type":"tool/call"}' \\
-      '{"type":"user/message"}' \\
+    # Содержимое сессии пишет тест (реальная вложенная форма harness); стаб лишь
+    # копирует file → file, чтобы JSON не проходил через разбор escapes в printf
+    # (иначе \\n внутри JSON превратился бы в настоящий перевод строки и сломал запись).
+    cat "${STUB_SESSION_CONTENT_FILE:?STUB_SESSION_CONTENT_FILE}" \\
       > "${DSH_HOME}/sessions/stub-session/session.jsonl.zstd"
   fi
 }
@@ -234,6 +314,37 @@ def _pid_state(pid: int) -> str | None:
     return None
 
 
+def _state_unavailable_reason(pid: int) -> str:
+    """Почему состояние процесса недоступно — деталь для сообщения ``skip``.
+
+    Источники проглатывают свою ошибку и возвращают ``None``, поэтому наружу
+    выходит общее «состояние недоступно». В песочнице агента это читается как
+    платформенное ограничение (macOS), хотя причина другая: ``/proc`` нет, а
+    ``ps`` отклоняется средой с ``PermissionError``. Различаем случаи явно.
+    """
+    proc_reason = "нет /proc" if not os.path.isdir("/proc") else f"нет /proc/{pid}/stat"
+    try:
+        subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            check=False,
+        )
+    except PermissionError:
+        ps_reason = "ps запрещён средой (PermissionError)"
+    except FileNotFoundError:
+        ps_reason = "ps не найден"
+    except (OSError, subprocess.SubprocessError) as exc:
+        ps_reason = f"ps недоступен ({type(exc).__name__})"
+    else:
+        ps_reason = "ps не вернул состояние"
+    return f"{proc_reason}, {ps_reason}"
+
+
 def _pid_alive(pid: int) -> bool:
     """Проверка живости по PID (а не по строке в логе стаба).
 
@@ -274,6 +385,16 @@ class _Pilot:
     prompt: Path
     pids_file: Path
     log_file: Path
+    session_content_file: Path
+
+    def set_session_content(self, content: str) -> None:
+        """Содержимое сессии, которое стаб положит в ``$DSH_HOME/sessions``.
+
+        Содержимое передаётся файлом, а не переменной окружения: JSON с
+        экранированными ``\\n`` внутри (например, в аргументах tool call)
+        искажался бы любым разбором escapes по пути.
+        """
+        self.session_content_file.write_text(f"{content}\n", encoding="utf-8")
 
     def env(self, **overrides: str | None) -> dict[str, str]:
         """Изолированное окружение запуска: реальные DSH_*/DEEPSEEK_* не наследуются."""
@@ -290,6 +411,7 @@ class _Pilot:
             "STUB_MODE": "normal",
             "STUB_EXIT_CODE": "0",
             "STUB_SESSION": "yes",
+            "STUB_SESSION_CONTENT_FILE": str(self.session_content_file),
             "STUB_NODE_VERSION": "v25.6.1",
             "STUB_NODE_FEATURE_EXIT": "0",
             "STUB_LOADER_EXIT_CODE": "0",
@@ -419,7 +541,9 @@ def pilot(tmp_path: Path) -> _Pilot:
         prompt=prompt,
         pids_file=tmp_path / "stub-pids.txt",
         log_file=tmp_path / "stub-invocations.log",
+        session_content_file=tmp_path / "stub-session.jsonl",
     )
+    harness.set_session_content(SESSION_NESTED_SHAPE)
     try:
         yield harness
     finally:
@@ -504,7 +628,7 @@ def test_timeout_kills_whole_process_group_including_grandchild(pilot: _Pilot) -
 
 
 def test_short_override_bounds_wall_clock_instead_of_default(pilot: _Pilot) -> None:
-    """Короткий DSH_PILOT_TIMEOUT_SECONDS соблюдается, а не подменяется дефолтом 300 c."""
+    """Короткий DSH_PILOT_TIMEOUT_SECONDS соблюдается, а не подменяется дефолтом 600 c."""
     env = pilot.env(
         STUB_MODE="sleep_forever",
         STUB_SESSION="no",
@@ -520,7 +644,7 @@ def test_short_override_bounds_wall_clock_instead_of_default(pilot: _Pilot) -> N
         assert "timeout_seconds=2" in result.stdout
         assert "timed_out=yes" in result.stdout
         assert elapsed >= 1.5, f"прогон оборвался раньше лимита: {elapsed:.1f}s"
-        assert elapsed < 20, f"лимит 2 c не соблюдён (похоже на дефолт 300 c): {elapsed:.1f}s"
+        assert elapsed < 20, f"лимит 2 c не соблюдён (похоже на дефолт 600 c): {elapsed:.1f}s"
     finally:
         pilot.kill_leftovers()
 
@@ -642,13 +766,13 @@ def test_metrics_failure_does_not_mask_timeout_exit_code(pilot: _Pilot) -> None:
 
 
 def test_normal_run_reports_default_limit_and_keeps_metrics(pilot: _Pilot) -> None:
-    """Без переопределения лимит равен 300 c; обычный прогон не помечен таймаутом."""
+    """Без переопределения лимит равен 600 c; обычный прогон не помечен таймаутом."""
     env = pilot.env()
     env.pop("DSH_PILOT_TIMEOUT_SECONDS")
     result = pilot.smoke(env=env)
 
     assert result.returncode == 0, result.stdout
-    assert "timeout_seconds=300" in result.stdout
+    assert "timeout_seconds=600" in result.stdout
     assert "timed_out=no" in result.stdout
     assert "exit_code=0" in result.stdout
     assert f"node_path={pilot.bin_dir / 'node'}" in result.stdout
@@ -673,6 +797,274 @@ def test_normal_run_preserves_model_exit_code(pilot: _Pilot) -> None:
     assert result.returncode != 124
     assert "timed_out=no" in result.stdout
     assert "exit_code=7" in result.stdout
+
+
+def _metric(result: subprocess.CompletedProcess[str], field: str) -> str:
+    """Значение строки метрик ``field=...`` (одно поле — одна строка)."""
+    matches = re.findall(rf"^{re.escape(field)}=(.*)$", result.stdout, re.MULTILINE)
+    assert matches, f"в выводе нет строки метрик {field}=:\n{result.stdout}"
+    return matches[-1]
+
+
+# Агрегатор токенов живёт в preflight одной строкой $PARSER_PY и исполняется там
+# как `python3 -c "$PARSER_PY"`. Тест читает ровно это содержимое, поэтому не
+# дублирует логику парсера (иначе проверялась бы копия, а не то, что работает).
+_PARSER_PY_PATTERN = re.compile(r"^PARSER_PY='\n(.*?)\n'\n", re.DOTALL | re.MULTILINE)
+
+
+def _preflight_parser_source() -> str:
+    match = _PARSER_PY_PATTERN.search(PREFLIGHT.read_text(encoding="utf-8"))
+    assert match, "в preflight больше нет блока $PARSER_PY"
+    return match.group(1)
+
+
+def test_preflight_parser_source_is_safe_inside_the_shell_argument() -> None:
+    """Блок ``$PARSER_PY`` исполняется как ``python3 -c "$PARSER_PY"``.
+
+    Одиночная кавычка внутри блока закрыла бы аргумент ``-c``: остаток кода ушёл
+    бы в шелл, а исполняемая часть падала бы с ``NameError`` на имени ключа.
+    Ровно это и произошло при добавлении ``tok['inputTokens']`` — тест держит
+    блок свободным от одиночных кавычек, а сборка строк идёт через ``.format``.
+    """
+    source = _preflight_parser_source()
+
+    assert "'" not in source, "одиночная кавычка в $PARSER_PY ломает `python3 -c \"$PARSER_PY\"`"
+    # Блок обязан оставаться исполняемым ровно в том виде, в каком его получит шелл.
+    completed = subprocess.run(
+        [sys.executable, "-c", source],
+        input="",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=60,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "usage_records=0" in completed.stdout
+    assert "tokens_input=not available" in completed.stdout
+
+
+def _run_preflight_parser(session_text: str) -> dict[str, str]:
+    """Прогоняет парсер preflight на тексте сессии и разбирает строки метрик."""
+    completed = subprocess.run(
+        [sys.executable, "-c", _preflight_parser_source()],
+        input=session_text,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        check=True,
+        timeout=120,
+    )
+    parsed: dict[str, str] = {}
+    for line in completed.stdout.splitlines():
+        field, separator, value = line.partition("=")
+        if separator:
+            # Хвостовой комментарий есть у human_messages_in_session.
+            parsed[field] = value.split("  #", 1)[0].strip()
+    return parsed
+
+
+def test_nested_usage_is_aggregated_once_per_step(pilot: _Pilot) -> None:
+    """Токены собираются из реальной вложенной формы, и один шаг не считается дважды.
+
+    Регрессия пилота #577: парсер читал только ``rec["usage"]``, то есть корень
+    записи, где harness usage не пишет, — на реальной сессии это дало
+    ``tokens_input=0``. Здесь синтетическая сессия повторяет обе наблюдавшиеся
+    формы одного шага: ``assistant/chunk.data.chunk.usage`` и
+    ``assistant/message.data.usage`` с теми же числами. Ожидаемые итоги — сумма
+    по двум шагам: 8+3=11 вход, 5+2=7 выход, 2+1=3 чтений кэша, 1+0=1 reasoning.
+    """
+    result = pilot.smoke(env=pilot.env())
+
+    assert result.returncode == 0, result.stdout
+    assert _metric(result, "tokens_input") == "11"
+    assert _metric(result, "tokens_output") == "7"
+    assert _metric(result, "tokens_cache_read") == "3"
+    assert _metric(result, "tokens_reasoning") == "1"
+    assert _metric(result, "tool_calls") == "1"
+    assert _metric(result, "steps") == "2"
+    assert _metric(result, "human_messages_in_session").startswith("1")
+    # Два измерения шага (чанк и сообщение) засчитаны как одно: без дедупликации
+    # здесь было бы 22/14/6/2 и usage_records=4.
+    assert _metric(result, "usage_records") == "2"
+    assert _metric(result, "usage_duplicate_records_skipped") == "2"
+
+
+def test_session_without_usage_reports_unavailable_not_zero(pilot: _Pilot) -> None:
+    """Сессия без записей usage: метрики недоступны, а не «нулевые токены».
+
+    Ноль — это утверждение об измерении; когда измерения не было, честный ответ
+    один: ``not available`` с причиной в той же строке. Прогон, чьи оплаченные
+    числа отсутствуют, не засчитывается (как и при сбое извлечения), но это
+    происходит уже ПОСЛЕ сбора метрик, поэтому числа и причина напечатаны.
+    """
+    pilot.set_session_content(SESSION_WITHOUT_USAGE)
+    result = pilot.smoke(env=pilot.env())
+
+    assert result.returncode == 1, result.stdout
+    assert result.returncode != 124
+    assert _metric(result, "usage_records") == "0"
+    for field in ("tokens_input", "tokens_output", "tokens_cache_read", "tokens_reasoning"):
+        value = _metric(result, field)
+        assert value.startswith("not available"), f"{field}={value!r}: нули вместо недоступности"
+        assert "usage records absent in the whole session" in value
+    # Одной явной строки достаточно, чтобы это заметил оператор.
+    assert "нет ни одной записи usage" in result.stdout
+    assert "timed_out=no" in result.stdout
+    # Токены остаются недоступными, а не «нулевыми»: нуля в этих полях нет вовсе.
+    assert "tokens_input=0" not in result.stdout
+
+
+def test_partially_unreadable_session_fails_the_measurement(pilot: _Pilot) -> None:
+    """Валидная запись плюс битая строка — заниженный итог, а не зачтённое измерение.
+
+    Находка ревью PR #584: парсер считал ``session_parse_errors``, печатал частичные
+    токены и возвращал 0, а ``emit_metrics`` считал провалом только полное отсутствие
+    usage. Сессия с одной повреждённой строкой JSONL поэтому проходила как измеренная,
+    недосчитав оплаченные токены, шаги и вызовы инструментов. Здесь читаемая запись
+    остаётся посчитанной (ради диагностики), но прогон признаётся незачётным.
+    """
+    pilot.set_session_content(
+        '{"type":"assistant/message","data":{"turn":1,"step":1,'
+        '"usage":{"inputTokens":100,"outputTokens":50,'
+        '"cacheReadTokens":10,"reasoningTokens":5}}}'
+        "\n"
+        '{"type":"step/end","data":'  # обрезанная строка: не валидный JSON
+    )
+    result = pilot.smoke(env=pilot.env())
+
+    assert result.returncode == 1, result.stdout
+    assert result.returncode != 124
+    assert _metric(result, "session_parse_errors") == "1"
+    # Частичные числа напечатаны, иначе диагноз был бы невозможен.
+    assert _metric(result, "usage_records") == "1"
+    assert _metric(result, "tokens_input") == "100"
+    assert _metric(result, "tokens_output") == "50"
+    assert "timed_out=no" in result.stdout
+    assert "прочитана частично" in result.stdout
+
+
+def test_legacy_top_level_usage_is_not_mistaken_for_a_measurement(pilot: _Pilot) -> None:
+    """Обе формы usage читаются, а реальное измерение берётся там, где его пишет harness.
+
+    Раньше парсер читал только ``rec["usage"]`` (корень записи). Нетронутая
+    сессия реального harness, где usage лежит в ``data``, давала ``tokens_*=0`` —
+    это и есть пробел пилота #577. Здесь проверяются обе стороны: вложенная форма
+    ``data.usage`` действительно читается (исправление), а верхнеуровневая —
+    только когда она единственная, чего harness не делает.
+    """
+    pilot.set_session_content(SESSION_FLAT_SHAPE)
+    result = pilot.smoke(env=pilot.env())
+
+    assert result.returncode == 0, result.stdout
+    assert _metric(result, "usage_records") == "1"
+    assert _metric(result, "tokens_input") == "11"
+
+    # Вложенная форма не теряется: числа шага 11/7/3/1 приходят из `data`, а не
+    # остаются нулями, как это было на реальной сессии.
+    pilot.set_session_content(SESSION_NESTED_SHAPE)
+    nested = pilot.smoke(env=pilot.env())
+    assert nested.returncode == 0, nested.stdout
+    assert _metric(nested, "tokens_input") == "11"
+    assert _metric(nested, "usage_records") == "2"
+
+
+def test_usage_present_but_zero_is_a_measurement_not_unavailable(pilot: _Pilot) -> None:
+    """Запись usage с нулями — это измеренный ноль, а не «недоступно»."""
+    session = (
+        '{"type":"assistant/message","data":{"turn":1,"step":1,'
+        '"usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"reasoningTokens":0}}}'
+    )
+    pilot.set_session_content(session)
+    result = pilot.smoke(env=pilot.env())
+
+    assert result.returncode == 0, result.stdout
+    assert _metric(result, "usage_records") == "1"
+    assert _metric(result, "tokens_input") == "0"
+    assert "tokens_input=not available" not in result.stdout
+
+
+def test_preserved_paid_pilot_session_is_measured_with_the_real_shape() -> None:
+    """Сохранённая сессия платного пилота #577 измеряется теми же числами.
+
+    ``logs/`` в git не попадает, поэтому тест пропускается там, где артефакта
+    нет. Сначала доказывается, что файл — настоящий zstd с заявленным числом
+    записей (round-trip сжатия), затем те же метрики, что считает preflight,
+    снимаются с него тем же содержимым ``$PARSER_PY``, которое preflight
+    исполняет: тест не дублирует логику и не «доверяет» сохранённым числам.
+    """
+    if not PRESERVED_PILOT_SESSION.exists():
+        pytest.skip(f"сохранённой сессии пилота нет: {PRESERVED_PILOT_SESSION}")
+    if shutil.which("zstd") is None:
+        pytest.skip("нет zstd: сохранённую сессию не распаковать")
+
+    original = PRESERVED_PILOT_SESSION.read_bytes()
+    assert original[:4] == b"\x28\xb5\x2f\xfd", "сохранённая сессия не является zstd-потоком"
+    decompressed = subprocess.run(
+        ["zstd", "-dc", str(PRESERVED_PILOT_SESSION)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=True,
+        timeout=120,
+    ).stdout
+    lines = [line for line in decompressed.splitlines() if line.strip()]
+    assert len(lines) == 1614, f"не тот артефакт: записей {len(lines)}"
+    records = [json.loads(line) for line in lines]
+
+    # Артефакт — настоящий zstd-поток именно этих записей (round-trip), а не
+    # подсунутый распакованный файл: иначе тест «измерял» бы что угодно.
+    with tempfile.TemporaryDirectory() as tmp:
+        packed = Path(tmp) / "session.jsonl.zstd"
+        subprocess.run(
+            ["zstd", "-q", "-f", "-o", str(packed)],
+            input=decompressed,
+            check=True,
+            timeout=120,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        assert (
+            subprocess.run(
+                ["zstd", "-dc", str(packed)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=True,
+                timeout=120,
+            ).stdout
+            == decompressed
+        ), "round-trip zstd не совпал: сохранённая сессия повреждена"
+
+    counts = Counter(record.get("type") for record in records)
+    assert counts["assistant/message"] == 57
+    assert counts["tool/call"] == 74
+    assert counts["step/end"] == 57
+    # Оба места, где harness пишет usage: ровно по одной записи на каждый из 57
+    # шагов — по два измерения одного запроса, которые парсер обязан свести к одному.
+    usage_bearing_chunks = sum(
+        1
+        for record in records
+        if isinstance(record.get("data"), dict)
+        and isinstance(record["data"].get("chunk"), dict)
+        and isinstance(record["data"]["chunk"].get("usage"), dict)
+    )
+    assert usage_bearing_chunks == 57
+    assert sum(1 for record in records if isinstance(record.get("data"), dict)
+               and isinstance(record["data"].get("usage"), dict)) == 57
+
+    parsed = _run_preflight_parser(decompressed.decode("utf-8"))
+    assert parsed["usage_records"] == "57", parsed
+    assert parsed["usage_duplicate_records_skipped"] == "57", parsed
+    assert parsed["session_parse_errors"] == "0", parsed
+    # Первое реальное измерение токенов оплаченного прогона. Числа сравниваются
+    # с самим артефактом (а не с константой в тесте), но обязаны быть непустыми:
+    # именно их отсутствие было пробелом, который закрывает эта проверка.
+    for field in ("tokens_input", "tokens_output", "tokens_cache_read", "tokens_reasoning"):
+        assert parsed[field].isdigit(), f"{field}={parsed[field]!r}: токены не измерены"
+        assert int(parsed[field]) > 0, f"{field}={parsed[field]}: нулевое измерение"
+    assert parsed["tool_calls"] == "74", parsed
+    assert parsed["steps"] == "57", parsed
 
 
 def test_sigint_to_preflight_leaves_no_smoke_processes(pilot: _Pilot) -> None:
@@ -747,7 +1139,7 @@ def test_missing_api_key_still_blocks_paid_run(pilot: _Pilot) -> None:
 
 
 def test_non_numeric_limit_fails_before_paid_run(pilot: _Pilot) -> None:
-    """Опечатка в лимите — отказ до платного вызова, а не тихий откат к 300 c."""
+    """Опечатка в лимите — отказ до платного вызова, а не тихий откат к 600 c."""
     env = pilot.env(DSH_PILOT_TIMEOUT_SECONDS="1O")  # буква O вместо нуля
     result = pilot.smoke(env=env)
 
@@ -759,19 +1151,19 @@ def test_non_numeric_limit_fails_before_paid_run(pilot: _Pilot) -> None:
 @pytest.mark.parametrize(
     ("variable", "expected_range"),
     [
-        ("DSH_PILOT_TIMEOUT_SECONDS", "1..300"),
+        ("DSH_PILOT_TIMEOUT_SECONDS", "1..900"),
         ("DSH_PILOT_TIMEOUT_GRACE_SECONDS", "1..10"),
     ],
 )
 def test_explicitly_empty_setting_fails_before_paid_run(
     pilot: _Pilot, variable: str, expected_range: str
 ) -> None:
-    """Явно пустое значение — отказ, а не подстановка дефолта 300/5.
+    """Явно пустое значение — отказ, а не подстановка дефолта 600/5.
 
     Пустая переменная (нерасширившаяся подстановка в CI, обнулённая настройка)
     раньше молча получала дефолт: ветка отказа для ``''`` была недостижима, и
     платный вызов стартовал. Разница между «не задано» и «задано пустым» обязана
-    сохраняться до валидации: «не задано» — это по-прежнему дефолт 300/5, и он
+    сохраняться до валидации: «не задано» — это по-прежнему дефолт 600/5, и он
     закреплён тестами ``test_normal_run_reports_default_limit_and_keeps_metrics``
     и ``test_default_grace_is_five_and_observable``.
     """
@@ -807,7 +1199,8 @@ def test_unreadable_monotonic_clock_fails_before_paid_run(pilot: _Pilot) -> None
 @pytest.mark.parametrize(
     "value",
     [
-        "301",
+        "901",
+        "3600",
         "86400",
         "0",
         "-5",
@@ -817,15 +1210,15 @@ def test_unreadable_monotonic_clock_fails_before_paid_run(pilot: _Pilot) -> None
         "99999999999999999999",
     ],
 )
-def test_limit_outside_1_300_fails_before_paid_run(pilot: _Pilot, value: str) -> None:
-    """Верхняя граница обязательна: 301/86400 (и 0/минус/мусор) — отказ, ноль вызовов."""
+def test_limit_outside_1_900_fails_before_paid_run(pilot: _Pilot, value: str) -> None:
+    """Верхняя граница обязательна: 901/86400 (и 0/минус/мусор) — отказ, ноль вызовов."""
     env = pilot.env(DSH_PILOT_TIMEOUT_SECONDS=value)
     result = pilot.smoke(env=env)
 
     assert result.returncode == 1, result.stdout
     # Сообщение обязано называть и наблюдаемое значение, и допустимый диапазон.
     assert f"DSH_PILOT_TIMEOUT_SECONDS='{value}'" in result.stdout
-    assert "1..300" in result.stdout
+    assert "1..900" in result.stdout
     # Ноль платных вызовов: стаб не запускался вовсе (весь смысл отказа ДО вызова).
     assert pilot.paid_invocations() == 0, pilot.log_text()
     # Отказ раньше оплаченного прогона: метрик нет вовсе.
@@ -845,16 +1238,17 @@ def test_grace_outside_1_10_fails_before_paid_run(pilot: _Pilot, value: str) -> 
     assert "timed_out=" not in result.stdout
 
 
-def test_upper_bounds_300_and_10_are_accepted_and_observable(pilot: _Pilot) -> None:
-    """Границы 300 и 10 принимаются: валидация не отказывает и стаб реально стартует.
+def test_upper_bounds_900_and_10_are_accepted_and_observable(pilot: _Pilot) -> None:
+    """Границы 900 и 10 принимаются: валидация не отказывает и стаб реально стартует.
 
-    Ожидания 300 c здесь нет и быть не должно: стаб завершается сразу, поэтому
+    Ожидания 900 c здесь нет и быть не должно: стаб завершается сразу, поэтому
     проверяются ровно два факта — значение прошло валидацию (нет ни fail-closed
     отказа, ни таймаута) и платный прогон действительно начался (стаб получил
     вызов). Соблюдение самого лимита проверяется отдельными тестами с коротким
-    лимитом; подменять 300 на маленькое число, чтобы «проверить границу», нельзя.
+    лимитом; подменять 900 на маленькое число, чтобы «проверить границу», нельзя.
+    Проверка времени обязательна: она падает, если тест начнёт ждать лимит.
     """
-    env = pilot.env(DSH_PILOT_TIMEOUT_SECONDS="300", DSH_PILOT_TIMEOUT_GRACE_SECONDS="10")
+    env = pilot.env(DSH_PILOT_TIMEOUT_SECONDS="900", DSH_PILOT_TIMEOUT_GRACE_SECONDS="10")
     started = time.monotonic()
     result = pilot.smoke(env=env)
     elapsed = time.monotonic() - started
@@ -865,17 +1259,17 @@ def test_upper_bounds_300_and_10_are_accepted_and_observable(pilot: _Pilot) -> N
     assert "ТАЙМАУТ" not in result.stdout
     # 2. Прогон дошёл до платного вызова: стаб запущен ровно один раз.
     assert pilot.paid_invocations() == 1, pilot.log_text()
-    # 3. Лимит 300 c не выдерживался ожиданием — стаб вышел сам (иначе здесь было бы ~300 c).
-    assert elapsed < 20, f"проверка границы 300 c ушла в ожидание лимита: {elapsed:.1f}s"
-    assert "жёсткий лимит платного прогона: 300s" in result.stdout
+    # 3. Лимит 900 c не выдерживался ожиданием — стаб вышел сам (иначе здесь было бы ~900 c).
+    assert elapsed < 20, f"проверка границы 900 c ушла в ожидание лимита: {elapsed:.1f}s"
+    assert "жёсткий лимит платного прогона: 900s" in result.stdout
     assert "через 10s SIGKILL" in result.stdout
-    assert "timeout_seconds=300" in result.stdout
+    assert "timeout_seconds=900" in result.stdout
     assert "timeout_grace_seconds=10" in result.stdout
     assert "timed_out=no" in result.stdout
 
 
 def test_default_grace_is_five_and_observable(pilot: _Pilot) -> None:
-    """Дефолтный grace (5 c) виден и в строке лимита, и в метриках — без ожидания 300 c."""
+    """Дефолтный grace (5 c) виден и в строке лимита, и в метриках — без ожидания лимита."""
     env = pilot.env()
     env.pop("DSH_PILOT_TIMEOUT_SECONDS")
     env.pop("DSH_PILOT_TIMEOUT_GRACE_SECONDS")
@@ -885,24 +1279,26 @@ def test_default_grace_is_five_and_observable(pilot: _Pilot) -> None:
 
     assert result.returncode == 0, result.stdout
     assert pilot.paid_invocations() == 1, pilot.log_text()
-    assert elapsed < 20, f"дефолтный лимит 300 c выдерживался ожиданием: {elapsed:.1f}s"
-    assert "жёсткий лимит платного прогона: 300s" in result.stdout
+    assert elapsed < 20, f"дефолтный лимит 600 c выдерживался ожиданием: {elapsed:.1f}s"
+    assert "жёсткий лимит платного прогона: 600s" in result.stdout
     assert "через 5s SIGKILL" in result.stdout
-    assert "timeout_seconds=300" in result.stdout
+    assert "timeout_seconds=600" in result.stdout
     assert "timeout_grace_seconds=5" in result.stdout
 
 
 def test_leading_zero_limit_cannot_smuggle_past_the_ceiling(pilot: _Pilot) -> None:
-    """`0400` — это 400 c (отказ), а `0300` печатается канонически как 300."""
-    rejected = pilot.smoke(env=pilot.env(DSH_PILOT_TIMEOUT_SECONDS="0400"))
+    """`1000` — это 1000 c (отказ), а `0900` печатается канонически как 900."""
+    rejected = pilot.smoke(env=pilot.env(DSH_PILOT_TIMEOUT_SECONDS="1000"))
     assert rejected.returncode == 1, rejected.stdout
-    assert "DSH_PILOT_TIMEOUT_SECONDS='0400'" in rejected.stdout
+    assert "DSH_PILOT_TIMEOUT_SECONDS='1000'" in rejected.stdout
     assert pilot.paid_invocations() == 0, pilot.log_text()
 
-    accepted = pilot.smoke(env=pilot.env(DSH_PILOT_TIMEOUT_SECONDS="0300"))
+    accepted = pilot.smoke(env=pilot.env(DSH_PILOT_TIMEOUT_SECONDS="0900"))
     assert accepted.returncode == 0, accepted.stdout
     assert pilot.paid_invocations() == 1, pilot.log_text()
-    assert "timeout_seconds=300" in accepted.stdout
+    # `$((0900))` в bash — это 576 (восьмеричная запись), поэтому без нормализации
+    # напечатанный лимит разошёлся бы с фактическим дедлайном.
+    assert "timeout_seconds=900" in accepted.stdout
 
 
 def test_liveness_treats_reported_zombie_state_as_terminated(
@@ -958,7 +1354,7 @@ def test_liveness_reports_real_zombie_as_terminated() -> None:
     if not hasattr(os, "fork"):
         pytest.skip("нет os.fork на этой платформе")
     if _pid_state(os.getpid()) is None:
-        pytest.skip("состояние процесса недоступно (нет /proc, ps недоступен)")
+        pytest.skip(f"состояние процесса недоступно: {_state_unavailable_reason(os.getpid())}")
 
     pid = os.fork()
     if pid == 0:  # pragma: no cover — дочерняя ветка выходит немедленно
@@ -975,6 +1371,31 @@ def test_liveness_reports_real_zombie_as_terminated() -> None:
         assert not _pid_alive(pid), "зомби посчитан живым — тест снова зависел бы от окружения"
     finally:
         os.waitpid(pid, 0)
+
+
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        (PermissionError(1, "Operation not permitted"), "ps запрещён средой (PermissionError)"),
+        (FileNotFoundError(2, "No such file or directory"), "ps не найден"),
+    ],
+)
+def test_state_unavailable_reason_names_the_ps_failure(
+    monkeypatch: pytest.MonkeyPatch, error: OSError, expected: str
+) -> None:
+    """Сообщение ``skip`` называет причину отказа ``ps``, а не только «недоступно».
+
+    Запрет ``ps`` в песочнице агента и отсутствие ``ps`` на машине — разные
+    ситуации с разными выводами для читателя: первая означает, что гейт покрыт
+    в CI (там есть ``/proc``), вторая — что проверять нечем.
+    """
+
+    def _failing_run(*args: object, **kwargs: object) -> object:
+        raise error
+
+    monkeypatch.setattr(subprocess, "run", _failing_run)
+    reason = _state_unavailable_reason(os.getpid())
+    assert expected in reason, reason
 
 
 def test_prepare_ignores_out_of_range_timeout_settings(pilot: _Pilot) -> None:

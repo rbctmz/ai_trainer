@@ -168,6 +168,15 @@ def _resolve_param(db: Database, client: TestClient, source: str) -> str:
         if prompts:
             return str(prompts[0]["session_id"])
         return "no-feedback-session"  # история пуста, но кон тракт 200
+    if source == "first_planned_session_id":
+        response = client.get("/api/planning/plan")
+        days = response.json().get("days") if response.status_code == 200 else None
+        assert days, "first_planned_session_id: в состоянии нет дней плана"
+        for day in days:
+            sessions = day.get("sessions") or []
+            if sessions:
+                return str(sessions[0]["session_id"])
+        raise AssertionError("first_planned_session_id: в днях нет исполняемых сессий")
     raise AssertionError(f"неизвестный источник параметра пути: {source}")
 
 

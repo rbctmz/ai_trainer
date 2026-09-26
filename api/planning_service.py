@@ -57,7 +57,6 @@ from models.plan_actual_reconciliation import (
 from models.planned_bike_tss import (
     apply_bike_tss_rebalance_preview,
     build_bike_tss_rebalance_preview,
-    repair_bike_tss_materialization,
 )
 from models.planning_targets import (
     DEFAULT_DEMAND_LEVEL,
@@ -112,6 +111,7 @@ from services.planning_contracts import (
     PLANNING_MODES,
 )
 from services.planning_events import discover_intervals_events as discover_intervals_events
+from utils.athlete_time import athlete_local_date
 
 PLANNING_DEMAND_SETTING_KEY = "planning_demand_level"
 
@@ -419,9 +419,28 @@ def _metrics_from_signals(signals: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _current_signals(db: Database) -> tuple[dict[str, Any], pd.DataFrame | None]:
+def _current_signals(
+    db: Database,
+    as_of: Optional[date] = None,
+) -> tuple[dict[str, Any], pd.DataFrame | None]:
+    """Сигналы нагрузки на сегодняшний якорь.
+
+    Issue #597: без ``as_of`` CTL/ATL/TSB замерзали на дате последней
+    тренировки — `BanisterModel` достраивает дни только до последней
+    активности, поэтому отдых не гасил нагрузку. Отсюда `assess_start_load_state`
+    видел глубокую усталость у отдохнувшего спортсмена и резал план
+    guard-факторами 0.75/0.85/0.95. Это второй случай дефекта #139 (первый
+    закрыт в #231); якорь обязателен для всех потребителей — `current_status`,
+    `build_plan`, `apply_adjustment`.
+
+    Допущение: если последняя синхронизация старше якоря, недостающие дни
+    достраиваются нулями и гасят EWMA. Для «сигнала на сегодня» это вернее
+    заморозки на дате последней тренировки, но это допущение о данных, а не
+    факт.
+    """
     df = db.get_activities(90)
-    return assemble_signals(activities_df=df), df
+    anchor = as_of or athlete_local_date()
+    return assemble_signals(activities_df=df, as_of=anchor), df
 
 
 def _current_metrics(db: Database):
@@ -430,7 +449,9 @@ def _current_metrics(db: Database):
 
 
 def _start_week(today: Optional[date] = None) -> date:
-    today = today or datetime.now().date()
+    # Начало недели атлета, а не хоста: при расхождении ATHLETE_TIMEZONE
+    # с зоной сервера план стартовал бы с чужого понедельника (issue #601).
+    today = today or athlete_local_date()
     return today - timedelta(days=today.weekday())  # Monday of current week
 
 
@@ -474,7 +495,7 @@ def current_status(db: Database) -> Dict[str, Any]:
     signals, _df = _current_signals(db)
     metrics = _metrics_from_signals(signals)
     checkpoint = summarize_planning_checkpoint(db.get_latest_planning_checkpoint())
-    today = datetime.now().date()
+    today = athlete_local_date()
     active_constraints = db.get_coach_constraints(
         start_date=today.isoformat(),
         end_date=(today + timedelta(days=30)).isoformat(),
@@ -1013,7 +1034,7 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
     if not checkpoint or not goal_plan:
         return {"has_plan": False}
 
-    today = datetime.now().date()
+    today = athlete_local_date()
     planning_mode = str(goal_plan.get("planning_mode") or "").strip() or "training_goal"
     events = [dict(item) for item in list(goal_plan.get("events") or []) if isinstance(item, dict)]
     confirmed_a_event = next(
@@ -1349,7 +1370,9 @@ def build_plan(
         plan_events,
         goal_type=gt,
         load_state=str(constraint_summary.get("load_state", "balanced")),
-        as_of=datetime.now().date(),
+        # days_until до старта считает атлетский день: иначе тейпер и
+        # гоночная неделя встают не на те даты (issue #601).
+        as_of=athlete_local_date(),
     )
     weekly_tss_plan = [int(row.get("weekly_tss") or 0) for row in weekly_summary]
 
@@ -1965,7 +1988,7 @@ def week_by_week_plan(db: Database) -> Dict[str, Any]:
             "chart": [],
         }
 
-    today = datetime.now().date()
+    today = athlete_local_date()
     weekly_rows: List[tuple[Dict[str, Any], date]] = []
     for raw_week in list(goal_plan.get("weekly_summary") or []):
         if not isinstance(raw_week, dict):
@@ -2444,47 +2467,6 @@ def confirm_bike_tss_rebalance(
     }
 
 
-def repair_active_bike_tss_materialization(
-    db: Database,
-    *,
-    as_of: date | str | None = None,
-    persist: bool = False,
-) -> Dict[str, Any]:
-    """Repair stale steps left by the pre-fix bike TSS checkpoint."""
-    latest = db.get_latest_planning_checkpoint()
-    if not latest:
-        raise ValueError("no active plan")
-    goal_plan = restore_goal_plan_from_checkpoint(latest)
-    if goal_plan is None:
-        raise ValueError("active plan cannot be restored")
-    resolved_as_of = _parse_as_of(as_of)
-    repaired, changed_dates = repair_bike_tss_materialization(
-        goal_plan,
-        as_of=resolved_as_of,
-    )
-    if not changed_dates:
-        return {
-            "plan_id": None,
-            "base_checkpoint_id": int(latest.get("id") or 0),
-            "changed_dates": [],
-            "confirmation_required": False,
-        }
-    repaired = with_checkpoint_provenance(
-        repaired,
-        source="bike_tss_materialization_repair",
-        parent_checkpoint_id=int(latest.get("id") or 0),
-    )
-    saved = None
-    if persist:
-        saved = db.save_planning_checkpoint(build_planning_checkpoint(repaired))
-    return {
-        "plan_id": str(saved["id"]) if saved else None,
-        "base_checkpoint_id": int(latest.get("id") or 0),
-        "changed_dates": changed_dates,
-        "confirmation_required": not persist,
-    }
-
-
 def _match_owner_session_id(match: Mapping[str, Any]) -> str:
     session_id = str(match.get("session_id") or "").strip()
     if session_id:
@@ -2533,7 +2515,7 @@ def _refresh_match_recovery(db: Database, session_id: str) -> None:
 
     refresh_recovery_episodes_best_effort(
         db,
-        as_of=date.today(),
+        as_of=athlete_local_date(),
         target_session_ids=[session_id],
     )
 

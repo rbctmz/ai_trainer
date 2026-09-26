@@ -6,6 +6,7 @@ import { ApiError, fetcher, postJSON, withDemo } from "@/lib/api";
 import { AdherenceRibbon } from "@/components/AdherenceRibbon";
 import { DEFAULT_DEMAND_OPTIONS, PlanBuilder, Stat } from "@/components/planning/PlanBuilder";
 import { WorkoutStrip } from "@/components/WorkoutStrip";
+import { SessionProjectionSummary } from "@/components/session/SessionProjectionSummary";
 import {
   DemandConfirmResult,
   DemandPreview,
@@ -1204,7 +1205,7 @@ function AdjustMode({
 }) {
   const { mutate: mutateGlobal } = useSWRConfig();
   const { data, mutate } = useSWR<ReconResponse>(
-    hasPlan ? "/api/planning/reconciliation?weeks=1" : null,
+    hasPlan ? "/api/planning/reconciliation?weeks=1&include_provider=false" : null,
     fetcher,
   );
   const [previewResult, setPreviewResult] = useState<RebalancePreviewResult | null>(null);
@@ -1589,6 +1590,11 @@ function AdjustMode({
                       {legacyEvidenceLabels[r.evidence[0]] ?? r.evidence[0]}
                     </div>
                   ) : null}
+                  <SessionProjectionSummary
+                    sessionId={r.session_id}
+                    projection={r.session_projection}
+                    compact
+                  />
                   {(r.match_status === "matched" && r.adherence === "unknown") ||
                   (r.match_method === "user_unmatched" &&
                     r.candidate_activities.length) ? (

@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field, field_validator
 from api import planning_service
 from api.deps import get_database
 from data.database import Database
+from models.session_projection import SessionProjectionNotFoundError
+from services import session_projection as session_projection_service
 
 router = APIRouter(prefix="/api/planning", tags=["planning"])
 
@@ -255,9 +257,8 @@ def repair_day(req: RepairDayRequest, db: Database = Depends(get_database)) -> d
 def _active_checkpoint_id(db: Database, *, required: Optional[int] = None) -> int:
     """Active checkpoint id, or fail fast when the caller pinned a stale base (#473)."""
     latest = db.get_latest_planning_checkpoint()
-    latest_id = (
-        int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") is not None else None
-    )
+    latest_raw_id = latest.get("id") if isinstance(latest, dict) else None
+    latest_id = int(latest_raw_id) if latest_raw_id is not None else None
     if required is not None and latest_id != int(required):
         # The repair primitive checks staleness itself, but the route must not
         # silently substitute the latest base when a client pinned an older one.
@@ -452,6 +453,27 @@ def planning_export_workout(
 
 
 # --- Adjust mode -----------------------------------------------------------
+@router.get("/session-projection/{session_id}")
+def planning_session_projection(
+    session_id: str,
+    weeks: Annotated[int, Query(ge=1, le=12)] = 1,
+    as_of: Optional[str] = None,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    """Return the canonical provider-free projection for one plan session."""
+    try:
+        return session_projection_service.session_projection_at(
+            db,
+            session_id=session_id,
+            as_of=as_of,
+            weeks=weeks,
+        )
+    except SessionProjectionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="planned session not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/reconciliation")
 def planning_reconciliation(
     weeks: int = 1,
@@ -460,12 +482,33 @@ def planning_reconciliation(
     db: Database = Depends(get_database),
 ) -> dict[str, Any]:
     try:
-        return planning_service.reconciliation_at(
+        result = planning_service.reconciliation_at(
             db,
             weeks=weeks,
             as_of=as_of,
             include_provider=include_provider,
         )
+        if include_provider:
+            # The embedded projection is canonical and provider-free. Keep
+            # provider-enriched reconciliation rows intact without attaching
+            # a projection composed from a different matching snapshot.
+            return result
+
+        projections = {
+            str(row.get("session_id") or ""): session_projection_service.session_projection_from_reconciliation(
+                db,
+                result,
+                session_id=str(row.get("session_id") or ""),
+            )
+            for row in result.get("rows") or []
+            if isinstance(row, dict) and str(row.get("session_id") or "")
+        }
+        for row in result.get("rows") or []:
+            if isinstance(row, dict):
+                row["session_projection"] = projections.get(
+                    str(row.get("session_id") or "")
+                )
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

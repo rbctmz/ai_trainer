@@ -75,6 +75,11 @@ These completed ExecPlans describe the current product behavior and the invarian
   issue #444 (personal bike TSS from HR without power) — data inventory,
   candidate comparison, and the M0 decision; the M1–M3 plan outline is a
   proposal, not an implemented contract.
+- [`daily_decision_loop_execplan.md`](daily_decision_loop_execplan.md): living
+  plan for issue #607 — the daily decision loop v1 (plan → fact → state →
+  action) across slices #598, #601, #608, #609, #610, and #367. Step 0 slice
+  #598 anchors dashboard CTL/ATL/TSB (PR #614); the remaining slices are
+  proposals, not implemented contracts.
 
 ## Historical and Superseded
 
