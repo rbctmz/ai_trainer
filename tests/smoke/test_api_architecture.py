@@ -43,6 +43,35 @@ def test_dashboard_summary_module_is_headless() -> None:
 
     assert imports.isdisjoint({"api", "streamlit", "ui"})
 
+def test_api_modules_do_not_depend_on_legacy_state() -> None:
+    """Issue #602: `api/` must not import the legacy `state` package.
+
+    `state/__init__.py` re-exports `StateManager` from `state/manager.py`,
+    which imports Streamlit at module level, so any `from state import ...`
+    under `api/` drags Streamlit into the backend import graph. The API uses
+    the headless facade in `utils/app_state.py` instead. This is the contract
+    the issue asks to extend here: the sibling `ui` check existed, the `state`
+    one did not, which is why the dependency went unnoticed.
+    """
+    offenders = [
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in sorted((REPO_ROOT / "api").rglob("*.py"))
+        if "state" in _import_roots(path)
+    ]
+
+    assert offenders == []
+
+
+def test_api_modules_do_not_depend_on_streamlit() -> None:
+    """Issue #602: no module under `api/` may import Streamlit directly."""
+    offenders = [
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in sorted((REPO_ROOT / "api").rglob("*.py"))
+        if "streamlit" in _import_roots(path)
+    ]
+
+    assert offenders == []
+
 
 def test_services_modules_do_not_depend_on_api() -> None:
     """Issue #194: dependencies must flow api -> services/models/data, never
