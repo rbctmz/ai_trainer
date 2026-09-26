@@ -53,12 +53,38 @@ def _relative_percent(value: Any) -> str | None:
         return None
 
 
+def _pace_label(seconds: Any) -> str:
+    """Секунды на единицу дистанции -> M:SS.
+
+    Округление half-up, как Math.round в вебе (WorkoutStrip.formatPace), чтобы
+    текст Коуча совпадал с тем, что атлет видит на экране.
+    """
+    try:
+        total = int(float(seconds) + 0.5)
+    except (TypeError, ValueError):
+        return "—"
+    if total <= 0:
+        return "—"
+    minutes, rest = divmod(total, 60)
+    return f"{minutes}:{rest:02d}"
+
+
+_PACE_UNIT_SUFFIX = {"seconds_per_km": " /км", "seconds_per_100m": " /100м"}
+
+
 def _step_target_label(target: Any) -> str:
-    """Цель шага текстом; для мощности добавляем процент от FTP."""
+    """Цель шага текстом: процент от FTP для мощности, темп для pace."""
     if not isinstance(target, dict):
         return "—"
     kind = str(target.get("type") or "").strip().lower()
     low, high = target.get("low"), target.get("high")
+    fast, slow = target.get("fast"), target.get("slow")
+    if kind == "pace" and fast is not None and slow is not None:
+        # Pace приходит не как low/high, а как fast/slow в секундах на единицу
+        # дистанции (#638 review): без этой ветки цель рендерилась словом "pace",
+        # и Коуч не мог сослаться на темп беговой сессии.
+        unit = _PACE_UNIT_SUFFIX.get(str(target.get("unit") or ""), "")
+        return f"{_pace_label(fast)}–{_pace_label(slow)}{unit}"
     if low is not None and high is not None:
         if kind == "power":
             base = f"{low}–{high} Вт"

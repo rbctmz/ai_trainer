@@ -345,3 +345,108 @@ def test_tool_label_is_human_readable() -> None:
     from utils.product_semantics import TOOL_LABELS_RU
 
     assert TOOL_LABELS_RU.get("get_workout_structure")
+
+# ---------------------------------------------------------------------------
+# Pace-цели беговых сессий (находка P2 независимого аудита #641)
+# ---------------------------------------------------------------------------
+#
+# Pace-цель не несёт low/high: каталог кладёт темп в fast/slow (секунды на
+# километр), а проекция plan_intervals читала только low/high — темп терялся, и
+# Коуч видел в колонке цели литерал "pace" вместо чисел. В живом плане это 113
+# целей из 272, то есть все беговые сессии.
+
+_RUN_DATE = date.today() + timedelta(days=3)
+
+
+def _run_goal_plan() -> dict:
+    """План из одной беговой сессии с pace-целями от порогового темпа."""
+    start_week = date.today() - timedelta(days=date.today().weekday())
+    session = dict(
+        materialize_session_template(
+            phase="Race Week",
+            session_role="easy",
+            sport="run",
+            target_tss=35.0,
+            estimated_duration_minutes=40,
+            goal_type="Триатлон",
+            zone_snapshot={"threshold_pace": 340.0},
+        )
+    )
+    session.update(
+        {
+            "date": _RUN_DATE.isoformat(),
+            "phase": "Race Week",
+            "sport": "run",
+            "sport_label": "бег",
+            "session_focus": "Аэробный бег",
+            "export_name": "Тест — Recovery Run",
+            "session_role": "easy",
+        }
+    )
+    event_date = start_week + timedelta(weeks=8)
+    return {
+        "goal_type": "Триатлон",
+        "distance": "Олимпийка",
+        "event_date": event_date.isoformat(),
+        "events": [
+            {"date": event_date.isoformat(), "priority": "A", "label": "Старт"}
+        ],
+        "weeks_to_race": 8,
+        "start_week": start_week,
+        "weekly_tss_plan": [300] * 8,
+        "base_weekly_tss_plan": [300] * 8,
+        "phases": ["Race Week"] * 8,
+        "daily_plan": [
+            (datetime.combine(_RUN_DATE, datetime.min.time()), 35, {"run": 35.0}),
+        ],
+        "session_templates": [session],
+        "weekly_summary": [],
+        "constraint_summary": {
+            "load_state": "balanced",
+            "available_day_indices": list(range(7)),
+            "notes": [],
+        },
+        "planner_mix": None,
+        "planner_weights": None,
+        "plan_revision": datetime.now().isoformat(),
+        "near_term_edit_version": 0,
+        "near_term_edit_rollback_target_checkpoint_id": None,
+    }
+
+
+@pytest.fixture()
+def tools_with_pace(tmp_path):
+    db = Database(str(tmp_path / "pace.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_run_goal_plan()))
+    return AITools(db)
+
+
+def test_projection_carries_run_pace_instead_of_dropping_it(
+    tools_with_pace: AITools,
+) -> None:
+    """Темп обязан доехать до модели: у pace-цели low/high нет по конструкции."""
+    payload = tools_with_pace.get_workout_structure(date=_RUN_DATE.isoformat())
+
+    zone = payload["sessions"][0]["steps"][0]["target_zone"]
+    assert zone["type"] == "pace"
+    assert zone["low"] is None and zone["high"] is None
+    assert zone["fast"] is not None and zone["slow"] is not None
+    assert zone["fast"] < zone["slow"], "fast — меньшие секунды на км"
+    assert zone["unit"] == "seconds_per_km"
+
+
+def test_presenter_renders_run_pace_not_the_bare_type(
+    tools_with_pace: AITools,
+) -> None:
+    """Регрессия аудита: в колонке цели стояло слово pace вместо темпа."""
+    payload = tools_with_pace.get_workout_structure(date=_RUN_DATE.isoformat())
+
+    rendered = format_tool_result("get_workout_structure", payload)
+
+    assert "| pace |" not in rendered
+    assert "/км" in rendered
+    for step in payload["sessions"][0]["steps"]:
+        zone = step["target_zone"]
+        for value in (zone["fast"], zone["slow"]):
+            total = int(float(value) + 0.5)
+            assert f"{total // 60}:{total % 60:02d}" in rendered
