@@ -450,3 +450,209 @@ def test_presenter_renders_run_pace_not_the_bare_type(
         for value in (zone["fast"], zone["slow"]):
             total = int(float(value) + 0.5)
             assert f"{total // 60}:{total % 60:02d}" in rendered
+
+# ---------------------------------------------------------------------------
+# #644: нормализованный статус, граница brick-ног, единый источник маркеров
+# ---------------------------------------------------------------------------
+
+_LEGACY_DATE = date.today() + timedelta(days=4)
+_BRICK_DATE = date.today() + timedelta(days=5)
+_DEGENERATE_DATE = date.today() + timedelta(days=6)
+
+
+def _step(name: str, seconds: int, kind: str = "work") -> dict:
+    return {
+        "name": name,
+        "intensity": "work" if kind == "work" else "easy",
+        "segment_kind": kind,
+        "duration_seconds": seconds,
+        "target": {"type": "power", "low": 100, "high": 120},
+    }
+
+
+def _edge_goal_plan() -> dict:
+    """Три пограничные сессии: legacy-статус, brick-день и вырожденные шаги."""
+    start_week = date.today() - timedelta(days=date.today().weekday())
+    legacy = dict(
+        materialize_session_template(
+            phase="Taper",
+            session_role="easy",
+            sport="bike",
+            target_tss=40.0,
+            estimated_duration_minutes=60,
+            goal_type="Триатлон",
+            zone_snapshot={"ftp": 200},
+        )
+    )
+    # Каталог объявляет собственный словарь статусов; инструмент обязан отдавать
+    # нормализованный, а сырьё — отдельным полем (#644).
+    legacy.update(
+        {
+            "date": _LEGACY_DATE.isoformat(),
+            "phase": "Taper",
+            "sport": "bike",
+            "sport_label": "вело",
+            "session_focus": "Recovery Spin",
+            "export_name": "Тест — legacy",
+            "session_role": "easy",
+            "structure_status": "legacy_pattern",
+        }
+    )
+    brick = {
+        "date": _BRICK_DATE.isoformat(),
+        "phase": "Build",
+        "sport": "brick",
+        "sport_label": "вело → бег",
+        "session_focus": "Brick",
+        "export_name": "Тест — brick",
+        "session_role": "long",
+        "kind": "composite",
+        "materialized_steps": [],
+        "legs": [
+            {
+                "leg_index": 0,
+                "sport": "bike",
+                "sport_label": "вело",
+                "materialized_steps": [
+                    _step("Warm-up", 300, "warmup"),
+                    _step("Bike work", 600),
+                ],
+            },
+            {
+                "leg_index": 1,
+                "sport": "run",
+                "sport_label": "бег",
+                "materialized_steps": [
+                    _step("Run off the bike", 900),
+                    _step("Cool-down", 300, "cooldown"),
+                ],
+            },
+        ],
+    }
+    degenerate = {
+        "date": _DEGENERATE_DATE.isoformat(),
+        "phase": "Taper",
+        "sport": "bike",
+        "sport_label": "вело",
+        "session_focus": "Broken",
+        "export_name": "Тест — вырожденные шаги",
+        "session_role": "easy",
+        # Проекция отбрасывает шаги с duration_seconds <= 0, поэтому сырые шаги
+        # и то, что реально видит Коуч, расходятся (#644).
+        "materialized_steps": [_step("Zero A", 0), _step("Zero B", 0)],
+    }
+    event_date = start_week + timedelta(weeks=8)
+
+    return {
+        "goal_type": "Триатлон",
+        "distance": "Олимпийка",
+        "event_date": event_date.isoformat(),
+        "events": [
+            {"date": event_date.isoformat(), "priority": "A", "label": "Старт"}
+        ],
+        "weeks_to_race": 8,
+        "start_week": start_week,
+        "weekly_tss_plan": [300] * 8,
+        "base_weekly_tss_plan": [300] * 8,
+        "phases": ["Build"] * 8,
+        "daily_plan": [
+            (datetime.combine(_LEGACY_DATE, datetime.min.time()), 40, {"bike": 40.0}),
+            (datetime.combine(_BRICK_DATE, datetime.min.time()), 90, {"bike": 50.0, "run": 40.0}),
+            (datetime.combine(_DEGENERATE_DATE, datetime.min.time()), 20, {"bike": 20.0}),
+        ],
+        "session_templates": [legacy, brick, degenerate],
+        "weekly_summary": [],
+        "constraint_summary": {
+            "load_state": "balanced",
+            "available_day_indices": list(range(7)),
+            "notes": [],
+        },
+        "planner_mix": None,
+        "planner_weights": None,
+        "plan_revision": datetime.now().isoformat(),
+        "near_term_edit_version": 0,
+        "near_term_edit_rollback_target_checkpoint_id": None,
+    }
+
+
+@pytest.fixture()
+def tools_with_edge_sessions(tmp_path):
+    db = Database(str(tmp_path / "edge.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_edge_goal_plan()))
+    return AITools(db)
+
+
+def test_structure_status_is_normalized_and_keeps_the_catalog_value_as_source(
+    tools_with_edge_sessions: AITools,
+) -> None:
+    """Имя поля обещает словарь structured/unmaterialized/rest, а не сырьё каталога."""
+    payload = tools_with_edge_sessions.get_workout_structure(
+        date=_LEGACY_DATE.isoformat()
+    )
+
+    session = payload["sessions"][0]
+    assert session["has_structure"] is True
+    assert session["structure_status"] == "structured"
+    assert session["structure_source"] == "legacy_pattern"
+
+
+def test_has_structure_and_steps_come_from_the_same_source(
+    tools_with_edge_sessions: AITools,
+) -> None:
+    """Вырожденные шаги отбрасываются проекцией — маркеры обязаны совпасть."""
+    payload = tools_with_edge_sessions.get_workout_structure(
+        date=_DEGENERATE_DATE.isoformat()
+    )
+
+    session = payload["sessions"][0]
+    assert session["steps"] == []
+    assert session["has_structure"] is False
+    assert session["structure_status"] == "unmaterialized"
+
+    rendered = format_tool_result("get_workout_structure", payload)
+    assert "не материализована" in rendered.lower()
+
+
+def test_marker_in_upcoming_workouts_matches_the_tool(
+    tools_with_edge_sessions: AITools,
+) -> None:
+    """Дешёвый маркер и инструмент не должны расходиться на одном и том же дне."""
+    listed = tools_with_edge_sessions.get_upcoming_workouts(days=8)["sessions"]
+    by_date = {item["date"]: item for item in listed}
+
+    for day in (_LEGACY_DATE, _DEGENERATE_DATE):
+        iso = day.isoformat()
+        marker = by_date[iso]
+        session = tools_with_edge_sessions.get_workout_structure(date=iso)["sessions"][0]
+        assert marker["has_structure"] == session["has_structure"], iso
+        assert marker["structure_status"] == session["structure_status"], iso
+
+
+def test_brick_steps_keep_their_leg_identity(
+    tools_with_edge_sessions: AITools,
+) -> None:
+    """Шаги вело и бега обязаны различаться: иначе brick-план не воспроизвести."""
+    payload = tools_with_edge_sessions.get_workout_structure(
+        date=_BRICK_DATE.isoformat()
+    )
+
+    steps = payload["sessions"][0]["steps"]
+    assert [step["leg_sport"] for step in steps] == ["bike", "bike", "run", "run"]
+    assert [step["leg_index"] for step in steps] == [0, 0, 1, 1]
+    assert steps[0]["leg_sport_label"] == "вело"
+    assert steps[2]["leg_sport_label"] == "бег"
+
+
+def test_presenter_separates_brick_legs(
+    tools_with_edge_sessions: AITools,
+) -> None:
+    payload = tools_with_edge_sessions.get_workout_structure(
+        date=_BRICK_DATE.isoformat()
+    )
+
+    rendered = format_tool_result("get_workout_structure", payload)
+
+    assert "вело" in rendered and "бег" in rendered
+    # Граница ног должна быть видна в тексте, а не только в payload.
+    assert rendered.count("| # |") == 2, rendered
+
