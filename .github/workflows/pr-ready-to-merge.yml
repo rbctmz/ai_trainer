@@ -59,6 +59,7 @@ jobs:
             const READY_LABEL = 'status: ready to merge';
             const EXCEEDED_LABEL = 'status: review budget exceeded';
             const EXCEPTION_LABEL = 'review-budget-exception';
+            const WAIVER_LABEL = 'status: native review waived';
             const pr = context.payload.pull_request || (await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -201,6 +202,7 @@ jobs:
               ensureLabel(ACCEPTED_LABEL, '1D76DB', 'Merge owner accepted review for the current head; cleared by every push'),
               ensureLabel(EXCEEDED_LABEL, 'D93F0B', `Native review exceeded ${MAX_NATIVE_REVIEW_ROUNDS} rounds without an exception`),
               ensureLabel(EXCEPTION_LABEL, 'BFDADC', 'Merge owner approved a documented exception to the native review budget'),
+              ensureLabel(WAIVER_LABEL, 'FBCA04', 'Merge owner waived the native review because Codex is unavailable; cleared by every push'),
             ]);
 
             if (shouldInvalidateAcceptance(
@@ -208,7 +210,13 @@ jobs:
               context.payload.action,
               context.payload.comment,
             )) {
-              await Promise.all([removeLabel(ACCEPTED_LABEL), removeLabel(READY_LABEL)]);
+              // The waiver is head-scoped like acceptance: a push must re-earn
+              // both, otherwise one waiver would silently cover later heads.
+              await Promise.all([
+                removeLabel(ACCEPTED_LABEL),
+                removeLabel(WAIVER_LABEL),
+                removeLabel(READY_LABEL),
+              ]);
             }
 
             const [currentLabels, reviews, comments, review, events] = await Promise.all([
@@ -246,9 +254,10 @@ jobs:
               comments,
               cleanReviewStatuses,
             );
-            const [accepted, hasBudgetException] = await Promise.all([
+            const [accepted, hasBudgetException, hasNativeWaiver] = await Promise.all([
               authenticatedLabel(ACCEPTED_LABEL, currentLabels, events),
               authenticatedLabel(EXCEPTION_LABEL, currentLabels, events),
+              authenticatedLabel(WAIVER_LABEL, currentLabels, events),
             ]);
             const budgetExceeded = nativeReviewRounds > MAX_NATIVE_REVIEW_ROUNDS && !hasBudgetException;
 
@@ -261,6 +270,7 @@ jobs:
               currentHeadNativeReviewRounds,
               unresolvedThreads: review.unresolvedThreads,
               hasBudgetException,
+              hasNativeWaiver,
               reviewDecision: review.reviewDecision,
             });
             await core.summary
@@ -603,9 +613,10 @@ jobs:
                 comments,
                 cleanReviewStatuses,
               );
-              const [accepted, hasBudgetException] = await Promise.all([
+              const [accepted, hasBudgetException, hasNativeWaiver] = await Promise.all([
                 authenticatedLabel(ACCEPTED_LABEL, labels, events),
                 authenticatedLabel(EXCEPTION_LABEL, labels, events),
+                authenticatedLabel(WAIVER_LABEL, labels, events),
               ]);
               return {
                 decision: evaluateReviewGate({
@@ -614,6 +625,7 @@ jobs:
                   currentHeadNativeReviewRounds,
                   unresolvedThreads,
                   hasBudgetException,
+                  hasNativeWaiver,
                   reviewDecision,
                 }),
                 budgetExceeded: nativeReviewRounds > MAX_NATIVE_REVIEW_ROUNDS && !hasBudgetException,
@@ -678,6 +690,7 @@ jobs:
 
             await Promise.all([
               ensureLabel(READY_LABEL, '0E8A16', 'Checks and the accepted bounded review gate are green for the current head'),
+              ensureLabel(WAIVER_LABEL, 'FBCA04', 'Merge owner waived the native review because Codex is unavailable; cleared by every push'),
               ensureLabel(ACCEPTED_LABEL, '1D76DB', 'Merge owner accepted review for the current head; cleared by every push'),
               ensureLabel(EXCEEDED_LABEL, 'D93F0B', `Native review exceeded ${MAX_NATIVE_REVIEW_ROUNDS} rounds without an exception`),
               ensureLabel(EXCEPTION_LABEL, 'BFDADC', 'Merge owner approved a documented exception to the native review budget'),
