@@ -4,6 +4,11 @@ Streamlit здесь только ради кэша (``st.cache_data``). Мод�
 импортироваться и в headless-режиме: его тянет ``services/demo_mode`` и
 ``services/sync``, а те — продуктовый API. Поэтому импорт Streamlit
 необязателен, и при его отсутствии кэш просто выключается (issue #602).
+
+Путь базы по умолчанию резолвится из активного состояния, и этот импорт
+ленивый (см. ``_default_db_path``): модульный импорт ``state`` снова втянул бы
+Streamlit и обесценил headless-обещание (#645). Следствие: headless-вызов без
+явного ``db_path`` по-прежнему требует legacy-контур — передавайте путь явно.
 """
 from __future__ import annotations
 
@@ -13,7 +18,6 @@ import pandas as pd
 
 from data.database import Database
 from services.cache_registry import register_cache_clearer
-from state import get_state_manager
 
 
 def _passthrough(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -45,10 +49,22 @@ def _copy_df(df: Optional[pd.DataFrame]) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _default_db_path() -> str:
+    """Путь активной базы по умолчанию — из состояния.
+
+    Импорт ``state`` сделан здесь, а не на уровне модуля: ``state/manager.py``
+    импортирует Streamlit, поэтому модульный импорт делал бы data_cache
+    неимпортируемым в headless-режиме и обесценивал try/except ниже (#645).
+    """
+    from state import get_state_manager
+
+    return str(get_state_manager().database.db_path)
+
+
 def _resolve_db_path(explicit_db_path: Optional[str] = None) -> str:
     if explicit_db_path:
         return explicit_db_path
-    return str(get_state_manager().database.db_path)
+    return _default_db_path()
 
 
 @_cache_data
@@ -75,7 +91,7 @@ def load_activities(days: int, db_path: Optional[str] = None) -> pd.DataFrame:
     return _load_activities_cached(_resolve_db_path(db_path), days)
 
 
-@st.cache_data(show_spinner=False)
+@_cache_data
 def _load_activities_between_cached(
     db_path: str, start_date: str, end_date: str
 ) -> pd.DataFrame:
