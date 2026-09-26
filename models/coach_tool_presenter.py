@@ -155,15 +155,37 @@ def _session_structure_block(session: Any) -> str:
         lines += ["", f"⚠️ {note}"]
         return "\n".join(lines)
 
-    lines += ["", "| # | Шаг | Тип | Длительность | Цель |", "|---|-----|-----|--------------|------|"]
-    for index, step in enumerate(steps, 1):
-        name = (step or {}).get("name") if isinstance(step, dict) else None
-        target = (step or {}).get("target_zone") if isinstance(step, dict) else None
-        seconds = (step or {}).get("duration_seconds") if isinstance(step, dict) else None
-        lines.append(
-            f"| {index} | {name or f'Шаг {index}'} | {_step_kind_label(step)} "
-            f"| {_step_duration_label(seconds)} | {_step_target_label(target)} |"
-        )
+    # Составной день: у шагов есть метка ноги, и граница обязана быть видна в
+    # тексте — иначе шаги вело и бега неразличимы (#644).
+    leg_groups: list[tuple[str, list]] = []
+    for step in steps:
+        label = ""
+        if isinstance(step, dict) and step.get("leg_index") is not None:
+            position = int(step["leg_index"]) + 1
+            sport = step.get("leg_sport_label") or step.get("leg_sport") or ""
+            label = f"Нога {position}" + (f" — {sport}" if sport else "")
+        if not leg_groups or leg_groups[-1][0] != label:
+            leg_groups.append((label, []))
+        leg_groups[-1][1].append(step)
+
+    index = 0
+    for label, group in leg_groups:
+        if label:
+            lines += ["", f"**{label}**"]
+        lines += [
+            "",
+            "| # | Шаг | Тип | Длительность | Цель |",
+            "|---|-----|-----|--------------|------|",
+        ]
+        for step in group:
+            index += 1
+            name = (step or {}).get("name") if isinstance(step, dict) else None
+            target = (step or {}).get("target_zone") if isinstance(step, dict) else None
+            seconds = (step or {}).get("duration_seconds") if isinstance(step, dict) else None
+            lines.append(
+                f"| {index} | {name or f'Шаг {index}'} | {_step_kind_label(step)} "
+                f"| {_step_duration_label(seconds)} | {_step_target_label(target)} |"
+            )
     return "\n".join(lines)
 
 

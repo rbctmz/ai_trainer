@@ -40,20 +40,6 @@ def _is_athlete_today(value: Any, today: date) -> bool:
     return resolved is not None and resolved == today
 
 
-def _leaf_materialized_steps(leaf: Mapping[str, Any]) -> List[Mapping[str, Any]]:
-    """Шаги листовой сессии, включая ноги brick-дня (issue #638)."""
-    steps: List[Mapping[str, Any]] = []
-    direct = leaf.get("materialized_steps")
-    if isinstance(direct, list):
-        steps.extend(step for step in direct if isinstance(step, Mapping))
-    for leg in leaf.get("legs") or []:
-        if not isinstance(leg, Mapping):
-            continue
-        leg_steps = leg.get("materialized_steps")
-        if isinstance(leg_steps, list):
-            steps.extend(step for step in leg_steps if isinstance(step, Mapping))
-    return steps
-
 
 def _is_rest_leaf(leaf: Mapping[str, Any]) -> bool:
     """День отдыха — это не «отсутствие структуры», а отсутствие тренировки."""
@@ -63,13 +49,48 @@ def _is_rest_leaf(leaf: Mapping[str, Any]) -> bool:
     return False
 
 
-def _leaf_structure_status(
+def _structure_steps(leaf: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """Шаги для текста Коуча, с меткой ноги у составного дня.
+
+    ``project_planned_intervals`` сознательно конкатенирует ноги brick-дня
+    (issue #383), но в пользовательском тексте граница обязана быть видна:
+    иначе шаги вело и бега неразличимы (#644). Проецируем каждую ногу
+    отдельно и помечаем её индексом и подписью спорта.
+    """
+    legs = [leg for leg in (leaf.get("legs") or []) if isinstance(leg, Mapping)]
+    if not legs:
+        return [dict(step) for step in project_planned_intervals(leaf)]
+
+    steps: List[Dict[str, Any]] = []
+    for index, leg in enumerate(legs):
+        leg_sport = str(leg.get("sport") or "").strip()
+        for step in project_planned_intervals(leg):
+            item = dict(step)
+            item["leg_index"] = index
+            if leg_sport:
+                item["leg_sport"] = leg_sport
+                item["leg_sport_label"] = sport_label(leg_sport)
+            steps.append(item)
+    return steps
+
+
+def _declared_structure_source(leaf: Mapping[str, Any]) -> str:
+    """Сырой статус материализации из каталога, если он заявлен."""
+    return str(leaf.get("structure_status") or "").strip()
+
+
+def _normalized_structure_status(
     leaf: Mapping[str, Any], steps: List[Mapping[str, Any]]
 ) -> str:
-    """Заявленный статус материализации, иначе выведенный из наличия шагов."""
-    declared = str(leaf.get("structure_status") or "").strip()
-    if declared:
-        return declared
+    """Статус из словаря инструмента: structured / unmaterialized / rest.
+
+    Каталог объявляет собственные значения (``legacy_pattern``, ``simplified``),
+    и отдавать их под именем structure_status значит обещать словарь, которого
+    нет (#644). Сырьё не теряется — оно уезжает в structure_source.
+
+    Статус выводится из тех же шагов, что и has_structure: вырожденные шаги
+    отбрасывает проекция, и два маркера обязаны совпадать.
+    """
     if steps:
         return "structured"
     return "rest" if _is_rest_leaf(leaf) else "unmaterialized"
@@ -2300,7 +2321,7 @@ class AITools:
                     and str((match or {}).get("match_method") or "")
                     == "ai_trainer_external_id"
                 )
-                leaf_steps = _leaf_materialized_steps(leaf)
+                leaf_steps = _structure_steps(leaf)
                 session_payload = {
                     "date": session_date.isoformat(),
                     "sport": sport,
@@ -2322,7 +2343,7 @@ class AITools:
                     # есть, и вызывает get_workout_structure точечно. Сами шаги
                     # в этот payload не едут — 7-дневное окно дорожает ~4.9×.
                     "has_structure": bool(leaf_steps),
-                    "structure_status": _leaf_structure_status(leaf, leaf_steps),
+                    "structure_status": _normalized_structure_status(leaf, leaf_steps),
                 }
                 if session_id:
                     session_payload["session_id"] = session_id
@@ -2438,9 +2459,8 @@ class AITools:
         day_tss: int,
     ) -> Dict[str, Any]:
         """Одна листовая сессия со шагами и честным статусом материализации."""
-        steps = _leaf_materialized_steps(leaf)
-        status = _leaf_structure_status(leaf, steps)
-        intervals = project_planned_intervals(leaf)
+        intervals = _structure_steps(leaf)
+        status = _normalized_structure_status(leaf, intervals)
         leaf_tss = int(round(float(leaf.get("total_tss") or 0))) or day_tss
         payload: Dict[str, Any] = {
             "date": day_text,
@@ -2458,9 +2478,12 @@ class AITools:
             "tss": leaf_tss,
             "kind": str(leaf.get("kind") or "single"),
             "structure_status": status,
-            "has_structure": bool(steps),
+            "has_structure": bool(intervals),
             "steps": intervals,
         }
+        declared_source = _declared_structure_source(leaf)
+        if declared_source and declared_source != status:
+            payload["structure_source"] = declared_source
         for key in ("template_key", "template_name", "stimulus", "duration_minutes"):
             value = leaf.get(key)
             if value not in (None, ""):
@@ -2472,7 +2495,7 @@ class AITools:
         ).strip()
         if resolved_session_id:
             payload["session_id"] = resolved_session_id
-        if not steps:
+        if not intervals:
             if _is_rest_leaf(leaf):
                 payload["message"] = "День отдыха: тренировка не запланирована."
             else:
