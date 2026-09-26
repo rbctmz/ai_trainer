@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 import pandas as pd
 
 from utils.product_semantics import (
+    SEGMENT_KIND_LABELS_RU,
     TODAY_PARTIAL_NOTE_RU,
     format_date_label,
     sport_emoji,
@@ -31,6 +32,139 @@ def _subjective_evidence_line(label: str, evidence: Any) -> str:
     else:
         return ""
     return f"- Субъективно ({label}, {provenance}): {detail}."
+
+
+def _step_duration_label(seconds: Any) -> str:
+    """Длительность шага в том же виде, что в вебе (WorkoutStrip.formatDuration)."""
+    try:
+        total = int(seconds)
+    except (TypeError, ValueError):
+        return "—"
+    if total <= 0:
+        return "—"
+    minutes, rest = divmod(total, 60)
+    return f"{minutes}:{rest:02d}" if rest else f"{minutes} мин"
+
+
+def _relative_percent(value: Any) -> str | None:
+    try:
+        return f"{round(float(value) * 100)}"
+    except (TypeError, ValueError):
+        return None
+
+
+def _pace_label(seconds: Any) -> str:
+    """Секунды на единицу дистанции -> M:SS.
+
+    Округление half-up, как Math.round в вебе (WorkoutStrip.formatPace), чтобы
+    текст Коуча совпадал с тем, что атлет видит на экране.
+    """
+    try:
+        total = int(float(seconds) + 0.5)
+    except (TypeError, ValueError):
+        return "—"
+    if total <= 0:
+        return "—"
+    minutes, rest = divmod(total, 60)
+    return f"{minutes}:{rest:02d}"
+
+
+_PACE_UNIT_SUFFIX = {"seconds_per_km": " /км", "seconds_per_100m": " /100м"}
+
+
+def _step_target_label(target: Any) -> str:
+    """Цель шага текстом: процент от FTP для мощности, темп для pace."""
+    if not isinstance(target, dict):
+        return "—"
+    kind = str(target.get("type") or "").strip().lower()
+    low, high = target.get("low"), target.get("high")
+    fast, slow = target.get("fast"), target.get("slow")
+    if kind == "pace" and fast is not None and slow is not None:
+        # Pace приходит не как low/high, а как fast/slow в секундах на единицу
+        # дистанции (#638 review): без этой ветки цель рендерилась словом "pace",
+        # и Коуч не мог сослаться на темп беговой сессии.
+        unit = _PACE_UNIT_SUFFIX.get(str(target.get("unit") or ""), "")
+        return f"{_pace_label(fast)}–{_pace_label(slow)}{unit}"
+    if low is not None and high is not None:
+        if kind == "power":
+            base = f"{low}–{high} Вт"
+        elif kind == "heart_rate":
+            base = f"{low}–{high} уд/мин"
+        elif kind == "relative_rpe":
+            base = f"RPE {low}–{high}"
+        else:
+            base = f"{low}–{high}"
+    else:
+        base = kind
+    relative_low = _relative_percent(target.get("relative_low"))
+    relative_high = _relative_percent(target.get("relative_high"))
+    if kind == "power" and relative_low and relative_high:
+        base = f"{base} ({relative_low}–{relative_high}% FTP)"
+    return base or "—"
+
+
+def _step_kind_label(step: Any) -> str:
+    """Подпись шага по segment_kind, а не по type.
+
+    У разминки/восстановления/заминки type == "rest" (семантика матчинга
+    план-факт), поэтому рендер по type показал бы разминку как отдых (#638).
+    """
+    if not isinstance(step, dict):
+        return "—"
+    kind = str(step.get("segment_kind") or "").strip().lower()
+    if kind in SEGMENT_KIND_LABELS_RU:
+        return SEGMENT_KIND_LABELS_RU[kind]
+    intensity = str(step.get("intensity") or "").strip().lower()
+    if intensity in SEGMENT_KIND_LABELS_RU:
+        return SEGMENT_KIND_LABELS_RU[intensity]
+    return kind or intensity or "—"
+
+
+def _session_structure_block(session: Any) -> str:
+    """Markdown-блок структуры одной сессии для контекста модели."""
+    if not isinstance(session, dict):
+        return f"ℹ️ **{session}**"
+    header = (
+        "## 🧱 Структура тренировки — "
+        f"{format_date_label(session.get('date'), 'weekday_short')}"
+    )
+    sport = session.get("sport_label") or sport_label(session.get("sport"))
+    facts = [f"**{session.get('name') or 'Сессия'}** — {sport}"]
+    facts.append(f"TSS {session.get('tss', 'н/д')}")
+    if session.get("duration_minutes"):
+        facts.append(f"{session['duration_minutes']} мин")
+    if session.get("phase"):
+        facts.append(f"фаза: {session['phase']}")
+    lines = [header, "", ", ".join(facts)]
+    meta = []
+    if session.get("template_key"):
+        meta.append(str(session["template_key"]))
+    if session.get("stimulus"):
+        meta.append(f"стимул: {session['stimulus']}")
+    provenance = session.get("target_provenance")
+    if isinstance(provenance, dict) and provenance.get("kind"):
+        source = provenance.get("source") or provenance.get("kind")
+        value = provenance.get("value")
+        meta.append(f"опора цели: {source}" + (f" = {value}" if value is not None else ""))
+    if meta:
+        lines += ["", " · ".join(meta)]
+
+    steps = list(session.get("steps") or [])
+    if not steps:
+        note = session.get("message") or "Структура этой сессии не материализована."
+        lines += ["", f"⚠️ {note}"]
+        return "\n".join(lines)
+
+    lines += ["", "| # | Шаг | Тип | Длительность | Цель |", "|---|-----|-----|--------------|------|"]
+    for index, step in enumerate(steps, 1):
+        name = (step or {}).get("name") if isinstance(step, dict) else None
+        target = (step or {}).get("target_zone") if isinstance(step, dict) else None
+        seconds = (step or {}).get("duration_seconds") if isinstance(step, dict) else None
+        lines.append(
+            f"| {index} | {name or f'Шаг {index}'} | {_step_kind_label(step)} "
+            f"| {_step_duration_label(seconds)} | {_step_target_label(target)} |"
+        )
+    return "\n".join(lines)
 
 
 def format_tool_result(tool_name: str, data: Any) -> str:
@@ -693,11 +827,46 @@ def format_tool_result(tool_name: str, data: Any) -> str:
                     f"TSS {session.get('tss', 'н/д')}{phase}"
                 )
 
+        structure_lines = []
+        for session in sessions:
+            day_label = session.get("date_label") or format_date_label(
+                session.get("date"), "weekday_short"
+            )
+            if session.get("has_structure"):
+                structure_lines.append(
+                    f"• {day_label}: доступна — get_workout_structure(date={session.get('date')})"
+                )
+            elif session.get("structure_status"):
+                structure_lines.append(
+                    f"• {day_label}: не материализована "
+                    f"(structure_status={session['structure_status']})"
+                )
+        structure_block = ""
+        if structure_lines:
+            structure_block = (
+                "\n\n### 🧱 Структура сессий\n"
+                + chr(10).join(structure_lines)
+                + "\nШаги (разминка, отрезки, заминка) бери только через "
+                "get_workout_structure — не выдумывай их и не бери из общих знаний."
+            )
+
         return f"""
 ## 📅 Ближайшие плановые тренировки ({data.get('days', 7)} дней)
 
-{chr(10).join(session_lines)}
+{chr(10).join(session_lines)}{structure_block}
 """
+
+    elif tool_name == "get_workout_structure":
+        if not isinstance(data, dict):
+            return f"ℹ️ **{data}**"
+        if data.get("error"):
+            return f"❌ **{data['error']}**"
+        if not data.get("has_plan"):
+            return f"ℹ️ **{data.get('message', 'Активный план не найден')}**"
+        sessions = list(data.get("sessions") or [])
+        if not sessions:
+            return f"ℹ️ **{data.get('message', 'Сессия не найдена')}**"
+        return "\n\n".join(_session_structure_block(session) for session in sessions)
 
     elif tool_name == "propose_plan_build":
         preview = data.get("preview", {}) if isinstance(data, dict) else {}
