@@ -1,4 +1,5 @@
 """Rot guards for the native Codex GitHub review integration."""
+import re
 import subprocess
 from pathlib import Path
 
@@ -118,3 +119,44 @@ def test_loop_documents_native_review_ownership_and_settings() -> None:
     assert "Automatic reviews" in text
     assert "github-actions[bot]" in text
     assert "connected GitHub account" in text
+
+def test_every_label_constant_used_in_a_job_is_declared_in_that_job() -> None:
+    """Rot guard for the failure that shipped in #647.
+
+    The privileged workflow is one file with two inline `github-script` jobs.
+    Each job is its own JS scope, and nothing in CI parses or executes that
+    inline JavaScript: the Node tests cover only the required helper module,
+    and this smoke file asserts string presence, not scope. So a constant
+    declared in one job and used in the other fails only at runtime, with
+    `ReferenceError`, after merge.
+
+    That is exactly what #647 did with `WAIVER_LABEL`: the review-gate job
+    declared it, the readiness job used it, and the readiness projection broke
+    on `main`. This checks the general shape rather than the one instance:
+    inside each job block, every `*_LABEL` constant that is used must also be
+    declared there.
+
+    Limitation: this catches missing `*_LABEL` declarations only. General
+    undefined identifiers in the inline scripts stay invisible until runtime.
+    """
+    lines = READY_WORKFLOW.read_text(encoding="utf-8").splitlines()
+
+    starts = []
+    for index, line in enumerate(lines):
+        match = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if match:
+            starts.append((index, match.group(1)))
+
+    problems = []
+    for position, (start, name) in enumerate(starts):
+        end = starts[position + 1][0] if position + 1 < len(starts) else len(lines)
+        block = "\n".join(lines[start:end])
+        declared = set(re.findall(r"const ([A-Z][A-Z0-9_]*_LABEL)\b", block))
+        used = set(re.findall(r"\b([A-Z][A-Z0-9_]*_LABEL)\b", block))
+        for label in sorted(used - declared):
+            problems.append(f"{name}: {label}")
+
+    assert problems == [], (
+        "label constants used without a declaration in the same job "
+        f"(runtime ReferenceError): {problems}"
+    )
