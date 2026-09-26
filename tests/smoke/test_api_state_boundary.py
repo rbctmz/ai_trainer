@@ -236,3 +236,119 @@ def test_data_cache_registers_its_clearer() -> None:
         cache_registry.reset_registry()
 
     assert calls == ["cleared"], "реестр не вызвал зарегистрированный сброс"
+
+# ---------------------------------------------------------------------------
+# AC4: набор атрибутов состояния, который API действительно читает
+# ---------------------------------------------------------------------------
+
+# Набор снят ПРОБНИКОМ, а не grep-ом, как требует AC4. Grep по api/ находит
+# только state.database в api/routers/system.py, но ленивые свойства читают БД
+# шире, а get_dashboard_goal_plan ходит ещё в goal_plan и
+# latest_planning_checkpoint. Пин обязателен: иначе следующая правка молча
+# сузит фасад, и падение будет в рантайме, а не в тесте.
+API_STATE_SURFACE = frozenset(
+    {
+        "ai_coach",
+        "database",
+        "goal_plan",
+        "latest_execution_feedback",
+        "latest_planning_checkpoint",
+        "planning_checkpoint_history",
+        "refresh_planning_checkpoint_cache",
+        "resolved_goal_plan_context",
+    }
+)
+
+# Эндпоинты, которые получают состояние через Depends(get_headless_state).
+API_STATE_ENDPOINTS = ("/api/dashboard/summary", "/api/dashboard/widgets")
+
+
+def _probe_api_state_surface(tmp_path, paths) -> set[str]:
+    """Прогнать эндпоинты через TestClient и вернуть реально прочитанные атрибуты.
+
+    Записываются только УСПЕШНЫЕ чтения: если атрибут исчез, он пропадёт из
+    набора и пин упадёт. Так регрессия ловится тестом, а не в рантайме —
+    потребители вроде get_dashboard_goal_plan читают через getattr(..., None)
+    и без пина деградируют молча.
+    """
+    from fastapi.testclient import TestClient
+
+    from api.deps import get_database, get_headless_state
+    from api.main import app
+    from data.database import Database
+    from services.demo_mode import (
+        _build_demo_activities,
+        _build_demo_health,
+        _build_demo_hrv,
+        _build_demo_sleep,
+        _build_demo_training_status,
+    )
+    from utils.app_state import HeadlessState, SessionDict
+
+    class _RecordingState(HeadlessState):
+        def __init__(self, session, database=None):
+            object.__setattr__(self, "accessed", [])
+            if database is not None:
+                session["database"] = database
+            super().__init__(session)
+
+        def __getattribute__(self, item):
+            value = object.__getattribute__(self, item)
+            if not item.startswith("_"):
+                object.__getattribute__(self, "accessed").append(item)
+            return value
+
+    db = Database(str(tmp_path / "state_surface.db"))
+    # Пустая БД уводит dashboard в ранний возврат `if activities_df.empty`,
+    # и тогда состояние не спрашивают вообще: проба вернула бы пустой набор и
+    # ничего не запинила. Данные обязательны для непустой проверки.
+    db.save_activities(_build_demo_activities())
+    db.save_hrv_data(_build_demo_hrv())
+    db.sync_sleep_data(_build_demo_sleep())
+    db.sync_daily_health(_build_demo_health())
+    db.sync_training_status(_build_demo_training_status())
+
+    state = _RecordingState(SessionDict(), db)
+    app.dependency_overrides[get_database] = lambda: db
+    app.dependency_overrides[get_headless_state] = lambda: state
+    try:
+        client = TestClient(app)
+        for path in paths:
+            response = client.get(path)
+            assert response.status_code == 200, f"{path} -> {response.status_code}"
+    finally:
+        app.dependency_overrides.clear()
+
+    # object.__getattribute__ в обход рекордера: обычное чтение state.accessed
+    # само попало бы в набор и сломало пин.
+    return set(object.__getattribute__(state, "accessed"))
+
+
+def test_api_state_surface_is_pinned_by_a_probe(tmp_path) -> None:
+    """AC4: API читает ровно этот набор атрибутов состояния.
+
+    Если тест упал — API начал читать новое свойство состояния (или перестал
+    читать старое). Это осознанное изменение контракта: расширьте фасад в
+    utils/app_state.py и обновите API_STATE_SURFACE, а не «чините» пин.
+    """
+    observed = _probe_api_state_surface(tmp_path, API_STATE_ENDPOINTS)
+
+    assert observed == set(API_STATE_SURFACE), (
+        "набор атрибутов состояния, который читает API, изменился: "
+        f"новые={sorted(observed - API_STATE_SURFACE)}, "
+        f"пропали={sorted(API_STATE_SURFACE - observed)}"
+    )
+
+
+def test_api_state_probe_is_not_vacuous(tmp_path) -> None:
+    """Проба обязана что-то увидеть: пустая БД даёт пустой набор.
+
+    Регрессия этого теста означает, что эндпоинты снова ушли в ранний возврат
+    и пин выше перестал что-либо проверять, оставаясь зелёным.
+    """
+    observed = _probe_api_state_surface(tmp_path, API_STATE_ENDPOINTS)
+
+    assert "database" in observed, (
+        "проба не увидела ни одного обращения к состоянию — пин вырожден"
+    )
+    assert len(observed) >= 3, f"подозрительно узкий набор: {sorted(observed)}"
