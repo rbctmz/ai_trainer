@@ -76,7 +76,7 @@ def test_activate_demo_mode_seeds_temporary_dataset(monkeypatch: pytest.MonkeyPa
     state = _StubState()
     cache_clears: list[str] = []
 
-    monkeypatch.setattr(demo_mode, "clear_data_caches", lambda: cache_clears.append("cleared"))
+    monkeypatch.setattr(demo_mode, "clear_caches", lambda: cache_clears.append("cleared"))
 
     result = demo_mode.activate_demo_mode(state)
 
@@ -106,7 +106,7 @@ def test_deactivate_demo_mode_clears_dataset(monkeypatch: pytest.MonkeyPatch):
     state.selected_provider = demo_mode.DEMO_PROVIDER
     cache_clears: list[str] = []
 
-    monkeypatch.setattr(demo_mode, "clear_data_caches", lambda: cache_clears.append("cleared"))
+    monkeypatch.setattr(demo_mode, "clear_caches", lambda: cache_clears.append("cleared"))
 
     demo_mode.deactivate_demo_mode(state)
 

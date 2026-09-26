@@ -1,6 +1,6 @@
 """State management helpers for the Streamlit app."""
 from .manager import StateManager, get_state_manager
-from .schema import AppState, DataState, IntegrationState, UIState
+from utils.app_state_schema import AppState, DataState, IntegrationState, UIState
 
 __all__ = [
     "AppState",

@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from services.activity_ingest import backfill_provider_links
-from services.data_cache import clear_data_caches
-from state import StateManager
+from services.cache_registry import clear_caches
+from utils.app_state import HeadlessState
 
 DEMO_PROVIDER = "mock"
 DATASET_ORIGIN_KEY = "dataset_origin"
@@ -14,12 +14,12 @@ DATASET_ORIGIN_DEMO = "demo"
 DATASET_ORIGIN_REAL = "real"
 
 
-def is_demo_mode(state: StateManager) -> bool:
+def is_demo_mode(state: HeadlessState) -> bool:
     """Return whether the current session is using demo data."""
     return bool(getattr(state, "demo_mode", False))
 
 
-def restore_demo_mode_session(state: StateManager) -> None:
+def restore_demo_mode_session(state: HeadlessState) -> None:
     """Hydrate session-only demo flags without rewriting the underlying dataset."""
     state.switch_to_chat_tab = False
     state.selected_provider = DEMO_PROVIDER
@@ -28,7 +28,7 @@ def restore_demo_mode_session(state: StateManager) -> None:
     state.selected_page = "📊 Дашборд"
 
 
-def dataset_origin(state: StateManager) -> str | None:
+def dataset_origin(state: HeadlessState) -> str | None:
     """Return persisted dataset provenance for the current database."""
     try:
         value = state.database.get_user_setting(DATASET_ORIGIN_KEY)
@@ -39,17 +39,17 @@ def dataset_origin(state: StateManager) -> str | None:
     return str(value)
 
 
-def mark_dataset_origin(state: StateManager, origin: str) -> None:
+def mark_dataset_origin(state: HeadlessState, origin: str) -> None:
     """Persist dataset provenance for the current database."""
     state.database.set_user_setting(DATASET_ORIGIN_KEY, origin)
 
 
-def mark_real_dataset(state: StateManager) -> None:
+def mark_real_dataset(state: HeadlessState) -> None:
     """Mark the current dataset as originating from a real Garmin sync."""
     mark_dataset_origin(state, DATASET_ORIGIN_REAL)
 
 
-def activate_demo_mode(state: StateManager) -> dict[str, int]:
+def activate_demo_mode(state: HeadlessState) -> dict[str, int]:
     """Replace local cache with a deterministic demo dataset and enable demo mode."""
     database = state.database
 
@@ -72,7 +72,7 @@ def activate_demo_mode(state: StateManager) -> dict[str, int]:
     database.sync_daily_health(health_data)
     database.sync_training_status(training_status)
     mark_dataset_origin(state, DATASET_ORIGIN_DEMO)
-    clear_data_caches()
+    clear_caches()
 
     state.clear_cached_context()
     state.current_chat_id = None
@@ -92,11 +92,11 @@ def activate_demo_mode(state: StateManager) -> dict[str, int]:
     }
 
 
-def deactivate_demo_mode(state: StateManager) -> None:
+def deactivate_demo_mode(state: HeadlessState) -> None:
     """Clear the temporary demo dataset and leave demo mode."""
     database = state.database
     database.clear_all_data()
-    clear_data_caches()
+    clear_caches()
     state.reset_planner_overrides()
     state.clear_cached_context()
     state.current_chat_id = None
@@ -114,7 +114,7 @@ def deactivate_demo_mode(state: StateManager) -> None:
     state.selected_page = "📊 Дашборд"
 
 
-def _uses_demo_ai_coach(state: StateManager) -> bool:
+def _uses_demo_ai_coach(state: HeadlessState) -> bool:
     ai_coach = getattr(state, "ai_coach", None)
     provider = getattr(ai_coach, "provider", None)
     return provider is not None and provider.__class__.__name__ == "MockAIProvider"
