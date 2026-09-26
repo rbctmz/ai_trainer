@@ -91,37 +91,41 @@ N/A — срез не касается evidence, истории, матчинг�
 
 ## Evidence Bundle
 
-- Head SHA: заполняется на финальном head
+- Head SHA: `6baabf5` (проверенный аудитом head); docs-дельта после аудита — только этот ExecPlan и эта спека, код не менялся
 - Changed invariants: PR, меняющий сторожевой тест CI-политики, требует ревью владельца; новый сторож не может остаться вне CODEOWNERS незамеченным
-- Focused and broad tests: focused — `tests/smoke/test_ci_policy_guard_coverage.py` (`4 passed`); broad — полный contributor-safe набор и `ruff` (числа вписываются на финальном дереве)
-- CI checks/reruns/flakes: заполняется по факту прогона PR
-- Lifecycle/probe evidence: ломающая проба с удалением записи CODEOWNERS и восстановлением файла (`git diff` — только намеренные +19 строк)
+- Focused and broad tests: focused — `tests/smoke/test_ci_policy_guard_coverage.py`: RED `2 failed, 2 passed` → GREEN `4 passed`; broad — `pytest -m "not live and not debug and not e2e" tests/`: `2933 passed, 13 skipped, 40 deselected` (131.63 s), `ruff check .` — «All checks passed!»
+- CI checks/reruns/flakes: заполняется по факту прогона PR; локально падений не было
+- Lifecycle/probe evidence: ломающая проба с удалением записи CODEOWNERS и восстановлением файла (`git diff` — только намеренные +19 строк); проба на импортированном модуле сторожа подтвердила детект прямого литерала пути и недетект косвенного
 - Changed contracts: CODEOWNERS (расширение), новый smoke-тест
-- Unresolved review-thread count: 0 на момент написания
-- Residual risks and follow-ups: GitHub вычисляет CODEOWNERS из базовой ветки, поэтому запись не защищает PR, который её добавляет — этот PR проходит обычным путём; `Review gate` остаётся необязательной проверкой (осознанный non-goal).
+- Unresolved review-thread count: 0 — ревью-тредов не открывалось
+- Residual risks and follow-ups: **#658** — hardening сторожа (косвенные пути, симметричная проверка списка, владелец в подсказке, семантика `path/` для самого каталога). GitHub вычисляет CODEOWNERS из базовой ветки, поэтому запись не защищает PR, который её добавляет — этот PR проходит обычным путём. `Review gate` остаётся необязательной проверкой (осознанный non-goal).
 
 ## Review Findings
 
-Заполняется после независимого read-only аудита.
+Независимый read-only аудит OpenCode (модель `deepseek/deepseek-v4-pro`, коммит `6baabf5`, единственная разрешённая команда — `pytest tests/smoke/test_ci_policy_guard_coverage.py -q`): **0 P1/P2**, пять неблокирующих предложений. Ни одно не чинилось в открытом PR.
 
 | Severity | Evidence and falsifying check | Gate | Owner/status |
 | --- | --- | --- | --- |
-| | | | |
+| suggestion | Сканер ищет подстроку `.github/workflows`/`.github/scripts`, поэтому `Path(".github") / "workflows"` и `os.path.join(".github", "workflows", ...)` не детектируются. Проверено аудитором на синтетических строках и повторено прямой пробой на импортированном модуле: `direct detected=True`, `indirect detected=False` | follow-up | #658 |
+| suggestion | `test_scanner_finds_the_known_guards` проверяет присутствие известных файлов, а не полноту: потерянный сканером сторож не будет замечен | follow-up | #658 |
+| suggestion | `OWNER = "@rbctmz"` захардкожен в тексте подсказки при падении; при смене владельца подсказка назовёт не того | follow-up | #658 |
+| suggestion | `_covers` покрывает сам каталог для шаблона `path/` (`_covers("docs/", "docs") is True`) — это сознательное соглашение репозитория, на нём стоит `test_protected_directories_still_have_an_owner`, а не проверенная семантика GitHub | follow-up | #658 (уточнить формулировкой или сузить) |
+| suggestion | AC5 на момент аудита не был подтверждён в репозитории: в `Progress` ExecPlan пункт широкого прогона стоял незакрытым. Аудитору было разрешено только одну команду, поэтому он не мог проверить сам | fixed-in docs-дельта | закрыто: `2933 passed, 13 skipped`, `ruff` чистый, `Progress` обновлён |
 
 ## Native Review Rounds
 
 | Round | Reviewed head SHA | Trigger | Findings disposition | Stop / exception decision |
 | ---: | --- | --- | --- | --- |
-| 1 | | manual (OpenCode read-only audit) | | continue / stop |
-| 2 | | verification | | stop / exception rationale |
+| 1 | `6baabf5` | manual (OpenCode read-only audit, `--agent plan`, `deepseek/deepseek-v4-pro`) | 0 P1/P2; пять suggestions — все отвечены письменно: четыре в follow-up #658, пятый (AC5) закрыт docs-дельтой | **stop** — блокирующих находок нет, бюджет не исчерпан (1 из 2 раундов) |
+| 2 | — | — | не запрашивался: аудит не выявил ни одного P1/P2 и не открыл новую архитектурную границу | — |
 
 Codex недоступен; независимый раунд проводится OpenCode и считается раундом бюджета. Полный native-бюджет — два full-diff раунда.
 
 ## Final Verdict
 
-- Verdict: заполняется после аудита и широкого прогона
-- Blocking findings remaining:
-- Review rounds used:
-- Accepted risk or follow-up issue:
+- Verdict: **READY WITH OWNED FOLLOW-UP**
+- Blocking findings remaining: 0 (аудит: 0 P1/P2; открытых ревью-тредов нет)
+- Review rounds used: 1 из 2 (OpenCode read-only аудит на `6baabf5`)
+- Accepted risk or follow-up issue: #658 — hardening сторожа; принятый риск в том, что косвенно построенный путь сегодня не детектируется, а `Review gate` остаётся необязательной проверкой
 - Merge owner final gate: @rbctmz
 - Post-merge sync/branch/worktree/progress cleanup: синхронизировать `main`, удалить ветку среза, обновить `Progress` в ExecPlan, добавить запись метрик Class A
