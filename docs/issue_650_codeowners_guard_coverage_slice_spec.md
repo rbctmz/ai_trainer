@@ -128,4 +128,4 @@ Codex недоступен; независимый раунд проводитс
 - Review rounds used: 1 из 2 (OpenCode read-only аудит на `6baabf5`)
 - Accepted risk or follow-up issue: #658 — hardening сторожа; принятый риск в том, что косвенно построенный путь сегодня не детектируется, а `Review gate` остаётся необязательной проверкой
 - Merge owner final gate: @rbctmz
-- Post-merge sync/branch/worktree/progress cleanup: синхронизировать `main`, удалить ветку среза, обновить `Progress` в ExecPlan, добавить запись метрик Class A
+- Post-merge sync/branch/worktree/progress cleanup: **выполнено** — `main` синхронизирован до `167da97`, ветка `ci/issue-650-codeowners-guard-coverage` удалена локально и на origin, `Progress` в ExecPlan закрыт, запись Class A добавлена в `docs/engineering_process_metrics.md`; на смерженном дереве 16 passed (сторож плюс доковые guard-тесты) и `ruff` чистый
