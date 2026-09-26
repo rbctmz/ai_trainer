@@ -48,21 +48,32 @@
 - [x] (2026-09-26) Найден уже существующий headless-контур: `SessionDict`,
   `make_headless_state`, `get_headless_state` в `api/deps.py` и
   `_state_with_db` в `api/routers/system.py`.
-- [ ] M0. Пробником снять фактический набор атрибутов `StateManager`, который
-  использует API (AC4). Глазами не снимать.
-- [ ] M1. Вынести headless-фасад в `utils/app_state.py` и перенести схему.
-- [ ] M2. Перевести `api/deps.py`, `api/routers/system.py`,
-  `api/routers/dashboard.py` на фасад — `from state import ...` в `api/` не
-  остаётся.
-- [ ] M3. Расширить `tests/smoke/test_api_architecture.py` на `state` и
-  добавить проверку `sys.modules` (AC1, AC2).
-- [ ] M4. `state/manager.py` становится тонким Streamlit-адаптером над
-  фасадом; legacy `ui/` продолжает работать.
+- [x] (2026-09-26) M1, M2, M4 — реализованы в ветке
+  `refactor/issue-602-state-facade` до появления этого плана: фасад в
+  `utils/app_state.py`, схема в `utils/app_state_schema.py`,
+  `services/cache_registry.py`, `api/` больше не импортирует `state`
+  (`grep -rn "from state\|import state" api/` пуст), `state/manager.py` сжат
+  с 386 до 55 строк. Проверено на слитом дереве.
+- [x] (2026-09-26) M3 — расширен `tests/smoke/test_api_architecture.py`:
+  добавлены проверки на `state` и на `streamlit` под `api/`. Проверка не
+  пустая: на `origin/main` `api/deps.py` импортирует `state`, и тест его бы
+  flagged.
+- [x] (2026-09-26) M6 — ветка сведена с `main` (`b8c28d3`, 105 коммитов).
+  Два конфликта разрешены: `api/routers/dashboard.py` (сохранён импорт
+  `load_metrics_window_bounds` из main и headless-тип из ветки) и
+  `services/data_cache.py` (версия ветки с безопасным `getattr`-сбросом плюс
+  новый кэш `_load_activities_between_cached` из main). Прогон: 2881 passed,
+  13 skipped; `ruff check .` чистый.
+- [ ] M0 / AC4. Пробником снять и запинить фактический набор атрибутов
+  состояния, который использует API. **Не сделано.** Существующий
+  `tests/smoke/test_api_state_boundary.py` проверяет граф импортов и работу
+  фасада на plain mapping, но набора нужных API атрибутов не фиксирует.
 - [ ] M5. Differential parity: payload-контракты и русские тексты эндпоинтов
-  не изменились (AC3).
-- [ ] M6. Свести ветку с текущим `main`, разрешить конфликты, прогнать
-  contributor-safe набор, оформить review-ready PR.
-- [ ] M7. Закрыть issue #602, обновить ExecPlan в `Outcomes & Retrospective`.
+  не изменились (AC3). Косвенно подтверждено зелёным contributor-safe
+  набором и `contract:extract --check`, но отдельного сравнения «до/после»
+  по эндпоинтам не проводилось.
+- [ ] M7. Закрыть issue #602 после закрытия M0 и M5; обновить
+  `Outcomes & Retrospective`.
 
 ## Surprises & Discoveries
 
@@ -125,9 +136,32 @@
 
 ## Outcomes & Retrospective
 
-Работа не начата; раздел заполняется на M6–M7. На момент написания плана
-зафиксировано только исходное состояние: дефект воспроизведён, архитектурное
-решение выбрано, существующий headless-контур найден.
+(2026-09-26) Сведение с `main` выполнено. Что подтверждено на слитом дереве:
+
+    $ PYTHONPATH=. python -c "import sys; sys.modules['streamlit']=None; import api.main; print('api_imported=True')"
+    api_imported=True
+
+    $ PYTHONPATH=. python -c "import sys, api.main; print([m for m in ('streamlit','state','state.manager','ui') if m in sys.modules])"
+    legacy in sys.modules: []
+
+    $ grep -rn "from state\|import state" api/ --include=*.py
+    (пусто)
+
+    $ pytest -m "not live and not debug and not e2e" tests/ -q
+    2881 passed, 13 skipped
+
+То есть AC1 и AC2 выполнены, AC3 подтверждён косвенно (зелёный набор и
+актуальный контрактный артефакт), а AC4 — нет.
+
+Уроки. Первое: исходная постановка «разорвать зависимость» читалась как
+необходимость переписать рантайм, тогда как проблема была только в импорте —
+это стоило проверить до проектирования, и стоило это одной команды. Второе:
+конфликты сведе́ния оказались ровно там, где предсказал план (два файла), но
+один из них был содержательным, а не механическим: `main` успел добавить
+пятый кэш, и слепое взятие любой из сторон потеряло бы либо сброс нового
+кэша, либо headless-безопасность. Третье: ветка жила больше недели, и её
+тесты устарели относительно `main` молча — AC2 выполнялся отдельным файлом,
+тогда как issue просил расширить существующий контракт.
 
 ## Context and Orientation
 
@@ -366,3 +400,10 @@ destructive-операций план не содержит; рабочая ба
 и требует ExecPlan; черновик PR #640 существует без плана, из-за чего не может
 двигаться в ревью. План составлен после проверки дефекта на живом дереве, а не
 по тексту issue.
+
+Изменение 2026-09-26 (ревизия 2): обновлены `Progress` и
+`Outcomes & Retrospective` после сведения ветки с `main`. Причина — ExecPlan
+живой документ и обязан отражать фактическое состояние: M1, M2, M4 реализованы
+в ветке до появления плана, M3 и M6 выполнены сегодня, M0 (AC4) и M5 остаются
+открытыми. Раздел `Outcomes` дополнен снятыми на слитом дереве доказательствами
+и тремя выводами; ни одно утверждение не помечено выполненным без прогона.
