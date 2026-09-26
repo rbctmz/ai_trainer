@@ -38,9 +38,15 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+# Each shape gets its own token. Masking every shape to one token would hide a
+# format-only regression (a dropped `Z`, `T` replaced by a space, a lost offset),
+# because the masked captures would still compare equal. The value is what
+# varies per request; the shape is part of the payload contract.
 TIMESTAMP_PATTERNS = (
-    re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?"),
-    re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?"),
+    (re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z"), "<timestamp:iso-z>"),
+    (re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?[+-]\d{2}:\d{2}"), "<timestamp:iso-offset>"),
+    (re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?"), "<timestamp:iso>"),
+    (re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?"), "<timestamp:space>"),
 )
 UID_PATTERN = re.compile(r"UID:[0-9a-f]{32}")
 
@@ -48,8 +54,8 @@ UID_PATTERN = re.compile(r"UID:[0-9a-f]{32}")
 def normalise(text: str) -> str:
     """Mask values that change on every request by design."""
     text = UID_PATTERN.sub("UID:<normalised>", text)
-    for pattern in TIMESTAMP_PATTERNS:
-        text = pattern.sub("<timestamp>", text)
+    for pattern, token in TIMESTAMP_PATTERNS:
+        text = pattern.sub(token, text)
     return text
 
 
