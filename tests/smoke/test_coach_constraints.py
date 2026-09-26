@@ -2,17 +2,16 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from data.database import Database
-
+from tests.athlete_clock import athlete_now
 
 def _date(offset: int = 0) -> str:
-    return (datetime.now() + timedelta(days=offset)).strftime("%Y-%m-%d")
-
+    return (athlete_now() + timedelta(days=offset)).strftime("%Y-%m-%d")
 
 def _goal_plan() -> dict:
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = athlete_now().replace(hour=0, minute=0, second=0, microsecond=0)
     daily_plan = []
     templates = []
     for i in range(3):
@@ -33,7 +32,6 @@ def _goal_plan() -> dict:
         "daily_plan": daily_plan,
         "session_templates": templates,
     }
-
 
 def test_database_persists_and_filters_active_coach_constraints(tmp_path):
     db = Database(str(tmp_path / "constraints.db"))
@@ -181,7 +179,7 @@ def test_apply_constraints_to_goal_plan_marks_matching_days_protected():
 
 def _two_leg_plan() -> dict:
     """Два дня: цель с двумя ногами (вело + плавание) и соседний день-контроль."""
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = athlete_now().replace(hour=0, minute=0, second=0, microsecond=0)
     target_day = today + timedelta(days=2)
     bike_session = {
         "session_id": "atts_bike_1",
@@ -446,7 +444,7 @@ def test_per_sport_constraint_does_not_block_rebalance_day(tmp_path):
     from api.planning_service import _rebalance_protected_dates
 
     db = Database(str(tmp_path / "rebalance_scope.db"))
-    today = datetime.now().date()
+    today = athlete_now().date()
     scope_day = (today + timedelta(days=3)).isoformat()
     whole_day = (today + timedelta(days=4)).isoformat()
     db.save_coach_constraint(date=scope_day, kind="unavailable", source="coach", sport="swim")

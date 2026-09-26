@@ -8,7 +8,7 @@ import pytest
 from data.database import Database
 from models.ai_tools import AITools
 from models.planning_checkpoints import build_planning_checkpoint
-
+from tests.athlete_clock import athlete_now, athlete_today
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -20,7 +20,7 @@ def _make_goal_plan(weeks_ago: int = 0) -> dict:
     weeks_ago shifts the plan start back in time, so today lands in week
     (weeks_ago + 1) of the plan; negative values start the plan in the future.
     """
-    today = date.today()
+    today = athlete_today()
     start_week = today - timedelta(days=today.weekday()) - timedelta(weeks=weeks_ago)
 
     weekly_tss_plan = [300, 320, 350, 280, 360, 380, 300, 200]
@@ -84,7 +84,7 @@ def _make_goal_plan(weeks_ago: int = 0) -> dict:
         },
         "planner_mix": None,
         "planner_weights": None,
-        "plan_revision": datetime.now().isoformat(),
+        "plan_revision": athlete_now().isoformat(),
         "near_term_edit_version": 0,
         "near_term_edit_rollback_target_checkpoint_id": None,
     }
@@ -145,11 +145,11 @@ def test_get_active_plan_current_week_first_week(tools_with_plan: AITools) -> No
     assert current["weekly_tss"] == 300
     assert current["phase"] == "base"
     week_start = date.fromisoformat(current["week_start"])
-    assert week_start <= date.today() <= week_start + timedelta(days=6)
+    assert week_start <= athlete_today() <= week_start + timedelta(days=6)
 
     timeline = result["timeline"]
     assert timeline["status"] == "active"
-    assert timeline["today"] == date.today().isoformat()
+    assert timeline["today"] == athlete_today().isoformat()
     assert timeline["weeks_elapsed"] == 0
     assert timeline["weeks_remaining"] == 8
     assert result["goal"]["weeks_to_race"] == 8
@@ -260,14 +260,14 @@ def _seed_today_session(
     plan = _make_goal_plan()
     plan["daily_plan"] = [
         (
-            datetime.combine(date.today(), datetime.min.time()),
+            datetime.combine(athlete_today(), datetime.min.time()),
             44,
             {"run": 44},
         )
     ]
     plan["session_templates"] = [
         {
-            "date": date.today().isoformat(),
+            "date": athlete_today().isoformat(),
             "phase": "build",
             "sessions": [
                 {
@@ -289,14 +289,14 @@ def _seed_today_brick(db: Database, *, session_id: str = "ats_brick") -> None:
     plan = _make_goal_plan()
     plan["daily_plan"] = [
         (
-            datetime.combine(date.today(), datetime.min.time()),
+            datetime.combine(athlete_today(), datetime.min.time()),
             70,
             {"bike": 50, "run": 20},
         )
     ]
     plan["session_templates"] = [
         {
-            "date": date.today().isoformat(),
+            "date": athlete_today().isoformat(),
             "phase": "build",
             "kind": "composite",
             "sessions": [
@@ -330,7 +330,7 @@ def _seed_today_match(
             [
                 {
                     "activity_id": 101,
-                    "date": date.today().isoformat(),
+                    "date": athlete_today().isoformat(),
                     "sport": "running",
                     "duration_minutes": 50.1,
                     "tss": 57.3,
@@ -344,7 +344,7 @@ def _seed_today_match(
             "target_key": f"session:{session_id}",
             "session_id": session_id,
             "base_checkpoint_id": checkpoint["id"],
-            "session_date": date.today().isoformat(),
+            "session_date": athlete_today().isoformat(),
             "match_status": match_status,
             "match_method": "user_confirmed" if match_status == "matched" else "auto",
             "confidence": 1.0 if match_status == "matched" else 0.5,
@@ -385,7 +385,7 @@ def test_get_upcoming_workouts_does_not_mark_ambiguous_session_completed(tmp_pat
         [
             {
                 "activity_id": activity_id,
-                "date": date.today().isoformat(),
+                "date": athlete_today().isoformat(),
                 "sport": "running",
                 "duration_minutes": 30,
                 "tss": 25,
@@ -409,7 +409,7 @@ def test_get_upcoming_workouts_uses_automatic_reconciliation(tmp_path) -> None:
         [
             {
                 "activity_id": 301,
-                "date": date.today().isoformat(),
+                "date": athlete_today().isoformat(),
                 "sport": "running",
                 "duration_minutes": 48,
                 "tss": 46,
@@ -454,7 +454,7 @@ def test_get_upcoming_workouts_uses_provider_identity_for_completed_brick(
         [
             {
                 "activity_id": "intervals_42",
-                "date": date.today().isoformat(),
+                "date": athlete_today().isoformat(),
                 "sport": "cycling",
                 "duration_minutes": 75,
                 "tss": 50,
@@ -462,7 +462,7 @@ def test_get_upcoming_workouts_uses_provider_identity_for_completed_brick(
             },
             {
                 "activity_id": "intervals_43",
-                "date": date.today().isoformat(),
+                "date": athlete_today().isoformat(),
                 "sport": "running",
                 "duration_minutes": 20,
                 "tss": 20,
@@ -513,7 +513,7 @@ def test_get_upcoming_workouts_keeps_incomplete_brick_partial(
         [
             {
                 "activity_id": "intervals_42",
-                "date": date.today().isoformat(),
+                "date": athlete_today().isoformat(),
                 "sport": "cycling",
                 "duration_minutes": 75,
                 "tss": 50,

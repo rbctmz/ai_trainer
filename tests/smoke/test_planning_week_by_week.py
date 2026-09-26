@@ -11,11 +11,10 @@ import pytest
 from api import planning_service as ps
 from data.database import Database
 from models.planning_checkpoints import build_planning_checkpoint
-
+from tests.athlete_clock import athlete_now
 
 pytestmark = pytest.mark.smoke
 REPO_ROOT = Path(__file__).resolve().parents[2]
-
 
 def _shift_active_plan_into_past_and_future(db: Database) -> dict:
     """Persist a fixture whose saved horizon includes past/current/future weeks.
@@ -43,7 +42,7 @@ def _shift_active_plan_into_past_and_future(db: Database) -> dict:
     )
     plan = ps.get_active_plan(db)
     assert plan is not None
-    today = datetime.now().date()
+    today = athlete_now().date()
 
     def shifted(delta: timedelta) -> dict:
         candidate = copy.deepcopy(plan)
@@ -92,7 +91,7 @@ def test_week_reader_is_one_server_owned_snapshot_with_truthful_states(tmp_path,
     db = Database(str(tmp_path / "week-by-week.db"))
     plan = _shift_active_plan_into_past_and_future(db)
     days = ps.plan_days(plan)
-    today = datetime.now().date()
+    today = athlete_now().date()
     past = next(day for day in days if date.fromisoformat(day["date"]) < today)
     current = next(day for day in days if date.fromisoformat(day["date"]) == today)
     calls: list[dict] = []
@@ -183,7 +182,7 @@ def test_week_reader_ui_is_one_accessible_expandable_reader():
 
 
 def test_week_reader_long_window_keeps_full_ordinals_and_matching_coverage(monkeypatch, tmp_path):
-    today = datetime.now().date()
+    today = athlete_now().date()
     current_monday = today - timedelta(days=today.weekday())
     start = current_monday - timedelta(weeks=18)
     daily_plan = []
@@ -211,7 +210,7 @@ def test_week_reader_long_window_keeps_full_ordinals_and_matching_coverage(monke
 def test_week_reader_chart_scale_includes_actual_above_target(tmp_path, monkeypatch):
     db = Database(str(tmp_path / "high-actual.db"))
     plan = _shift_active_plan_into_past_and_future(db)
-    past = next(day for day in ps.plan_days(plan) if date.fromisoformat(day["date"]) < datetime.now().date())
+    past = next(day for day in ps.plan_days(plan) if date.fromisoformat(day["date"]) < athlete_now().date())
     actual = past["sessions"][0]["tss"] * 100
     monkeypatch.setattr(
         ps,
