@@ -1,5 +1,6 @@
 "use client";
 
+import { TodayProposalPreview } from "@/components/today/TodayProposalPreview";
 import { useState } from "react";
 import { ApiError, postJSON } from "@/lib/api";
 import type { AdjustResult, BuiltPlan, CoachProposalAction, RebalanceConfirmResult } from "@/lib/types";
@@ -31,6 +32,7 @@ export interface AdjustPlanParams {
 }
 
 interface ProposalCardProps {
+  presentation?: "default" | "today";
   proposalId: number;
   action: CoachProposalAction;
   status: string;
@@ -452,6 +454,7 @@ function CompletionBar({ share }: { share: number }) {
 }
 
 export function ProposalCard({
+  presentation = "default",
   proposalId,
   action,
   status,
@@ -536,7 +539,12 @@ export function ProposalCard({
           `/api/decisions/proposals/${proposalId}/approve?${params.toString()}`,
           {},
         );
-        onConfirmed(recoveryConfirmedMessage(response.result as RecoveryReplanResult));
+        const result = response.result as RecoveryReplanResult;
+        onConfirmed(presentation === "today"
+          ? result.selected_kind === "keep" ? "План оставлен без изменений."
+            : result.selected_kind === "transfer_1_3d" ? "Перенос тренировки подтверждён. План обновлён."
+              : "Снижение нагрузки подтверждено. План обновлён."
+          : recoveryConfirmedMessage(result));
         return;
       }
 
@@ -598,7 +606,7 @@ export function ProposalCard({
             {action === "build_plan"
               ? "Предложение нового плана"
               : action === "recovery_replan"
-                ? "Recovery Replan"
+                ? (presentation === "today" ? "Изменение тренировки" : "Recovery Replan")
                 : isConstraintMutation
                   ? constraintMutationLabel
                   : "Предложение корректировки"}
@@ -608,7 +616,7 @@ export function ProposalCard({
           </p>
         </div>
         <span className="rounded-full bg-surface/80 px-2 py-1 text-[11px] font-medium text-tone-neutral">
-          {status === "pending" ? "Нужен confirm" : status}
+          {status === "pending" ? (presentation === "today" ? "На подтверждение" : "Нужен confirm") : status}
         </span>
       </div>
 
@@ -643,6 +651,21 @@ export function ProposalCard({
             <p className="mt-3 text-sm text-ink-soft">{asString(preview.forecast_message)}</p>
           ) : null}
         </>
+      ) : action === "recovery_replan" && presentation === "today" ? (
+        <TodayProposalPreview
+          variants={availableRecoveryVariants}
+          selectedKind={effectiveSelectedVariantKind}
+          recommendedKind={recommendedKind}
+          currentSession={currentSession}
+          recommendedSession={recommendedSession}
+          selectedVariant={selectedVariant}
+          protection={selectedProtection}
+          dayChanges={dayChanges}
+          reason={recoveryReason(whyIntervene, preview)}
+          evidence={recoveryEvidence}
+          candidates={candidates.map(candidateLabel)}
+          onSelect={(kind) => { setSelectedProposalId(proposalId); setSelectedVariantKind(kind); }}
+        />
       ) : action === "recovery_replan" ? (
         <>
           <section className="mt-3 rounded-lg bg-surface/60 px-3 py-3">
