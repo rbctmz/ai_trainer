@@ -352,3 +352,83 @@ def test_api_state_probe_is_not_vacuous(tmp_path) -> None:
         "проба не увидела ни одного обращения к состоянию — пин вырожден"
     )
     assert len(observed) >= 3, f"подозрительно узкий набор: {sorted(observed)}"
+
+# ---------------------------------------------------------------------------
+# services/data_cache.py: headless-контракт и регистрация сброса (#645)
+# ---------------------------------------------------------------------------
+
+_DATA_CACHE_PROBE = """
+import sys
+sys.path.insert(0, {root!r})
+sys.modules["streamlit"] = None  # модуль обязан импортироваться и без него
+from services import data_cache
+print("imported=True")
+loaders = (
+    "_load_activities_cached",
+    "_load_activities_between_cached",
+    "_load_hrv_cached",
+    "_load_sleep_cached",
+    "_load_daily_health_cached",
+)
+print("wrapped=" + ",".join(name for name in loaders if hasattr(getattr(data_cache, name), "clear")))
+"""
+
+
+def _probe_data_cache_headless() -> dict[str, str]:
+    """Импортировать data_cache в отдельном процессе с заблокированным Streamlit.
+
+    Отдельный процесс обязателен: pytest уже импортировал модуль, и проверка в
+    текущем интерпретаторе дала бы ложный результат.
+    """
+    completed = subprocess.run(
+        [sys.executable, "-c", _DATA_CACHE_PROBE.format(root=str(REPO_ROOT))],
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr[-2000:]
+    parsed: dict[str, str] = {}
+    for line in completed.stdout.splitlines():
+        if "=" in line:
+            key, _, value = line.partition("=")
+            parsed[key] = value
+    return parsed
+
+
+def test_data_cache_imports_without_streamlit() -> None:
+    """Модуль обещает headless-импорт (issue #602); до #645 обещание было ложно.
+
+    На уровне модуля стоял импорт из state, а state/__init__.py тянет
+    state/manager.py с import streamlit — то есть try/except вокруг streamlit и
+    _passthrough были мёртвым кодом.
+    """
+    probe = _probe_data_cache_headless()
+
+    assert probe.get("imported") == "True"
+    # Сырой @st.cache_data при st = None уронил бы импорт; раз импорт прошёл,
+    # ни один загрузчик не обёрнут напрямую и все пять деградировали в passthrough.
+    assert probe.get("wrapped") == "", (
+        "загрузчики остались обёрнуты в кэш при недоступном Streamlit: "
+        f"{probe.get('wrapped')}"
+    )
+
+
+def test_data_cache_registers_its_clearer_at_import() -> None:
+    """Регистрация сброса при импорте — то, что тест по имени не проверял.
+
+    test_data_cache_registers_its_clearer сбрасывает реестр и регистрирует фейк,
+    поэтому удаление строки register_cache_clearer(clear_data_caches) не уронило
+    бы ни одного теста.
+    """
+    import importlib
+
+    from services import cache_registry, data_cache
+
+    cache_registry.reset_registry()
+    try:
+        importlib.reload(data_cache)
+        assert data_cache.clear_data_caches in cache_registry.registered_clearers(), (
+            "импорт data_cache не зарегистрировал свой сброс в headless-реестре"
+        )
+    finally:
+        cache_registry.reset_registry()
+
