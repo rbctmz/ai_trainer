@@ -58,6 +58,8 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
         "status: review accepted",
         "status: review budget exceeded",
         "review-budget-exception",
+        "status: native review waived",
+        "hasNativeWaiver",
         "countNativeReviewRounds",
         "countNativeReviewRoundsForHead",
         "persistCleanReviewStatuses",

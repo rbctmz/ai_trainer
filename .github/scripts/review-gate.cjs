@@ -179,12 +179,18 @@ function evaluateReviewGate({
   currentHeadNativeReviewRounds = nativeReviewRounds,
   unresolvedThreads,
   hasBudgetException,
+  hasNativeWaiver = false,
   reviewDecision = null,
 }) {
   const humanPostBudgetException = currentHeadNativeReviewRounds < 1 &&
     hasBudgetException &&
     nativeReviewRounds >= MAX_NATIVE_REVIEW_ROUNDS;
-  if (currentHeadNativeReviewRounds < 1 && !humanPostBudgetException) {
+  // Escape hatch for an external outage of the native reviewer, not a way to
+  // skip review: the label is privileged, it only applies while no native
+  // review exists for the head, and acceptance is still required below — so
+  // neither the waiver nor acceptance can substitute for the other.
+  const waivedNativeReview = currentHeadNativeReviewRounds < 1 && hasNativeWaiver;
+  if (currentHeadNativeReviewRounds < 1 && !humanPostBudgetException && !waivedNativeReview) {
     return { ready: false, reason: 'no submitted native review for the current head' };
   }
   if (!accepted) {
@@ -205,12 +211,12 @@ function evaluateReviewGate({
       reason: `native review budget exceeded: ${nativeReviewRounds}/${MAX_NATIVE_REVIEW_ROUNDS}`,
     };
   }
-  return {
-    ready: true,
-    reason: humanPostBudgetException
+  const reason = waivedNativeReview
+    ? `native review waived by merge owner (Codex unavailable); ${nativeReviewRounds}/${MAX_NATIVE_REVIEW_ROUNDS} native round(s); no unresolved threads`
+    : humanPostBudgetException
       ? `human post-budget exception accepted; ${nativeReviewRounds}/${MAX_NATIVE_REVIEW_ROUNDS} native round(s); no unresolved threads`
-      : `review accepted; ${nativeReviewRounds}/${MAX_NATIVE_REVIEW_ROUNDS} native round(s); no unresolved threads`,
-  };
+      : `review accepted; ${nativeReviewRounds}/${MAX_NATIVE_REVIEW_ROUNDS} native round(s); no unresolved threads`;
+  return { ready: true, reason };
 }
 
 module.exports = {

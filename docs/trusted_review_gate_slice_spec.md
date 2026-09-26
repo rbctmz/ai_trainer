@@ -18,6 +18,7 @@
 ## Scope
 
 - Behavior that changes: current-head authenticated review evidence is mandatory; write policy loads from `main`; clean comment-only reviews are durable; candidate-controlled direct review triggers become a permissionless two-hop signal.
+- Follow-up 2026-09-26: a privileged `status: native review waived` label lets the merge owner pass the first check while Codex is unavailable, without letting acceptance substitute for review. See the follow-up section at the end.
 - Files/modules in scope: `.github/workflows/pr-ready-to-merge.yml`, `.github/workflows/pr-review-signal.yml`, `tests/smoke/test_native_codex_review_integration.py`, `docs/loop_engineering_instruction.md`, this spec, and `docs/trusted_review_gate_execplan.md`.
 
 ## Non-goals
@@ -74,6 +75,40 @@
 | synchronization invalidation | smoke requires `pull_request_target` plus invalidation call | target trigger absent | push clears acceptance/readiness |
 | review signal PR identity | smoke requires exact SHA + source branch + source repository and unique selection | SHA-only lookup can return stacked/shared PRs | one exact candidate or safe skip |
 | rebase-safe clean ledger | Node test presents an authenticated historical SHA absent from current commits | helper throws and blocks recomputation | ledger context is carried on current head; current-head count stays zero |
+
+## Follow-up 2026-09-26: native review waiver
+
+Motivation. Codex became unavailable, and the first gate check requires a native
+review on the current head. With no native reviewer there is no way to reach a
+green gate, so a red gate stopped meaning "this change was not reviewed" and
+started meaning "the reviewer is down" — noise instead of signal. The gate also
+stopped being merge-blocking in practice, because the hosted ruleset on `main`
+requires only the `Contributor-safe pytest` status check.
+
+Why the obvious shortcut was rejected. Relaxing `humanPostBudgetException` by
+dropping its `nativeReviewRounds >= MAX_NATIVE_REVIEW_ROUNDS` term would have
+turned `review-budget-exception` into a general "skip the review" switch and
+would have removed an invariant the Node tests pin by name
+(`acceptance cannot substitute for a missing native review`). Budget semantics
+stay untouched.
+
+Behavior that changes. A privileged actor may apply `status: native review
+waived`. When the current head has no native review, the waiver satisfies the
+first check. It does not satisfy the second: `accepted` is still required, and
+every later guardrail (unresolved threads, active changes request, budget) still
+applies. So neither the waiver nor acceptance can substitute for the other, and
+the recorded reason names the waiver explicitly:
+`native review waived by merge owner (Codex unavailable); N/2 native round(s); no unresolved threads`.
+
+Head scoping. The waiver is cleared together with `status: review accepted` on
+every push, review submission, or authenticated clean-result comment, so one
+waiver never silently covers a later head.
+
+RED matrix row.
+
+| Acceptance criterion / invariant | RED test or probe | Expected failure | GREEN evidence |
+| --- | --- | --- | --- |
+| waiver is not a review substitute | Node tests `a native-review waiver never substitutes for explicit acceptance` and `a native waiver is not enough on its own` | with `hasNativeWaiver` ignored, a waived PR with `accepted: false` reads as ready | waiver passes only the first check; acceptance, thread, changes-requested and budget guardrails still fail closed |
 
 ## ASR / ADR Traceability
 
