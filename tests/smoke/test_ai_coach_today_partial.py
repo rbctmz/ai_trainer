@@ -1,18 +1,17 @@
 """Smoke: сегодняшний неполный день помечен и не искажает агрегаты коуча (#126)."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pandas as pd
 import pytest
 
 from models.ai_tools import AITools
 from ui.components.ai_coach_output import format_tool_result
+from tests.athlete_clock import athlete_today
 from utils.product_semantics import TODAY_PARTIAL_NOTE_RU
 
-
 pytestmark = pytest.mark.smoke
-
 
 class _FakeDB:
     def __init__(self, daily_health=None, activities=None):
@@ -25,9 +24,8 @@ class _FakeDB:
     def get_activities(self, days):
         return self._activities
 
-
 def _daily_health_frame() -> pd.DataFrame:
-    today = date.today()
+    today = athlete_today()
     rows = [
         {
             # offset=7 — самый старый день; шаги растут к сегодняшнему дню,
@@ -53,7 +51,7 @@ def _daily_health_frame() -> pd.DataFrame:
 
 
 def _activities_frame() -> pd.DataFrame:
-    today = pd.Timestamp(date.today())
+    today = pd.Timestamp(athlete_today())
     return pd.DataFrame(
         [
             {"date": today, "sport": "running", "duration_minutes": 40.0, "distance_km": 8.0, "tss": 50.0},

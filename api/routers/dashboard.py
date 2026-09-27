@@ -18,7 +18,6 @@ from data.database import Database
 from models.acwr import ACWR_MIN_HISTORY_DAYS
 from models.banister import tsb_zone
 from models.readiness import load_metrics_window_bounds
-from state import StateManager
 from models.dashboard_summary import (
     build_activity_day_tss,
     build_dashboard_summary,
@@ -28,6 +27,7 @@ from models.dashboard_summary import (
     get_latest_training_status,
     project_readiness_snapshot,
 )
+from utils.app_state import HeadlessState
 from utils.athlete_time import athlete_local_date
 
 #: Окно истории для ACWR: минимум 84 календарных дня плюс неделя запаса, чтобы
@@ -43,7 +43,7 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 def dashboard_summary(
     demo: bool = False,
     db: Database = Depends(get_database),
-    state: StateManager = Depends(get_headless_state),
+    state: HeadlessState = Depends(get_headless_state),
 ) -> Dict[str, Any]:
     """Command-center summary: today's state, workout, week load, next action."""
     readiness_snapshot = build_readiness_snapshot(db)
@@ -319,7 +319,7 @@ def _calculate_race_projection(
 @router.get("/widgets")
 def dashboard_widgets(
     db: Database = Depends(get_database),
-    state: StateManager = Depends(get_headless_state),
+    state: HeadlessState = Depends(get_headless_state),
 ) -> Dict[str, Any]:
     """Secondary dashboard widgets: Training Score, Daily Outlook, Race Projection."""
     readiness_snapshot = build_readiness_snapshot(db)

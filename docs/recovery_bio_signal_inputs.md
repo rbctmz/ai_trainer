@@ -42,3 +42,41 @@ planning decisions until a later issue evaluates:
 - correlation with HRV/RHR/sleep readiness,
 - false-positive risk for illness/recovery alerts,
 - whether the signal changes decisions in a way the user can inspect.
+
+## Submaximal Fatigue Tests — Intervals.icu beta
+
+Status: research candidate / observational only.
+
+Intervals.icu's beta feature detects repeated submaximal efforts at a fixed
+power or pace and exposes heart-rate response, heart-rate recovery, optional
+RPE, and time-to-exhaustion (TTE) context. Detected activities receive the
+`#SFT` tag and existing activities can be re-analysed. The provider post does
+not yet publish the detection algorithm, quality thresholds, HR-recovery
+window, or a stable API contract:
+
+- Source: [Intervals.icu Submaximal Fatigue Testing (beta)](https://forum.intervals.icu/t/submaximal-fatigue-testing-beta/132525)
+- Protocol context: [Science to Sport — Submaximal Fatigue Test](https://www.sciencetosport.com/how-to-perform-a-sub-maximal-fatigue-test/)
+- Evidence context: [PubMed systematic review](https://pubmed.ncbi.nlm.nih.gov/27701968/)
+
+### Non-goals
+
+- Do not add SFT directly to the readiness score.
+- Do not mutate the plan or create a recovery proposal from one test.
+- Do not interpret one HR-recovery value as a diagnosis of fatigue,
+  overreaching, or illness.
+- Do not treat the beta's inferred detection behavior as a provider contract.
+
+### Promotion gate
+
+Before SFT can influence readiness, Coach, or planning decisions, verify:
+
+- a stable provider contract and explicit field provenance;
+- a constant, comparable target across tests, including protection against
+  FTP-driven target drift;
+- target adherence, HR data quality, recovery-window definition, RPE scale,
+  TTE, and relevant confounders;
+- a personal baseline built from repeated comparable tests;
+- false-detection, re-analysis idempotency, missing-data, and multi-sport
+  checks;
+- that any resulting decision is inspectable and does not bypass existing
+  freshness and intervention gates.

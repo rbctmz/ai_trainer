@@ -30,13 +30,13 @@ from services import intervals_sync as intervals_sync_service
 from services import sync as sync_service
 from services import sync_providers as sync_provider_service
 from services.data_coverage import build_data_coverage
-from state import StateManager
+from utils.app_state import HeadlessState
 
 router = APIRouter(prefix="/api", tags=["system"])
 
 
-def _state_with_db(db) -> StateManager:
-    """Headless StateManager whose lazy .database is the given handle."""
+def _state_with_db(db) -> HeadlessState:
+    """Headless state whose lazy .database is the given handle."""
     return make_headless_state(database=db)
 
 

@@ -6,7 +6,7 @@ Intervals.icu добавляет отдельно определённые ин�
 """
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from models.activity_intervals import normalize_intervals_payload
 from models.plan_vs_fact import structure_from_streams
@@ -34,6 +34,34 @@ def _is_provider_cache(
     return isinstance(cached.get("intervals"), list) and isinstance(
         cached.get("groups"), list
     )
+
+
+def cached_intervals_source(
+    cached: Any,
+    intervals_id: str | None,
+) -> str | None:
+    """Маркер источника кэша интервалов — без единого сетевого вызова (#639).
+
+    Возвращает "intervals", "garmin" или None, когда строку кэша опознать
+    нельзя. Нужен потребителям, которые обязаны остаться офлайн (инструмент
+    Коуча): им нужна честная подпись источника, но не право дозагрузить данные.
+    """
+    if not isinstance(cached, Mapping) or not cached:
+        return None
+    source = str(cached.get("source") or "").strip()
+    if source:
+        return source
+    if _is_provider_cache(cached, intervals_id):
+        return "intervals"
+    # Строка без маркера (до #435): распознаём по форме. `analyzed` и группы
+    # пишет только провайдерская нормализация, у Garmin они пусты — иначе
+    # плавание из Intervals.icu подписывалось бы кругами устройства.
+    if cached.get("analyzed") is not None or cached.get("groups"):
+        return "intervals"
+    # Битый payload чужой ногой не подписываем — честное "источник неизвестен".
+    if isinstance(cached.get("intervals"), list):
+        return "garmin"
+    return None
 
 
 def fetch_activity_intervals(
@@ -115,4 +143,8 @@ def fetch_stream_structure(
         return []
 
 
-__all__ = ["fetch_activity_intervals", "fetch_stream_structure"]
+__all__ = [
+    "cached_intervals_source",
+    "fetch_activity_intervals",
+    "fetch_stream_structure",
+]

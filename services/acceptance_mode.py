@@ -9,7 +9,7 @@ from config.settings import Settings
 from . import demo_mode as demo_mode_service
 
 if TYPE_CHECKING:
-    from state import StateManager
+    from utils.app_state import HeadlessState
 
 
 def is_acceptance_mode() -> bool:
@@ -27,7 +27,7 @@ def garmin_disabled() -> bool:
     return is_acceptance_mode() and bool(Settings.ACCEPTANCE_DISABLE_GARMIN)
 
 
-def runtime_info(state: StateManager | None = None) -> dict[str, Any]:
+def runtime_info(state: HeadlessState | None = None) -> dict[str, Any]:
     """Expose user-facing acceptance runtime details."""
     db_path = Settings.DATABASE_PATH
     if state is not None:
@@ -45,7 +45,7 @@ def runtime_info(state: StateManager | None = None) -> dict[str, Any]:
     }
 
 
-def _has_existing_isolated_data(state: StateManager) -> bool:
+def _has_existing_isolated_data(state: HeadlessState) -> bool:
     """Return whether the isolated database already contains seeded or user-generated data."""
     database = state.database
     stats = {}
@@ -71,12 +71,12 @@ def _has_existing_isolated_data(state: StateManager) -> bool:
         return False
 
 
-def _is_demo_dataset(state: StateManager) -> bool:
+def _is_demo_dataset(state: HeadlessState) -> bool:
     """Return whether the preserved isolated dataset originated from demo mode."""
     return demo_mode_service.dataset_origin(state) == demo_mode_service.DATASET_ORIGIN_DEMO
 
 
-def bootstrap_session(state: StateManager) -> dict[str, Any]:
+def bootstrap_session(state: HeadlessState) -> dict[str, Any]:
     """Seed the isolated acceptance dataset once per browser session."""
     info = runtime_info(state)
     info["seeded"] = False
@@ -107,7 +107,7 @@ def bootstrap_session(state: StateManager) -> dict[str, Any]:
     return info
 
 
-def reset_acceptance_dataset(state: StateManager) -> dict[str, int]:
+def reset_acceptance_dataset(state: HeadlessState) -> dict[str, int]:
     """Recreate the isolated acceptance dataset from scratch."""
     if not is_acceptance_mode():
         raise RuntimeError("Acceptance reset is available only in acceptance mode.")

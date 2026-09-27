@@ -6,12 +6,13 @@
 import pandas as pd
 import numpy as np
 from datetime import date, datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Mapping, Optional
 from api import planning_service
 from data.database import Database
 from models.banister import tsb_zone
 from models.hrv_analyzer import HRVAnalyzer
 from models.plan_events import normalized_events
+from models.plan_intervals import project_planned_intervals
 from models.planning_checkpoints import (
     NON_ACTIONABLE_PLAN_ADJUSTMENTS,
     restore_goal_plan_from_checkpoint,
@@ -20,6 +21,7 @@ from models.coach_constraints import normalize_constraint_sport
 from models.readiness import LOAD_METRICS_WINDOW_DAYS as COACH_LOAD_METRICS_WINDOW_DAYS
 from models.readiness import compute_readiness_today
 from models.signals_engine import assemble_signals
+from services.activity_intervals import cached_intervals_source
 from utils.athlete_time import athlete_local_date
 from utils.product_semantics import (
     TODAY_PARTIAL_NOTE_RU,
@@ -37,6 +39,170 @@ def _is_athlete_today(value: Any, today: date) -> bool:
     """Whether ``value`` falls on the athlete's resolved calendar day (#577)."""
     resolved = coerce_date(value)
     return resolved is not None and resolved == today
+
+
+
+def _is_rest_leaf(leaf: Mapping[str, Any]) -> bool:
+    """День отдыха — это не «отсутствие структуры», а отсутствие тренировки."""
+    for key in ("session_role", "sport"):
+        if str(leaf.get(key) or "").strip().lower() == "off":
+            return True
+    return False
+
+
+def _structure_steps(leaf: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """Шаги для текста Коуча, с меткой ноги у составного дня.
+
+    ``project_planned_intervals`` сознательно конкатенирует ноги brick-дня
+    (issue #383), но в пользовательском тексте граница обязана быть видна:
+    иначе шаги вело и бега неразличимы (#644). Проецируем каждую ногу
+    отдельно и помечаем её индексом и подписью спорта.
+    """
+    legs = [leg for leg in (leaf.get("legs") or []) if isinstance(leg, Mapping)]
+    if not legs:
+        return [dict(step) for step in project_planned_intervals(leaf)]
+
+    steps: List[Dict[str, Any]] = []
+    for index, leg in enumerate(legs):
+        leg_sport = str(leg.get("sport") or "").strip()
+        for step in project_planned_intervals(leg):
+            item = dict(step)
+            item["leg_index"] = index
+            if leg_sport:
+                item["leg_sport"] = leg_sport
+                item["leg_sport_label"] = sport_label(leg_sport)
+            steps.append(item)
+    return steps
+
+
+def _declared_structure_source(leaf: Mapping[str, Any]) -> str:
+    """Сырой статус материализации из каталога, если он заявлен."""
+    return str(leaf.get("structure_status") or "").strip()
+
+
+def _normalized_structure_status(
+    leaf: Mapping[str, Any], steps: List[Mapping[str, Any]]
+) -> str:
+    """Статус из словаря инструмента: structured / unmaterialized / rest.
+
+    Каталог объявляет собственные значения (``legacy_pattern``, ``simplified``),
+    и отдавать их под именем structure_status значит обещать словарь, которого
+    нет (#644). Сырьё не теряется — оно уезжает в structure_source.
+
+    Статус выводится из тех же шагов, что и has_structure: вырожденные шаги
+    отбрасывает проекция, и два маркера обязаны совпадать.
+    """
+    if steps:
+        return "structured"
+    return "rest" if _is_rest_leaf(leaf) else "unmaterialized"
+
+
+_ACTIVITY_INTERVAL_FIELDS = (
+    ("distance_km", "distance_km"),
+    ("average_watts", "avg_watts"),
+    ("average_heartrate", "avg_hr"),
+    ("max_heartrate", "max_hr"),
+    ("average_cadence", "avg_cadence"),
+    ("zone", "zone"),
+    ("training_load", "training_load"),
+)
+
+# Строковые поля кэша: число из них не делается, но и терять их нельзя.
+_ACTIVITY_INTERVAL_TEXT_FIELDS = (("intensity_type", "intensity"),)
+
+# Причина недоступности называется явно (#639): "структура не выгружена" и
+# "отрезков не было" — разные факты, и первый не должен читаться как второй.
+_ACTIVITY_STRUCTURE_MESSAGES = {
+    "not_fetched": (
+        "Структура недоступна: интервалы этой активности ещё не выгружены в кэш. "
+        "Они появятся после синхронизации с Intervals.icu или после открытия "
+        "карточки активности; за сетью инструмент не ходит."
+    ),
+    "no_provider_link": (
+        "Структура недоступна: активность не связана с Intervals.icu, а "
+        "записанных кругов Garmin в кэше нет."
+    ),
+    "corrupt_cache": (
+        "Структура недоступна: сохранённый payload интервалов повреждён."
+    ),
+    "empty": (
+        "Отрезков не найдено: сессия проанализирована, интервалов в ней нет."
+    ),
+}
+
+
+def _compact_activity_number(value: Any) -> int | float | None:
+    """Число факта без выдумывания точности: int остаётся int, мусор — None."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number.is_integer():
+        return int(number)
+    return round(number, 2)
+
+
+def _activity_interval_payload(index: int, raw: Any) -> Dict[str, Any] | None:
+    """Один отрезок факта: только те поля, что есть в кэше, без пересчёта."""
+    if not isinstance(raw, Mapping):
+        return None
+    payload: Dict[str, Any] = {"index": index}
+    duration = raw.get("moving_time")
+    if duration in (None, 0):
+        duration = raw.get("elapsed_time")
+    seconds = _compact_activity_number(duration)
+    if seconds is not None and float(seconds) > 0:
+        payload["duration_seconds"] = (
+            int(seconds) if float(seconds).is_integer() else round(float(seconds), 1)
+        )
+    for source_key, target_key in _ACTIVITY_INTERVAL_FIELDS:
+        value = _compact_activity_number(raw.get(source_key))
+        if value is not None:
+            payload[target_key] = value
+    for source_key, target_key in _ACTIVITY_INTERVAL_TEXT_FIELDS:
+        text = str(raw.get(source_key) or "").strip()
+        if text:
+            payload[target_key] = text
+    return payload
+
+
+def resolve_cached_activity_structure(
+    cached: Any,
+    provider_link: str | None,
+) -> tuple[str, str | None, str | None, List[Dict[str, Any]], Dict[str, Any]]:
+    """Разобрать строку кэша интервалов без единого сетевого запроса (#639).
+
+    Возвращает ``(status, reason, source, intervals, meta)``, где status —
+    ``structured`` / ``empty`` / ``unavailable``. Пустой список отрезков
+    отдаётся только тогда, когда сессия действительно проанализирована.
+    """
+    if cached is None:
+        reason = "no_provider_link" if not provider_link else "not_fetched"
+        return "unavailable", reason, None, [], {}
+    if not isinstance(cached, Mapping):
+        return "unavailable", "corrupt_cache", None, [], {}
+    source = cached_intervals_source(cached, provider_link)
+    raw_intervals = cached.get("intervals")
+    if source is None or not isinstance(raw_intervals, list):
+        return "unavailable", "corrupt_cache", None, [], {}
+    intervals = [
+        payload
+        for payload in (
+            _activity_interval_payload(index, raw)
+            for index, raw in enumerate(raw_intervals, start=1)
+        )
+        if payload is not None
+    ]
+    meta = {
+        key: cached[key]
+        for key in ("analyzed", "paired_event_id", "compliance")
+        if cached.get(key) is not None
+    }
+    if not intervals:
+        return "empty", None, source, [], meta
+    return "structured", None, source, intervals, meta
 
 
 def _localized_sports_distribution(values) -> Dict[str, int]:
@@ -150,6 +316,8 @@ class AITools:
             "get_daily_health_stats": self.get_daily_health_stats,
             "get_active_plan": self.get_active_plan,
             "get_upcoming_workouts": self.get_upcoming_workouts,
+            "get_workout_structure": self.get_workout_structure,
+            "get_activity_structure": self.get_activity_structure,
             "propose_plan_build": self.propose_plan_build,
             "propose_plan_adjustment": self.propose_plan_adjustment,
             "create_plan_constraint": self.create_plan_constraint,
@@ -391,6 +559,57 @@ class AITools:
                     "включая статус выполнения по план-факт"
                 ),
                 "parameters": _params(_days(7)),
+            },
+            {
+                "name": "get_workout_structure",
+                "description": (
+                    "Получить структуру плановой тренировки: шаги (разминка, отрезки, "
+                    "восстановление, заминка), их длительность и целевые зоны. "
+                    "Укажи date (YYYY-MM-DD) или session_id из get_upcoming_workouts. "
+                    "Вызывай, когда пользователь спрашивает про структуру, отрезки, "
+                    "интервалы или целевые зоны плановой сессии"
+                ),
+                "parameters": _params(
+                    {
+                        "date": {
+                            "type": "string",
+                            "description": "Дата сессии, YYYY-MM-DD",
+                        },
+                        "session_id": {
+                            "type": "string",
+                            "description": "session_id из get_upcoming_workouts",
+                        },
+                    }
+                ),
+            },
+            {
+                "name": "get_activity_structure",
+                "description": (
+                    "Получить фактическую структуру завершённой активности: отрезки "
+                    "(интервалы или круги устройства), их длительность, дистанцию, "
+                    "мощность, ЧСС и каденс. Укажи date (YYYY-MM-DD) или activity_id; "
+                    "если на дату несколько активностей (brick), уточни sport. "
+                    "Вызывай, когда спрашивают, как реально прошла тренировка, "
+                    "сколько было отрезков и с какими показателями. Данные берутся "
+                    "из кэша без обращения к провайдеру: если сессия ещё не "
+                    "выгружена, инструмент скажет, что структура недоступна."
+                ),
+                "parameters": _params(
+                    {
+                        "date": {
+                            "type": "string",
+                            "description": "Дата активности, YYYY-MM-DD",
+                        },
+                        "activity_id": {
+                            "type": "string",
+                            "description": "Идентификатор активности, если он известен",
+                        },
+                        "sport": {
+                            "type": "string",
+                            "description": "Нога дня при нескольких активностях (bike, run, swim)",
+                        },
+                    }
+                ),
             },
             {
                 "name": "propose_plan_build",
@@ -1655,6 +1874,8 @@ class AITools:
 - [TOOL: get_activities_by_date_range, start_date=2025-05-01, end_date=2025-05-31] - активности за май 2025
 - [TOOL: get_active_plan] - активный тренировочный план (цель, старты с приоритетами, фазы, TSS-таргеты, текущая неделя current_week, недель до старта от сегодня)
 - [TOOL: get_upcoming_workouts, days=7] - тренировки на ближайшие 7 дней из плана
+- [TOOL: get_workout_structure, date=2026-09-26] - структура плановой тренировки: шаги, длительность, целевые зоны (date или session_id)
+- [TOOL: get_activity_structure, date=2026-09-24] - структура выполненной активности: отрезки, длительность, дистанция, мощность, ЧСС (date или activity_id; sport — если активностей несколько)
 - [TOOL: propose_plan_build, goal_type=Триатлон, distance=Half, event_date=2026-10-01, available_hours=10] - предложить новый план
 - [TOOL: propose_plan_adjustment, weeks=1] - предложить корректировку активного плана
 - [TOOL: create_plan_constraint, date=tomorrow, kind=sick, sport=swim, note=Бассейн закрыт] - убрать только плавание из дня; остальные ноги сохранятся
@@ -2240,6 +2461,7 @@ class AITools:
                     and str((match or {}).get("match_method") or "")
                     == "ai_trainer_external_id"
                 )
+                leaf_steps = _structure_steps(leaf)
                 session_payload = {
                     "date": session_date.isoformat(),
                     "sport": sport,
@@ -2257,6 +2479,11 @@ class AITools:
                         "completed" if completed else "partial" if partial else "planned"
                     ),
                     "reconciliation_status": reconciliation_status,
+                    # Дешёвый маркер (issue #638): Коуч знает, где структура
+                    # есть, и вызывает get_workout_structure точечно. Сами шаги
+                    # в этот payload не едут — 7-дневное окно дорожает ~4.9×.
+                    "has_structure": bool(leaf_steps),
+                    "structure_status": _normalized_structure_status(leaf, leaf_steps),
                 }
                 if session_id:
                     session_payload["session_id"] = session_id
@@ -2285,6 +2512,236 @@ class AITools:
             }
 
         return {"has_plan": True, "days": days, "sessions": sessions}
+
+    def get_workout_structure(
+        self,
+        date: str = "",
+        session_id: str = "",
+    ) -> Dict[str, Any]:
+        """Структура плановой сессии: шаги, цели и статус материализации (#638).
+
+        Read-only проекция materialized_steps через
+        models/plan_intervals.project_planned_intervals — новой проекции не
+        пишем. Отдельный инструмент, а не поле get_upcoming_workouts: шаги
+        нужны не в каждом ходе, а payload 7-дневного окна с ними растёт ~4.9×.
+        """
+        requested_date = str(date or "").strip()
+        requested_session = str(session_id or "").strip()
+        if not requested_date and not requested_session:
+            return {
+                "success": False,
+                "error": "Укажи date (YYYY-MM-DD) или session_id из get_upcoming_workouts.",
+            }
+
+        goal_plan = restore_goal_plan_from_checkpoint(
+            self.db.get_latest_planning_checkpoint()
+        )
+        if not goal_plan:
+            return {"has_plan": False, "message": "Активный план не найден."}
+
+        daily_plan = list(goal_plan.get("daily_plan") or [])
+        templates = list(goal_plan.get("session_templates") or [])
+
+        sessions: List[Dict[str, Any]] = []
+        for index, raw_template in enumerate(templates):
+            if not isinstance(raw_template, Mapping):
+                continue
+            template = dict(raw_template)
+            day_text = str(template.get("date") or "")[:10]
+            leaves = [
+                dict(session or {})
+                for session in list(template.get("sessions") or [])
+                if isinstance(session, Mapping)
+            ]
+            if not leaves:
+                leaves = [template]
+            day_tss = 0
+            if index < len(daily_plan):
+                row = daily_plan[index]
+                if isinstance(row, (list, tuple)) and len(row) >= 2:
+                    day_tss = int(round(float(row[1] or 0)))
+            for leaf in leaves:
+                leaf_id = str(
+                    leaf.get("session_id") or template.get("session_id") or ""
+                ).strip()
+                if requested_session:
+                    if leaf_id != requested_session:
+                        continue
+                elif day_text != requested_date:
+                    continue
+                sessions.append(
+                    self._workout_structure_payload(leaf, template, day_text, day_tss)
+                )
+
+        if not sessions:
+            lookup = (
+                f"session_id={requested_session}"
+                if requested_session
+                else f"date={requested_date}"
+            )
+            return {
+                "has_plan": True,
+                "count": 0,
+                "sessions": [],
+                "message": (
+                    f"В активном плане нет сессии по {lookup}. "
+                    "Проверь дату или возьми session_id из get_upcoming_workouts."
+                ),
+            }
+
+        return {"has_plan": True, "count": len(sessions), "sessions": sessions}
+
+    @staticmethod
+    def _workout_structure_payload(
+        leaf: Mapping[str, Any],
+        template: Mapping[str, Any],
+        day_text: str,
+        day_tss: int,
+    ) -> Dict[str, Any]:
+        """Одна листовая сессия со шагами и честным статусом материализации."""
+        intervals = _structure_steps(leaf)
+        status = _normalized_structure_status(leaf, intervals)
+        leaf_tss = int(round(float(leaf.get("total_tss") or 0))) or day_tss
+        payload: Dict[str, Any] = {
+            "date": day_text,
+            "name": str(
+                leaf.get("export_name")
+                or leaf.get("template_name")
+                or leaf.get("session_focus")
+                or "Сессия"
+            ),
+            "sport": str(leaf.get("sport") or template.get("sport") or ""),
+            "sport_label": str(
+                leaf.get("sport_label") or template.get("sport_label") or ""
+            ),
+            "phase": str(template.get("phase") or leaf.get("phase") or ""),
+            "tss": leaf_tss,
+            "kind": str(leaf.get("kind") or "single"),
+            "structure_status": status,
+            "has_structure": bool(intervals),
+            "steps": intervals,
+        }
+        declared_source = _declared_structure_source(leaf)
+        if declared_source and declared_source != status:
+            payload["structure_source"] = declared_source
+        for key in ("template_key", "template_name", "stimulus", "duration_minutes"):
+            value = leaf.get(key)
+            if value not in (None, ""):
+                payload[key] = value
+        if isinstance(leaf.get("target_provenance"), Mapping):
+            payload["target_provenance"] = dict(leaf["target_provenance"])
+        resolved_session_id = str(
+            leaf.get("session_id") or template.get("session_id") or ""
+        ).strip()
+        if resolved_session_id:
+            payload["session_id"] = resolved_session_id
+        if not intervals:
+            if _is_rest_leaf(leaf):
+                payload["message"] = "День отдыха: тренировка не запланирована."
+            else:
+                payload["message"] = (
+                    "Структура для этой сессии не материализована "
+                    f"(structure_status={status}): шагов в плане нет, "
+                    "известны только тип, спорт и TSS."
+                )
+        return payload
+
+    def get_activity_structure(
+        self,
+        date: str = "",
+        activity_id: str = "",
+        sport: str = "",
+    ) -> Dict[str, Any]:
+        """Фактическая структура завершённой активности из кэша (#639).
+
+        Read-only и офлайн: инструмент читает кэш ``activity_intervals``
+        (#390/#435) и не зовёт провайдера — на горячем пути хода Коуча сетевой
+        fetch не нужен (решение владельца среза в issue #639). Отсутствие
+        данных называется причиной, а не пустым списком отрезков.
+        """
+        requested_date = str(date or "").strip()[:10]
+        requested_id = str(activity_id or "").strip()
+        requested_sport = str(sport or "").strip()
+        if not requested_date and not requested_id:
+            return {
+                "success": False,
+                "error": (
+                    "Укажи date (YYYY-MM-DD) или activity_id завершённой активности."
+                ),
+            }
+
+        rows = self._activity_structure_rows(
+            requested_id, requested_date, requested_sport
+        )
+        if not rows:
+            lookup = (
+                f"activity_id={requested_id}"
+                if requested_id
+                else f"date={requested_date}"
+            )
+            return {
+                "count": 0,
+                "message": (
+                    f"Активность по {lookup} не найдена. Проверь дату "
+                    "(get_activities_by_date_range) или activity_id."
+                ),
+            }
+
+        activities = [self._activity_structure_payload(row) for row in rows]
+        return {"count": len(activities), "activities": activities}
+
+    def _activity_structure_rows(
+        self, activity_id: str, day: str, sport: str
+    ) -> List[Dict[str, Any]]:
+        """Активности под запрос: по id либо по дате, с необязательной ногой."""
+        if activity_id:
+            row = self.db.get_activity(activity_id)
+            return [dict(row)] if row else []
+        rows = [dict(row) for row in self.db.get_activities_between(day, day)]
+        if sport:
+            wanted = normalize_sport_key(sport)
+            rows = [
+                row for row in rows if normalize_sport_key(row.get("sport")) == wanted
+            ]
+        return rows
+
+    def _activity_structure_payload(self, row: Mapping[str, Any]) -> Dict[str, Any]:
+        """Одна активность со отрезками факта и честным статусом."""
+        activity_id = str(row.get("activity_id") or "")
+        status, reason, source, intervals, meta = resolve_cached_activity_structure(
+            self.db.get_activity_intervals(activity_id),
+            self.db.get_intervals_provider_activity_id(activity_id),
+        )
+        payload: Dict[str, Any] = {
+            "activity_id": activity_id,
+            "date": str(row.get("date") or "")[:10],
+            "date_label": format_date_label(row.get("date"), "weekday_short"),
+            "name": str(row.get("activity_name") or "Активность"),
+            "sport": normalize_sport_key(row.get("sport")),
+            "sport_label": sport_label(row.get("sport")),
+            "structure_status": status,
+            "has_structure": status == "structured",
+        }
+        for key in ("duration_minutes", "distance_km", "avg_hr", "avg_power", "tss"):
+            value = _compact_activity_number(row.get(key))
+            if value is not None:
+                payload[key] = value
+        if source:
+            payload["source"] = source
+        payload.update(meta)
+        if status == "structured":
+            payload["interval_count"] = len(intervals)
+            payload["intervals"] = intervals
+        elif status == "empty":
+            # Проанализировано и пусто — это честный ноль, а не «недоступно».
+            payload["interval_count"] = 0
+            payload["message"] = _ACTIVITY_STRUCTURE_MESSAGES["empty"]
+        else:
+            if reason:
+                payload["reason"] = reason
+            message_key = reason or "empty"
+            payload["message"] = _ACTIVITY_STRUCTURE_MESSAGES[message_key]
+        return payload
 
     def analyze_sleep_patterns(self, days: int = 30) -> Dict[str, Any]:
         """Анализ паттернов и качества сна"""

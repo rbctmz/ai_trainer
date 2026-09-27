@@ -1,13 +1,41 @@
-"""Cached accessors for frequently used database queries."""
+"""Cached accessors for frequently used database queries.
+
+Streamlit здесь только ради кэша (``st.cache_data``). Модуль обязан
+импортироваться и в headless-режиме: его тянет ``services/demo_mode`` и
+``services/sync``, а те — продуктовый API. Поэтому импорт Streamlit
+необязателен, и при его отсутствии кэш просто выключается (issue #602).
+
+Путь базы по умолчанию резолвится из активного состояния, и этот импорт
+ленивый (см. ``_default_db_path``): модульный импорт ``state`` снова втянул бы
+Streamlit и обесценил headless-обещание (#645). Следствие: headless-вызов без
+явного ``db_path`` по-прежнему требует legacy-контур — передавайте путь явно.
+"""
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import pandas as pd
-import streamlit as st
 
 from data.database import Database
-from state import get_state_manager
+from services.cache_registry import register_cache_clearer
+
+
+def _passthrough(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Заглушка вместо ``st.cache_data``: считает, но не кэширует."""
+    return func
+
+
+try:  # pragma: no cover - ветка выбирается окружением, не логикой
+    import streamlit as st
+except ModuleNotFoundError:  # pragma: no cover - headless-окружение
+    st = None  # type: ignore[assignment]
+
+
+def _cache_data(func: Callable[..., Any]) -> Callable[..., Any]:
+    """``st.cache_data`` при доступном Streamlit, иначе прозрачная обёртка."""
+    if st is None:
+        return _passthrough(func)
+    return st.cache_data(show_spinner=False)(func)
 
 
 def _copy_df(df: Optional[pd.DataFrame]) -> pd.DataFrame:
@@ -21,28 +49,40 @@ def _copy_df(df: Optional[pd.DataFrame]) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def _resolve_db_path(explicit_db_path: Optional[str] = None) -> str:
-    if explicit_db_path:
-        return explicit_db_path
+def _default_db_path() -> str:
+    """Путь активной базы по умолчанию — из состояния.
+
+    Импорт ``state`` сделан здесь, а не на уровне модуля: ``state/manager.py``
+    импортирует Streamlit, поэтому модульный импорт делал бы data_cache
+    неимпортируемым в headless-режиме и обесценивал try/except ниже (#645).
+    """
+    from state import get_state_manager
+
     return str(get_state_manager().database.db_path)
 
 
-@st.cache_data(show_spinner=False)
+def _resolve_db_path(explicit_db_path: Optional[str] = None) -> str:
+    if explicit_db_path:
+        return explicit_db_path
+    return _default_db_path()
+
+
+@_cache_data
 def _load_activities_cached(db_path: str, days: int) -> pd.DataFrame:
     return _copy_df(Database(db_path).get_activities(days))
 
 
-@st.cache_data(show_spinner=False)
+@_cache_data
 def _load_hrv_cached(db_path: str, days: int) -> pd.DataFrame:
     return _copy_df(Database(db_path).get_hrv_data(days))
 
 
-@st.cache_data(show_spinner=False)
+@_cache_data
 def _load_sleep_cached(db_path: str, days: int) -> pd.DataFrame:
     return _copy_df(Database(db_path).get_sleep_data(days))
 
 
-@st.cache_data(show_spinner=False)
+@_cache_data
 def _load_daily_health_cached(db_path: str, days: int) -> pd.DataFrame:
     return _copy_df(Database(db_path).get_daily_health(days))
 
@@ -51,7 +91,7 @@ def load_activities(days: int, db_path: Optional[str] = None) -> pd.DataFrame:
     return _load_activities_cached(_resolve_db_path(db_path), days)
 
 
-@st.cache_data(show_spinner=False)
+@_cache_data
 def _load_activities_between_cached(
     db_path: str, start_date: str, end_date: str
 ) -> pd.DataFrame:
@@ -83,11 +123,29 @@ def load_daily_health(days: int, db_path: Optional[str] = None) -> pd.DataFrame:
 
 
 def clear_data_caches() -> None:
-    _load_activities_cached.clear()
-    _load_activities_between_cached.clear()
-    _load_hrv_cached.clear()
-    _load_sleep_cached.clear()
-    _load_daily_health_cached.clear()
+    """Сбросить кэши, если они есть.
+
+    Без Streamlit загрузчики — прозрачные обёртки без ``.clear()``, поэтому
+    проверяем наличие метода: headless-вызов должен быть no-op, а не падением.
+
+    ``_load_activities_between_cached`` пришёл из main (#614): сброс обязан
+    покрывать все кэши модуля, иначе окно метрик остаётся протухшим после sync.
+    """
+    for cached in (
+        _load_activities_cached,
+        _load_activities_between_cached,
+        _load_hrv_cached,
+        _load_sleep_cached,
+        _load_daily_health_cached,
+    ):
+        clear = getattr(cached, "clear", None)
+        if callable(clear):
+            clear()
+
+
+# Регистрация в headless-реестре: services.sync и services.demo_mode сбрасывают
+# кэш через него, не импортируя этот Streamlit-модуль (issue #602).
+register_cache_clearer(clear_data_caches)
 
 
 __all__ = [

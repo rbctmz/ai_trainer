@@ -11,10 +11,9 @@ import pytest
 from data.database import Database
 from models.ai_tools import AITools, COACH_LOAD_METRICS_WINDOW_DAYS
 from models.signals_engine import assemble_signals
-
+from tests.athlete_clock import athlete_now
 
 pytestmark = pytest.mark.smoke
-
 
 def _events(streaming_response) -> list[dict[str, Any]]:
     async def collect() -> list[dict[str, Any]]:
@@ -27,9 +26,8 @@ def _events(streaming_response) -> list[dict[str, Any]]:
 
     return asyncio.run(collect())
 
-
 def _seed_daily_tss(db: Database, daily_tss_oldest_first: list[float]) -> str:
-    base = datetime.now()
+    base = athlete_now()
     n = len(daily_tss_oldest_first)
     for i, tss in enumerate(daily_tss_oldest_first):
         date_str = (base - timedelta(days=n - 1 - i)).strftime("%Y-%m-%d")
