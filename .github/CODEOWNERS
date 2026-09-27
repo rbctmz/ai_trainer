@@ -3,3 +3,22 @@
 # these paths requires review from the repository owner.
 .github/workflows/  @rbctmz
 .github/scripts/    @rbctmz
+
+# The owner list itself (#650). GitHub evaluates CODEOWNERS from the base
+# branch, so this entry cannot unprotect the pull request that rewrites it; it
+# governs every future one.
+.github/CODEOWNERS  @rbctmz
+
+# Rot-guards for the CI policy (#650). Each of these tests reads
+# .github/workflows or .github/scripts, so weakening one is a policy change and
+# needs the same owner review as the policy it guards. With
+# required_approving_review_count = 0 an uncovered guard could be edited by a PR
+# that requires no approval at all. The list is enforced, not remembered:
+# tests/smoke/test_ci_policy_guard_coverage.py fails when a test reads a
+# protected directory without an entry here.
+tests/smoke/test_ci_policy_guard_coverage.py         @rbctmz
+tests/smoke/test_native_codex_review_integration.py  @rbctmz
+tests/smoke/test_claude_code_action_workflow.py      @rbctmz
+tests/smoke/test_dev_workflow_v2_docs.py             @rbctmz
+tests/smoke/test_secret_scanning_ci.py               @rbctmz
+tests/smoke/test_workflow_issue_linking.py           @rbctmz

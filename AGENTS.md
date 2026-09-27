@@ -128,6 +128,10 @@ and review-budget rules above. An OpenCode full-diff audit counts as a review
 round. Code-writing delegation requires explicit user authorization and an
 isolated worktree; do not let two agents edit the same checkout concurrently.
 
+## UI Design Workflow
+
+For screen work, use `docs/design/README.md`: screen responsibilities, shared UI patterns, proportional design brief, and isolated scenario checks. This supplements the existing A/B/C workflow and role boundaries; it adds no separate approval gate. Reuse existing tokens/components, and hand off missing domain/API semantics rather than inferring them in the browser.
+
 ## ExecPlans
 Complex features and significant refactors use an ExecPlan from design to implementation, per `.agent/PLANS.md`.
 

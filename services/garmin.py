@@ -4,15 +4,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict
 
-from state import StateManager
+from utils.app_state import HeadlessState
 
 
-def get_client(state: StateManager):
+def get_client(state: HeadlessState):
     """Return an initialized Garmin client instance."""
     return state.garmin_client
 
 
-def authenticate(state: StateManager, email: str, password: str) -> bool:
+def authenticate(state: HeadlessState, email: str, password: str) -> bool:
     """Authenticate the Garmin client with provided credentials."""
     client = get_client(state)
     if not email or not password:
@@ -20,35 +20,35 @@ def authenticate(state: StateManager, email: str, password: str) -> bool:
     return client.authenticate(email, password)
 
 
-def auth_error(state: StateManager) -> str | None:
+def auth_error(state: HeadlessState) -> str | None:
     """Return the latest authentication error if present."""
     return get_client(state).auth_error
 
 
-def is_authenticated(state: StateManager) -> bool:
+def is_authenticated(state: HeadlessState) -> bool:
     """Return whether the Garmin client is authenticated."""
     return bool(get_client(state).is_authenticated)
 
 
-def disconnect(state: StateManager) -> None:
+def disconnect(state: HeadlessState) -> None:
     """Disconnect the Garmin client and clear session flags."""
     client = get_client(state)
     client.disconnect()
 
 
-def connection_info(state: StateManager) -> Dict[str, Any]:
+def connection_info(state: HeadlessState) -> Dict[str, Any]:
     """Return diagnostic info about the Garmin connection."""
     client = get_client(state)
     return client.get_connection_info() or {}
 
 
-def pop_last_error(state: StateManager) -> Dict[str, Any] | None:
+def pop_last_error(state: HeadlessState) -> Dict[str, Any] | None:
     """Return and clear the latest Garmin client error."""
     return get_client(state).pop_last_error()
 
 
 def get_activities_with_error(
-    state: StateManager,
+    state: HeadlessState,
     start_date: datetime,
     end_date: datetime,
     limit: int = 100,
@@ -59,20 +59,20 @@ def get_activities_with_error(
     return activities, client.pop_last_error()
 
 
-def user_profile(state: StateManager) -> Dict[str, Any] | None:
+def user_profile(state: HeadlessState) -> Dict[str, Any] | None:
     """Return the Garmin user profile if available."""
     client = get_client(state)
     return client.get_user_profile()
 
 
-def user_profile_with_error(state: StateManager) -> tuple[Dict[str, Any] | None, Dict[str, Any] | None]:
+def user_profile_with_error(state: HeadlessState) -> tuple[Dict[str, Any] | None, Dict[str, Any] | None]:
     """Return the Garmin user profile plus any retrieval error."""
     client = get_client(state)
     profile = client.get_user_profile()
     return profile, client.pop_last_error()
 
 
-def test_garth_connection(state: StateManager) -> Dict[str, Any]:
+def test_garth_connection(state: HeadlessState) -> Dict[str, Any]:
     """Run garth diagnostic checks through the client."""
     return get_client(state).test_garth_connection()
 

@@ -44,6 +44,10 @@ of truth; it does not turn historical plans into current instructions.
 - [`ai_coaching_guide.md`](ai_coaching_guide.md): current AI provider and AI
   Coaching behavior.
 
+## Design workflow
+
+- [`design/README.md`](design/README.md): working web UI standard, screen map, design brief, audit and phased rollout. Describes the process for subsequent slices, not completed redesign or runtime conformance.
+
 ## Completed Product Contracts
 
 These completed ExecPlans describe the current product behavior and the invariants that future work must preserve:

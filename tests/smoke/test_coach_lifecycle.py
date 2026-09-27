@@ -14,8 +14,8 @@ import pytest
 
 from config.settings import Settings
 from models.chat_manager import ChatManager
+from tests.athlete_clock import athlete_now
 from api.routers import coach as coach_router
-
 
 pytestmark = pytest.mark.smoke
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -23,13 +23,11 @@ PAGE = REPO_ROOT / "web/app/coach/page.tsx"
 TYPES = REPO_ROOT / "web/lib/types.ts"
 API = REPO_ROOT / "web/lib/api.ts"
 
-
 @pytest.fixture()
 def manager(tmp_path, monkeypatch):
     chats_dir = tmp_path / "chats"
     monkeypatch.setattr(Settings, "CHATS_DIR", str(chats_dir))
     return ChatManager()
-
 
 def _chat(manager: ChatManager, title: str = "Чат", messages: int = 2) -> str:
     chat_id = manager.create_new_chat(title)
@@ -161,7 +159,7 @@ def test_coach_planning_page_has_lifecycle_ui():
 
 
 def test_coach_upcoming_workouts_lists_leaf_sessions(tmp_path):
-    from datetime import datetime, timedelta
+    from datetime import timedelta
 
     from api import planning_service as ps
     from models.ai_tools import AITools
@@ -172,7 +170,7 @@ def test_coach_upcoming_workouts_lists_leaf_sessions(tmp_path):
     from tests.smoke.test_api_planning import _seeded_db
 
     db = _seeded_db(tmp_path)
-    event_date = (datetime.now().date() + timedelta(weeks=9)).isoformat()
+    event_date = (athlete_now().date() + timedelta(weeks=9)).isoformat()
     ps.build_plan(
         db,
         goal_type="triathlon",
@@ -183,7 +181,7 @@ def test_coach_upcoming_workouts_lists_leaf_sessions(tmp_path):
     )
     goal_plan = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
     assert goal_plan is not None
-    today = datetime.now().date()
+    today = athlete_now().date()
 
     daily_plan = list(goal_plan["daily_plan"])
     templates = list(goal_plan["session_templates"])

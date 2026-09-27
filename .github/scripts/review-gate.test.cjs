@@ -459,3 +459,70 @@ test('promotes the newest legacy readiness comment when no canonical exists', ()
   assert.equal(selection.canonical.id, 2);
   assert.deepEqual(selection.duplicates.map((comment) => comment.id), [1]);
 });
+
+test('a native-review waiver never substitutes for explicit acceptance', () => {
+  const decision = evaluateReviewGate({
+    accepted: false,
+    nativeReviewRounds: 0,
+    currentHeadNativeReviewRounds: 0,
+    unresolvedThreads: 0,
+    hasBudgetException: false,
+    hasNativeWaiver: true,
+  });
+
+  assert.deepEqual(decision, {
+    ready: false,
+    reason: 'review result is not accepted for the current head',
+  });
+});
+
+test('a privileged native-review waiver plus acceptance passes and names the waiver', () => {
+  const decision = evaluateReviewGate({
+    accepted: true,
+    nativeReviewRounds: 0,
+    currentHeadNativeReviewRounds: 0,
+    unresolvedThreads: 0,
+    hasBudgetException: false,
+    hasNativeWaiver: true,
+  });
+
+  assert.equal(decision.ready, true);
+  assert.match(decision.reason, /native review waived by merge owner/);
+  assert.match(decision.reason, /Codex unavailable/);
+});
+
+test('a native waiver is not enough on its own: every other guardrail still applies', () => {
+  const base = {
+    accepted: true,
+    nativeReviewRounds: 0,
+    currentHeadNativeReviewRounds: 0,
+    unresolvedThreads: 0,
+    hasBudgetException: false,
+    hasNativeWaiver: true,
+  };
+
+  const cases = [
+    { hasNativeWaiver: false },
+    { accepted: false },
+    { unresolvedThreads: 1 },
+    { reviewDecision: 'CHANGES_REQUESTED' },
+  ];
+
+  for (const override of cases) {
+    assert.equal(evaluateReviewGate({ ...base, ...override }).ready, false);
+  }
+});
+
+test('a waiver does not excuse a native review that exists for the current head', () => {
+  const decision = evaluateReviewGate({
+    accepted: true,
+    nativeReviewRounds: 1,
+    currentHeadNativeReviewRounds: 1,
+    unresolvedThreads: 0,
+    hasBudgetException: false,
+    hasNativeWaiver: true,
+  });
+
+  assert.equal(decision.ready, true);
+  assert.doesNotMatch(decision.reason, /waived/);
+});

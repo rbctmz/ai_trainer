@@ -170,19 +170,33 @@ def _target_zone(step: Mapping[str, Any]) -> dict[str, Any] | None:
 
     Returns ``{type, low, high, relative_low, relative_high}`` or ``None`` when
     the step has no target / a malformed one. ``type`` is the provider's metric
-    (``power``/``heart_rate``/``pace``/``relative_rpe``).
+    (``power``/``heart_rate``/``pace``/``relative_rpe``). Pace targets add
+    ``unit``, ``fast`` and ``slow``: they carry seconds per distance unit
+    instead of ``low``/``high``.
     """
     target = step.get("target")
     if not isinstance(target, Mapping):
         return None
     kind = str(target.get("type") or "").strip().lower() or None
-    return {
+    zone = {
         "type": kind,
         "low": _compact_number(target.get("low")),
         "high": _compact_number(target.get("high")),
         "relative_low": _compact_relative_number(target.get("relative_low")),
         "relative_high": _compact_relative_number(target.get("relative_high")),
     }
+    # Pace-цели несут не low/high, а fast/slow в секундах на единицу дистанции
+    # (#638 review). Без них проекция теряла темп целиком, и потребитель видел
+    # только слово "pace" вместо чисел. Ключи добавляем лишь когда они есть: у
+    # power/HR-целей их нет, и пустые поля только раздували бы payload.
+    # Изменение аддитивное — существующие потребители читают low/high.
+    fast = _compact_number(target.get("fast"))
+    slow = _compact_number(target.get("slow"))
+    if fast is not None or slow is not None:
+        zone["unit"] = str(target.get("unit") or "").strip() or None
+        zone["fast"] = fast
+        zone["slow"] = slow
+    return zone
 
 
 def _compact_number(value: Any) -> int | float | None:
