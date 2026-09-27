@@ -32,7 +32,7 @@ def test_today_visual_state_and_wellness(web_stack):
     try:
         for theme in ("dark", "light"):
             page.add_init_script(f"localStorage.setItem('theme','{theme}')")
-            for width in (390, 1280):
+            for width in (390, 978, 1280):
                 current["payload"] = deepcopy(payload)
                 page.set_viewport_size({"width": width, "height": 1100})
                 page.goto(web_stack.web_base + "/today", wait_until="networkidle")
@@ -52,6 +52,9 @@ def test_today_visual_state_and_wellness(web_stack):
                 wellness = page.get_by_role(
                     "region", name="Самочувствие из Intervals.icu"
                 )
+                if width >= 768:
+                    assert wellness.bounding_box()["x"] > meter.bounding_box()["x"] + meter.bounding_box()["width"]
+                    assert wellness.bounding_box()["y"] <= meter.bounding_box()["y"] < wellness.bounding_box()["y"] + wellness.bounding_box()["height"]
                 for item in payload["subjective_wellness"]["items"]:
                     assert wellness.get_by_text(item["label"], exact=True).is_visible()
                 assert wellness.get_by_text("Плохое", exact=True).is_visible()
