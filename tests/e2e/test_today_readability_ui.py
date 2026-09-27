@@ -87,7 +87,7 @@ def test_readable_today_preserves_action_and_uncertainty(web_stack):
             if artifacts:
                 page.screenshot(path=str(artifacts / f"today-{width}.png"), full_page=True)
                 region.screenshot(path=str(artifacts / f"summary-{width}.png"))
-            region.get_by_text("Показатели и объяснение").click()
+            region.get_by_text("Объяснение решения").click()
             assert region.get_by_text("Intervals.icu", exact=False).is_visible()
             assert region.get_by_text("Нормальная", exact=True).is_visible()
             assert "snapshot_123" not in region.inner_text()
@@ -101,7 +101,7 @@ def test_readable_today_preserves_action_and_uncertainty(web_stack):
             current["value"] = stale
             page.reload(wait_until="networkidle")
             assert region.get_by_text("Свежего ответа о травме нет", exact=False).is_visible()
-            region.get_by_text("Показатели и объяснение").click()
+            region.get_by_text("Объяснение решения").click()
             assert region.get_by_text("Данные устарели", exact=False).is_visible()
 
             conflict = deepcopy(payload)
@@ -172,10 +172,11 @@ def test_one_visual_readiness_and_dated_explanation(web_stack):
             assert "Оценка восстановления: нормальная" not in summary.inner_text()
             assert "почему — 3 факторов" not in page.locator("main").inner_text()
             assert page.get_by_role("heading", name="План остаётся без изменений").count() == 0
-            summary.get_by_text("Показатели и объяснение").click()
-            assert summary.get_by_text("дата измерения неизвестна", exact=False).count() == 2
-            assert summary.get_by_text("Пульс покоя 47 уд/мин", exact=False).count() == 1
-            assert summary.get_by_text("Оценка Garmin 81/100", exact=False).count() == 1
+            state = page.get_by_role("region", name="Состояние сегодня", exact=True)
+            state.get_by_text("Подробнее о состоянии").click()
+            assert state.get_by_text("дата измерения неизвестна", exact=False).count() == 2
+            assert state.get_by_text("Пульс покоя 47 уд/мин", exact=False).count() == 1
+            assert state.get_by_text("Оценка Garmin 81/100", exact=False).count() == 1
             assert "Garmin readiness" not in summary.inner_text()
             assert not _has_horizontal_overflow(page)
 
@@ -187,9 +188,10 @@ def test_one_visual_readiness_and_dated_explanation(web_stack):
             page.reload(wait_until="networkidle")
             assert page.get_by_text("Предварительно", exact=True).is_visible()
             assert summary.get_by_text("Сегодняшние данные восстановления не подтверждены.", exact=True).is_visible()
-            summary.get_by_text("Показатели и объяснение").click()
-            assert summary.get_by_text("нет подтверждённого сегодняшнего первичного измерения", exact=False).is_visible()
-            assert summary.get_by_text("нет данных: Сон", exact=False).is_visible()
+            state = page.get_by_role("region", name="Состояние сегодня", exact=True)
+            state.get_by_text("Подробнее о состоянии").click()
+            assert state.get_by_text("нет подтверждённого сегодняшнего первичного измерения", exact=False).is_visible()
+            assert state.get_by_text("нет данных: Сон", exact=False).is_visible()
 
             missing = deepcopy(stale)
             missing["readiness"] = None

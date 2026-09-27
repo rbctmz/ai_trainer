@@ -8,13 +8,13 @@ const statusLabels: Record<SubjectiveWellness["status"], string> = {
 };
 
 /** Today-specific compact view; values and their interpretation stay server-owned. */
-export function TodayWellnessSummary({ data }: { data?: SubjectiveWellness | null }) {
+export function TodayWellnessSummary({ data, embedded = false }: { data?: SubjectiveWellness | null; embedded?: boolean }) {
   if (!data) return null;
   const source = data.source === "intervals" ? "Intervals.icu" : "Источник не указан";
   return (
-    <section aria-label="Самочувствие из Intervals.icu" className="rounded-card border border-surface-border bg-surface p-4">
+    <section aria-label="Самочувствие из Intervals.icu" className={embedded ? "min-w-0" : "rounded-card border border-surface-border bg-surface p-4"}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h2 className="text-base font-semibold text-ink">Самочувствие</h2>
+        <h2 className="text-base font-semibold text-ink">Самочувствие · ваши ответы</h2>
         <p className="text-sm text-ink-soft">
           {statusLabels[data.status]}
           {data.date ? <> · <time dateTime={data.date}>{data.date}</time></> : " · Дата неизвестна"}
@@ -33,14 +33,14 @@ export function TodayWellnessSummary({ data }: { data?: SubjectiveWellness | nul
           ))}
         </dl>
       ) : <p className="mt-3 text-sm text-ink-soft">Показатели самочувствия не предоставлены.</p>}
-      <details className="mt-3 border-t border-surface-border pt-2">
+      {!embedded ? <details className="mt-3 border-t border-surface-border pt-2">
         <summary className="cursor-pointer rounded text-xs text-ink-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
           Об источнике данных
         </summary>
         <p className="mt-2 text-xs text-ink-soft">
           Источник: {source}. Время ответа неизвестно.
         </p>
-      </details>
+      </details> : null}
     </section>
   );
 }

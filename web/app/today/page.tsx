@@ -10,11 +10,11 @@ import type {
   TodayResponse,
   WorkoutStep,
 } from "@/lib/types";
-import { ReadinessIndicator, ReadinessDetails } from "@/components/today/ReadinessSummary";
+
 import { ProposalCard } from "@/components/ui/ProposalCard";
 import { PostWorkoutFeedbackCard } from "@/components/today/PostWorkoutFeedbackCard";
 import { AdherenceStrip } from "@/components/today/AdherenceStrip";
-import { TodayWellnessSummary } from "@/components/today/TodayWellnessSummary";
+import { TodayStateSummary } from "@/components/today/TodayStateSummary";
 import { WorkoutStrip } from "@/components/WorkoutStrip";
 import { TodaySessionPlan, TodaySessionResult } from "@/components/today/TodaySessionResult";
 import {
@@ -233,7 +233,7 @@ export default function TodayPage() {
               {frequency === "conflicts_only" ? "Только конфликты" : "Каждое утро"}
             </button>
           </header>
-          <ReadinessIndicator readiness={readiness} />
+          <TodayStateSummary readiness={readiness} wellness={data.subjective_wellness} />
 
           {isCompact ? (
             <>
@@ -246,7 +246,6 @@ export default function TodayPage() {
                 />
               ) : null}
               {projectionSessionIds.map(id => <div key={id}>{renderResult(id, true)}</div>)}
-              <TodayWellnessSummary data={data.subjective_wellness} />
             </>
           ) : (
             <>
@@ -262,10 +261,7 @@ export default function TodayPage() {
             <section className="rounded-card border border-surface-border bg-surface p-5">
               <p role="alert" className="mb-4 text-sm text-tone-warning">История решения недоступна. Проверьте данные перед действием.</p>
               {workout}
-              <details className="mt-4">
-                <summary className="cursor-pointer rounded text-sm text-ink underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">Показатели восстановления</summary>
-                <ReadinessDetails readiness={readiness} />
-              </details>
+
             </section>
           )}
           {state === "no_plan" ? (
@@ -343,7 +339,6 @@ export default function TodayPage() {
             </section>
           ) : null}
 
-          <TodayWellnessSummary data={data.subjective_wellness} />
 
           {data.gate.conflicts.length || data.gate.data_gap || data.gate.proposal_gap ? (
             <details className="rounded-card border border-surface-border bg-surface p-4 shadow-card">

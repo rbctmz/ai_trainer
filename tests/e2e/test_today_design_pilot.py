@@ -38,6 +38,10 @@ def test_today_visual_state_and_wellness(web_stack):
                 page.goto(web_stack.web_base + "/today", wait_until="networkidle")
                 meter = page.get_by_role("meter", name="Восстановление")
                 assert meter.count() == 1
+                state = page.get_by_role("region", name="Состояние сегодня", exact=True)
+                assert state.get_by_role("meter").count() == 1
+                assert state.get_by_role("region", name="Самочувствие из Intervals.icu").count() == 1
+                assert state.bounding_box()["y"] < page.get_by_role("region", name="Сводка на сегодня").bounding_box()["y"]
                 if width == 390:
                     assert (
                         meter.bounding_box()["y"]
@@ -52,7 +56,7 @@ def test_today_visual_state_and_wellness(web_stack):
                     assert wellness.get_by_text(item["label"], exact=True).is_visible()
                 assert wellness.get_by_text("Плохое", exact=True).is_visible()
                 assert not _has_horizontal_overflow(page)
-                summary = page.get_by_text("Показатели и объяснение", exact=True)
+                summary = page.get_by_text("Подробнее о состоянии", exact=True)
                 summary.focus() if hasattr(summary, "focus") else None
                 summary.press("Enter")
                 assert page.get_by_role(

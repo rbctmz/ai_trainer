@@ -4,7 +4,6 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { TodayDecisionStory, TodayReadiness } from "@/lib/types";
 import { decisionText, workoutLabel } from "./displayText";
-import { ReadinessDetails } from "./ReadinessSummary";
 
 type NextAction = TodayDecisionStory["next_action"];
 const actionNames: Record<string, string> = {
@@ -84,7 +83,7 @@ export function TodayDecisionStoryCompact({ nextAction, sessionName, onExpand }:
   );
 }
 
-export function TodayDecisionStoryFull({ story, nextAction, readiness, workout, completionInWorkout = false }: {
+export function TodayDecisionStoryFull({ story, nextAction, workout, completionInWorkout = false }: {
   story: TodayDecisionStory;
   nextAction: NextAction;
   readiness?: TodayReadiness | null;
@@ -124,8 +123,7 @@ export function TodayDecisionStoryFull({ story, nextAction, readiness, workout, 
         </p>
       ) : null}
       <details className="mt-5 border-t border-surface-border pt-3">
-      <summary className="cursor-pointer rounded text-sm font-medium text-ink underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">Показатели и объяснение</summary>
-        <div className="mt-4"><ReadinessDetails readiness={readiness} /></div>
+      <summary className="cursor-pointer rounded text-sm font-medium text-ink underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">Объяснение решения</summary>
         {detailExplanations.length > 0 ? <div className="mt-4 border-t border-surface-border pt-3 text-sm leading-relaxed text-ink-soft">
           <h3 className="font-medium text-ink">Объяснение системы</h3>
           {detailExplanations.map((value) => <p key={value} className="mt-2 break-words">{value}</p>)}

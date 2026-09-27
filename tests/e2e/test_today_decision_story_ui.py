@@ -100,7 +100,7 @@ def test_today_story_owns_compact_and_full_action_at_mobile_and_desktop(web_stac
             assert story.get_by_text("not_observed").count() == 0
             assert not _has_horizontal_overflow(page), f"горизонтальный overflow при {width}px"
 
-            evidence_summary = page.get_by_text("Показатели и объяснение")
+            evidence_summary = page.get_by_text("Объяснение решения")
             evidence_summary.focus()
             page.keyboard.press("Enter")
             assert story.get_by_text("Самооценка травмы", exact=True).is_visible()
@@ -291,7 +291,7 @@ def test_today_loading_empty_error_and_stale_states_are_accessible(web_stack) ->
         expand.focus()
         page.keyboard.press("Enter")
         story = page.get_by_role("region", name="Сводка на сегодня")
-        evidence = story.get_by_text("Показатели и объяснение")
+        evidence = story.get_by_text("Объяснение решения")
         evidence.focus()
         page.keyboard.press("Enter")
         story.get_by_text("Данные устарели", exact=False).wait_for()
