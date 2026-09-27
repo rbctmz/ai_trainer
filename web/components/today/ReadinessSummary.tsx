@@ -68,22 +68,32 @@ export function ReadinessIndicator({ readiness }: { readiness?: TodayReadiness |
   const freshness = provisional ? "Предварительно" : dateGaps ? "Часть дат не подтверждена" :
     readiness?.freshness?.state === "fresh" ? "Данные за сегодня" : "Свежесть не подтверждена";
   const label = valid ? labels[readiness?.status ?? "unknown"] ?? "Не определено" : "Нет оценки";
+  const radius = 34;
+  const circumference = 2 * Math.PI * radius;
   return (
     <div className="min-w-0 rounded-xl bg-surface-muted/60 p-4">
       <p className="text-sm font-medium text-ink-soft">Восстановление</p>
-      <div className="mt-1 flex items-baseline gap-1.5">
-        <span className="text-3xl font-semibold tabular-nums text-ink">{valid ? Math.round(value) : "—"}</span>
-        {valid ? <span className="text-xs text-ink-soft">/ 100</span> : null}
-      </div>
-      {valid ? (
-        <div role="meter" aria-label="Восстановление" aria-valuemin={0} aria-valuemax={100}
-          aria-valuenow={value} aria-valuetext={`${value} из 100; ${label}; ${freshness}`}
-          className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-border">
-          <div className="h-full rounded-full bg-accent" style={{ width: `${value}%` }} />
+      <div className="mt-2 flex items-center gap-4 sm:flex-col sm:gap-2">
+        <div className="relative h-24 w-24 shrink-0" role={valid ? "meter" : undefined}
+          aria-label={valid ? "Восстановление" : undefined} aria-valuemin={valid ? 0 : undefined}
+          aria-valuemax={valid ? 100 : undefined} aria-valuenow={valid ? value : undefined}
+          aria-valuetext={valid ? `${value} из 100; ${label}; ${freshness}` : undefined}>
+          <svg viewBox="0 0 80 80" className="h-full w-full -rotate-90" aria-hidden="true">
+            <circle cx="40" cy="40" r={radius} fill="none" stroke="currentColor" strokeWidth="7" className="text-surface-border" />
+            {valid ? <circle cx="40" cy="40" r={radius} fill="none" stroke="currentColor" strokeWidth="7"
+              strokeLinecap="round" strokeDasharray={`${(value / 100) * circumference} ${circumference}`}
+              className="text-accent" /> : null}
+          </svg>
+          <span className="absolute inset-0 flex items-center justify-center text-2xl font-semibold tabular-nums text-ink">
+            {valid ? Math.round(value) : "—"}
+          </span>
         </div>
-      ) : null}
-      <p className="mt-2 text-sm text-ink">{label}</p>
-      {valid ? <p className="mt-1 text-xs leading-snug text-ink-soft">{freshness}</p> : null}
+        <div className="min-w-0 sm:text-center">
+          {valid ? <p className="text-xs text-ink-soft">из 100</p> : null}
+          <p className="mt-1 text-sm font-medium text-ink">{label}</p>
+          <p className="mt-1 text-xs leading-snug text-ink-soft">{freshness}</p>
+        </div>
+      </div>
     </div>
   );
 }

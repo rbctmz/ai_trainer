@@ -14,7 +14,7 @@ import { ReadinessIndicator, ReadinessDetails } from "@/components/today/Readine
 import { ProposalCard } from "@/components/ui/ProposalCard";
 import { PostWorkoutFeedbackCard } from "@/components/today/PostWorkoutFeedbackCard";
 import { AdherenceStrip } from "@/components/today/AdherenceStrip";
-import { SubjectiveWellnessCard } from "@/components/dashboard/SubjectiveWellnessCard";
+import { TodayWellnessSummary } from "@/components/today/TodayWellnessSummary";
 import { WorkoutStrip } from "@/components/WorkoutStrip";
 import { SessionProjectionSummary } from "@/components/session/SessionProjectionSummary";
 import {
@@ -238,7 +238,7 @@ export default function TodayPage() {
                   onExpand={() => setExpanded(true)}
                 />
               ) : null}
-              <SubjectiveWellnessCard data={data.subjective_wellness} />
+              <TodayWellnessSummary data={data.subjective_wellness} />
             </>
           ) : (
             <>
@@ -252,8 +252,14 @@ export default function TodayPage() {
           ) : (
             <section className="rounded-card border border-surface-border bg-surface p-5">
               <p role="alert" className="mb-4 text-sm text-tone-warning">История решения недоступна. Проверьте данные перед действием.</p>
-              <div className="grid gap-4 sm:grid-cols-[1fr_160px]">{workout}<ReadinessIndicator readiness={readiness} /></div>
-              <details className="mt-4"><summary className="cursor-pointer text-sm text-accent">Показатели восстановления</summary><ReadinessDetails readiness={readiness} /></details>
+              <div className="grid gap-4 sm:grid-cols-[1fr_160px]">
+                <div className="order-2 sm:order-1">{workout}</div>
+                <div className="order-1 sm:order-2"><ReadinessIndicator readiness={readiness} /></div>
+              </div>
+              <details className="mt-4">
+                <summary className="cursor-pointer rounded text-sm text-ink underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">Показатели восстановления</summary>
+                <ReadinessDetails readiness={readiness} />
+              </details>
             </section>
           )}
           {state === "no_plan" ? (
@@ -331,7 +337,7 @@ export default function TodayPage() {
             </section>
           ) : null}
 
-          <SubjectiveWellnessCard data={data.subjective_wellness} />
+          <TodayWellnessSummary data={data.subjective_wellness} />
 
           {data.gate.conflicts.length || data.gate.data_gap || data.gate.proposal_gap ? (
             <details className="rounded-card border border-surface-border bg-surface p-4 shadow-card">

@@ -73,13 +73,13 @@ export function TodayDecisionStoryCompact({ nextAction, readiness, sessionName, 
   return (
     <section aria-label="Сводка на сегодня" className="min-w-0 rounded-card border border-surface-border bg-surface p-5 shadow-card">
       <div className="grid gap-4 sm:grid-cols-[1fr_160px]">
-        <div>
+        <div className="order-2 sm:order-1">
           <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">Сегодня по плану</p>
           <h2 className="mt-2 text-xl font-semibold text-ink">{sessionName ? workoutLabel(sessionName) : "План на сегодня"}</h2>
           {notice ? <p className="mt-3 text-sm leading-relaxed text-ink-soft">{notice}</p> : null}
-          <button type="button" onClick={onExpand} className="mt-4 text-sm font-medium text-accent">Показать тренировку и показатели</button>
+          <button type="button" onClick={onExpand} className="mt-4 rounded text-sm font-medium text-ink underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">Показать тренировку и показатели</button>
         </div>
-        <ReadinessIndicator readiness={readiness} />
+        <div className="order-1 sm:order-2"><ReadinessIndicator readiness={readiness} /></div>
       </div>
     </section>
   );
@@ -115,8 +115,8 @@ export function TodayDecisionStoryFull({ story, nextAction, readiness, workout }
         </div>
       ) : notice ? <p className="mb-4 text-sm leading-relaxed text-ink-soft">{notice}</p> : null}
       <div className="grid items-start gap-5 sm:grid-cols-[1fr_160px]">
-        <div className="min-w-0">{workout}</div>
-        <ReadinessIndicator readiness={readiness} />
+        <div className="order-2 min-w-0 sm:order-1">{workout}</div>
+        <div className="order-1 sm:order-2"><ReadinessIndicator readiness={readiness} /></div>
       </div>
       {completed ? (
         <p className="mt-3 text-sm text-ink-soft">
@@ -125,7 +125,7 @@ export function TodayDecisionStoryFull({ story, nextAction, readiness, workout }
         </p>
       ) : null}
       <details className="mt-5 border-t border-surface-border pt-3">
-        <summary className="cursor-pointer text-sm font-medium text-accent">Показатели и объяснение</summary>
+      <summary className="cursor-pointer rounded text-sm font-medium text-ink underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">Показатели и объяснение</summary>
         <div className="mt-4"><ReadinessDetails readiness={readiness} /></div>
         {detailExplanations.length > 0 ? <div className="mt-4 border-t border-surface-border pt-3 text-sm leading-relaxed text-ink-soft">
           <h3 className="font-medium text-ink">Объяснение системы</h3>
