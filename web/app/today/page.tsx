@@ -16,7 +16,7 @@ import { PostWorkoutFeedbackCard } from "@/components/today/PostWorkoutFeedbackC
 import { AdherenceStrip } from "@/components/today/AdherenceStrip";
 import { TodayWellnessSummary } from "@/components/today/TodayWellnessSummary";
 import { WorkoutStrip } from "@/components/WorkoutStrip";
-import { TodaySessionResult } from "@/components/today/TodaySessionResult";
+import { TodaySessionPlan, TodaySessionResult } from "@/components/today/TodaySessionResult";
 import {
   TodayDecisionStoryCompact,
   TodayDecisionStoryFull,
@@ -162,7 +162,7 @@ export default function TodayPage() {
               ))}
             </div>
           ) : (
-            <TodaySteps steps={session.steps || []} />
+            <TodaySessionPlan sessionId={sharedResultId}><TodaySteps steps={session.steps || []} /></TodaySessionPlan>
           )}
         </div>
       ) : (
@@ -221,9 +221,7 @@ export default function TodayPage() {
           <header className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm text-ink-faint">{formatHumanDate(data.date)}</p>
-              {!isCompact ? (
-                <h1 className="mt-1 text-2xl font-bold text-ink">Сегодня</h1>
-              ) : null}
+              <h1 className="mt-1 text-2xl font-bold text-ink">Сегодня</h1>
             </div>
             <button
               type="button"
@@ -235,6 +233,7 @@ export default function TodayPage() {
               {frequency === "conflicts_only" ? "Только конфликты" : "Каждое утро"}
             </button>
           </header>
+          <ReadinessIndicator readiness={readiness} />
 
           {isCompact ? (
             <>
@@ -262,10 +261,7 @@ export default function TodayPage() {
           ) : (
             <section className="rounded-card border border-surface-border bg-surface p-5">
               <p role="alert" className="mb-4 text-sm text-tone-warning">История решения недоступна. Проверьте данные перед действием.</p>
-              <div className="grid gap-4 sm:grid-cols-[1fr_160px]">
-                <div className="order-2 sm:order-1">{workout}</div>
-                <div className="order-1 sm:order-2"><ReadinessIndicator readiness={readiness} /></div>
-              </div>
+              {workout}
               <details className="mt-4">
                 <summary className="cursor-pointer rounded text-sm text-ink underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">Показатели восстановления</summary>
                 <ReadinessDetails readiness={readiness} />

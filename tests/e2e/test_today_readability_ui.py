@@ -164,7 +164,8 @@ def test_one_visual_readiness_and_dated_explanation(web_stack):
             current["value"] = payload
             page.goto(f"{web_stack.web_base}/today", wait_until="networkidle")
             summary = page.get_by_role("region", name="Сводка на сегодня")
-            indicator = summary.get_by_role("meter", name="Восстановление")
+            indicator = page.get_by_role("meter", name="Восстановление")
+            assert indicator.bounding_box()["y"] < summary.bounding_box()["y"]
             assert indicator.count() == 1
             assert indicator.get_attribute("aria-valuenow") == "68"
             assert page.get_by_role("meter", name="Восстановление").count() == 1
@@ -184,7 +185,7 @@ def test_one_visual_readiness_and_dated_explanation(web_stack):
             stale["decision_story"]["next_action"].update(kind="inspect_evidence", summary="Сегодняшние данные восстановления не подтверждены.")
             current["value"] = stale
             page.reload(wait_until="networkidle")
-            assert summary.get_by_text("Предварительно", exact=True).is_visible()
+            assert page.get_by_text("Предварительно", exact=True).is_visible()
             assert summary.get_by_text("Сегодняшние данные восстановления не подтверждены.", exact=True).is_visible()
             summary.get_by_text("Показатели и объяснение").click()
             assert summary.get_by_text("нет подтверждённого сегодняшнего первичного измерения", exact=False).is_visible()
@@ -194,8 +195,8 @@ def test_one_visual_readiness_and_dated_explanation(web_stack):
             missing["readiness"] = None
             current["value"] = missing
             page.reload(wait_until="networkidle")
-            assert summary.get_by_text("Нет оценки", exact=True).is_visible()
-            assert summary.get_by_role("meter").count() == 0
+            assert page.get_by_text("Нет оценки", exact=True).is_visible()
+            assert page.get_by_role("meter").count() == 0
         assert not web_stack.js_errors
     finally:
         page.unroute("**/api/today?demo=1", serve)

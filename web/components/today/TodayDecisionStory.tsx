@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { TodayDecisionStory, TodayReadiness } from "@/lib/types";
 import { decisionText, workoutLabel } from "./displayText";
-import { ReadinessIndicator, ReadinessDetails } from "./ReadinessSummary";
+import { ReadinessDetails } from "./ReadinessSummary";
 
 type NextAction = TodayDecisionStory["next_action"];
 const actionNames: Record<string, string> = {
@@ -63,7 +63,7 @@ function actionNotice(nextAction: NextAction): string {
   return decisionText(notice);
 }
 
-export function TodayDecisionStoryCompact({ nextAction, readiness, sessionName, onExpand }: {
+export function TodayDecisionStoryCompact({ nextAction, sessionName, onExpand }: {
   nextAction: NextAction;
   readiness?: TodayReadiness | null;
   sessionName?: string;
@@ -72,14 +72,13 @@ export function TodayDecisionStoryCompact({ nextAction, readiness, sessionName, 
   const notice = actionNotice(nextAction);
   return (
     <section aria-label="Сводка на сегодня" className="min-w-0 rounded-card border border-surface-border bg-surface p-5 shadow-card">
-      <div className="grid gap-4 sm:grid-cols-[1fr_160px]">
+      <div>
         <div className="order-2 sm:order-1">
           <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">Сегодня по плану</p>
           <h2 className="mt-2 text-xl font-semibold text-ink">{sessionName ? workoutLabel(sessionName) : "План на сегодня"}</h2>
           {notice ? <p className="mt-3 text-sm leading-relaxed text-ink-soft">{notice}</p> : null}
           <button type="button" onClick={onExpand} className="mt-4 rounded text-sm font-medium text-ink underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">Показать тренировку и показатели</button>
         </div>
-        <div className="order-1 sm:order-2"><ReadinessIndicator readiness={readiness} /></div>
       </div>
     </section>
   );
@@ -115,9 +114,8 @@ export function TodayDecisionStoryFull({ story, nextAction, readiness, workout, 
           ) : null}
         </div>
       ) : notice ? <p className="mb-4 text-sm leading-relaxed text-ink-soft">{notice}</p> : null}
-      <div className="grid items-start gap-5 sm:grid-cols-[1fr_160px]">
+      <div>
         <div className="order-2 min-w-0 sm:order-1">{workout}</div>
-        <div className="order-1 sm:order-2"><ReadinessIndicator readiness={readiness} /></div>
       </div>
       {completed && !completionInWorkout ? (
         <p className="mt-3 text-sm text-ink-soft">

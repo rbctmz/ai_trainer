@@ -45,6 +45,9 @@ def test_today_completion_by_session(web_stack):
             result = page.get_by_role("region", name="Выполнение тренировки")
             if scenario == "completed":
                 assert result.count() == 1
+                plan = page.get_by_text("Показать план тренировки", exact=True)
+                assert plan.is_visible()
+                assert not page.get_by_role("img", name="Разминка · 5 мин", exact=False).is_visible()
                 assert result.get_by_text("✓ Выполнено", exact=True).is_visible()
                 assert result.get_by_text("32 мин", exact=True).is_visible()
                 assert result.get_by_text("30 мин", exact=True).is_visible()

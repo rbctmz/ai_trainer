@@ -71,10 +71,9 @@ export function ReadinessIndicator({ readiness }: { readiness?: TodayReadiness |
   const radius = 34;
   const circumference = 2 * Math.PI * radius;
   return (
-    <div className="min-w-0 rounded-xl bg-surface-muted/60 p-4">
-      <p className="text-sm font-medium text-ink-soft">Восстановление</p>
-      <div className="mt-2 flex items-center gap-4 sm:flex-col sm:gap-2">
-        <div className="relative h-24 w-24 shrink-0" role={valid ? "meter" : undefined}
+    <div className="flex min-w-0 items-center gap-3">
+      <div className="flex items-center gap-3">
+        <div className="relative h-14 w-14 shrink-0" role={valid ? "meter" : undefined}
           aria-label={valid ? "Восстановление" : undefined} aria-valuemin={valid ? 0 : undefined}
           aria-valuemax={valid ? 100 : undefined} aria-valuenow={valid ? value : undefined}
           aria-valuetext={valid ? `${value} из 100; ${label}; ${freshness}` : undefined}>
@@ -84,12 +83,12 @@ export function ReadinessIndicator({ readiness }: { readiness?: TodayReadiness |
               strokeLinecap="round" strokeDasharray={`${(value / 100) * circumference} ${circumference}`}
               className="text-accent" /> : null}
           </svg>
-          <span className="absolute inset-0 flex items-center justify-center text-2xl font-semibold tabular-nums text-ink">
+          <span className="absolute inset-0 flex items-center justify-center text-lg font-semibold tabular-nums text-ink">
             {valid ? Math.round(value) : "—"}
           </span>
         </div>
-        <div className="min-w-0 sm:text-center">
-          {valid ? <p className="text-xs text-ink-soft">из 100</p> : null}
+        <div className="min-w-0">
+          <p className="text-xs text-ink-soft">Восстановление{valid ? " · из 100" : ""}</p>
           <p className="mt-1 text-sm font-medium text-ink">{label}</p>
           <p className="mt-1 text-xs leading-snug text-ink-soft">{freshness}</p>
         </div>

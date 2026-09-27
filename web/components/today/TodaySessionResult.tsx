@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
@@ -36,14 +37,13 @@ export function TodaySessionResult({ sessionId, prompt, onSaved, showName = fals
   const observed = complete || partial;
   const label = uncertain ? "Нужно уточнить выполнение" : gap ? "Недостаточно данных о выполнении" : complete ? "✓ Выполнено" : partial ? "◐ Выполнено частично" : "Выполнение пока не найдено";
   return (
-    <section aria-label="Выполнение тренировки" data-session-result={sessionId} className="mt-3 rounded-lg border border-surface-border bg-surface-muted p-3">
+    <section aria-label="Выполнение тренировки" data-session-result={sessionId} className="mt-3 mb-3">
       {showName ? <h3 className="mb-2 font-medium text-ink">{workoutLabel(data.plan.name)}</h3> : null}
-      <p className="font-semibold text-ink">{label}</p>
+      <p className={`inline-flex rounded-full border px-3 py-1 text-sm font-semibold ${complete ? "border-tone-success/40 bg-tone-success/15 text-tone-success" : partial ? "border-tone-warning/40 bg-tone-warning/15 text-tone-warning" : "border-surface-border text-ink"}`}>{label}</p>
       {observed ? <>
-        <dl className="mt-2 grid grid-cols-3 gap-2 text-sm tabular-nums">
-          <div><dt className="text-ink-soft">Показатель</dt><dd className="mt-1">Время</dd><dd className="mt-1">Нагрузка</dd></div>
-          <div><dt className="text-ink-soft">План</dt><dd className="mt-1">{metric(data.plan.duration_minutes, "мин")}</dd><dd className="mt-1">{metric(data.plan.load_tss, "TSS")}</dd></div>
-          <div><dt className="text-ink-soft">Факт</dt><dd className="mt-1">{metric(data.fact.duration_minutes, "мин")}</dd><dd className="mt-1">{metric(data.fact.load_tss, "TSS")}</dd></div>
+        <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-3 tabular-nums">
+          <div><dt className="text-xs text-ink-soft">Время</dt><dd><span className="text-lg font-semibold text-ink">{metric(data.fact.duration_minutes, "мин")}</span><span className="ml-2 text-xs text-ink-soft">план <span>{metric(data.plan.duration_minutes, "мин")}</span></span></dd></div>
+          <div><dt className="text-xs text-ink-soft">Нагрузка</dt><dd><span className="text-lg font-semibold text-ink">{metric(data.fact.load_tss, "TSS")}</span><span className="ml-2 text-xs text-ink-soft">план <span>{metric(data.plan.load_tss, "TSS")}</span></span></dd></div>
         </dl>
         {data.plan.legs.length > 1 ? <ul className="mt-3 space-y-1 text-sm text-ink-soft">
           {data.plan.legs.map(leg => <li key={leg.leg_id}>Этап {leg.leg_index}: {data.fact.legs.some(fact => fact.planned_leg_id === leg.leg_id) ? "есть запись выполнения" : "запись выполнения не найдена"}</li>)}
@@ -53,4 +53,13 @@ export function TodaySessionResult({ sessionId, prompt, onSaved, showName = fals
       {feedbackControl}
     </section>
   );
+}
+
+export function TodaySessionPlan({ sessionId, children }: { sessionId?: string | null; children: ReactNode }) {
+  // api-contract: manual: /api/planning/session-projection/{session_id}
+  const { data, error } = useSWR<SessionProjection>(sessionId ? `/api/planning/session-projection/${encodeURIComponent(sessionId)}` : null, fetcher);
+  if (!error && data?.session_id === sessionId && data?.projection_status === "matched" && data.fact.completion_status === "complete") {
+    return <details className="mt-3 border-t border-surface-border pt-3"><summary className="cursor-pointer rounded text-sm text-ink-soft underline focus-visible:outline">Показать план тренировки</summary><div className="mt-3">{children}</div></details>;
+  }
+  return <>{children}</>;
 }
