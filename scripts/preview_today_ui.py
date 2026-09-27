@@ -23,6 +23,9 @@ SCENARIOS = {
     "proposal": "Изменение плана",
     "stale": "Устаревшие данные",
     "missing": "Нет оценки",
+    "completed": "Выполнена",
+    "two-completed": "Одна из двух выполнена",
+    "partial-brick": "Часть брика",
 }
 
 
@@ -65,6 +68,14 @@ def main():
                     "scenario", ["ordinary"]
                 )[0]
                 return self.respond(200, payloads.get(name, payloads["ordinary"]))
+            if path.startswith("/api/planning/session-projection/"):
+                projections = json.loads((FIXTURES / "projections.json").read_text())
+                value = projections.get(path.rsplit("/", 1)[-1])
+                return (
+                    self.respond(200, value)
+                    if value
+                    else self.respond(404, {"detail": "Нет тестовой проекции"})
+                )
             if path == "/api/adherence":
                 return self.respond(
                     200, json.loads((FIXTURES / "adherence.json").read_text())

@@ -85,11 +85,12 @@ export function TodayDecisionStoryCompact({ nextAction, readiness, sessionName, 
   );
 }
 
-export function TodayDecisionStoryFull({ story, nextAction, readiness, workout }: {
+export function TodayDecisionStoryFull({ story, nextAction, readiness, workout, completionInWorkout = false }: {
   story: TodayDecisionStory;
   nextAction: NextAction;
   readiness?: TodayReadiness | null;
   workout?: ReactNode;
+  completionInWorkout?: boolean;
 }) {
   const notice = actionNotice(nextAction);
   const needsAttention = nextAction.kind !== "follow_plan";
@@ -118,7 +119,7 @@ export function TodayDecisionStoryFull({ story, nextAction, readiness, workout }
         <div className="order-2 min-w-0 sm:order-1">{workout}</div>
         <div className="order-1 sm:order-2"><ReadinessIndicator readiness={readiness} /></div>
       </div>
-      {completed ? (
+      {completed && !completionInWorkout ? (
         <p className="mt-3 text-sm text-ink-soft">
           {story.fact.completion_status === "complete" ? "Тренировка выполнена." : "Тренировка выполнена частично."}
           {actualLoad != null ? ` Фактическая нагрузка: ${actualLoad} TSS.` : " Нагрузка выполненной тренировки неизвестна."}

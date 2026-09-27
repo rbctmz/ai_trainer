@@ -16,7 +16,7 @@ import { PostWorkoutFeedbackCard } from "@/components/today/PostWorkoutFeedbackC
 import { AdherenceStrip } from "@/components/today/AdherenceStrip";
 import { TodayWellnessSummary } from "@/components/today/TodayWellnessSummary";
 import { WorkoutStrip } from "@/components/WorkoutStrip";
-import { SessionProjectionSummary } from "@/components/session/SessionProjectionSummary";
+import { TodaySessionResult } from "@/components/today/TodaySessionResult";
 import {
   TodayDecisionStoryCompact,
   TodayDecisionStoryFull,
@@ -58,7 +58,7 @@ export default function TodayPage() {
   const pendingMatch = data?.feedback?.prompts.find(
     (prompt) => prompt.state === "pending_match",
   );
-  const projectionSessionIds = session?.sessions !== undefined
+  const projectionSessionIds = session?.sessions?.length
     ? Array.from(
         new Set(
           session.sessions
@@ -70,6 +70,11 @@ export default function TodayPage() {
       ? [session.session_id]
       : [];
 
+  const sharedResultId = projectionSessionIds.length === 1 &&
+    (!session?.sessions || session.sessions.length <= 1 || session.sessions.every(leaf =>
+      leaf.kind === "brick_leg" && leaf.group_id === projectionSessionIds[0]))
+    ? projectionSessionIds[0] : null;
+
   const frequency = data?.briefing?.frequency ?? "daily";
   // The server story owns today's action. A legacy quiet gate must not hide a
   // different next action in the compact briefing.
@@ -79,6 +84,12 @@ export default function TodayPage() {
     state === "silence" &&
     decisionStory?.next_action.kind === "follow_plan" &&
     !expanded;
+
+  function renderResult(sessionId: string, showName = false) {
+    return <TodaySessionResult sessionId={sessionId} showName={showName}
+      prompt={data?.feedback?.prompts.find(prompt => prompt.session_id === sessionId)}
+      onSaved={message => { setNotice(message); void mutate(); }} />;
+  }
 
   const workout = state !== "no_plan" ? (
     <div className="min-w-0">
@@ -100,6 +111,7 @@ export default function TodayPage() {
               .filter(Boolean)
               .join(" · ")}
           </p>
+          {sharedResultId ? renderResult(sharedResultId) : null}
           {session.sessions && session.sessions.length > 1 ? (
             <div className="mt-3 grid gap-2">
               {session.sessions.map((leaf, index) => (
@@ -126,6 +138,10 @@ export default function TodayPage() {
                       {leaf.sport_label} · {leaf.total_tss} TSS
                     </span>
                   </div>
+                  {!sharedResultId && (leaf.group_id ?? leaf.session_id) &&
+                    !session.sessions?.slice(0, index).some(previous =>
+                      (previous.group_id ?? previous.session_id) === (leaf.group_id ?? leaf.session_id))
+                    ? renderResult((leaf.group_id ?? leaf.session_id)!) : null}
                   <TodaySteps steps={leaf.materialized_steps || []} />
                 </div>
               ))}
@@ -148,14 +164,6 @@ export default function TodayPage() {
           ) : (
             <TodaySteps steps={session.steps || []} />
           )}
-          {projectionSessionIds.length > 0 ? (
-            <details className="mt-4 border-t border-surface-border pt-3">
-              <summary className="cursor-pointer text-sm font-medium text-accent">Сравнить с выполненными тренировками</summary>
-              {projectionSessionIds.map((sessionId) => (
-                <SessionProjectionSummary key={sessionId} sessionId={sessionId} compact />
-              ))}
-            </details>
-          ) : null}
         </div>
       ) : (
         <p className="mt-1 text-sm text-ink-soft">
@@ -238,6 +246,7 @@ export default function TodayPage() {
                   onExpand={() => setExpanded(true)}
                 />
               ) : null}
+              {projectionSessionIds.map(id => <div key={id}>{renderResult(id, true)}</div>)}
               <TodayWellnessSummary data={data.subjective_wellness} />
             </>
           ) : (
@@ -248,6 +257,7 @@ export default function TodayPage() {
               nextAction={decisionStory.next_action}
               readiness={readiness}
               workout={workout}
+              completionInWorkout={projectionSessionIds.length > 0}
             />
           ) : (
             <section className="rounded-card border border-surface-border bg-surface p-5">
@@ -472,7 +482,7 @@ export default function TodayPage() {
 
           <AdherenceStrip />
 
-          {feedbackPrompt ? (
+          {feedbackPrompt && !projectionSessionIds.includes(feedbackPrompt.session_id) ? (
             <PostWorkoutFeedbackCard
               key={`${feedbackPrompt.session_id}-${feedbackPrompt.feedback?.revision ?? 0}`}
               prompt={feedbackPrompt}
