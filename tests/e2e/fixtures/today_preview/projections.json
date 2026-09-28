@@ -1,0 +1,304 @@
+{
+  "demo-done": {
+    "schema_version": "session_projection_v1",
+    "session_id": "demo-done",
+    "projection_status": "matched",
+    "evidence_revision": {
+      "planning_checkpoint_id": 1,
+      "match_revision_id": 1,
+      "match_revision": 1,
+      "feedback_revision_id": null,
+      "feedback_revision": null,
+      "reconciliation_rule_version": "fixture",
+      "as_of": null,
+      "provider_status": "available"
+    },
+    "plan": {
+      "date": "2026-09-25",
+      "sport": "run",
+      "role": "easy",
+      "name": "Recovery Run",
+      "duration_minutes": 30,
+      "load_tss": 23,
+      "legs": [],
+      "transition": {
+        "planned_minutes": null
+      }
+    },
+    "fact": {
+      "completion_status": "complete",
+      "actual_activity_ids": [
+        "demo-activity"
+      ],
+      "candidate_activity_ids": [],
+      "duration_minutes": 32,
+      "load_tss": 24,
+      "legs": [],
+      "transition": {
+        "actual_minutes": null
+      }
+    },
+    "deviation": {
+      "adherence": "exact",
+      "duration_delta_minutes": 2,
+      "load_delta_tss": 1,
+      "structure_match": null,
+      "transition_delta_minutes": null
+    },
+    "cause": {
+      "status": "unknown",
+      "code": "unknown",
+      "evidence_refs": []
+    },
+    "confidence": {
+      "status": "confirmed",
+      "score": 1,
+      "match_status": "matched",
+      "match_method": "fixture",
+      "evidence": []
+    },
+    "data_quality": {
+      "status": "sufficient",
+      "reasons": []
+    },
+    "load": {
+      "planned_tss": 23,
+      "matched_tss": 24,
+      "other_matched_tss": 0,
+      "additional_unmatched_tss": 0,
+      "day_total_tss": 24
+    }
+  },
+  "demo-first": {
+    "schema_version": "session_projection_v1",
+    "session_id": "demo-first",
+    "projection_status": "matched",
+    "evidence_revision": {
+      "planning_checkpoint_id": 1,
+      "match_revision_id": 1,
+      "match_revision": 1,
+      "feedback_revision_id": null,
+      "feedback_revision": null,
+      "reconciliation_rule_version": "fixture",
+      "as_of": null,
+      "provider_status": "available"
+    },
+    "plan": {
+      "date": "2026-09-25",
+      "sport": "run",
+      "role": "easy",
+      "name": "Recovery Run",
+      "duration_minutes": 30,
+      "load_tss": 23,
+      "legs": [],
+      "transition": {
+        "planned_minutes": null
+      }
+    },
+    "fact": {
+      "completion_status": "complete",
+      "actual_activity_ids": [
+        "demo-activity"
+      ],
+      "candidate_activity_ids": [],
+      "duration_minutes": 32,
+      "load_tss": 24,
+      "legs": [],
+      "transition": {
+        "actual_minutes": null
+      }
+    },
+    "deviation": {
+      "adherence": "exact",
+      "duration_delta_minutes": 2,
+      "load_delta_tss": 1,
+      "structure_match": null,
+      "transition_delta_minutes": null
+    },
+    "cause": {
+      "status": "unknown",
+      "code": "unknown",
+      "evidence_refs": []
+    },
+    "confidence": {
+      "status": "confirmed",
+      "score": 1,
+      "match_status": "matched",
+      "match_method": "fixture",
+      "evidence": []
+    },
+    "data_quality": {
+      "status": "sufficient",
+      "reasons": []
+    },
+    "load": {
+      "planned_tss": 23,
+      "matched_tss": 24,
+      "other_matched_tss": 0,
+      "additional_unmatched_tss": 0,
+      "day_total_tss": 24
+    }
+  },
+  "demo-second": {
+    "schema_version": "session_projection_v1",
+    "session_id": "demo-second",
+    "projection_status": "unmatched",
+    "evidence_revision": {
+      "planning_checkpoint_id": 1,
+      "match_revision_id": 1,
+      "match_revision": 1,
+      "feedback_revision_id": null,
+      "feedback_revision": null,
+      "reconciliation_rule_version": "fixture",
+      "as_of": null,
+      "provider_status": "available"
+    },
+    "plan": {
+      "date": "2026-09-25",
+      "sport": "run",
+      "role": "easy",
+      "name": "Recovery Run",
+      "duration_minutes": 30,
+      "load_tss": 23,
+      "legs": [],
+      "transition": {
+        "planned_minutes": null
+      }
+    },
+    "fact": {
+      "completion_status": "not_observed",
+      "actual_activity_ids": [],
+      "candidate_activity_ids": [],
+      "duration_minutes": null,
+      "load_tss": null,
+      "legs": [],
+      "transition": {
+        "actual_minutes": null
+      }
+    },
+    "deviation": {
+      "adherence": "exact",
+      "duration_delta_minutes": 2,
+      "load_delta_tss": 1,
+      "structure_match": null,
+      "transition_delta_minutes": null
+    },
+    "cause": {
+      "status": "unknown",
+      "code": "unknown",
+      "evidence_refs": []
+    },
+    "confidence": {
+      "status": "confirmed",
+      "score": 1,
+      "match_status": "matched",
+      "match_method": "fixture",
+      "evidence": []
+    },
+    "data_quality": {
+      "status": "sufficient",
+      "reasons": []
+    },
+    "load": {
+      "planned_tss": 23,
+      "matched_tss": 24,
+      "other_matched_tss": 0,
+      "additional_unmatched_tss": 0,
+      "day_total_tss": 24
+    }
+  },
+  "demo-brick": {
+    "schema_version": "session_projection_v1",
+    "session_id": "demo-brick",
+    "projection_status": "partial",
+    "evidence_revision": {
+      "planning_checkpoint_id": 1,
+      "match_revision_id": 1,
+      "match_revision": 1,
+      "feedback_revision_id": null,
+      "feedback_revision": null,
+      "reconciliation_rule_version": "fixture",
+      "as_of": null,
+      "provider_status": "available"
+    },
+    "plan": {
+      "date": "2026-09-25",
+      "sport": "run",
+      "role": "easy",
+      "name": "Recovery Run",
+      "duration_minutes": 80,
+      "load_tss": 75,
+      "legs": [
+        {
+          "leg_id": "demo-leg-1",
+          "leg_index": 1,
+          "sport": "bike",
+          "duration_minutes": 60,
+          "load_tss": 60
+        },
+        {
+          "leg_id": "demo-leg-2",
+          "leg_index": 2,
+          "sport": "run",
+          "duration_minutes": 15,
+          "load_tss": 15
+        }
+      ],
+      "transition": {
+        "planned_minutes": null
+      }
+    },
+    "fact": {
+      "completion_status": "incomplete",
+      "actual_activity_ids": [
+        "demo-activity"
+      ],
+      "candidate_activity_ids": [],
+      "duration_minutes": 60,
+      "load_tss": 60,
+      "legs": [
+        {
+          "planned_leg_id": "demo-leg-1",
+          "leg_index": 1,
+          "activity_id": "demo-activity",
+          "sport": "bike",
+          "duration_minutes": 60,
+          "load_tss": 60
+        }
+      ],
+      "transition": {
+        "actual_minutes": null
+      }
+    },
+    "deviation": {
+      "adherence": "exact",
+      "duration_delta_minutes": 2,
+      "load_delta_tss": 1,
+      "structure_match": null,
+      "transition_delta_minutes": null
+    },
+    "cause": {
+      "status": "unknown",
+      "code": "unknown",
+      "evidence_refs": []
+    },
+    "confidence": {
+      "status": "confirmed",
+      "score": 1,
+      "match_status": "matched",
+      "match_method": "fixture",
+      "evidence": []
+    },
+    "data_quality": {
+      "status": "sufficient",
+      "reasons": []
+    },
+    "load": {
+      "planned_tss": 23,
+      "matched_tss": 24,
+      "other_matched_tss": 0,
+      "additional_unmatched_tss": 0,
+      "day_total_tss": 24
+    }
+  }
+}

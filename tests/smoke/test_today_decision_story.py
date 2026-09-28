@@ -150,6 +150,104 @@ def _inputs(*, session: dict | None = None, wellness: dict | None = None) -> dic
     }
 
 
+def _unobserved_planned_session(*, day: str = "2026-09-23") -> dict:
+    session = _session("unmatched")
+    session["plan"]["date"] = day
+    session["fact"] = {
+        "completion_status": "not_observed",
+        "actual_activity_ids": [],
+        "candidate_activity_ids": [],
+        "duration_minutes": None,
+        "load_tss": None,
+        "legs": [],
+        "transition": {"actual_minutes": None},
+    }
+    session["confidence"] = {"match_method": "date_sport_heuristic"}
+    session["data_quality"] = {"status": "sufficient", "reasons": []}
+    session["load"] = {"additional_unmatched_tss": 0}
+    return session
+
+
+@pytest.mark.parametrize("day", ["2026-09-23", "2026-09-24"])
+def test_unobserved_current_or_future_plan_keeps_supplied_action(day: str) -> None:
+    story = _compose(**_inputs(session=_unobserved_planned_session(day=day)))
+
+    assert story["fact"]["projection_status"] == "unmatched"
+    assert story["fact"]["completion_status"] == "not_observed"
+    assert story["interpretation"]["status"] == "consistent"
+    assert story["next_action"]["kind"] == "follow_plan"
+    assert story["next_action"]["summary"] == "План и состояние согласны."
+
+
+def test_unobserved_plan_with_zero_fact_totals_keeps_supplied_action() -> None:
+    session = _unobserved_planned_session()
+    session["fact"]["duration_minutes"] = 0.0
+    session["fact"]["load_tss"] = 0.0
+
+    story = _compose(**_inputs(session=session))
+
+    assert story["fact"]["completion_status"] == "not_observed"
+    assert story["fact"]["actual"]["activity_ids"] == []
+    assert story["next_action"]["kind"] == "follow_plan"
+
+
+@pytest.mark.parametrize("evidence_change", [
+    {"plan_date": "2026-09-22"},
+    {"candidate_activity_ids": ["candidate-1"]},
+    {"actual_activity_ids": ["activity-1"]},
+    {"actual_duration_minutes": 30},
+    {"actual_load_tss": 20},
+    {"match_method": "user_unmatched"},
+    {"data_quality": "data_gap"},
+    {"additional_unmatched_tss": 25},
+])
+def test_unmatched_with_past_or_observed_evidence_still_requires_review(
+    evidence_change: dict,
+) -> None:
+    session = _unobserved_planned_session()
+    if "plan_date" in evidence_change:
+        session["plan"]["date"] = evidence_change["plan_date"]
+    if "candidate_activity_ids" in evidence_change:
+        session["fact"]["candidate_activity_ids"] = evidence_change["candidate_activity_ids"]
+    if "actual_activity_ids" in evidence_change:
+        session["fact"]["actual_activity_ids"] = evidence_change["actual_activity_ids"]
+    if "actual_duration_minutes" in evidence_change:
+        session["fact"]["duration_minutes"] = evidence_change["actual_duration_minutes"]
+    if "actual_load_tss" in evidence_change:
+        session["fact"]["load_tss"] = evidence_change["actual_load_tss"]
+    if "match_method" in evidence_change:
+        session["confidence"]["match_method"] = evidence_change["match_method"]
+    if "data_quality" in evidence_change:
+        session["data_quality"]["status"] = evidence_change["data_quality"]
+    if "additional_unmatched_tss" in evidence_change:
+        session["load"]["additional_unmatched_tss"] = evidence_change["additional_unmatched_tss"]
+
+    story = _compose(**_inputs(session=session))
+
+    assert story["next_action"]["kind"] == "inspect_evidence"
+
+
+def test_current_injury_overrides_unobserved_planned_session() -> None:
+    story = _compose(**_inputs(
+        session=_unobserved_planned_session(), wellness=_wellness(injury=2)
+    ))
+
+    assert story["interpretation"]["status"] == "conflicting_evidence"
+    assert story["next_action"]["kind"] == "inspect_evidence"
+
+
+def test_unobserved_plan_does_not_override_proposal_gate() -> None:
+    inputs = _inputs(session=_unobserved_planned_session())
+    inputs["primary_action"] = {
+        "kind": "review_proposal", "enabled": True, "reason": "Проверьте предложение."
+    }
+
+    story = _compose(**inputs)
+
+    assert story["next_action"]["kind"] == "inspect_evidence"
+    assert story["next_action"]["changes_plan"] is False
+
+
 def test_today_story_separates_fact_interpretation_and_recommendation() -> None:
     story = _compose(**_inputs())
 

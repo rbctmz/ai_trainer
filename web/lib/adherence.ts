@@ -16,7 +16,7 @@ export const STATUS_META: Record<
   missed: { label: "Пропущено", chip: "bg-tone-danger/15 text-tone-danger" },
   unknown: { label: "Матч без оценки", chip: "bg-surface-muted text-ink-soft" },
   unplanned: { label: "Вне плана", chip: "bg-tone-warning/10 text-tone-warning" },
-  rest: { label: "Отдых", chip: "bg-surface-muted text-ink-faint" },
+  rest: { label: "Отдых", chip: "bg-surface-muted text-ink-soft" },
   pending: { label: "В процессе", chip: "bg-accent/10 text-accent" },
 };
 

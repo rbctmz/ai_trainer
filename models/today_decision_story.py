@@ -64,6 +64,7 @@ def compose_today_decision_story(
     injury = _injury_evidence(wellness, anchor)
     action_kind = str(action.get("kind") or "inspect_evidence")
     action_reason = str(action.get("reason") or "Действие требует проверки доказательств.")
+    unobserved_plan = _is_unobserved_plan(session, anchor, action_kind)
 
     if malformed_evidence:
         session_status = "data_gap"
@@ -92,7 +93,11 @@ def compose_today_decision_story(
             "changes_plan": False,
             "clearance_claim": False,
         }
-    elif session_projection is not None and session_status in {"unmatched", "data_gap"}:
+    elif (
+        session_projection is not None
+        and session_status in {"unmatched", "data_gap"}
+        and not unobserved_plan
+    ):
         interpretation_status = "data_gap"
         recommendation = {
             "kind": "non_prescriptive_review",
@@ -194,6 +199,37 @@ def compose_today_decision_story(
         "next_action": next_action,
         "evidence": evidence,
     }
+
+
+def _is_unobserved_plan(session: Mapping[str, Any], anchor: str | None, action_kind: str) -> bool:
+    """Distinguish an upcoming plan from an unmatched observed activity."""
+    if action_kind != "follow_plan" or session.get("projection_status") != "unmatched":
+        return False
+    plan_date = _date_text(_mapping(session.get("plan")).get("date"))
+    if not anchor or not plan_date or plan_date < anchor:
+        return False
+    fact = _mapping(session.get("fact"))
+    if fact.get("completion_status") != "not_observed":
+        return False
+    if any(not isinstance(fact.get(key), list) or fact[key] for key in (
+        "actual_activity_ids", "candidate_activity_ids", "legs"
+    )):
+        return False
+    if any(
+        value is not None and (type(value) not in (int, float) or value != 0)
+        for value in (fact.get("duration_minutes"), fact.get("load_tss"))
+    ):
+        return False
+    if _mapping(fact.get("transition")).get("actual_minutes") is not None:
+        return False
+    if _mapping(session.get("data_quality")).get("status") != "sufficient":
+        return False
+    if _mapping(session.get("confidence")).get("match_method") != "date_sport_heuristic":
+        return False
+    if _mapping(session.get("evidence_revision")).get("feedback_revision_id") is not None:
+        return False
+    additional_load = _mapping(session.get("load")).get("additional_unmatched_tss")
+    return _number(additional_load) == 0
 
 
 def _injury_evidence(wellness: Mapping[str, Any], anchor: str) -> dict[str, Any]:

@@ -4,19 +4,20 @@ import { useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import { fetcher, putJSON } from "@/lib/api";
+import { workoutLabel, decisionText } from "@/components/today/displayText";
 import { showDevTools } from "@/lib/flags";
 import type {
-  ReadinessFreshness,
-  TodayReadinessDriver,
   TodayResponse,
   WorkoutStep,
 } from "@/lib/types";
+
 import { ProposalCard } from "@/components/ui/ProposalCard";
 import { PostWorkoutFeedbackCard } from "@/components/today/PostWorkoutFeedbackCard";
 import { AdherenceStrip } from "@/components/today/AdherenceStrip";
-import { SubjectiveWellnessCard } from "@/components/dashboard/SubjectiveWellnessCard";
+import { TodayStateSummary } from "@/components/today/TodayStateSummary";
 import { WorkoutStrip } from "@/components/WorkoutStrip";
 import { SessionProjectionSummary } from "@/components/session/SessionProjectionSummary";
+import { TodaySessionPlan, TodaySessionResult } from "@/components/today/TodaySessionResult";
 import {
   TodayDecisionStoryCompact,
   TodayDecisionStoryFull,
@@ -34,53 +35,6 @@ function formatHumanDate(iso: string): string {
     return iso;
   }
 }
-
-// Issue #557: the browser only *labels* server-owned provenance values; it never
-// derives freshness, scores or eligibility itself.
-function observationDateLabel(driver: TodayReadinessDriver): string {
-  switch (driver.observation_status) {
-    case "confirmed_today":
-      return "сегодня";
-    case "outdated": {
-      const date = driver.observation_as_of ? ` · ${driver.observation_as_of}` : "";
-      if (driver.age_days === 1) return `вчера${date}`;
-      if (typeof driver.age_days === "number" && driver.age_days > 1) {
-        return `${driver.age_days} дн. назад${date}`;
-      }
-      return `не за сегодня${date}`;
-    }
-    case "invalid":
-      return "некорректная дата измерения";
-    default:
-      return "дата измерения неизвестна";
-  }
-}
-
-function freshnessSummary(freshness: ReadinessFreshness): string {
-  const parts: string[] = [];
-  if (freshness.confirmed_today.length > 0) {
-    parts.push(`подтверждено сегодня: ${freshness.confirmed_today.join(", ")}`);
-  }
-  if (freshness.outdated.length > 0) {
-    parts.push(`не за сегодня: ${freshness.outdated.join(", ")}`);
-  }
-  if (freshness.unverified.length > 0) {
-    parts.push(`дата неизвестна: ${freshness.unverified.join(", ")}`);
-  }
-  if (freshness.invalid.length > 0) {
-    parts.push(`некорректная дата: ${freshness.invalid.join(", ")}`);
-  }
-  if (freshness.missing.length > 0) {
-    parts.push(`нет данных: ${freshness.missing.join(", ")}`);
-  }
-  return parts.join(" · ");
-}
-
-const blockedReasonLabels: Record<string, string> = {
-  no_confirmed_today_primary_recovery_measurement:
-    "нет подтверждённого сегодняшнего первичного измерения (сон, HRV, пульс покоя)",
-  no_intervention_eligible_factors: "нет ни одного пригодного измерения восстановления",
-};
 
 export default function TodayPage() {
   const { data, error, isLoading, mutate } = useSWR<TodayResponse>(
@@ -117,6 +71,11 @@ export default function TodayPage() {
       ? [session.session_id]
       : [];
 
+  const sharedResultId = projectionSessionIds.length === 1 &&
+    (!session?.sessions || session.sessions.length <= 1 || session.sessions.every(leaf =>
+      leaf.kind === "brick_leg" && leaf.group_id === projectionSessionIds[0]))
+    ? projectionSessionIds[0] : null;
+
   const frequency = data?.briefing?.frequency ?? "daily";
   // The server story owns today's action. A legacy quiet gate must not hide a
   // different next action in the compact briefing.
@@ -126,6 +85,97 @@ export default function TodayPage() {
     state === "silence" &&
     decisionStory?.next_action.kind === "follow_plan" &&
     !expanded;
+
+  function renderResult(sessionId: string, showName = false) {
+    return <>
+      <TodaySessionResult sessionId={sessionId} showName={showName}
+        prompt={data?.feedback?.prompts.find(prompt => prompt.session_id === sessionId)}
+        onSaved={message => { setNotice(message); void mutate(); }} />
+      <SessionProjectionSummary sessionId={sessionId} presentation="today" />
+    </>;
+  }
+
+  const workout = state !== "no_plan" ? (
+    <div className="min-w-0">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+        Сегодня по плану
+      </h2>
+      {session ? (
+        <div className="mt-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xl font-semibold text-ink">{workoutLabel(session.name)}</span>
+            {session.is_key ? (
+              <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
+                ключевая
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-0.5 text-sm text-ink-soft">
+            {[session.duration_minutes != null ? `${session.duration_minutes} мин` : null, session.role_label, session.sport_label, `${session.tss} TSS`]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+          {sharedResultId ? renderResult(sharedResultId) : null}
+          {session.sessions && session.sessions.length > 1 ? (
+            <div className="mt-3 grid min-w-0 grid-cols-1 gap-2">
+              {session.sessions.map((leaf, index) => (
+                <div
+                  key={leaf.session_id || `${leaf.sport}-${index}`}
+                  className="rounded-lg bg-surface-muted p-3"
+                >
+                  {leaf.kind === "brick_leg" && index > 0 && session.sessions?.[index - 1]?.kind === "brick_leg" && (
+                    (leaf.group_id && leaf.group_id === session.sessions[index - 1].group_id) ||
+                    (!leaf.group_id && !session.sessions[index - 1].group_id && session.kind === "composite")
+                  ) ? (
+                    <div className="mb-3 border-b border-accent/30 pb-3 text-sm font-medium text-accent">
+                      ↓ Переход{session.kind === "composite" && session.transition_minutes != null ? ` · ${session.transition_minutes} мин` : " к следующему этапу"}
+                    </div>
+                  ) : null}
+                  <div className="text-sm font-medium text-ink">
+                    {index + 1}. {workoutLabel(leaf.name)}
+                    {leaf.kind === "brick_leg" ? (
+                      <span className="ml-1 rounded bg-accent/10 px-1 text-[10px] font-medium text-accent">
+                        брик · этап {leaf.leg_index}
+                      </span>
+                    ) : null}
+                    <span className="ml-1 font-normal text-ink-soft">
+                      {leaf.sport_label} · {leaf.total_tss} TSS
+                    </span>
+                  </div>
+                  {!sharedResultId && (leaf.group_id ?? leaf.session_id) &&
+                    !session.sessions?.slice(0, index).some(previous =>
+                      (previous.group_id ?? previous.session_id) === (leaf.group_id ?? leaf.session_id))
+                    ? renderResult((leaf.group_id ?? leaf.session_id)!) : null}
+                  <TodaySteps steps={leaf.materialized_steps || []} />
+                </div>
+              ))}
+            </div>
+          ) : session.kind === "composite" && session.legs?.length ? (
+            <div className="mt-3 grid min-w-0 grid-cols-1 gap-2">
+              {session.legs.map((leg, index) => (
+                <div key={leg.leg_index} className="rounded-lg bg-surface-muted p-2.5">
+                  {index > 0 ? <div className="mb-3 text-sm font-medium text-accent">↓ Переход{session.transition_minutes != null ? ` · ${session.transition_minutes} мин` : " к следующему этапу"}</div> : null}
+                  <div className="text-sm font-medium text-ink">
+                    {leg.leg_index}. {workoutLabel(leg.template_name || leg.sport || "Этап")}
+                    <span className="ml-1 font-normal text-ink-soft">
+                      {leg.duration_minutes} мин · {leg.target_tss} TSS
+                    </span>
+                  </div>
+                  <TodaySteps steps={leg.steps} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <TodaySessionPlan sessionId={sharedResultId}><TodaySteps steps={session.steps || []} /></TodaySessionPlan>
+          )}
+        </div>
+      ) : (
+        <p className="mt-1 text-sm text-ink-soft">
+          Плановой сессии нет — день отдыха.
+        </p>
+      )}
+    </div>
+  ) : null;
 
   async function toggleBriefingFrequency() {
     const next = frequency === "conflicts_only" ? "daily" : "conflicts_only";
@@ -142,7 +192,7 @@ export default function TodayPage() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl space-y-5">
+    <main className="w-full space-y-5">
       {isLoading ? (
         <div
           role="status"
@@ -155,7 +205,7 @@ export default function TodayPage() {
       ) : null}
       {error ? (
         <div role="alert" className="rounded-card border border-tone-danger/30 bg-tone-danger/10 p-4 text-sm text-tone-danger">
-          Не удалось загрузить «Сегодня». Проверьте, что ./run_web.sh запущен.
+          Не удалось загрузить «Сегодня». Попробуйте обновить страницу.
         </div>
       ) : null}
       {notice ? (
@@ -174,31 +224,32 @@ export default function TodayPage() {
           ) : null}
           <header className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-sm text-ink-faint">{formatHumanDate(data.date)}</p>
-              {!isCompact ? (
-                <h1 className="mt-1 text-2xl font-bold text-ink">Сегодня</h1>
-              ) : null}
+              <p className="text-sm text-ink-soft">{formatHumanDate(data.date)}</p>
+              <h1 className="mt-1 text-2xl font-bold text-ink">Сегодня</h1>
             </div>
             <button
               type="button"
               onClick={() => void toggleBriefingFrequency()}
               disabled={frequencySaving}
               title="Частота утреннего брифинга"
-              className="shrink-0 whitespace-nowrap rounded-lg border border-surface-border px-2.5 py-1.5 text-xs font-medium text-ink-faint transition hover:bg-surface-muted disabled:opacity-60"
+              className="shrink-0 whitespace-nowrap rounded-lg border border-surface-border px-2.5 py-1.5 text-xs font-medium text-ink-soft transition hover:bg-surface-muted disabled:opacity-60"
             >
               {frequency === "conflicts_only" ? "Только конфликты" : "Каждое утро"}
             </button>
           </header>
+          <TodayStateSummary readiness={readiness} wellness={data.subjective_wellness} />
 
           {isCompact ? (
             <>
               {decisionStory ? (
                 <TodayDecisionStoryCompact
                   nextAction={decisionStory.next_action}
+                  readiness={readiness}
+                  sessionName={session?.name}
                   onExpand={() => setExpanded(true)}
                 />
               ) : null}
-              <SubjectiveWellnessCard data={data.subjective_wellness} />
+              {projectionSessionIds.map(id => <div key={id}>{renderResult(id, true)}</div>)}
             </>
           ) : (
             <>
@@ -206,13 +257,17 @@ export default function TodayPage() {
             <TodayDecisionStoryFull
               story={decisionStory}
               nextAction={decisionStory.next_action}
+              readiness={readiness}
+              workout={workout}
+              completionInWorkout={projectionSessionIds.length > 0}
             />
           ) : (
-            <section role="alert" className="rounded-card border border-tone-warning/30 bg-tone-warning/10 p-4 text-sm text-ink-soft">
-              История решения недоступна. Проверьте данные перед действием.
+            <section className="rounded-card border border-surface-border bg-surface p-5">
+              <p role="alert" className="mb-4 text-sm text-tone-warning">История решения недоступна. Проверьте данные перед действием.</p>
+              {workout}
+
             </section>
           )}
-          <SubjectiveWellnessCard data={data.subjective_wellness} />
           {state === "no_plan" ? (
             <div className="rounded-card border border-surface-border bg-surface p-6 text-center shadow-card">
               <p className="text-sm text-ink-soft">
@@ -233,6 +288,7 @@ export default function TodayPage() {
           decisionStory?.next_action.kind === "review_proposal" &&
           decisionStory.next_action.enabled ? (
             <ProposalCard
+              presentation="today"
               proposalId={proposal.id}
               action={proposal.action}
               status={proposal.status}
@@ -252,22 +308,19 @@ export default function TodayPage() {
           {state === "conflict_unactionable" ? (
             <section className="rounded-card border border-tone-warning/40 bg-tone-warning/10 p-4 shadow-card">
               <h2 className="text-sm font-semibold text-ink">
-                Автоматическая правка сейчас небезопасна
+                Изменение плана пока недоступно
               </h2>
               <p className="mt-1 text-sm text-ink-soft">
-                Контур увидел расхождение готовности и нагрузки, но не создал применимое
-                предложение. План не объявляется безопасным автоматически — проверьте улики
-                ниже и при необходимости скорректируйте день вручную.
+                Оценка восстановления расходится с запланированной нагрузкой. Готового
+                предложения по изменению нет. Посмотрите объяснение ниже и проверьте план.
               </p>
               {data.proposal.relation === "stale" ? (
                 <p className="mt-2 text-xs text-tone-warning">
-                  Предыдущее предложение относится к checkpoint #
-                  {data.proposal.base_checkpoint_id ?? "—"}, активный checkpoint #
-                  {data.proposal.active_checkpoint_id ?? "—"}. Кнопки применения отключены.
+                  Предыдущее предложение относится к старой версии плана и больше не может быть применено.
                 </p>
               ) : null}
-              {data.gate.proposal_gap ? (
-                <p className="mt-2 text-xs text-ink-faint">
+              {showDevTools && data.gate.proposal_gap ? (
+                <p className="mt-2 text-xs text-ink-soft">
                   Причина отсутствия варианта: {data.gate.proposal_gap}
                 </p>
               ) : null}
@@ -290,173 +343,13 @@ export default function TodayPage() {
             </section>
           ) : null}
 
-          {state !== "no_plan" ? (
-            <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                Сегодня по плану
-              </h2>
-              {session ? (
-                <div className="mt-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-lg font-semibold text-ink">{session.name}</span>
-                    {session.is_key ? (
-                      <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
-                        ключевая
-                      </span>
-                    ) : null}
-                  </div>
-                  <p className="mt-0.5 text-sm text-ink-soft">
-                    {[session.role_label, session.sport_label, `${session.tss} TSS`]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </p>
-                  {session.stimulus ? (
-                    <p className="mt-2 text-sm text-ink-soft">{session.stimulus}</p>
-                  ) : null}
-                  {session.fatigue_cost?.length ? (
-                    <p className="mt-1 text-xs text-ink-faint">
-                      Fatigue {session.fatigue_cost.join("/")}
-                      {session.expected_recovery_hours
-                        ? ` · восстановление ~${session.expected_recovery_hours} ч`
-                        : ""}
-                    </p>
-                  ) : null}
-                  {session.sessions && session.sessions.length > 1 ? (
-                    <div className="mt-3 grid gap-2">
-                      {session.sessions.map((leaf, index) => (
-                        <div
-                          key={leaf.session_id || `${leaf.sport}-${index}`}
-                          className="rounded-lg bg-surface-muted p-2.5"
-                        >
-                          <div className="text-xs font-medium text-ink">
-                            {index + 1}. {leaf.name}
-                            {leaf.kind === "brick_leg" ? (
-                              <span className="ml-1 rounded bg-accent/10 px-1 text-[10px] font-medium text-accent">
-                                brick · этап {leaf.leg_index}
-                              </span>
-                            ) : null}
-                            <span className="ml-1 font-normal text-ink-faint">
-                              {leaf.sport_label} · {leaf.total_tss} TSS
-                            </span>
-                          </div>
-                          <TodaySteps steps={leaf.materialized_steps || []} />
-                        </div>
-                      ))}
-                    </div>
-                  ) : session.kind === "composite" && session.legs?.length ? (
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                      {session.legs.map((leg) => (
-                        <div key={leg.leg_index} className="rounded-lg bg-surface-muted p-2.5">
-                          <div className="text-xs font-medium text-ink">
-                            {leg.leg_index}. {leg.template_name || leg.sport}
-                            <span className="ml-1 font-normal text-ink-faint">
-                              {leg.duration_minutes} мин · {leg.target_tss} TSS
-                            </span>
-                          </div>
-                          <TodaySteps steps={leg.steps} />
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <TodaySteps steps={session.steps || []} />
-                  )}
-                  {projectionSessionIds.map((sessionId) => (
-                    <SessionProjectionSummary key={sessionId} sessionId={sessionId} />
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-1 text-sm text-ink-soft">
-                  Плановой сессии нет — день отдыха.
-                </p>
-              )}
-            </section>
-          ) : null}
-
-          {readiness ? (
-            <details className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
-              <summary className="cursor-pointer text-sm font-medium text-ink">
-                Готовность {Math.round(readiness.score)}/100
-                {readiness.freshness && readiness.freshness.state !== "fresh" ? (
-                  <span className="ml-2 text-xs font-normal text-tone-warning">
-                    предварительно
-                  </span>
-                ) : null}
-                <span className="ml-2 text-xs font-normal text-ink-faint">
-                  почему — {readiness.drivers.length || readiness.factors.length} факторов
-                </span>
-              </summary>
-              {readiness.freshness && readiness.freshness.state !== "fresh" ? (
-                <div
-                  className={`mt-3 rounded-card border p-3 text-xs ${
-                    readiness.freshness.state === "data_gap"
-                      ? "border-tone-warning/30 bg-tone-warning/10 text-tone-warning"
-                      : "border-surface-border bg-surface-muted text-ink-soft"
-                  }`}
-                >
-                  <p className="font-medium">
-                    {readiness.freshness.state === "data_gap"
-                      ? "Сегодняшнего измерения восстановления нет — оценка предварительная"
-                      : "Часть ночных измерений не подтверждена за сегодня"}
-                  </p>
-                  {readiness.freshness.blocked_reason ? (
-                    <p className="mt-1">
-                      {blockedReasonLabels[readiness.freshness.blocked_reason] ??
-                        readiness.freshness.blocked_reason}
-                    </p>
-                  ) : null}
-                  <p className="mt-1">{freshnessSummary(readiness.freshness)}</p>
-                </div>
-              ) : null}
-              <div className="mt-3 space-y-1.5 text-sm text-ink-soft">
-                {(readiness.drivers.length > 0 ? readiness.drivers : readiness.factors).map(
-                  (item, index) => {
-                    const evidence = String(item.evidence ?? "");
-                    if (!evidence) return null;
-                    const driver = item as TodayReadinessDriver;
-                    const dateLabel = driver.observation_status
-                      ? observationDateLabel(driver)
-                      : null;
-                    return (
-                      <p key={index}>
-                        • {evidence}
-                        {dateLabel ? (
-                          <span className="ml-1 text-xs text-ink-faint">({dateLabel})</span>
-                        ) : null}
-                      </p>
-                    );
-                  },
-                )}
-                {readiness.tsb &&
-                readiness.tsb.tsb != null &&
-                !(readiness.drivers.length > 0 ? readiness.drivers : readiness.factors).some(
-                  (item) => item.key === "tsb",
-                ) ? (
-                  <p>
-                    • TSB {readiness.tsb.tsb} (CTL {readiness.tsb.ctl ?? "—"}, окно{" "}
-                    {readiness.tsb.window_days} дн.)
-                  </p>
-                ) : null}
-                {readiness.source_completeness != null ? (
-                  <p className="text-xs text-ink-faint">
-                    покрытие факторов {Math.round(readiness.source_completeness * 100)}%
-                  </p>
-                ) : null}
-                {readiness.confidence != null ? (
-                  <p className="text-xs text-ink-faint">
-                    описательная уверенность {readiness.confidence}
-                    {readiness.stale ? " · данные устарели" : ""}
-                  </p>
-                ) : null}
-              </div>
-            </details>
-          ) : null}
 
           {data.gate.conflicts.length || data.gate.data_gap || data.gate.proposal_gap ? (
             <details className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
               <summary className="cursor-pointer text-sm font-medium text-ink">
-                Улики salience-gate
-                <span className="ml-2 text-xs font-normal text-ink-faint">
-                  {data.gate.outcome ?? "недоступен"}
+                Что требует внимания
+                <span className="ml-2 text-xs font-normal text-ink-soft">
+                  {data.gate.data_gap ? "не хватает данных" : ""}
                 </span>
               </summary>
               <div className="mt-3 space-y-3 text-sm text-ink-soft">
@@ -464,7 +357,6 @@ export default function TodayPage() {
                   <div key={`${conflict.kind ?? "conflict"}-${conflictIndex}`}>
                     <p className="font-medium text-ink">
                       {conflict.date ?? data.date}
-                      {conflict.severity ? ` · severity ${conflict.severity}` : ""}
                     </p>
                     {(conflict.evidence ?? []).map((evidence, evidenceIndex) => (
                       <p key={evidenceIndex}>• {evidence}</p>
@@ -472,10 +364,10 @@ export default function TodayPage() {
                   </div>
                 ))}
                 {!data.gate.conflicts.length && data.gate.reason ? (
-                  <p>{data.gate.reason}</p>
+                  <p>{decisionText(data.gate.reason)}</p>
                 ) : null}
-                {data.gate.decision.id ? (
-                  <p className="text-xs text-ink-faint">
+                {showDevTools && data.gate.decision.id ? (
+                  <p className="text-xs text-ink-soft">
                     decision #{data.gate.decision.id} · snapshot {data.snapshot_version}
                   </p>
                 ) : null}
@@ -493,7 +385,7 @@ export default function TodayPage() {
                       shadow
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-ink-faint">
+                  <p className="mt-1 text-xs text-ink-soft">
                     Наблюдение · не влияет на решение и корректировку плана
                   </p>
                 </div>
@@ -501,7 +393,7 @@ export default function TodayPage() {
                   <div className="text-2xl font-bold tabular-nums text-ink">
                     {forecast.prediction_pct}%
                   </div>
-                  <div className="text-xs text-ink-faint">
+                  <div className="text-xs text-ink-soft">
                     {forecastBandLabel(forecast.prediction_band)}
                   </div>
                 </div>
@@ -515,7 +407,7 @@ export default function TodayPage() {
                   Прогноз относится к прошлой версии плана и показан только как evidence.
                 </p>
               ) : null}
-              <p className="mt-2 text-xs text-ink-faint">
+              <p className="mt-2 text-xs text-ink-soft">
                 Время цели известно только как дата; pre-start статус будет подтверждён после
                 фактической активности.
               </p>
@@ -525,8 +417,8 @@ export default function TodayPage() {
           {yesterday ? (
             <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-sm font-semibold text-ink">Вчера · план vs факт</h2>
-                <span className="text-xs text-ink-faint">{yesterday.date}</span>
+                <h2 className="text-sm font-semibold text-ink">Вчера · план и факт</h2>
+                <span className="text-xs text-ink-soft">{yesterday.date}</span>
               </div>
               {yesterday.status === "unavailable" ? (
                 <p className="mt-2 text-sm text-ink-soft">
@@ -543,7 +435,7 @@ export default function TodayPage() {
                       value={`${Math.round(yesterday.total_actual_tss)} TSS`}
                     />
                     <YesterdayMetric
-                      label="Матч"
+                      label="Связано с планом"
                       value={`${yesterday.matched_sessions}/${yesterday.planned_sessions}`}
                     />
                   </div>
@@ -569,14 +461,14 @@ export default function TodayPage() {
                       key={row.session_id}
                       className="mt-3 border-t border-surface-border pt-2 text-xs text-ink-soft"
                     >
-                      <span className="font-medium text-ink">{row.name}</span>
+                      <span className="font-medium text-ink">{workoutLabel(row.name)}</span>
                       {` · ${Math.round(row.tss)} → ${Math.round(row.actual_total_tss)} TSS`}
                       {` · ${adherenceLabel(row.adherence)}`}
                     </div>
                   ))}
-                  <p className="mt-3 text-xs text-ink-faint">
-                    {yesterday.activities} активности · {yesterday.minutes} мин · rule {" "}
-                    {yesterday.rule_version ?? "—"}
+                  <p className="mt-3 text-xs text-ink-soft">
+                    {yesterday.activities} активности · {yesterday.minutes} мин
+                    {showDevTools ? ` · версия: ${yesterday.rule_version ?? "—"}` : ""}
                   </p>
                 </>
               )}
@@ -585,7 +477,7 @@ export default function TodayPage() {
 
           <AdherenceStrip />
 
-          {feedbackPrompt ? (
+          {feedbackPrompt && !projectionSessionIds.includes(feedbackPrompt.session_id) ? (
             <PostWorkoutFeedbackCard
               key={`${feedbackPrompt.session_id}-${feedbackPrompt.feedback?.revision ?? 0}`}
               prompt={feedbackPrompt}
@@ -601,13 +493,13 @@ export default function TodayPage() {
               <h2 className="text-sm font-semibold text-ink">Сначала уточните факт сессии</h2>
               <p className="mt-1 text-sm text-ink-soft">
                 Для {pendingMatch.name} найдено неоднозначное совпадение активностей. Оценка
-                качества не будет приписана плану, пока match не подтверждён.
+                качества не будет приписана плану, пока связь с тренировкой не подтверждена.
               </p>
               <Link
                 href={`/planning?session_id=${encodeURIComponent(pendingMatch.session_id)}`}
                 className="mt-3 inline-block rounded-lg border border-surface-border px-3 py-1.5 text-sm font-medium text-ink"
               >
-                Уточнить в Planning
+                Уточнить в плане
               </Link>
             </section>
           ) : null}
@@ -622,7 +514,7 @@ export default function TodayPage() {
 function YesterdayMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg bg-surface-muted px-2.5 py-2">
-      <div className="text-[11px] uppercase tracking-wide text-ink-faint">{label}</div>
+      <div className="text-[11px] uppercase tracking-wide text-ink-soft">{label}</div>
       <div className="mt-0.5 font-semibold tabular-nums text-ink">{value}</div>
     </div>
   );
@@ -647,11 +539,11 @@ function TodaySteps({ steps }: { steps: WorkoutStep[] }) {
   if (!steps.length) return null;
   return (
     <div>
-      <WorkoutStrip steps={steps} />
-      <div className="mt-1.5 space-y-1 text-xs text-ink-faint">
+      <WorkoutStrip steps={steps.map((step) => ({ ...step, name: workoutLabel(step.name || "") }))} />
+      <div className="mt-2 space-y-1.5 text-sm text-ink-soft">
         {steps.map((step, index) => (
           <div key={`${step.name}-${index}`} className="flex items-center justify-between gap-3">
-            <span>{step.name || `Шаг ${index + 1}`}</span>
+            <span className="min-w-0">{workoutLabel(step.name || `Шаг ${index + 1}`)}</span>
             <span className="shrink-0 tabular-nums">
               {formatSeconds(step.duration_seconds)}
               {formatTarget(step.target) ? ` · ${formatTarget(step.target)}` : ""}
@@ -678,5 +570,9 @@ function formatTarget(target: Record<string, unknown> | null): string {
   if (type === "power" && low != null && high != null) return `${low}–${high} Вт`;
   if (type === "heart_rate" && low != null && high != null) return `${low}–${high} уд/мин`;
   if (type === "relative_rpe" && low != null && high != null) return `RPE ${low}–${high}`;
-  return type;
+  if (type.includes("pace") && typeof target.fast === "number" && typeof target.slow === "number") {
+    const pace = (seconds: number) => `${Math.floor(Math.round(seconds) / 60)}:${String(Math.round(seconds) % 60).padStart(2, "0")}`;
+    return `${pace(target.fast)}–${pace(target.slow)} ${target.unit === "seconds_per_100m" ? "/100 м" : target.unit === "seconds_per_km" ? "/км" : ""}`;
+  }
+  return ({ pace: "по темпу", run_pace: "по темпу бега", swim_pace: "по темпу плавания", power: "по мощности", heart_rate: "по пульсу", relative_rpe: "по ощущению усилия" } as Record<string, string>)[type] ?? "цель не указана";
 }
