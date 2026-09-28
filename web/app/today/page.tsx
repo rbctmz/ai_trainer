@@ -113,7 +113,7 @@ export default function TodayPage() {
           </p>
           {sharedResultId ? renderResult(sharedResultId) : null}
           {session.sessions && session.sessions.length > 1 ? (
-            <div className="mt-3 grid gap-2">
+            <div className="mt-3 grid min-w-0 grid-cols-1 gap-2">
               {session.sessions.map((leaf, index) => (
                 <div
                   key={leaf.session_id || `${leaf.sport}-${index}`}
@@ -147,7 +147,7 @@ export default function TodayPage() {
               ))}
             </div>
           ) : session.kind === "composite" && session.legs?.length ? (
-            <div className="mt-3 grid gap-2">
+            <div className="mt-3 grid min-w-0 grid-cols-1 gap-2">
               {session.legs.map((leg, index) => (
                 <div key={leg.leg_index} className="rounded-lg bg-surface-muted p-2.5">
                   {index > 0 ? <div className="mb-3 text-sm font-medium text-accent">↓ Переход{session.transition_minutes != null ? ` · ${session.transition_minutes} мин` : " к следующему этапу"}</div> : null}

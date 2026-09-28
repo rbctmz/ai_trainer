@@ -66,14 +66,16 @@ export function ReadinessIndicator({ readiness }: { readiness?: TodayReadiness |
   const dateGaps = Boolean(readiness?.freshness &&
     (readiness.freshness.unverified.length || readiness.freshness.invalid.length || readiness.freshness.outdated.length));
   const freshness = provisional ? "Предварительно" : dateGaps ? "Часть дат не подтверждена" :
-    readiness?.freshness?.state === "fresh" ? "Данные за сегодня" : "Свежесть не подтверждена";
+    readiness?.freshness?.state === "fresh" ? "Данные за сегодня" : "Актуальность данных не подтверждена";
   const label = valid ? labels[readiness?.status ?? "unknown"] ?? "Не определено" : "Нет оценки";
   const radius = 34;
   const circumference = 2 * Math.PI * radius;
   return (
-    <div className="flex min-w-0 items-center gap-3">
+    <div className="min-w-0">
+      <h3 className="text-base font-semibold text-ink">Восстановление</h3>
+      <div className="mt-3 rounded-lg bg-surface-muted p-3">
       <div className="flex items-center gap-3">
-        <div className="relative h-14 w-14 shrink-0" role={valid ? "meter" : undefined}
+        <div className="relative h-16 w-16 shrink-0" role={valid ? "meter" : undefined}
           aria-label={valid ? "Восстановление" : undefined} aria-valuemin={valid ? 0 : undefined}
           aria-valuemax={valid ? 100 : undefined} aria-valuenow={valid ? value : undefined}
           aria-valuetext={valid ? `${value} из 100; ${label}; ${freshness}` : undefined}>
@@ -83,15 +85,16 @@ export function ReadinessIndicator({ readiness }: { readiness?: TodayReadiness |
               strokeLinecap="round" strokeDasharray={`${(value / 100) * circumference} ${circumference}`}
               className="text-accent" /> : null}
           </svg>
-          <span className="absolute inset-0 flex items-center justify-center text-lg font-semibold tabular-nums text-ink">
-            {valid ? Math.round(value) : "—"}
+          <span className="absolute inset-0 flex flex-col items-center justify-center font-semibold tabular-nums text-ink">
+            <span className="text-lg leading-tight">{valid ? Math.round(value) : "—"}</span>
+            {valid ? <span className="text-[10px] font-normal leading-tight text-ink-soft">/100</span> : null}
           </span>
         </div>
         <div className="min-w-0">
-          <p className="text-xs text-ink-soft">Восстановление{valid ? " · из 100" : ""}</p>
-          <p className="mt-1 text-sm font-medium text-ink">{label}</p>
-          <p className="mt-1 text-xs leading-snug text-ink-soft">{freshness}</p>
+          <p className="text-sm font-medium text-ink">{label}</p>
         </div>
+      </div>
+      <p className="mt-3 border-t border-surface-border pt-2 text-xs leading-relaxed text-ink-soft">{freshness}</p>
       </div>
     </div>
   );
