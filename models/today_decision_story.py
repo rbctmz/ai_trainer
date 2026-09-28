@@ -215,7 +215,10 @@ def _is_unobserved_plan(session: Mapping[str, Any], anchor: str | None, action_k
         "actual_activity_ids", "candidate_activity_ids", "legs"
     )):
         return False
-    if any(fact.get(key) is not None for key in ("duration_minutes", "load_tss")):
+    if any(
+        value is not None and (type(value) not in (int, float) or value != 0)
+        for value in (fact.get("duration_minutes"), fact.get("load_tss"))
+    ):
         return False
     if _mapping(fact.get("transition")).get("actual_minutes") is not None:
         return False

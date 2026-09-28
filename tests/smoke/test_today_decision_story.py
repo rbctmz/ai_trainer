@@ -179,11 +179,24 @@ def test_unobserved_current_or_future_plan_keeps_supplied_action(day: str) -> No
     assert story["next_action"]["summary"] == "План и состояние согласны."
 
 
+def test_unobserved_plan_with_zero_fact_totals_keeps_supplied_action() -> None:
+    session = _unobserved_planned_session()
+    session["fact"]["duration_minutes"] = 0.0
+    session["fact"]["load_tss"] = 0.0
+
+    story = _compose(**_inputs(session=session))
+
+    assert story["fact"]["completion_status"] == "not_observed"
+    assert story["fact"]["actual"]["activity_ids"] == []
+    assert story["next_action"]["kind"] == "follow_plan"
+
+
 @pytest.mark.parametrize("evidence_change", [
     {"plan_date": "2026-09-22"},
     {"candidate_activity_ids": ["candidate-1"]},
     {"actual_activity_ids": ["activity-1"]},
     {"actual_duration_minutes": 30},
+    {"actual_load_tss": 20},
     {"match_method": "user_unmatched"},
     {"data_quality": "data_gap"},
     {"additional_unmatched_tss": 25},
@@ -200,6 +213,8 @@ def test_unmatched_with_past_or_observed_evidence_still_requires_review(
         session["fact"]["actual_activity_ids"] = evidence_change["actual_activity_ids"]
     if "actual_duration_minutes" in evidence_change:
         session["fact"]["duration_minutes"] = evidence_change["actual_duration_minutes"]
+    if "actual_load_tss" in evidence_change:
+        session["fact"]["load_tss"] = evidence_change["actual_load_tss"]
     if "match_method" in evidence_change:
         session["confidence"]["match_method"] = evidence_change["match_method"]
     if "data_quality" in evidence_change:
