@@ -77,7 +77,7 @@ def test_today_week_strip_status_and_details(web_stack):
     today["yesterday"]["rows"] = [
         {
             "session_id": "catalog-session",
-            "name": "Recovery Run",
+            "name": "План спортсмена — Recovery Technique Swim",
             "tss": 20,
             "actual_total_tss": 18,
             "adherence": "exact",
@@ -95,7 +95,9 @@ def test_today_week_strip_status_and_details(web_stack):
     yesterday = page.locator("section").filter(
         has=page.get_by_role("heading", name="Вчера · план и факт")
     )
-    assert yesterday.get_by_text("Восстановительный бег", exact=True).is_visible()
+    assert yesterday.get_by_text(
+        "План спортсмена — Восстановительное плавание с техникой", exact=True
+    ).is_visible()
     assert yesterday.get_by_text("Greg's river loop", exact=True).is_visible()
 
     touch_context = page.context.browser.new_context(

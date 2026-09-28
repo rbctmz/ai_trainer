@@ -97,7 +97,7 @@ export default function TodayPage() {
 
   const workout = state !== "no_plan" ? (
     <div className="min-w-0">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
         Сегодня по плану
       </h2>
       {session ? (
@@ -138,7 +138,7 @@ export default function TodayPage() {
                         брик · этап {leaf.leg_index}
                       </span>
                     ) : null}
-                    <span className="ml-1 font-normal text-ink-faint">
+                    <span className="ml-1 font-normal text-ink-soft">
                       {leaf.sport_label} · {leaf.total_tss} TSS
                     </span>
                   </div>
@@ -157,7 +157,7 @@ export default function TodayPage() {
                   {index > 0 ? <div className="mb-3 text-sm font-medium text-accent">↓ Переход{session.transition_minutes != null ? ` · ${session.transition_minutes} мин` : " к следующему этапу"}</div> : null}
                   <div className="text-sm font-medium text-ink">
                     {leg.leg_index}. {workoutLabel(leg.template_name || leg.sport || "Этап")}
-                    <span className="ml-1 font-normal text-ink-faint">
+                    <span className="ml-1 font-normal text-ink-soft">
                       {leg.duration_minutes} мин · {leg.target_tss} TSS
                     </span>
                   </div>
@@ -224,7 +224,7 @@ export default function TodayPage() {
           ) : null}
           <header className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-sm text-ink-faint">{formatHumanDate(data.date)}</p>
+              <p className="text-sm text-ink-soft">{formatHumanDate(data.date)}</p>
               <h1 className="mt-1 text-2xl font-bold text-ink">Сегодня</h1>
             </div>
             <button
@@ -232,7 +232,7 @@ export default function TodayPage() {
               onClick={() => void toggleBriefingFrequency()}
               disabled={frequencySaving}
               title="Частота утреннего брифинга"
-              className="shrink-0 whitespace-nowrap rounded-lg border border-surface-border px-2.5 py-1.5 text-xs font-medium text-ink-faint transition hover:bg-surface-muted disabled:opacity-60"
+              className="shrink-0 whitespace-nowrap rounded-lg border border-surface-border px-2.5 py-1.5 text-xs font-medium text-ink-soft transition hover:bg-surface-muted disabled:opacity-60"
             >
               {frequency === "conflicts_only" ? "Только конфликты" : "Каждое утро"}
             </button>
@@ -320,7 +320,7 @@ export default function TodayPage() {
                 </p>
               ) : null}
               {showDevTools && data.gate.proposal_gap ? (
-                <p className="mt-2 text-xs text-ink-faint">
+                <p className="mt-2 text-xs text-ink-soft">
                   Причина отсутствия варианта: {data.gate.proposal_gap}
                 </p>
               ) : null}
@@ -348,7 +348,7 @@ export default function TodayPage() {
             <details className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
               <summary className="cursor-pointer text-sm font-medium text-ink">
                 Что требует внимания
-                <span className="ml-2 text-xs font-normal text-ink-faint">
+                <span className="ml-2 text-xs font-normal text-ink-soft">
                   {data.gate.data_gap ? "не хватает данных" : ""}
                 </span>
               </summary>
@@ -367,7 +367,7 @@ export default function TodayPage() {
                   <p>{decisionText(data.gate.reason)}</p>
                 ) : null}
                 {showDevTools && data.gate.decision.id ? (
-                  <p className="text-xs text-ink-faint">
+                  <p className="text-xs text-ink-soft">
                     decision #{data.gate.decision.id} · snapshot {data.snapshot_version}
                   </p>
                 ) : null}
@@ -385,7 +385,7 @@ export default function TodayPage() {
                       shadow
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-ink-faint">
+                  <p className="mt-1 text-xs text-ink-soft">
                     Наблюдение · не влияет на решение и корректировку плана
                   </p>
                 </div>
@@ -393,7 +393,7 @@ export default function TodayPage() {
                   <div className="text-2xl font-bold tabular-nums text-ink">
                     {forecast.prediction_pct}%
                   </div>
-                  <div className="text-xs text-ink-faint">
+                  <div className="text-xs text-ink-soft">
                     {forecastBandLabel(forecast.prediction_band)}
                   </div>
                 </div>
@@ -407,7 +407,7 @@ export default function TodayPage() {
                   Прогноз относится к прошлой версии плана и показан только как evidence.
                 </p>
               ) : null}
-              <p className="mt-2 text-xs text-ink-faint">
+              <p className="mt-2 text-xs text-ink-soft">
                 Время цели известно только как дата; pre-start статус будет подтверждён после
                 фактической активности.
               </p>
@@ -514,7 +514,7 @@ export default function TodayPage() {
 function YesterdayMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg bg-surface-muted px-2.5 py-2">
-      <div className="text-[11px] uppercase tracking-wide text-ink-faint">{label}</div>
+      <div className="text-[11px] uppercase tracking-wide text-ink-soft">{label}</div>
       <div className="mt-0.5 font-semibold tabular-nums text-ink">{value}</div>
     </div>
   );

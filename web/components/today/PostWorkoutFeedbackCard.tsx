@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import useSWR from "swr";
 import { fetcher, postJSON } from "@/lib/api";
+import { workoutLabel } from "./displayText";
 import type {
   ComparableSessionProjection,
   SessionFeedbackHistoryResponse,
@@ -200,12 +201,14 @@ export function PostWorkoutFeedbackCard({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold text-ink">
-            {prompt.capture_mode === "immediate"
-              ? "Оцени тренировку сейчас"
-              : "Как прошла сессия?"}
+            {saved
+              ? "Ваша оценка сессии"
+              : prompt.capture_mode === "immediate"
+                ? "Оцени тренировку сейчас"
+                : "Как прошла сессия?"}
           </h2>
-          <p className="mt-1 text-xs text-ink-faint">
-            {prompt.name} · совпадение {matchLabel(prompt.match_status)}
+          <p className="mt-1 text-xs text-ink-soft">
+            {workoutLabel(prompt.name)} · совпадение {matchLabel(prompt.match_status)}
             {prompt.capture_mode === "immediate" ? " · только что загружена" : ""}
           </p>
         </div>
@@ -266,8 +269,8 @@ export function PostWorkoutFeedbackCard({
               ? ` · качество ${saved.quality_rating_1_5}/5`
               : ""}
           </p>
-          {saved.note ? <p className="text-xs text-ink-faint">«{saved.note}»</p> : null}
-          <p className="text-xs text-ink-faint">Сохранена версия {saved.revision}</p>
+          {saved.note ? <p className="text-xs text-ink-soft">«{saved.note}»</p> : null}
+          <p className="text-xs text-ink-soft">Сохранена версия {saved.revision}</p>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -299,9 +302,9 @@ export function PostWorkoutFeedbackCard({
       ) : (
         <div className="mt-4 space-y-4">
           <fieldset>
-            <legend className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+            <legend className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
               {compositeBrickMatched
-                ? "Выполнение brick"
+                ? "Выполнение брика"
                 : confirmedSubstitution
                   ? "Выполнение фактической сессии"
                   : "Выполнение"}
@@ -382,7 +385,7 @@ export function PostWorkoutFeedbackCard({
               </button>
             )}
           </div>
-          <p className="text-[11px] text-ink-faint">
+          <p className="text-[11px] text-ink-soft">
             RPE и качество вводит атлет. Они не выводятся из TSS, пульса или Training Effect
             и сами по себе не меняют план.
           </p>
@@ -440,7 +443,7 @@ function ComparableSessionEvidence({
           Темп: {sportMetric.target?.value ?? "—"} {paceUnit} · ранее {sportMetric.comparator?.value ?? "—"} {paceUnit}; порог сейчас {sportMetric.target?.threshold_value ?? "—"} ({sportMetric.target?.threshold_source ?? "источник неизвестен"}), ранее {sportMetric.comparator?.threshold_value ?? "—"} ({sportMetric.comparator?.threshold_source ?? "источник неизвестен"})
         </p>
       ) : null}
-      <p className="mt-1 text-ink-faint">Одно сравнение не доказывает тренд или причину.</p>
+      <p className="mt-1 text-ink-soft">Одно сравнение не доказывает тренд или причину.</p>
     </div>
   );
 }
@@ -485,7 +488,7 @@ function Scale({
   return (
     <fieldset>
       <legend className="text-xs font-medium text-ink-soft">{title}</legend>
-      <p className="mt-0.5 text-[11px] text-ink-faint">{hint}</p>
+      <p className="mt-0.5 text-[11px] text-ink-soft">{hint}</p>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {values.map((value) => (
           <ChoiceButton key={value} active={selected === value} onClick={() => onSelect(value)}>

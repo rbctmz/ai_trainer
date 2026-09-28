@@ -41,7 +41,14 @@ export function workoutLabel(name: string): string {
   if (names[name]) return names[name];
   // Numbered catalog repeats keep their original numbering.
   const match = name.match(/^(.*?)( \d+)$/);
-  return match && names[match[1]] ? names[match[1]] + match[2] : name;
+  if (match && names[match[1]]) return names[match[1]] + match[2];
+  // A user plan may prefix a known catalog session; preserve the prefix.
+  const separator = name.lastIndexOf(" — ");
+  if (separator >= 0) {
+    const suffix = name.slice(separator + 3);
+    if (names[suffix]) return name.slice(0, separator + 3) + names[suffix];
+  }
+  return name;
 }
 
 export function decisionText(text: string): string {

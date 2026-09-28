@@ -44,7 +44,7 @@ function EvidenceRow({ item }: { item: Record<string, unknown> }) {
         <p className="font-medium text-ink">{label}</p>
         {detail ? <p className="text-ink-soft">{detail}</p> : null}
       </div>
-      <p className="mt-1 text-xs text-ink-faint">{source} · {date ? dateLabel(date) : "Дата неизвестна"} · {freshness}</p>
+      <p className="mt-1 text-xs text-ink-soft">{source} · {date ? dateLabel(date) : "Дата неизвестна"} · {freshness}</p>
     </li>
   );
 }
