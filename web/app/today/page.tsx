@@ -418,7 +418,7 @@ export default function TodayPage() {
             <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-sm font-semibold text-ink">Вчера · план и факт</h2>
-                <span className="text-xs text-ink-faint">{yesterday.date}</span>
+                <span className="text-xs text-ink-soft">{yesterday.date}</span>
               </div>
               {yesterday.status === "unavailable" ? (
                 <p className="mt-2 text-sm text-ink-soft">
@@ -461,12 +461,12 @@ export default function TodayPage() {
                       key={row.session_id}
                       className="mt-3 border-t border-surface-border pt-2 text-xs text-ink-soft"
                     >
-                      <span className="font-medium text-ink">{row.name}</span>
+                      <span className="font-medium text-ink">{workoutLabel(row.name)}</span>
                       {` · ${Math.round(row.tss)} → ${Math.round(row.actual_total_tss)} TSS`}
                       {` · ${adherenceLabel(row.adherence)}`}
                     </div>
                   ))}
-                  <p className="mt-3 text-xs text-ink-faint">
+                  <p className="mt-3 text-xs text-ink-soft">
                     {yesterday.activities} активности · {yesterday.minutes} мин
                     {showDevTools ? ` · версия: ${yesterday.rule_version ?? "—"}` : ""}
                   </p>
