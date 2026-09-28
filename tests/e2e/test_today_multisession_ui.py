@@ -80,8 +80,9 @@ def test_today_multisession_and_proposal_presentation(web_stack):
             body=json.dumps(p, ensure_ascii=False),
         ),
     )
-    out = Path(os.environ.get("TODAY_UI_SCREENSHOTS", "/private/tmp/today-examples"))
-    out.mkdir(parents=True, exist_ok=True)
+    out = Path(os.environ["TODAY_UI_SCREENSHOTS"]) if os.environ.get("TODAY_UI_SCREENSHOTS") else None
+    if out:
+        out.mkdir(parents=True, exist_ok=True)
     for scenario in ["two", "brick", "proposal"]:
         if scenario == "brick":
             p["session"].update(
@@ -189,7 +190,8 @@ def test_today_multisession_and_proposal_presentation(web_stack):
                 assert card.get_by_text("30 мин", exact=True).is_visible()
                 assert card.get_by_text("Готовность", exact=False).count() == 0
                 assert "Recovery Run" not in card.inner_text()
-                card.screenshot(path=str(out / f"{scenario}-{width}.png"))
+                if out:
+                    card.screenshot(path=str(out / f"{scenario}-{width}.png"))
                 page.get_by_role(
                     "button", name="Оставить как есть", exact=False
                 ).click()
@@ -203,7 +205,8 @@ def test_today_multisession_and_proposal_presentation(web_stack):
                     "button", name="Подтвердить перенос", exact=True
                 ).is_visible()
             else:
-                region.screenshot(path=str(out / f"{scenario}-{width}.png"))
+                if out:
+                    region.screenshot(path=str(out / f"{scenario}-{width}.png"))
     # A day-level replacement must retain every supplied session on both sides.
     preview = p["pending_proposal"]["preview"]
     unchanged = {"name": "Техника плавания", "duration_minutes": 20, "tss": 10}

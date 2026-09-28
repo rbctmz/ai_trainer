@@ -368,7 +368,19 @@
       0
     ],
     "expected_recovery_hours": 12,
-    "sessions": [],
+    "sessions": [
+      {
+        "kind": "single",
+        "session_id": "demo-done",
+        "group_id": null,
+        "sport": "run",
+        "sport_label": "бег",
+        "session_role": "easy",
+        "total_tss": 23,
+        "name": "Recovery Run",
+        "materialized_steps": []
+      }
+    ],
     "steps": [
       {
         "name": "Warm-up",

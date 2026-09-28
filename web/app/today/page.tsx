@@ -16,6 +16,7 @@ import { PostWorkoutFeedbackCard } from "@/components/today/PostWorkoutFeedbackC
 import { AdherenceStrip } from "@/components/today/AdherenceStrip";
 import { TodayStateSummary } from "@/components/today/TodayStateSummary";
 import { WorkoutStrip } from "@/components/WorkoutStrip";
+import { SessionProjectionSummary } from "@/components/session/SessionProjectionSummary";
 import { TodaySessionPlan, TodaySessionResult } from "@/components/today/TodaySessionResult";
 import {
   TodayDecisionStoryCompact,
@@ -58,7 +59,7 @@ export default function TodayPage() {
   const pendingMatch = data?.feedback?.prompts.find(
     (prompt) => prompt.state === "pending_match",
   );
-  const projectionSessionIds = session?.sessions?.length
+  const projectionSessionIds = session?.sessions !== undefined
     ? Array.from(
         new Set(
           session.sessions
@@ -86,9 +87,12 @@ export default function TodayPage() {
     !expanded;
 
   function renderResult(sessionId: string, showName = false) {
-    return <TodaySessionResult sessionId={sessionId} showName={showName}
-      prompt={data?.feedback?.prompts.find(prompt => prompt.session_id === sessionId)}
-      onSaved={message => { setNotice(message); void mutate(); }} />;
+    return <>
+      <TodaySessionResult sessionId={sessionId} showName={showName}
+        prompt={data?.feedback?.prompts.find(prompt => prompt.session_id === sessionId)}
+        onSaved={message => { setNotice(message); void mutate(); }} />
+      <SessionProjectionSummary sessionId={sessionId} presentation="today" />
+    </>;
   }
 
   const workout = state !== "no_plan" ? (

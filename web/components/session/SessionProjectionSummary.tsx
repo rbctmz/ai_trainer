@@ -20,10 +20,12 @@ export function SessionProjectionSummary({
   sessionId,
   projection: suppliedProjection,
   compact = false,
+  presentation = "default",
 }: {
   sessionId: string | null | undefined;
   projection?: SessionProjection | null;
   compact?: boolean;
+  presentation?: "default" | "today";
 }) {
   const shouldFetch = Boolean(sessionId) && suppliedProjection === undefined;
   // api-contract: manual: /api/planning/session-projection/{session_id}
@@ -37,18 +39,30 @@ export function SessionProjectionSummary({
 
   if (!sessionId && !projection) return null;
   if (isLoading && !projection) {
+    if (presentation === "today") return null;
     return <p className="mt-2 text-xs text-ink-faint">Сверяем план и факт…</p>;
   }
   if (error || !projection) {
+    if (presentation === "today") return null;
     return (
       <p className="mt-2 text-xs text-ink-faint">
         Единая проекция план/факт пока недоступна.
       </p>
     );
   }
+  if (presentation === "today" && projection.session_id !== sessionId) return null;
 
   const extraLoad =
     projection.load.other_matched_tss + projection.load.additional_unmatched_tss;
+
+  if (presentation === "today") {
+    return (
+      <p data-session-projection={projection.session_id} className="mt-1 text-xs text-ink-soft">
+        Учтённая нагрузка за день: {loadLabel(projection.load.day_total_tss)}
+        {extraLoad > 0 ? ` · другая нагрузка +${Math.round(extraLoad)} TSS` : ""}
+      </p>
+    );
+  }
 
   return (
     <div

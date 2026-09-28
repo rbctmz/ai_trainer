@@ -45,6 +45,7 @@ def test_today_completion_by_session(web_stack):
             result = page.get_by_role("region", name="Выполнение тренировки")
             if scenario == "completed":
                 assert result.count() == 1
+                assert page.get_by_text("Учтённая нагрузка за день: 24 TSS").is_visible()
                 plan = page.get_by_text("Показать план тренировки", exact=True)
                 assert plan.is_visible()
                 assert not page.get_by_role("img", name="Разминка · 5 мин", exact=False).is_visible()
@@ -93,6 +94,12 @@ def test_today_completion_by_session(web_stack):
                 page.screenshot(
                     path=str(folder / f"{scenario}-{width}.png"), full_page=True
                 )
+    current["payload"] = json.loads((FIXTURES / "completed.json").read_text())
+    projections["demo-done"]["load"].update(other_matched_tss=12, day_total_tss=36)
+    page.reload(wait_until="networkidle")
+    assert page.get_by_text(
+        "Учтённая нагрузка за день: 36 TSS · другая нагрузка +12 TSS"
+    ).is_visible()
     current["payload"] = json.loads((FIXTURES / "two-completed.json").read_text())
     current["payload"]["briefing"] = {
         "frequency": "conflicts_only",
