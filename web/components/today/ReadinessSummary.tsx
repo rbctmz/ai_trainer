@@ -35,10 +35,11 @@ function observationDateLabel(driver: TodayReadinessDriver): string {
 function freshnessSummary(freshness: ReadinessFreshness): string {
   const parts: string[] = [];
   const addInputs = (keys: string[], description: string) => {
-    const primaryLabels = keys.filter((key) => key !== "training_readiness").map(inputLabel);
+    const primaryLabels = keys.filter((key) => key !== "training_readiness" && key !== "tsb").map(inputLabel);
     if (primaryLabels.length > 0) parts.push(`${description}: ${primaryLabels.join(", ")}`);
   };
   addInputs(freshness.confirmed_today, "подтверждено сегодня");
+  if (freshness.confirmed_today.includes("tsb")) parts.push("Баланс нагрузки рассчитан на сегодня");
   addInputs(freshness.outdated, "не за сегодня");
   addInputs(freshness.unverified, "дата неизвестна");
   addInputs(freshness.invalid, "некорректная дата");
@@ -104,6 +105,7 @@ export function ReadinessDetails({ readiness }: { readiness?: TodayReadiness | n
   const presentPrimaryCount = hasPrimaryCount ? Math.round(sourceCompleteness * 3) : null;
   const primaryDrivers = drivers.filter((item) => item.key !== "training_readiness");
   const garminDriver = drivers.find((item) => item.key === "training_readiness");
+  const garminMissing = freshness?.missing.includes("training_readiness") ?? false;
   const garminEvidence = garminDriver?.evidence
     ? decisionText(String(garminDriver.evidence)).replace(/^Оценка Garmin\s*/i, "")
     : "";
@@ -132,6 +134,7 @@ export function ReadinessDetails({ readiness }: { readiness?: TodayReadiness | n
         })}
       </ul>
       {garminDriver?.evidence ? <p className="rounded-lg border border-surface-border p-3">Дополнительная оценка Garmin{garminEvidence ? `: ${garminEvidence}` : ""}<span className="mt-1 block text-xs">{observationDateLabel(garminDriver as TodayReadinessDriver)}</span></p> : null}
+      {!garminDriver && garminMissing ? <p className="rounded-lg border border-surface-border p-3">Дополнительная оценка Garmin не поступила.</p> : null}
       {readiness.tsb?.tsb != null && !drivers.some((item) => item.key === "tsb") ? (
         <p>Расчётный баланс нагрузки (TSB): {readiness.tsb.tsb}; базовая нагрузка (CTL): {readiness.tsb.ctl ?? "—"}; окно {readiness.tsb.window_days} дн.</p>
       ) : null}

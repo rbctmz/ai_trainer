@@ -144,7 +144,7 @@ def test_one_visual_readiness_and_dated_explanation(web_stack):
     payload["decision_story"]["recommendation"].update(summary=reason)
     payload["readiness"].update(
         score=78.6, status="strong", stale=False, is_provisional=False, source_completeness=1.0,
-        freshness={"state": "fresh", "confirmed_today": ["sleep", "hrv", "resting_hr"], "outdated": [],
+        freshness={"state": "fresh", "confirmed_today": ["sleep", "hrv", "resting_hr", "tsb"], "outdated": [],
                    "unverified": ["training_readiness"], "invalid": [], "missing": [], "blocked_reason": None},
         drivers=[
             {"key": "resting_hr", "label": "Пульс покоя", "score": 80, "evidence": "Пульс покоя 47 уд/мин против базовых 48.5", "observation_status": "confirmed_today"},
@@ -185,12 +185,31 @@ def test_one_visual_readiness_and_dated_explanation(web_stack):
                 assert state.get_by_text("дата измерения неизвестна", exact=False).count() == 1
                 assert state.get_by_text("Основные измерения: 3 из 3. Актуальность проверяется отдельно.", exact=True).is_visible()
                 assert state.get_by_text("Полнота данных", exact=False).count() == 0
+                assert state.get_by_text("Баланс нагрузки рассчитан на сегодня", exact=False).is_visible()
+                assert state.get_by_text("подтверждено сегодня: Сон, Вариабельность пульса, Пульс покоя", exact=False).is_visible()
                 assert state.get_by_text("Пульс покоя 47 уд/мин", exact=False).count() == 1
                 assert state.get_by_text("Дополнительная оценка Garmin: 81/100", exact=False).count() == 1
                 assert "Garmin readiness" not in summary.inner_text()
                 assert not _has_horizontal_overflow(page)
                 if artifacts:
                     page.screenshot(path=str(artifacts / f"readiness-{theme}-{width}.png"), full_page=True)
+
+        garmin_missing = deepcopy(payload)
+        garmin_missing["readiness"]["freshness"]["unverified"] = []
+        garmin_missing["readiness"]["freshness"]["missing"] = ["training_readiness"]
+        garmin_missing["readiness"]["drivers"] = [driver for driver in garmin_missing["readiness"]["drivers"] if driver["key"] != "training_readiness"]
+        current["value"] = garmin_missing
+        page.add_init_script("window.localStorage.setItem('theme', 'light')")
+        page.set_viewport_size({"width": 978, "height": 1000})
+        page.reload(wait_until="networkidle")
+        state = page.get_by_role("region", name="Состояние сегодня", exact=True)
+        state.get_by_text("Подробнее о состоянии").click()
+        assert state.get_by_text("Готов к работе", exact=True).is_visible()
+        assert state.get_by_text("Основные измерения: 3 из 3. Актуальность проверяется отдельно.", exact=True).is_visible()
+        assert state.get_by_text("Дополнительная оценка Garmin не поступила.", exact=True).is_visible()
+        assert state.get_by_text("нет данных: Оценка Garmin", exact=False).count() == 0
+        if artifacts:
+            page.screenshot(path=str(artifacts / "readiness-garmin-missing-light-978.png"), full_page=True)
 
         stale = deepcopy(payload)
         stale["readiness"]["freshness"].update(state="data_gap", confirmed_today=[], unverified=["rhr"], missing=["sleep"], blocked_reason="no_confirmed_today_primary_recovery_measurement")
