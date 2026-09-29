@@ -104,7 +104,8 @@ export function ReadinessDetails({ readiness }: { readiness?: TodayReadiness | n
   const hasPrimaryCount = typeof sourceCompleteness === "number" && Number.isFinite(sourceCompleteness) && sourceCompleteness >= 0 && sourceCompleteness <= 1;
   const presentPrimaryCount = hasPrimaryCount ? Math.round(sourceCompleteness * 3) : null;
   const primaryDrivers = drivers.filter((item) => item.key !== "training_readiness");
-  const garminDriver = drivers.find((item) => item.key === "training_readiness");
+  const garminDriver = readiness.factors.find((item) => item.key === "training_readiness")
+    ?? drivers.find((item) => item.key === "training_readiness");
   const garminMissing = freshness?.missing.includes("training_readiness") ?? false;
   const garminEvidence = garminDriver?.evidence
     ? decisionText(String(garminDriver.evidence)).replace(/^Оценка Garmin\s*/i, "")

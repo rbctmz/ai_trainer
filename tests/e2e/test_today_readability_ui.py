@@ -198,6 +198,7 @@ def test_one_visual_readiness_and_dated_explanation(web_stack):
         garmin_missing["readiness"]["freshness"]["unverified"] = []
         garmin_missing["readiness"]["freshness"]["missing"] = ["training_readiness"]
         garmin_missing["readiness"]["drivers"] = [driver for driver in garmin_missing["readiness"]["drivers"] if driver["key"] != "training_readiness"]
+        garmin_missing["readiness"]["factors"] = [factor for factor in garmin_missing["readiness"]["factors"] if factor["key"] != "training_readiness"]
         current["value"] = garmin_missing
         page.add_init_script("window.localStorage.setItem('theme', 'light')")
         page.set_viewport_size({"width": 978, "height": 1000})
@@ -210,6 +211,33 @@ def test_one_visual_readiness_and_dated_explanation(web_stack):
         assert state.get_by_text("нет данных: Оценка Garmin", exact=False).count() == 0
         if artifacts:
             page.screenshot(path=str(artifacts / "readiness-garmin-missing-light-978.png"), full_page=True)
+
+        garmin_beyond_top_three = deepcopy(payload)
+        garmin_beyond_top_three["readiness"]["drivers"] = [
+            {"key": key, "label": label, "score": score, "evidence": evidence, "observation_status": "confirmed_today"}
+            for key, label, score, evidence in (
+                ("sleep", "Сон", 90, "Сон 8.0 ч"),
+                ("hrv", "Вариабельность пульса", 85, "HRV 62 мс"),
+                ("resting_hr", "Пульс покоя", 80, "Пульс покоя 47 уд/мин"),
+            )
+        ]
+        garmin_factor = {
+            "key": "training_readiness", "label": "Garmin readiness", "score": 81,
+            "raw_value": 81, "source": "training_readiness", "evidence": "Garmin readiness 81/100",
+            "observation_status": "unverified",
+        }
+        garmin_beyond_top_three["readiness"]["factors"] = [
+            factor for factor in garmin_beyond_top_three["readiness"]["factors"]
+            if factor["key"] != "training_readiness"
+        ] + [garmin_factor]
+        current["value"] = garmin_beyond_top_three
+        page.reload(wait_until="networkidle")
+        state = page.get_by_role("region", name="Состояние сегодня", exact=True)
+        state.get_by_text("Подробнее о состоянии").click()
+        assert len(garmin_beyond_top_three["readiness"]["drivers"]) == 3
+        assert all(driver["key"] != "training_readiness" for driver in garmin_beyond_top_three["readiness"]["drivers"])
+        assert state.get_by_text("Дополнительная оценка Garmin: 81/100", exact=False).count() == 1
+        assert state.get_by_text("Сон 8.0 ч", exact=False).count() == 1
 
         stale = deepcopy(payload)
         stale["readiness"]["freshness"].update(state="data_gap", confirmed_today=[], unverified=["rhr"], missing=["sleep"], blocked_reason="no_confirmed_today_primary_recovery_measurement")
