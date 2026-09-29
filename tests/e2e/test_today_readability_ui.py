@@ -143,11 +143,11 @@ def test_one_visual_readiness_and_dated_explanation(web_stack):
     payload["decision_story"]["interpretation"].update(summary=reason, caveat=None)
     payload["decision_story"]["recommendation"].update(summary=reason)
     payload["readiness"].update(
-        score=68, status="ready", stale=False, is_provisional=False,
-        freshness={"state": "fresh", "confirmed_today": ["tsb"], "outdated": [],
-                   "unverified": ["rhr", "training_readiness"], "invalid": [], "missing": [], "blocked_reason": None},
+        score=78.6, status="strong", stale=False, is_provisional=False, source_completeness=1.0,
+        freshness={"state": "fresh", "confirmed_today": ["sleep", "hrv", "resting_hr", "tsb"], "outdated": [],
+                   "unverified": ["training_readiness"], "invalid": [], "missing": [], "blocked_reason": None},
         drivers=[
-            {"key": "rhr", "label": "Пульс покоя", "score": 80, "evidence": "Пульс покоя 47 уд/мин против базовых 48.5", "observation_status": "unverified"},
+            {"key": "resting_hr", "label": "Пульс покоя", "score": 80, "evidence": "Пульс покоя 47 уд/мин против базовых 48.5", "observation_status": "confirmed_today"},
             {"key": "tsb", "label": "Баланс нагрузки", "score": 60, "evidence": "TSB −18.1", "observation_status": "confirmed_today"},
             {"key": "training_readiness", "label": "Оценка Garmin", "score": 81, "evidence": "Garmin readiness 81/100", "observation_status": "unverified"},
         ],
@@ -158,47 +158,121 @@ def test_one_visual_readiness_and_dated_explanation(web_stack):
         route.fulfill(status=200, content_type="application/json", body=json.dumps(current["value"], ensure_ascii=False))
 
     page.route("**/api/today?demo=1", serve)
+    artifacts = Path(os.environ["TODAY_UI_SCREENSHOTS"]) if os.environ.get("TODAY_UI_SCREENSHOTS") else None
+    if artifacts:
+        artifacts.mkdir(parents=True, exist_ok=True)
     try:
-        for width in (390, 1280):
-            page.set_viewport_size({"width": width, "height": 1000})
-            current["value"] = payload
-            page.goto(f"{web_stack.web_base}/today", wait_until="networkidle")
-            summary = page.get_by_role("region", name="Сводка на сегодня")
-            indicator = page.get_by_role("meter", name="Восстановление")
-            assert indicator.bounding_box()["y"] < summary.bounding_box()["y"]
-            assert indicator.count() == 1
-            assert indicator.get_attribute("aria-valuenow") == "68"
-            assert page.get_by_role("meter", name="Восстановление").count() == 1
-            assert "Оценка восстановления: нормальная" not in summary.inner_text()
-            assert "почему — 3 факторов" not in page.locator("main").inner_text()
-            assert page.get_by_role("heading", name="План остаётся без изменений").count() == 0
-            state = page.get_by_role("region", name="Состояние сегодня", exact=True)
-            state.get_by_text("Подробнее о состоянии").click()
-            assert state.get_by_text("дата измерения неизвестна", exact=False).count() == 2
-            assert state.get_by_text("Пульс покоя 47 уд/мин", exact=False).count() == 1
-            assert state.get_by_text("Оценка Garmin 81/100", exact=False).count() == 1
-            assert "Garmin readiness" not in summary.inner_text()
-            assert not _has_horizontal_overflow(page)
+        for theme in ("light", "dark"):
+            for width in (390, 978, 1280):
+                page.add_init_script(f"window.localStorage.setItem('theme', '{theme}')")
+                page.set_viewport_size({"width": width, "height": 1000})
+                current["value"] = payload
+                page.goto(f"{web_stack.web_base}/today", wait_until="networkidle")
+                summary = page.get_by_role("region", name="Сводка на сегодня")
+                indicator = page.get_by_role("meter", name="Восстановление")
+                assert indicator.bounding_box()["y"] < summary.bounding_box()["y"]
+                assert indicator.count() == 1
+                assert indicator.get_attribute("aria-valuenow") == "78.6"
+                assert "79" in indicator.inner_text() and "/100" in indicator.inner_text()
+                state = page.get_by_role("region", name="Состояние сегодня", exact=True)
+                assert state.get_by_text("Готов к работе", exact=True).is_visible()
+                assert state.get_by_text("Не определено", exact=True).count() == 0
+                assert page.get_by_role("meter", name="Восстановление").count() == 1
+                assert "Оценка восстановления: нормальная" not in summary.inner_text()
+                assert "почему — 3 факторов" not in page.locator("main").inner_text()
+                assert page.get_by_role("heading", name="План остаётся без изменений").count() == 0
+                state.get_by_text("Подробнее о состоянии").click()
+                assert state.get_by_text("дата измерения неизвестна", exact=False).count() == 1
+                assert state.get_by_text("Основные измерения: 3 из 3. Актуальность проверяется отдельно.", exact=True).is_visible()
+                assert state.get_by_text("Полнота данных", exact=False).count() == 0
+                assert state.get_by_text("Баланс нагрузки рассчитан на сегодня", exact=False).is_visible()
+                assert state.get_by_text("подтверждено сегодня: Сон, Вариабельность пульса, Пульс покоя", exact=False).is_visible()
+                assert state.get_by_text("Пульс покоя 47 уд/мин", exact=False).count() == 1
+                assert state.get_by_text("Дополнительная оценка Garmin: 81/100", exact=False).count() == 1
+                assert "Garmin readiness" not in summary.inner_text()
+                assert not _has_horizontal_overflow(page)
+                if artifacts:
+                    page.screenshot(path=str(artifacts / f"readiness-{theme}-{width}.png"), full_page=True)
 
-            stale = deepcopy(payload)
-            stale["readiness"]["freshness"].update(state="data_gap", confirmed_today=[], unverified=["rhr"], missing=["sleep"], blocked_reason="no_confirmed_today_primary_recovery_measurement")
-            stale["readiness"]["is_provisional"] = True
-            stale["decision_story"]["next_action"].update(kind="inspect_evidence", summary="Сегодняшние данные восстановления не подтверждены.")
-            current["value"] = stale
-            page.reload(wait_until="networkidle")
-            assert page.get_by_text("Предварительно", exact=True).is_visible()
-            assert summary.get_by_text("Сегодняшние данные восстановления не подтверждены.", exact=True).is_visible()
-            state = page.get_by_role("region", name="Состояние сегодня", exact=True)
-            state.get_by_text("Подробнее о состоянии").click()
-            assert state.get_by_text("нет подтверждённого сегодняшнего первичного измерения", exact=False).is_visible()
-            assert state.get_by_text("нет данных: Сон", exact=False).is_visible()
+        garmin_missing = deepcopy(payload)
+        garmin_missing["readiness"]["freshness"]["unverified"] = []
+        garmin_missing["readiness"]["freshness"]["missing"] = ["training_readiness"]
+        garmin_missing["readiness"]["drivers"] = [driver for driver in garmin_missing["readiness"]["drivers"] if driver["key"] != "training_readiness"]
+        garmin_missing["readiness"]["factors"] = [factor for factor in garmin_missing["readiness"]["factors"] if factor["key"] != "training_readiness"]
+        current["value"] = garmin_missing
+        page.add_init_script("window.localStorage.setItem('theme', 'light')")
+        page.set_viewport_size({"width": 978, "height": 1000})
+        page.reload(wait_until="networkidle")
+        state = page.get_by_role("region", name="Состояние сегодня", exact=True)
+        state.get_by_text("Подробнее о состоянии").click()
+        assert state.get_by_text("Готов к работе", exact=True).is_visible()
+        assert state.get_by_text("Основные измерения: 3 из 3. Актуальность проверяется отдельно.", exact=True).is_visible()
+        assert state.get_by_text("Дополнительная оценка Garmin не поступила.", exact=True).is_visible()
+        assert state.get_by_text("нет данных: Оценка Garmin", exact=False).count() == 0
+        if artifacts:
+            page.screenshot(path=str(artifacts / "readiness-garmin-missing-light-978.png"), full_page=True)
 
-            missing = deepcopy(stale)
-            missing["readiness"] = None
-            current["value"] = missing
+        garmin_beyond_top_three = deepcopy(payload)
+        garmin_beyond_top_three["readiness"]["drivers"] = [
+            {"key": key, "label": label, "score": score, "evidence": evidence, "observation_status": "confirmed_today"}
+            for key, label, score, evidence in (
+                ("sleep", "Сон", 90, "Сон 8.0 ч"),
+                ("hrv", "Вариабельность пульса", 85, "HRV 62 мс"),
+                ("resting_hr", "Пульс покоя", 80, "Пульс покоя 47 уд/мин"),
+            )
+        ]
+        garmin_factor = {
+            "key": "training_readiness", "label": "Garmin readiness", "score": 81,
+            "raw_value": 81, "source": "training_readiness", "evidence": "Garmin readiness 81/100",
+            "observation_status": "unverified",
+        }
+        garmin_beyond_top_three["readiness"]["factors"] = [
+            factor for factor in garmin_beyond_top_three["readiness"]["factors"]
+            if factor["key"] != "training_readiness"
+        ] + [garmin_factor]
+        current["value"] = garmin_beyond_top_three
+        page.reload(wait_until="networkidle")
+        state = page.get_by_role("region", name="Состояние сегодня", exact=True)
+        state.get_by_text("Подробнее о состоянии").click()
+        assert len(garmin_beyond_top_three["readiness"]["drivers"]) == 3
+        assert all(driver["key"] != "training_readiness" for driver in garmin_beyond_top_three["readiness"]["drivers"])
+        assert state.get_by_text("Дополнительная оценка Garmin: 81/100", exact=False).count() == 1
+        assert state.get_by_text("Сон 8.0 ч", exact=False).count() == 1
+
+        stale = deepcopy(payload)
+        stale["readiness"]["freshness"].update(state="data_gap", confirmed_today=[], unverified=["rhr"], missing=["sleep"], blocked_reason="no_confirmed_today_primary_recovery_measurement")
+        stale["readiness"]["is_provisional"] = True
+        stale["readiness"]["status"] = "stale"
+        stale["readiness"]["source_completeness"] = 1 / 3
+        stale["decision_story"]["next_action"].update(kind="inspect_evidence", summary="Сегодняшние данные восстановления не подтверждены.")
+        current["value"] = stale
+        page.reload(wait_until="networkidle")
+        assert page.get_by_text("Предварительно", exact=True).is_visible()
+        assert state.get_by_text("Данные требуют обновления", exact=True).is_visible()
+        assert summary.get_by_text("Сегодняшние данные восстановления не подтверждены.", exact=True).is_visible()
+        state = page.get_by_role("region", name="Состояние сегодня", exact=True)
+        state.get_by_text("Подробнее о состоянии").click()
+        assert state.get_by_text("нет подтверждённого сегодняшнего первичного измерения", exact=False).is_visible()
+        assert state.get_by_text("нет данных: Сон", exact=False).is_visible()
+        assert state.get_by_text("Основные измерения: 1 из 3. Актуальность проверяется отдельно.", exact=True).is_visible()
+
+        status_labels = {"strong": "Готов к работе", "ready": "Контролируемая готовность",
+                         "limited": "Ограниченная готовность", "low": "Низкая готовность",
+                         "unknown": "Недостаточно данных"}
+        for status, label in status_labels.items():
+            variant = deepcopy(payload)
+            variant["readiness"]["status"] = status
+            current["value"] = variant
             page.reload(wait_until="networkidle")
-            assert page.get_by_text("Нет оценки", exact=True).is_visible()
-            assert page.get_by_role("meter").count() == 0
+            assert state.get_by_text(label, exact=True).is_visible()
+
+        missing = deepcopy(stale)
+        missing["readiness"] = None
+        current["value"] = missing
+        page.reload(wait_until="networkidle")
+        assert page.get_by_text("Нет оценки", exact=True).is_visible()
+        assert page.get_by_role("meter").count() == 0
+        assert not _has_horizontal_overflow(page)
         assert not web_stack.js_errors
     finally:
         page.unroute("**/api/today?demo=1", serve)

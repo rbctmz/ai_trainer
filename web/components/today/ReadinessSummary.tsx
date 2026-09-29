@@ -2,11 +2,12 @@ import type { ReadinessFreshness, TodayReadiness, TodayReadinessDriver } from "@
 import { decisionText } from "./displayText";
 
 const labels: Record<string, string> = {
-  ready: "Нормальное", optimal: "Оптимальное", reduced: "Снижено", low: "Низкое",
-  critical: "Критически низкое", unknown: "Не определено", data_gap: "Недостаточно данных",
+  low: "Низкая готовность", limited: "Ограниченная готовность",
+  ready: "Контролируемая готовность", strong: "Готов к работе",
+  stale: "Данные требуют обновления", unknown: "Недостаточно данных",
 };
 function inputLabel(key: string): string {
-  return ({ sleep: "Сон", sleep_score: "Сон", hrv: "Вариабельность пульса", rhr: "Пульс покоя",
+  return ({ sleep: "Сон", sleep_score: "Сон", hrv: "Вариабельность пульса", rhr: "Пульс покоя", resting_hr: "Пульс покоя",
     tsb: "Баланс нагрузки", training_readiness: "Оценка Garmin" } as Record<string, string>)[key] ?? "Другой показатель";
 }
 
@@ -33,21 +34,16 @@ function observationDateLabel(driver: TodayReadinessDriver): string {
 
 function freshnessSummary(freshness: ReadinessFreshness): string {
   const parts: string[] = [];
-  if (freshness.confirmed_today.length > 0) {
-    parts.push(`подтверждено сегодня: ${freshness.confirmed_today.map(inputLabel).join(", ")}`);
-  }
-  if (freshness.outdated.length > 0) {
-    parts.push(`не за сегодня: ${freshness.outdated.map(inputLabel).join(", ")}`);
-  }
-  if (freshness.unverified.length > 0) {
-    parts.push(`дата неизвестна: ${freshness.unverified.map(inputLabel).join(", ")}`);
-  }
-  if (freshness.invalid.length > 0) {
-    parts.push(`некорректная дата: ${freshness.invalid.map(inputLabel).join(", ")}`);
-  }
-  if (freshness.missing.length > 0) {
-    parts.push(`нет данных: ${freshness.missing.map(inputLabel).join(", ")}`);
-  }
+  const addInputs = (keys: string[], description: string) => {
+    const primaryLabels = keys.filter((key) => key !== "training_readiness" && key !== "tsb").map(inputLabel);
+    if (primaryLabels.length > 0) parts.push(`${description}: ${primaryLabels.join(", ")}`);
+  };
+  addInputs(freshness.confirmed_today, "подтверждено сегодня");
+  if (freshness.confirmed_today.includes("tsb")) parts.push("Баланс нагрузки рассчитан на сегодня");
+  addInputs(freshness.outdated, "не за сегодня");
+  addInputs(freshness.unverified, "дата неизвестна");
+  addInputs(freshness.invalid, "некорректная дата");
+  addInputs(freshness.missing, "нет данных");
   return parts.join(" · ");
 }
 
@@ -103,9 +99,23 @@ export function ReadinessIndicator({ readiness }: { readiness?: TodayReadiness |
 export function ReadinessDetails({ readiness }: { readiness?: TodayReadiness | null }) {
   if (!readiness) return <p className="text-sm text-ink-soft">Данных для оценки восстановления нет.</p>;
   const drivers = readiness.drivers.length ? readiness.drivers : readiness.factors;
+  const freshness = readiness.freshness;
+  const sourceCompleteness = readiness.source_completeness;
+  const hasPrimaryCount = typeof sourceCompleteness === "number" && Number.isFinite(sourceCompleteness) && sourceCompleteness >= 0 && sourceCompleteness <= 1;
+  const presentPrimaryCount = hasPrimaryCount ? Math.round(sourceCompleteness * 3) : null;
+  const primaryDrivers = drivers.filter((item) => item.key !== "training_readiness");
+  const garminDriver = readiness.factors.find((item) => item.key === "training_readiness")
+    ?? drivers.find((item) => item.key === "training_readiness");
+  const garminMissing = freshness?.missing.includes("training_readiness") ?? false;
+  const garminEvidence = garminDriver?.evidence
+    ? decisionText(String(garminDriver.evidence)).replace(/^Оценка Garmin\s*/i, "")
+    : "";
   return (
     <div className="space-y-3 text-sm text-ink-soft">
       <h3 className="font-medium text-ink">Показатели восстановления</h3>
+      <p className="rounded-lg bg-surface-muted p-3 text-ink">{presentPrimaryCount !== null
+        ? `Основные измерения: ${presentPrimaryCount} из 3. Актуальность проверяется отдельно.`
+        : "Наличие основных измерений не подтверждено. Актуальность проверяется отдельно."}</p>
       {readiness.freshness && readiness.freshness.state !== "fresh" ? (
         <div className="rounded-lg border border-tone-warning/30 bg-tone-warning/10 p-3">
           <p className="font-medium text-ink">{readiness.freshness.state === "data_gap"
@@ -115,20 +125,21 @@ export function ReadinessDetails({ readiness }: { readiness?: TodayReadiness | n
         </div>
       ) : null}
       <ul className="divide-y divide-surface-border">
-        {drivers.map((item, index) => {
+        {primaryDrivers.map((item, index) => {
           const driver = item as TodayReadinessDriver;
           const evidence = String(item.evidence ?? "");
           return evidence ? <li key={index} className="py-2.5">
-            <p>{decisionText(evidence)}</p>
+            <p>{driver.key === "tsb" ? `Расчётный показатель: ${decisionText(evidence)}` : decisionText(evidence)}</p>
             <p className="mt-1 text-xs text-ink-soft">{observationDateLabel(driver)}</p>
           </li> : null;
         })}
       </ul>
+      {garminDriver?.evidence ? <p className="rounded-lg border border-surface-border p-3">Дополнительная оценка Garmin{garminEvidence ? `: ${garminEvidence}` : ""}<span className="mt-1 block text-xs">{observationDateLabel(garminDriver as TodayReadinessDriver)}</span></p> : null}
+      {!garminDriver && garminMissing ? <p className="rounded-lg border border-surface-border p-3">Дополнительная оценка Garmin не поступила.</p> : null}
       {readiness.tsb?.tsb != null && !drivers.some((item) => item.key === "tsb") ? (
-        <p>Баланс нагрузки (TSB): {readiness.tsb.tsb}; базовая нагрузка (CTL): {readiness.tsb.ctl ?? "—"}; окно {readiness.tsb.window_days} дн.</p>
+        <p>Расчётный баланс нагрузки (TSB): {readiness.tsb.tsb}; базовая нагрузка (CTL): {readiness.tsb.ctl ?? "—"}; окно {readiness.tsb.window_days} дн.</p>
       ) : null}
       {readiness.freshness ? <p className="text-xs">{freshnessSummary(readiness.freshness)}</p> : null}
-      {readiness.source_completeness != null ? <p className="text-xs">Полнота данных: {Math.round(readiness.source_completeness * 100)}%. Это не оценка их свежести.</p> : null}
     </div>
   );
 }

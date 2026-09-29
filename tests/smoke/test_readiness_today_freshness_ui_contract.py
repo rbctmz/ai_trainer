@@ -104,6 +104,7 @@ def test_today_does_not_recompute_readiness_business_rules() -> None:
         "eligible_inputs.includes(",
     ):
         assert forbidden not in source
-    # Coverage is labelled honestly instead of being presented as freshness.
-    assert "Полнота данных" in source
-    assert "Это не оценка их свежести" in source
+    # Primary input availability is separate from the server-owned freshness verdict.
+    assert "Основные измерения:" in source
+    assert "Актуальность проверяется отдельно." in source
+    assert "readiness.source_completeness" in source
