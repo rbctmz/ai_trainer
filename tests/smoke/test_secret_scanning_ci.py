@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import subprocess
 import sys
@@ -72,7 +74,7 @@ def test_gitleaks_exceptions_are_only_verified_non_secret_shapes() -> None:
         if line and not line.startswith("#")
     }
 
-    assert fingerprints == {
+    expected = {
         ".env.example:generic-api-key:42",
         "docs/intervals_primary_quickstart.md:generic-api-key:20",
         "docs/self_hosted_deployment_execplan.md:curl-auth-user:331",
@@ -85,6 +87,22 @@ def test_gitleaks_exceptions_are_only_verified_non_secret_shapes() -> None:
         "tests/smoke/test_issue_554_review_catalog.py:generic-api-key:234",
         "tests/smoke/test_issue_554_review_catalog.py:generic-api-key:239",
     }
+    # #673 export metadata is immutable checksum evidence, not a credential.
+    # Every new exception must target one verified hexadecimal checksum row.
+    checksum_path = "docs/reports/2026-10-01-daily-story-consistency/evidence/candidate-export.json"
+    checksum_commit = "73c363e57625f141ae77b51bd822acd583d12b74"
+    checksum_lines = (29, 34, 71, 354, 455, 467, 595, 597, 598, 600, 602, 603, 604, 605, 612, 613, 640, 647, 675, 706, 708, 714, 760, 777, 793, 829, 831, 843, 955, 966)
+    assert hashlib.sha256(Path(checksum_path).read_bytes()).hexdigest() == "e5adbb7476e87d677184f9592d4e30df1eb5e9e3fb69a2f5a3e00db5821c8f99"
+    manifest_lines = Path(checksum_path).read_text().splitlines()
+    for line in checksum_lines:
+        row = json.loads("{" + manifest_lines[line - 1].strip().rstrip(",") + "}")
+        assert len(row) == 1
+        source_path, digest = next(iter(row.items()))
+        assert isinstance(source_path, str) and source_path
+        assert re.fullmatch(r"[0-9a-f]{64}", digest)
+        expected.add(f"{checksum_path}:generic-api-key:{line}")
+        expected.add(f"{checksum_commit}:{checksum_path}:generic-api-key:{line}")
+    assert fingerprints == expected
     assert not any("archived/" in fingerprint for fingerprint in fingerprints)
     assert not Path("archived/old_debug_scripts/debug_body_battery.py").exists()
     assert not Path("archived/old_fix_tests/test_fixed_sync.py").exists()

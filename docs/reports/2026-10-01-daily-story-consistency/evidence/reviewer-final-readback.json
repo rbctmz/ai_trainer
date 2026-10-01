@@ -1,0 +1,99 @@
+{
+  "hashes": {
+    "api/today_snapshot.py": "b64212fa7d3f45049d28de9972968089a679460514116b84867f5b62163cc6f8",
+    "api/routers/coach.py": "2ba11981cbd082c1b26d711d2587eb5119689bd1735741825599abcc41a24c88",
+    "models/today_decision_story.py": "4476d54a5c50df39d8a8df985c205ecbcadcd4bae951f9c7b0933d70360f66aa",
+    "services/session_projection.py": "87fee438d98f40f0243d60980f5f7d6474aeca66e55bb2859fe32066c08e0b96",
+    "web/lib/types.ts": "aeec2d34882e4bd60de6d1158454bec291272e9c447918c24a88943d1de36402",
+    "tests/contracts/ts_contract.json": "a367c3335c591f3a1d336b09cf3aff14a3cd0338b98fc3ad432092410666acbd",
+    "tests/smoke/test_daily_story_consistency.py": "3277c01799121f9c261feff877b1d3bf5ea8e248180b2ea2f8bcac895c2b296f",
+    "tests/smoke/test_today_decision_story.py": "db8f117d03dcc339e043645ffc75255be6187d220922e0d0d9c166c9bf1c5b6e"
+  },
+  "cases": [
+    {
+      "case": "ordinary",
+      "parents": 1,
+      "action": "follow_plan",
+      "readiness": "current",
+      "completion": [
+        "not_observed"
+      ],
+      "actual_tss": 0.0
+    },
+    {
+      "case": "completed",
+      "parents": 1,
+      "action": "follow_plan",
+      "readiness": "current",
+      "completion": [
+        "complete"
+      ],
+      "actual_tss": 45.0
+    },
+    {
+      "case": "two",
+      "parents": 2,
+      "action": "follow_plan",
+      "readiness": "current",
+      "completion": [
+        "complete",
+        "not_observed"
+      ],
+      "actual_tss": 45.0
+    },
+    {
+      "case": "partial-brick",
+      "parents": 1,
+      "action": "follow_plan",
+      "readiness": "current",
+      "completion": [
+        "incomplete"
+      ],
+      "actual_tss": 45.0
+    },
+    {
+      "case": "ambiguous",
+      "parents": 1,
+      "action": "confirm_match",
+      "readiness": "current",
+      "completion": [
+        "needs_confirmation"
+      ],
+      "actual_tss": 0.0
+    },
+    {
+      "case": "stale",
+      "parents": 1,
+      "action": "inspect_evidence",
+      "readiness": "unknown",
+      "completion": [
+        "not_observed"
+      ],
+      "actual_tss": 0.0
+    },
+    {
+      "case": "conflicting",
+      "parents": 1,
+      "action": "inspect_evidence",
+      "readiness": "current",
+      "completion": [
+        "not_observed"
+      ],
+      "actual_tss": 0.0
+    }
+  ],
+  "browser_counts": {
+    "today": 42,
+    "today-explanation": 14,
+    "planning": 7,
+    "activities": 4
+  },
+  "suite_xml": {
+    "tests": 2991,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 18
+  },
+  "verified": "PASS",
+  "boundaries": "Saved evidence read-back only; no new full review or product checks."
+}

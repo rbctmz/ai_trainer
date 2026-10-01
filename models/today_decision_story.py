@@ -4,7 +4,9 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import date
 import math
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
+
+from models.readiness import PRIMARY_RECOVERY_KEYS
 
 
 TODAY_DECISION_STORY_SCHEMA_VERSION = "today_decision_story_v1"
@@ -27,6 +29,7 @@ def compose_today_decision_story(
     subjective_wellness: Mapping[str, Any] | None,
     primary_action: Mapping[str, Any] | None,
     rule_versions: Mapping[str, Any] | None,
+    session_projections: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Compose a deterministic story without I/O, matching, or domain recalculation.
 
@@ -35,6 +38,12 @@ def compose_today_decision_story(
     treated as a negative answer and does not suppress the existing gate action;
     it is surfaced as an explicit caveat rather than clearance.
     """
+    if session_projections is not None:
+        return _compose_parent_stories(
+            as_of=as_of, projections=session_projections, readiness=readiness,
+            subjective_wellness=subjective_wellness, primary_action=primary_action,
+            rule_versions=rule_versions,
+        )
     anchor = _date_text(as_of)
     session = _mapping(session_projection)
     readiness_data = _mapping(readiness)
@@ -201,6 +210,103 @@ def compose_today_decision_story(
     }
 
 
+def _compose_parent_stories(
+    *, as_of: str, projections: Sequence[Mapping[str, Any]],
+    readiness: Mapping[str, Any] | None,
+    subjective_wellness: Mapping[str, Any] | None,
+    primary_action: Mapping[str, Any] | None,
+    rule_versions: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Summarize independent parents without merging their identity or causes."""
+    kwargs = dict(as_of=as_of, readiness=readiness,
+                  subjective_wellness=subjective_wellness,
+                  primary_action=primary_action, rule_versions=rule_versions)
+    stories = [compose_today_decision_story(session_projection=p, **kwargs) for p in projections]
+    if not stories:
+        return compose_today_decision_story(session_projection=None, **kwargs)
+    if len(stories) == 1:
+        return stories[0]
+    facts = [story["fact"] for story in stories]
+    malformed = False
+    for fact in facts:
+        sid = fact["session_id"]
+        if not isinstance(sid, str) or not sid.strip():
+            fact["session_id"] = None
+            malformed = True
+        ids = fact["actual"]["activity_ids"]
+        valid_ids = [identity for identity in ids if isinstance(identity, str) and identity.strip()]
+        if valid_ids != ids:
+            fact["actual"]["activity_ids"] = valid_ids
+            malformed = True
+    identities = [fact["session_id"] for fact in facts]
+    actual_ids = [identity for fact in facts for identity in fact["actual"]["activity_ids"]]
+    checkpoints = [fact["evidence_revision"].get("planning_checkpoint_id") for fact in facts]
+    malformed_checkpoint = any(type(value) is not int or value <= 0 for value in checkpoints)
+    revision_gap = (malformed_checkpoint or len(set(checkpoints)) != 1
+                    or any(_date_text(fact["evidence_revision"].get("as_of")) != _date_text(as_of)
+                           for fact in facts))
+    overlapping = (malformed or revision_gap or len(set(identities)) != len(identities)
+                   or len(set(actual_ids)) != len(actual_ids))
+    # These are action priorities, not a new gate or a completion matcher.
+    def priority(story: Mapping[str, Any]) -> int:
+        status = story["interpretation"]["status"]
+        return {"data_gap": 0, "needs_confirmation": 1, "conflicting_evidence": 2}.get(status, 3)
+    result = deepcopy(min(stories, key=priority))
+    states = [fact["projection_status"] for fact in facts]
+    completions = [fact["completion_status"] for fact in facts]
+    if overlapping or "data_gap" in states:
+        state = "data_gap"
+    elif "needs_confirmation" in states:
+        state = "needs_confirmation"
+    elif all(status == "matched" for status in states):
+        state = "matched"
+    elif all(status == "unmatched" for status in states):
+        state = "unmatched"
+    else:
+        state = "partial"
+    if state == "needs_confirmation":
+        completion = "needs_confirmation"
+    elif all(value == "complete" for value in completions):
+        completion = "complete" if state != "data_gap" else "not_observed"
+    elif any(value in {"complete", "incomplete"} for value in completions):
+        completion = "incomplete"
+    else:
+        completion = "not_observed"
+
+    def total(values: Sequence[Any]) -> float | None:
+        numbers = [_number(value) for value in values]
+        return round(sum(numbers), 1) if all(n is not None for n in numbers) else None
+
+    revisions = [fact["evidence_revision"] for fact in facts]
+    checkpoint_ids = [r.get("planning_checkpoint_id") for r in revisions]
+    result["fact"] = {
+        "session_id": None, "sessions": deepcopy(facts),
+        "projection_status": state, "completion_status": completion,
+        "plan": {"date": _date_text(as_of),
+                 "load_tss": total([f["plan"].get("load_tss") for f in facts]),
+                 "duration_minutes": total([f["plan"].get("duration_minutes") for f in facts])},
+        "actual": {"activity_ids": list(dict.fromkeys(actual_ids)),
+                   "load_tss": None if overlapping else total([f["actual"]["load_tss"] for f in facts]),
+                   "legs": [], "transition": None},
+        "deviation": {},
+        "cause": {"status": "unknown", "code": "no_aggregate_cause_evidence", "evidence_refs": []},
+        "evidence_revision": {"as_of": _date_text(as_of),
+                              "planning_checkpoint_id": checkpoint_ids[0]
+                              if not malformed_checkpoint and all(c == checkpoint_ids[0] for c in checkpoint_ids) else None},
+    }
+    result["evidence"] = [deepcopy(s["evidence"][0]) for s in stories] + deepcopy(stories[0]["evidence"][1:])
+    if overlapping:
+        # Preserve the source parent facts but do not double count shared activity evidence.
+        result["interpretation"]["status"] = "data_gap"
+        result["interpretation"]["summary"] = "Сопоставления сессий требуют проверки."
+        result["recommendation"] = {"kind": "non_prescriptive_review", "summary": "Уточните связь активностей с планом."}
+        result["next_action"].update(kind="inspect_evidence", summary="Проверьте сопоставление независимых сессий.",
+                                     changes_plan=False, clearance_claim=False)
+        if result["next_action"].get("caveat"):
+            result["next_action"]["summary"] = _with_caveat(result["next_action"]["summary"])
+    return result
+
+
 def _is_unobserved_plan(session: Mapping[str, Any], anchor: str | None, action_kind: str) -> bool:
     """Distinguish an upcoming plan from an unmatched observed activity."""
     if action_kind != "follow_plan" or session.get("projection_status") != "unmatched":
@@ -284,10 +390,28 @@ def _injury_evidence(wellness: Mapping[str, Any], anchor: str) -> dict[str, Any]
 
 def _readiness_freshness(readiness: Mapping[str, Any], anchor: str) -> str:
     freshness = _mapping(readiness.get("freshness"))
-    if freshness.get("state") == "confirmed_today" and _date_text(freshness.get("anchor")) == anchor:
-        return "current"
+    observation_anchor = _date_text(freshness.get("anchor"))
+    if observation_anchor and anchor and observation_anchor < anchor:
+        return "stale"
     if readiness.get("stale") or freshness.get("state") in {"stale", "outdated"}:
         return "stale"
+    keys = ("confirmed_today", "outdated", "unverified", "invalid", "missing")
+    if any(not isinstance(freshness.get(key, []), list)
+           or any(not isinstance(value, str) for value in freshness.get(key, []))
+           for key in keys):
+        return "unknown"
+    confirmed = _list_value(freshness.get("confirmed_today"))
+    primary = set(PRIMARY_RECOVERY_KEYS)
+    contradictory = any(primary.intersection(_list_value(freshness.get(key)))
+                        for key in ("outdated", "unverified", "invalid", "missing"))
+    if (
+        observation_anchor == anchor and anchor is not None
+        and freshness.get("state") in {"fresh", "confirmed_today"}
+        and primary.issubset(confirmed) and not contradictory
+        and not freshness.get("blocked_reason")
+        and not readiness.get("intervention_blocked_reason")
+    ):
+        return "current"
     return "unknown"
 
 

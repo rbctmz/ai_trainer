@@ -1,0 +1,114 @@
+{
+  "G1": {
+    "guarded_action": "inspect_evidence",
+    "affected_bike": {
+      "session_id": "ats_b5d4fae098e605e7eee15fa2",
+      "projection_status": "data_gap",
+      "completion_status": "not_observed",
+      "plan": {},
+      "actual": {
+        "activity_ids": [],
+        "load_tss": null,
+        "legs": [],
+        "transition": null
+      },
+      "deviation": {},
+      "cause": {},
+      "evidence_revision": {
+        "as_of": "2026-08-31"
+      }
+    },
+    "unaffected_run_retained": true,
+    "fresh_current_bike": {
+      "session_id": "ats_b5d4fae098e605e7eee15fa2",
+      "projection_status": "matched",
+      "completion_status": "complete",
+      "plan": {
+        "date": "2026-08-31",
+        "sport": "bike",
+        "role": "easy",
+        "name": "easy bike",
+        "duration_minutes": 60.0,
+        "load_tss": 60.0,
+        "legs": [],
+        "transition": {
+          "planned_minutes": null
+        }
+      },
+      "actual": {
+        "activity_ids": [
+          "alternate-bike"
+        ],
+        "load_tss": 30.0,
+        "legs": [],
+        "transition": {
+          "actual_minutes": null
+        }
+      },
+      "deviation": {
+        "adherence": "major_deviation",
+        "duration_delta_minutes": -30.0,
+        "load_delta_tss": -30.0,
+        "structure_match": null,
+        "transition_delta_minutes": null
+      },
+      "cause": {
+        "status": "unknown",
+        "code": "no_explicit_cause_evidence",
+        "evidence_refs": []
+      },
+      "evidence_revision": {
+        "planning_checkpoint_id": 1,
+        "match_revision_id": 2,
+        "match_revision": 2,
+        "feedback_revision_id": null,
+        "feedback_revision": null,
+        "reconciliation_rule_version": "plan_actual_match_v2",
+        "as_of": "2026-08-31",
+        "provider_status": "disabled"
+      }
+    },
+    "read_adapters_unchanged": true
+  },
+  "missing_identity": {
+    "action": "inspect_evidence",
+    "state": "data_gap",
+    "total": null,
+    "known_bike_retained": true
+  },
+  "malformed_identity": {
+    "action": "inspect_evidence",
+    "state": "data_gap",
+    "total": null,
+    "known_bike_retained": true
+  },
+  "mixed_checkpoint": {
+    "action": "inspect_evidence",
+    "state": "data_gap",
+    "total": null,
+    "known_bike_retained": true
+  },
+  "malformed_checkpoint": {
+    "action": "inspect_evidence",
+    "state": "data_gap",
+    "total": null,
+    "known_bike_retained": true
+  },
+  "malformed_actual_id": {
+    "action": "inspect_evidence",
+    "state": "data_gap",
+    "total": null,
+    "known_bike_retained": true
+  },
+  "old_parent_anchor": {
+    "action": "inspect_evidence",
+    "state": "data_gap",
+    "total": null,
+    "known_bike_retained": true
+  },
+  "S1_confirmed_today": "unknown",
+  "S1_outdated": "unknown",
+  "S1_unverified": "unknown",
+  "S1_invalid": "unknown",
+  "S1_missing": "unknown"
+}

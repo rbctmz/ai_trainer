@@ -19,6 +19,7 @@ from api.readiness_snapshot import build_readiness_snapshot
 from api.recovery_replan_loop import run_recovery_replan_loop
 from api.today_snapshot import (
     _day_session,
+    day_parent_session_ids,
     _latest_checkpoint,
     _resolve_proposal,
     _resolve_state,
@@ -201,6 +202,7 @@ def coach_chat(
             db,
             as_of=local_today.isoformat(),
             session_id=(today_session or {}).get("session_id"),
+            session_ids=day_parent_session_ids(goal_plan, local_today.isoformat()),
             readiness=readiness_snapshot,
             subjective_wellness=readiness_snapshot.get("subjective_wellness"),
             primary_action=today_action,

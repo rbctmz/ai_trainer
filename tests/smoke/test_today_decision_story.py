@@ -79,9 +79,9 @@ def _readiness() -> dict:
         "intervention_confidence": 0.9,
         "eligible_inputs": ["sleep", "hrv"],
         "freshness": {
-            "state": "confirmed_today",
+            "state": "fresh",
             "anchor": "2026-09-23",
-            "confirmed_today": ["sleep", "hrv"],
+            "confirmed_today": ["sleep", "hrv", "resting_hr"],
             "outdated": [],
             "missing": [],
         },

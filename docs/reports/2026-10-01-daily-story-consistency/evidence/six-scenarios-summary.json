@@ -1,0 +1,397 @@
+[
+  {
+    "scenario": "ordinary",
+    "api_statuses": {
+      "today": 200,
+      "planning": 200,
+      "overview": 200
+    },
+    "state": "silence",
+    "action": "follow_plan",
+    "story_session_id": "ats_6e351bd901b79fca36e182ad",
+    "story_status": "unmatched",
+    "story_actual": {
+      "activity_ids": [],
+      "load_tss": 0.0,
+      "legs": [],
+      "transition": {
+        "actual_minutes": null
+      }
+    },
+    "readiness_freshness": {
+      "state": "fresh",
+      "anchor": "2026-10-01",
+      "confirmed_today": [
+        "hrv",
+        "resting_hr",
+        "sleep",
+        "tsb"
+      ],
+      "outdated": [],
+      "unverified": [],
+      "invalid": [],
+      "missing": [
+        "training_readiness"
+      ],
+      "intervention_eligible": [
+        "hrv",
+        "resting_hr",
+        "sleep",
+        "tsb"
+      ],
+      "blocked_reason": null
+    },
+    "rows": [
+      {
+        "session_id": "ats_6e351bd901b79fca36e182ad",
+        "sport": "bike",
+        "match_status": "unmatched",
+        "actual_activity_ids": [],
+        "actual_total_tss": 0
+      }
+    ],
+    "coach_adapter_unchanged": true
+  },
+  {
+    "scenario": "completed",
+    "api_statuses": {
+      "today": 200,
+      "planning": 200,
+      "overview": 200
+    },
+    "state": "silence",
+    "action": "follow_plan",
+    "story_session_id": "ats_6e351bd901b79fca36e182ad",
+    "story_status": "matched",
+    "story_actual": {
+      "activity_ids": [
+        "audit-bike-completed"
+      ],
+      "load_tss": 45.0,
+      "legs": [],
+      "transition": {
+        "actual_minutes": null
+      }
+    },
+    "readiness_freshness": {
+      "state": "fresh",
+      "anchor": "2026-10-01",
+      "confirmed_today": [
+        "hrv",
+        "resting_hr",
+        "sleep",
+        "tsb"
+      ],
+      "outdated": [],
+      "unverified": [],
+      "invalid": [],
+      "missing": [
+        "training_readiness"
+      ],
+      "intervention_eligible": [
+        "hrv",
+        "resting_hr",
+        "sleep",
+        "tsb"
+      ],
+      "blocked_reason": null
+    },
+    "rows": [
+      {
+        "session_id": "ats_6e351bd901b79fca36e182ad",
+        "sport": "bike",
+        "match_status": "matched",
+        "actual_activity_ids": [
+          "audit-bike-completed"
+        ],
+        "actual_total_tss": 45.0
+      }
+    ],
+    "coach_adapter_unchanged": true
+  },
+  {
+    "scenario": "two",
+    "api_statuses": {
+      "today": 200,
+      "planning": 200,
+      "overview": 200
+    },
+    "state": "silence",
+    "action": "follow_plan",
+    "story_session_id": null,
+    "story_status": "partial",
+    "story_actual": {
+      "activity_ids": [
+        "audit-bike-two"
+      ],
+      "load_tss": 45.0,
+      "legs": [],
+      "transition": null
+    },
+    "readiness_freshness": {
+      "state": "fresh",
+      "anchor": "2026-10-01",
+      "confirmed_today": [
+        "hrv",
+        "resting_hr",
+        "sleep",
+        "tsb"
+      ],
+      "outdated": [],
+      "unverified": [],
+      "invalid": [],
+      "missing": [
+        "training_readiness"
+      ],
+      "intervention_eligible": [
+        "hrv",
+        "resting_hr",
+        "sleep",
+        "tsb"
+      ],
+      "blocked_reason": null
+    },
+    "rows": [
+      {
+        "session_id": "ats_7fc55ec2bb1e926c7e4fdb8d",
+        "sport": "bike",
+        "match_status": "matched",
+        "actual_activity_ids": [
+          "audit-bike-two"
+        ],
+        "actual_total_tss": 45.0
+      },
+      {
+        "session_id": "ats_936d2f1df9c2aaa4ccac3317",
+        "sport": "run",
+        "match_status": "unmatched",
+        "actual_activity_ids": [],
+        "actual_total_tss": 0
+      }
+    ],
+    "coach_adapter_unchanged": true
+  },
+  {
+    "scenario": "partial-brick",
+    "api_statuses": {
+      "today": 200,
+      "planning": 200,
+      "overview": 200
+    },
+    "state": "silence",
+    "action": "follow_plan",
+    "story_session_id": "ats_55845e321ff2db9db061cdf6",
+    "story_status": "partial",
+    "story_actual": {
+      "activity_ids": [
+        "audit-bike-partial-brick"
+      ],
+      "load_tss": 45.0,
+      "legs": [
+        {
+          "planned_leg_id": "ats_55845e321ff2db9db061cdf6:1",
+          "leg_index": 1,
+          "activity_id": "audit-bike-partial-brick",
+          "sport": "bike",
+          "duration_minutes": 45.0,
+          "load_tss": 45.0
+        }
+      ],
+      "transition": {
+        "actual_minutes": null
+      }
+    },
+    "readiness_freshness": {
+      "state": "fresh",
+      "anchor": "2026-10-01",
+      "confirmed_today": [
+        "hrv",
+        "resting_hr",
+        "sleep",
+        "tsb"
+      ],
+      "outdated": [],
+      "unverified": [],
+      "invalid": [],
+      "missing": [
+        "training_readiness"
+      ],
+      "intervention_eligible": [
+        "hrv",
+        "resting_hr",
+        "sleep",
+        "tsb"
+      ],
+      "blocked_reason": null
+    },
+    "rows": [
+      {
+        "session_id": "ats_55845e321ff2db9db061cdf6",
+        "sport": "brick",
+        "match_status": "matched",
+        "actual_activity_ids": [
+          "audit-bike-partial-brick"
+        ],
+        "actual_total_tss": 45.0
+      }
+    ],
+    "coach_adapter_unchanged": true
+  },
+  {
+    "scenario": "ambiguous",
+    "api_statuses": {
+      "today": 200,
+      "planning": 200,
+      "overview": 200
+    },
+    "state": "silence",
+    "action": "confirm_match",
+    "story_session_id": "ats_6e351bd901b79fca36e182ad",
+    "story_status": "needs_confirmation",
+    "story_actual": {
+      "activity_ids": [],
+      "load_tss": 0.0,
+      "legs": [],
+      "transition": {
+        "actual_minutes": null
+      }
+    },
+    "readiness_freshness": {
+      "state": "fresh",
+      "anchor": "2026-10-01",
+      "confirmed_today": [
+        "hrv",
+        "resting_hr",
+        "sleep",
+        "tsb"
+      ],
+      "outdated": [],
+      "unverified": [],
+      "invalid": [],
+      "missing": [
+        "training_readiness"
+      ],
+      "intervention_eligible": [
+        "hrv",
+        "resting_hr",
+        "sleep",
+        "tsb"
+      ],
+      "blocked_reason": null
+    },
+    "rows": [
+      {
+        "session_id": "ats_6e351bd901b79fca36e182ad",
+        "sport": "bike",
+        "match_status": "ambiguous",
+        "actual_activity_ids": [],
+        "actual_total_tss": 0
+      }
+    ],
+    "coach_adapter_unchanged": true
+  },
+  {
+    "scenario": "stale",
+    "api_statuses": {
+      "today": 200,
+      "planning": 200,
+      "overview": 200
+    },
+    "state": "data_gap",
+    "action": "inspect_evidence",
+    "story_session_id": "ats_6e351bd901b79fca36e182ad",
+    "story_status": "unmatched",
+    "story_actual": {
+      "activity_ids": [],
+      "load_tss": 0.0,
+      "legs": [],
+      "transition": {
+        "actual_minutes": null
+      }
+    },
+    "readiness_freshness": {
+      "state": "data_gap",
+      "anchor": "2026-10-01",
+      "confirmed_today": [
+        "tsb"
+      ],
+      "outdated": [
+        "hrv",
+        "resting_hr",
+        "sleep"
+      ],
+      "unverified": [],
+      "invalid": [],
+      "missing": [
+        "training_readiness"
+      ],
+      "intervention_eligible": [
+        "tsb"
+      ],
+      "blocked_reason": "no_confirmed_today_primary_recovery_measurement"
+    },
+    "rows": [
+      {
+        "session_id": "ats_6e351bd901b79fca36e182ad",
+        "sport": "bike",
+        "match_status": "unmatched",
+        "actual_activity_ids": [],
+        "actual_total_tss": 0
+      }
+    ],
+    "coach_adapter_unchanged": true
+  },
+  {
+    "scenario": "conflicting",
+    "api_statuses": {
+      "today": 200,
+      "planning": 200,
+      "overview": 200
+    },
+    "state": "silence",
+    "action": "inspect_evidence",
+    "story_session_id": "ats_6e351bd901b79fca36e182ad",
+    "story_status": "unmatched",
+    "story_actual": {
+      "activity_ids": [],
+      "load_tss": 0.0,
+      "legs": [],
+      "transition": {
+        "actual_minutes": null
+      }
+    },
+    "readiness_freshness": {
+      "state": "fresh",
+      "anchor": "2026-10-01",
+      "confirmed_today": [
+        "hrv",
+        "resting_hr",
+        "sleep",
+        "tsb"
+      ],
+      "outdated": [],
+      "unverified": [],
+      "invalid": [],
+      "missing": [
+        "training_readiness"
+      ],
+      "intervention_eligible": [
+        "hrv",
+        "resting_hr",
+        "sleep",
+        "tsb"
+      ],
+      "blocked_reason": null
+    },
+    "rows": [
+      {
+        "session_id": "ats_6e351bd901b79fca36e182ad",
+        "sport": "bike",
+        "match_status": "unmatched",
+        "actual_activity_ids": [],
+        "actual_total_tss": 0
+      }
+    ],
+    "coach_adapter_unchanged": true
+  }
+]

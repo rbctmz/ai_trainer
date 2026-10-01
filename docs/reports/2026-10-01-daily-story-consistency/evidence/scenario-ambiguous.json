@@ -1,0 +1,2454 @@
+{
+  "scenario": "ambiguous",
+  "anchor": "2026-10-01",
+  "checkpoint_id": 1,
+  "database_path": "/private/tmp/ai-trainer-daily-fix-20261001/runtime/scenario-ambiguous-934eee5b/audit.db",
+  "responses": {
+    "today": {
+      "http_status": 200,
+      "body": {
+        "snapshot_version": "today_decision_snapshot_v2",
+        "date": "2026-10-01",
+        "state": "silence",
+        "reason": "Готовность ready (60.8/100) не противоречит сессиям ближайших 3 дн. — вмешательство не требуется.",
+        "primary_action": {
+          "kind": "follow_plan",
+          "enabled": true,
+          "reason": "Готовность ready (60.8/100) не противоречит сессиям ближайших 3 дн. — вмешательство не требуется."
+        },
+        "decision_story": {
+          "schema_version": "today_decision_story_v1",
+          "date": "2026-10-01",
+          "fact": {
+            "session_id": "ats_6e351bd901b79fca36e182ad",
+            "projection_status": "needs_confirmation",
+            "completion_status": "needs_confirmation",
+            "plan": {
+              "date": "2026-10-01",
+              "sport": "bike",
+              "role": "easy",
+              "name": "Audit bike",
+              "duration_minutes": 40.0,
+              "load_tss": 40.0,
+              "legs": [],
+              "transition": {
+                "planned_minutes": null
+              }
+            },
+            "actual": {
+              "activity_ids": [],
+              "load_tss": 0.0,
+              "legs": [],
+              "transition": {
+                "actual_minutes": null
+              }
+            },
+            "deviation": {
+              "adherence": "unknown",
+              "duration_delta_minutes": -40.0,
+              "load_delta_tss": -40.0,
+              "structure_match": null,
+              "transition_delta_minutes": null
+            },
+            "cause": {
+              "status": "needs_confirmation",
+              "code": "ambiguous_match",
+              "evidence_refs": []
+            },
+            "evidence_revision": {
+              "planning_checkpoint_id": 1,
+              "match_revision_id": null,
+              "match_revision": null,
+              "feedback_revision_id": null,
+              "feedback_revision": null,
+              "reconciliation_rule_version": "plan_actual_match_v2",
+              "as_of": "2026-10-01",
+              "provider_status": "disabled"
+            }
+          },
+          "interpretation": {
+            "status": "needs_confirmation",
+            "summary": "Факт активности неоднозначен и требует подтверждения.",
+            "caveat": null,
+            "rule_versions": {
+              "story": "today_decision_story_v1",
+              "readiness": "readiness_snapshot_v3",
+              "gate": "readiness_conflicts_v2",
+              "session": "plan_actual_match_v2"
+            }
+          },
+          "recommendation": {
+            "kind": "confirm_match",
+            "summary": "Подтвердите, какая активность относится к плановой сессии."
+          },
+          "next_action": {
+            "kind": "confirm_match",
+            "summary": "Подтвердите сопоставление активности с планом.",
+            "enabled": true,
+            "changes_plan": false,
+            "clearance_claim": false
+          },
+          "evidence": [
+            {
+              "kind": "session",
+              "source": "session_projection",
+              "ref": "ats_6e351bd901b79fca36e182ad",
+              "observation_date": "2026-10-01",
+              "freshness": "current",
+              "status": "needs_confirmation"
+            },
+            {
+              "kind": "readiness",
+              "source": "canonical_snapshot",
+              "ref": "canonical_snapshot",
+              "observation_date": "2026-10-01",
+              "freshness": "current",
+              "status": "ready",
+              "eligible_inputs": [
+                "hrv",
+                "resting_hr",
+                "sleep",
+                "tsb"
+              ]
+            },
+            {
+              "kind": "subjective_wellness",
+              "key": "injury",
+              "source": "intervals",
+              "ref": "intervals_subjective_v1",
+              "state": "present",
+              "value": 1,
+              "value_label": "Нет",
+              "observation_date": "2026-10-01",
+              "freshness": "current",
+              "eligible_for_clearance": false
+            }
+          ]
+        },
+        "readiness": {
+          "score": 60.7,
+          "status": "ready",
+          "confidence": 0.8,
+          "computed_at": "2026-10-01",
+          "source_completeness": 1.0,
+          "drivers": [
+            {
+              "key": "tsb",
+              "label": "Баланс нагрузки (TSB)",
+              "score": 35.0,
+              "intervention_score_input": 35.0,
+              "evidence": "TSB -24.4 (глубокая усталость)",
+              "intervention_evidence": "TSB -24.4 (глубокая усталость)",
+              "as_of": "2026-10-01",
+              "observation_as_of": "2026-10-01",
+              "age_days": 0,
+              "observation_status": "confirmed_today",
+              "intervention_eligible": true,
+              "evidence_kind": "derived_state",
+              "source": "activities.tss → Banister"
+            },
+            {
+              "key": "hrv",
+              "label": "HRV",
+              "score": 60.0,
+              "intervention_score_input": 60.0,
+              "evidence": "HRV 38.0 мс (базлайн ещё не накоплен)",
+              "intervention_evidence": "HRV 38.0 мс (базлайн ещё не накоплен)",
+              "as_of": "2026-10-01",
+              "observation_as_of": "2026-10-01",
+              "age_days": 0,
+              "observation_status": "confirmed_today",
+              "intervention_eligible": true,
+              "evidence_kind": "measurement",
+              "source": "rmssd"
+            },
+            {
+              "key": "sleep",
+              "label": "Сон",
+              "score": 72.0,
+              "intervention_score_input": 72.0,
+              "evidence": "Сон: оценка 72/100 (источник не сохранён)",
+              "intervention_evidence": "Сон: оценка 72/100 (источник не сохранён)",
+              "as_of": "2026-10-01",
+              "observation_as_of": "2026-10-01",
+              "age_days": 0,
+              "observation_status": "confirmed_today",
+              "intervention_eligible": true,
+              "evidence_kind": "measurement",
+              "source": "sleep_score"
+            }
+          ],
+          "factors": [
+            {
+              "key": "hrv",
+              "label": "HRV",
+              "score": 60.0,
+              "intervention_score_input": 60.0,
+              "weight": 0.353,
+              "raw_value": 38.0,
+              "baseline": null,
+              "deviation": null,
+              "evidence": "HRV 38.0 мс (базлайн ещё не накоплен)",
+              "intervention_evidence": "HRV 38.0 мс (базлайн ещё не накоплен)",
+              "source": "rmssd",
+              "stale_input": false,
+              "as_of": "2026-10-01",
+              "observation_as_of": "2026-10-01",
+              "age_days": 0,
+              "observation_status": "confirmed_today",
+              "intervention_eligible": true,
+              "evidence_kind": "measurement"
+            },
+            {
+              "key": "resting_hr",
+              "label": "Пульс покоя",
+              "score": 70.0,
+              "intervention_score_input": 70.0,
+              "weight": 0.235,
+              "raw_value": 52.0,
+              "baseline": null,
+              "deviation": null,
+              "evidence": "Пульс покоя 52.0 уд/мин (базлайн ещё не накоплен)",
+              "intervention_evidence": "Пульс покоя 52.0 уд/мин (базлайн ещё не накоплен)",
+              "source": "resting_hr",
+              "stale_input": false,
+              "as_of": "2026-10-01",
+              "observation_as_of": "2026-10-01",
+              "age_days": 0,
+              "observation_status": "confirmed_today",
+              "intervention_eligible": true,
+              "evidence_kind": "measurement"
+            },
+            {
+              "key": "sleep",
+              "label": "Сон",
+              "score": 72.0,
+              "intervention_score_input": 72.0,
+              "weight": 0.235,
+              "raw_value": 72.0,
+              "baseline": null,
+              "deviation": null,
+              "evidence": "Сон: оценка 72/100 (источник не сохранён)",
+              "source": "sleep_score",
+              "metric_source": "legacy_unknown",
+              "stale_input": false,
+              "as_of": "2026-10-01",
+              "observation_as_of": "2026-10-01",
+              "age_days": 0,
+              "observation_status": "confirmed_today",
+              "intervention_eligible": true,
+              "evidence_kind": "measurement",
+              "intervention_evidence": "Сон: оценка 72/100 (источник не сохранён)"
+            },
+            {
+              "key": "tsb",
+              "label": "Баланс нагрузки (TSB)",
+              "score": 35.0,
+              "intervention_score_input": 35.0,
+              "weight": 0.176,
+              "raw_value": -24.4,
+              "baseline": null,
+              "deviation": null,
+              "evidence": "TSB -24.4 (глубокая усталость)",
+              "source": "activities.tss → Banister",
+              "stale_input": false,
+              "as_of": "2026-10-01",
+              "observation_as_of": "2026-10-01",
+              "age_days": 0,
+              "observation_status": "confirmed_today",
+              "intervention_eligible": true,
+              "evidence_kind": "derived_state",
+              "intervention_evidence": "TSB -24.4 (глубокая усталость)"
+            }
+          ],
+          "missing_inputs": [],
+          "tsb": {
+            "ctl": 13.8,
+            "atl": 38.3,
+            "tsb": -24.4,
+            "window_days": 90,
+            "as_of": "2026-10-01"
+          },
+          "stale": false,
+          "reason": "Readiness рассчитан по полному набору основных recovery-сигналов.",
+          "is_provisional": false,
+          "freshness": {
+            "state": "fresh",
+            "anchor": "2026-10-01",
+            "confirmed_today": [
+              "hrv",
+              "resting_hr",
+              "sleep",
+              "tsb"
+            ],
+            "outdated": [],
+            "unverified": [],
+            "invalid": [],
+            "missing": [
+              "training_readiness"
+            ],
+            "intervention_eligible": [
+              "hrv",
+              "resting_hr",
+              "sleep",
+              "tsb"
+            ],
+            "blocked_reason": null
+          },
+          "intervention_score": 60.8,
+          "intervention_confidence": 0.8,
+          "eligible_inputs": [
+            "hrv",
+            "resting_hr",
+            "sleep",
+            "tsb"
+          ],
+          "ineligible_inputs": [],
+          "intervention_blocked_reason": null
+        },
+        "readiness_source": "canonical_snapshot",
+        "subjective_wellness": {
+          "status": "current",
+          "source": "intervals",
+          "date": "2026-10-01",
+          "age_days": 0,
+          "provider_updated_at": null,
+          "received_at": "2026-10-01T07:00:00.000000+00:00",
+          "mapping_version": "intervals_subjective_v1",
+          "items": [
+            {
+              "key": "sleepQuality",
+              "label": "Качество сна",
+              "value": 2,
+              "state": "present",
+              "value_label": "Хорошее"
+            },
+            {
+              "key": "soreness",
+              "label": "Болезненность",
+              "value": null,
+              "state": "missing",
+              "value_label": "Нет ответа"
+            },
+            {
+              "key": "fatigue",
+              "label": "Усталость перед тренировкой",
+              "value": 1,
+              "state": "present",
+              "value_label": "Низкая"
+            },
+            {
+              "key": "stress",
+              "label": "Субъективный стресс",
+              "value": null,
+              "state": "missing",
+              "value_label": "Нет ответа"
+            },
+            {
+              "key": "mood",
+              "label": "Настроение",
+              "value": null,
+              "state": "missing",
+              "value_label": "Нет ответа"
+            },
+            {
+              "key": "motivation",
+              "label": "Мотивация",
+              "value": null,
+              "state": "missing",
+              "value_label": "Нет ответа"
+            },
+            {
+              "key": "injury",
+              "label": "Травма — самооценка",
+              "value": 1,
+              "state": "present",
+              "value_label": "Нет"
+            },
+            {
+              "key": "hydration",
+              "label": "Гидратация — самооценка",
+              "value": null,
+              "state": "missing",
+              "value_label": "Нет ответа"
+            }
+          ],
+          "answered_current_keys": [
+            "sleepQuality",
+            "fatigue",
+            "injury"
+          ]
+        },
+        "session": {
+          "session_id": "ats_6e351bd901b79fca36e182ad",
+          "sessions": [
+            {
+              "kind": "single",
+              "session_id": "ats_6e351bd901b79fca36e182ad",
+              "sport": "bike",
+              "sport_label": "велосипед",
+              "session_role": "easy",
+              "total_tss": 40.0,
+              "name": "Audit bike",
+              "materialized_steps": [
+                {
+                  "index": 0,
+                  "name": "Warm-up",
+                  "intensity": "easy",
+                  "duration_seconds": 360,
+                  "tss": 1.3,
+                  "target": {
+                    "type": "power",
+                    "unit": "watts",
+                    "low": 105,
+                    "high": 145,
+                    "relative_low": 0.42,
+                    "relative_high": 0.58
+                  },
+                  "segment_kind": "warmup"
+                },
+                {
+                  "index": 1,
+                  "name": "Aerobic endurance",
+                  "intensity": "steady",
+                  "duration_seconds": 1320,
+                  "tss": 18.5,
+                  "target": {
+                    "type": "power",
+                    "unit": "watts",
+                    "low": 150,
+                    "high": 190,
+                    "relative_low": 0.6,
+                    "relative_high": 0.76
+                  },
+                  "segment_kind": "stage"
+                },
+                {
+                  "index": 2,
+                  "name": "Steady finish",
+                  "intensity": "steady",
+                  "duration_seconds": 360,
+                  "tss": 7.5,
+                  "target": {
+                    "type": "power",
+                    "unit": "watts",
+                    "low": 168,
+                    "high": 208,
+                    "relative_low": 0.67,
+                    "relative_high": 0.83
+                  },
+                  "segment_kind": "stage"
+                },
+                {
+                  "index": 3,
+                  "name": "Cool-down",
+                  "intensity": "easy",
+                  "duration_seconds": 360,
+                  "tss": 1.0,
+                  "target": {
+                    "type": "power",
+                    "unit": "watts",
+                    "low": 80,
+                    "high": 120,
+                    "relative_low": 0.32,
+                    "relative_high": 0.48
+                  },
+                  "segment_kind": "cooldown"
+                }
+              ]
+            }
+          ],
+          "date": "2026-10-01",
+          "name": "Audit day",
+          "role": "easy",
+          "role_label": "лёгкая",
+          "tss": 40,
+          "duration_minutes": 40,
+          "phase": "Base",
+          "sport_label": "велосипед",
+          "is_key": false,
+          "kind": "single",
+          "catalog_version": null,
+          "template_key": null,
+          "template_version": null,
+          "template_name": null,
+          "stimulus": null,
+          "fatigue_cost": [],
+          "expected_recovery_hours": null,
+          "materialization_status": null,
+          "target_provenance": null,
+          "transition_minutes": null,
+          "steps": [],
+          "legs": []
+        },
+        "device_sync_hint": null,
+        "gate": {
+          "outcome": "silence",
+          "reason": "Готовность ready (60.8/100) не противоречит сессиям ближайших 3 дн. — вмешательство не требуется.",
+          "data_gap": false,
+          "silence": true,
+          "conflicts": [],
+          "sessions_evaluated": [
+            {
+              "date": "2026-10-01",
+              "days_until": 0,
+              "role": "easy",
+              "tss": 40,
+              "name": "Audit day",
+              "sport_label": "велосипед",
+              "phase": "Base",
+              "fatigue_cost": [
+                1,
+                1,
+                0
+              ],
+              "expected_recovery_hours": 18,
+              "load_salient": false,
+              "salience_source": null
+            }
+          ],
+          "readiness": {
+            "score": 60.8,
+            "status": "ready",
+            "confidence": 0.8,
+            "intervention_score": 60.8,
+            "intervention_status": "ready",
+            "eligible_inputs": [
+              "hrv",
+              "resting_hr",
+              "sleep",
+              "tsb"
+            ],
+            "freshness": {
+              "state": "fresh",
+              "anchor": "2026-10-01",
+              "confirmed_today": [
+                "hrv",
+                "resting_hr",
+                "sleep",
+                "tsb"
+              ],
+              "outdated": [],
+              "unverified": [],
+              "invalid": [],
+              "missing": [
+                "training_readiness"
+              ],
+              "intervention_eligible": [
+                "hrv",
+                "resting_hr",
+                "sleep",
+                "tsb"
+              ],
+              "blocked_reason": null
+            },
+            "invalid_inputs": [],
+            "legacy_score": 60.7,
+            "legacy_confidence": 0.8,
+            "legacy_status": "ready"
+          },
+          "proposal_gap": null,
+          "decision": {
+            "id": 1,
+            "fingerprint": "060584056e99c7ff463b6e33e99e6bb4d882a4d4662b395649efb75ccd30423f",
+            "plan_checkpoint_id": 1
+          },
+          "forecast_error": null
+        },
+        "briefing": {
+          "frequency": "daily",
+          "is_quiet_day": true
+        },
+        "proposal": {
+          "relation": "none",
+          "proposal": null,
+          "base_checkpoint_id": null,
+          "active_checkpoint_id": 1,
+          "reason": "no proposal"
+        },
+        "forecast": {
+          "mode": "shadow",
+          "affects_decision": false,
+          "relation": "none",
+          "prediction": null,
+          "session_id": null,
+          "target_time_provenance": "date_only",
+          "prestart_status": "not_applicable",
+          "error": null
+        },
+        "pending_proposal": null,
+        "yesterday": {
+          "status": "available",
+          "reason": null,
+          "date": "2026-09-30",
+          "planned_sessions": 0,
+          "matched_sessions": 0,
+          "adherence": {
+            "exact": 0,
+            "substituted": 0,
+            "major_deviation": 0,
+            "unknown": 0
+          },
+          "planned_tss": 0,
+          "matched_actual_tss": 0,
+          "unplanned_tss": 33.3,
+          "total_actual_tss": 33.3,
+          "rows": [],
+          "current_day_rows": [
+            {
+              "index": 0,
+              "session_id": "ats_6e351bd901b79fca36e182ad",
+              "date": "2026-10-01",
+              "sport": "bike",
+              "role": "easy",
+              "phase": "Base",
+              "name": "Audit bike",
+              "tss": 40.0,
+              "duration_minutes": 40,
+              "parts": {
+                "bike": 40.0
+              },
+              "intervals": [
+                {
+                  "type": "rest",
+                  "duration_seconds": 360,
+                  "target_zone": {
+                    "type": "power",
+                    "low": 105,
+                    "high": 145,
+                    "relative_low": 0.42,
+                    "relative_high": 0.58
+                  },
+                  "segment_kind": "warmup",
+                  "name": "Warm-up"
+                },
+                {
+                  "type": "work",
+                  "duration_seconds": 1320,
+                  "target_zone": {
+                    "type": "power",
+                    "low": 150,
+                    "high": 190,
+                    "relative_low": 0.6,
+                    "relative_high": 0.76
+                  },
+                  "segment_kind": "stage",
+                  "name": "Aerobic endurance"
+                },
+                {
+                  "type": "work",
+                  "duration_seconds": 360,
+                  "target_zone": {
+                    "type": "power",
+                    "low": 168,
+                    "high": 208,
+                    "relative_low": 0.67,
+                    "relative_high": 0.83
+                  },
+                  "segment_kind": "stage",
+                  "name": "Steady finish"
+                },
+                {
+                  "type": "rest",
+                  "duration_seconds": 360,
+                  "target_zone": {
+                    "type": "power",
+                    "low": 80,
+                    "high": 120,
+                    "relative_low": 0.32,
+                    "relative_high": 0.48
+                  },
+                  "segment_kind": "cooldown",
+                  "name": "Cool-down"
+                }
+              ],
+              "target_key": "session:ats_6e351bd901b79fca36e182ad",
+              "match_status": "ambiguous",
+              "match_method": "date_sport_heuristic",
+              "confidence": 0.35,
+              "evidence": [
+                "Несколько активностей одного вида спорта требуют явного выбора для плановой сессии"
+              ],
+              "actual_activity_ids": [],
+              "actual_activities": [],
+              "candidate_activities": [
+                {
+                  "activity_id": "audit-bike-a",
+                  "date": "2026-10-01",
+                  "started_at_utc": "2026-10-01T09:00:00Z",
+                  "sport": "bike",
+                  "tss": 45.0,
+                  "duration_minutes": 45.0,
+                  "name": "Synthetic audit-bike-a"
+                },
+                {
+                  "activity_id": "audit-bike-b",
+                  "date": "2026-10-01",
+                  "started_at_utc": "2026-10-01T17:00:00Z",
+                  "sport": "bike",
+                  "tss": 40.0,
+                  "duration_minutes": 40.0,
+                  "name": "Synthetic audit-bike-b"
+                }
+              ],
+              "actual_total_tss": 0,
+              "actual_duration_minutes": 0,
+              "actual_sport": "",
+              "actual_role": null,
+              "adherence": "unknown"
+            }
+          ],
+          "unplanned_activities": [
+            {
+              "activity_id": "anchor-1",
+              "date": "2026-09-30",
+              "started_at_utc": null,
+              "sport": "run",
+              "tss": 33.3,
+              "duration_minutes": 40.0,
+              "name": "anchor-1"
+            }
+          ],
+          "data_quality": {
+            "status": "data_gap",
+            "planned_session_count": 1,
+            "matched_count": 0,
+            "ambiguous_count": 1,
+            "unmatched_count": 0,
+            "coverage": 0.0,
+            "minimum_matched_sessions": 3,
+            "minimum_coverage": 0.7,
+            "reasons": [
+              "insufficient_matched_sessions",
+              "low_match_coverage",
+              "ambiguous_matches"
+            ]
+          },
+          "rule_version": "plan_actual_match_v2",
+          "base_checkpoint_id": 1,
+          "activities": 1,
+          "minutes": 40,
+          "tss": 33,
+          "sports": [
+            "running"
+          ]
+        },
+        "feedback": {
+          "status": "available",
+          "rule_version": "session_feedback_v1",
+          "prompts": [
+            {
+              "prompt_fingerprint": "49dd097cb792283ca450fd51babdd29f9d19d8dd19b91765ace5a9ac87f07c8c",
+              "session_id": "ats_6e351bd901b79fca36e182ad",
+              "parent_session_id": null,
+              "date": "2026-10-01",
+              "name": "Audit bike",
+              "role": "easy",
+              "kind": "single",
+              "planned_sport": "bike",
+              "state": "pending_match",
+              "reason": "ambiguous_match",
+              "is_primary": false,
+              "match_status": "ambiguous",
+              "match_method": "date_sport_heuristic",
+              "match_confidence": 0.35,
+              "adherence": "unknown",
+              "actual_activity_ids": [],
+              "actual_activities": [],
+              "session_end_at_utc": null,
+              "session_end_provenance": "no_activity_evidence",
+              "allowed_completion_statuses": [
+                "completed",
+                "partial",
+                "stopped_early",
+                "did_not_start",
+                "unknown"
+              ],
+              "feedback": null,
+              "provenance_label": null,
+              "composite_execution": null
+            }
+          ],
+          "primary": null,
+          "metrics": {
+            "eligible": 0,
+            "submitted": 0,
+            "dismissed": 0,
+            "pending_match": 1
+          }
+        },
+        "loop_outcome": "silence",
+        "provenance": {
+          "generated_at": "2026-10-01T14:16:26+00:00",
+          "as_of": "2026-10-01",
+          "checkpoint": {
+            "id": 1,
+            "created_at": "2026-10-01 14:16:26",
+            "source": "legacy_checkpoint"
+          },
+          "readiness": {
+            "source": "canonical_snapshot",
+            "computed_at": "2026-10-01",
+            "error": null
+          },
+          "gate": {
+            "decision_id": 1,
+            "fingerprint": "060584056e99c7ff463b6e33e99e6bb4d882a4d4662b395649efb75ccd30423f"
+          },
+          "forecast": {
+            "prediction_id": null,
+            "rule_version": null
+          },
+          "reconciliation": {
+            "rule_version": "plan_actual_match_v2",
+            "base_checkpoint_id": 1
+          },
+          "feedback": {
+            "rule_version": "session_feedback_v1",
+            "status": "available"
+          }
+        },
+        "operational_state": {
+          "status": "ready",
+          "mode": "live",
+          "demo": false,
+          "empty": false,
+          "stale": false,
+          "latest_data_at": "2026-10-01",
+          "sync_state": "idle",
+          "error": null
+        }
+      }
+    },
+    "planning": {
+      "http_status": 200,
+      "body": {
+        "has_plan": true,
+        "rule_version": "plan_actual_match_v2",
+        "base_checkpoint_id": 1,
+        "as_of": "2026-10-01",
+        "window": {
+          "start": "2026-09-25",
+          "end": "2026-10-01",
+          "weeks": 1
+        },
+        "rows": [
+          {
+            "index": 0,
+            "session_id": "ats_6e351bd901b79fca36e182ad",
+            "date": "2026-10-01",
+            "sport": "bike",
+            "role": "easy",
+            "phase": "Base",
+            "name": "Audit bike",
+            "tss": 40.0,
+            "duration_minutes": 40,
+            "parts": {
+              "bike": 40.0
+            },
+            "intervals": [
+              {
+                "type": "rest",
+                "duration_seconds": 360,
+                "target_zone": {
+                  "type": "power",
+                  "low": 105,
+                  "high": 145,
+                  "relative_low": 0.42,
+                  "relative_high": 0.58
+                },
+                "segment_kind": "warmup",
+                "name": "Warm-up"
+              },
+              {
+                "type": "work",
+                "duration_seconds": 1320,
+                "target_zone": {
+                  "type": "power",
+                  "low": 150,
+                  "high": 190,
+                  "relative_low": 0.6,
+                  "relative_high": 0.76
+                },
+                "segment_kind": "stage",
+                "name": "Aerobic endurance"
+              },
+              {
+                "type": "work",
+                "duration_seconds": 360,
+                "target_zone": {
+                  "type": "power",
+                  "low": 168,
+                  "high": 208,
+                  "relative_low": 0.67,
+                  "relative_high": 0.83
+                },
+                "segment_kind": "stage",
+                "name": "Steady finish"
+              },
+              {
+                "type": "rest",
+                "duration_seconds": 360,
+                "target_zone": {
+                  "type": "power",
+                  "low": 80,
+                  "high": 120,
+                  "relative_low": 0.32,
+                  "relative_high": 0.48
+                },
+                "segment_kind": "cooldown",
+                "name": "Cool-down"
+              }
+            ],
+            "target_key": "session:ats_6e351bd901b79fca36e182ad",
+            "match_status": "ambiguous",
+            "match_method": "date_sport_heuristic",
+            "confidence": 0.35,
+            "evidence": [
+              "Несколько активностей одного вида спорта требуют явного выбора для плановой сессии"
+            ],
+            "actual_activity_ids": [],
+            "actual_activities": [],
+            "candidate_activities": [
+              {
+                "activity_id": "audit-bike-a",
+                "date": "2026-10-01",
+                "started_at_utc": "2026-10-01T09:00:00Z",
+                "sport": "bike",
+                "tss": 45.0,
+                "duration_minutes": 45.0,
+                "name": "Synthetic audit-bike-a"
+              },
+              {
+                "activity_id": "audit-bike-b",
+                "date": "2026-10-01",
+                "started_at_utc": "2026-10-01T17:00:00Z",
+                "sport": "bike",
+                "tss": 40.0,
+                "duration_minutes": 40.0,
+                "name": "Synthetic audit-bike-b"
+              }
+            ],
+            "actual_total_tss": 0,
+            "actual_duration_minutes": 0,
+            "actual_sport": "",
+            "actual_role": null,
+            "adherence": "unknown",
+            "session_projection": {
+              "schema_version": "session_projection_v1",
+              "session_id": "ats_6e351bd901b79fca36e182ad",
+              "projection_status": "needs_confirmation",
+              "evidence_revision": {
+                "planning_checkpoint_id": 1,
+                "match_revision_id": null,
+                "match_revision": null,
+                "feedback_revision_id": null,
+                "feedback_revision": null,
+                "reconciliation_rule_version": "plan_actual_match_v2",
+                "as_of": "2026-10-01",
+                "provider_status": "disabled"
+              },
+              "plan": {
+                "date": "2026-10-01",
+                "sport": "bike",
+                "role": "easy",
+                "name": "Audit bike",
+                "duration_minutes": 40.0,
+                "load_tss": 40.0,
+                "legs": [],
+                "transition": {
+                  "planned_minutes": null
+                }
+              },
+              "fact": {
+                "completion_status": "needs_confirmation",
+                "actual_activity_ids": [],
+                "candidate_activity_ids": [
+                  "audit-bike-a",
+                  "audit-bike-b"
+                ],
+                "duration_minutes": 0.0,
+                "load_tss": 0.0,
+                "legs": [],
+                "transition": {
+                  "actual_minutes": null
+                }
+              },
+              "deviation": {
+                "adherence": "unknown",
+                "duration_delta_minutes": -40.0,
+                "load_delta_tss": -40.0,
+                "structure_match": null,
+                "transition_delta_minutes": null
+              },
+              "cause": {
+                "status": "needs_confirmation",
+                "code": "ambiguous_match",
+                "evidence_refs": []
+              },
+              "confidence": {
+                "status": "needs_confirmation",
+                "score": 0.35,
+                "match_status": "ambiguous",
+                "match_method": "date_sport_heuristic",
+                "evidence": [
+                  "Несколько активностей одного вида спорта требуют явного выбора для плановой сессии"
+                ]
+              },
+              "data_quality": {
+                "status": "data_gap",
+                "reasons": [
+                  "ambiguous_match"
+                ]
+              },
+              "load": {
+                "planned_tss": 40.0,
+                "matched_tss": 0.0,
+                "other_matched_tss": 0,
+                "additional_unmatched_tss": 85.0,
+                "day_total_tss": 85.0
+              }
+            }
+          }
+        ],
+        "unplanned_activities": [
+          {
+            "activity_id": "anchor-6",
+            "date": "2026-09-25",
+            "started_at_utc": null,
+            "sport": "run",
+            "tss": 33.3,
+            "duration_minutes": 40.0,
+            "name": "anchor-6"
+          },
+          {
+            "activity_id": "anchor-5",
+            "date": "2026-09-26",
+            "started_at_utc": null,
+            "sport": "run",
+            "tss": 33.3,
+            "duration_minutes": 40.0,
+            "name": "anchor-5"
+          },
+          {
+            "activity_id": "anchor-4",
+            "date": "2026-09-27",
+            "started_at_utc": null,
+            "sport": "run",
+            "tss": 33.3,
+            "duration_minutes": 40.0,
+            "name": "anchor-4"
+          },
+          {
+            "activity_id": "anchor-3",
+            "date": "2026-09-28",
+            "started_at_utc": null,
+            "sport": "run",
+            "tss": 33.3,
+            "duration_minutes": 40.0,
+            "name": "anchor-3"
+          },
+          {
+            "activity_id": "anchor-2",
+            "date": "2026-09-29",
+            "started_at_utc": null,
+            "sport": "run",
+            "tss": 33.3,
+            "duration_minutes": 40.0,
+            "name": "anchor-2"
+          },
+          {
+            "activity_id": "anchor-1",
+            "date": "2026-09-30",
+            "started_at_utc": null,
+            "sport": "run",
+            "tss": 33.3,
+            "duration_minutes": 40.0,
+            "name": "anchor-1"
+          },
+          {
+            "activity_id": "audit-bike-a",
+            "date": "2026-10-01",
+            "started_at_utc": "2026-10-01T09:00:00Z",
+            "sport": "bike",
+            "tss": 45.0,
+            "duration_minutes": 45.0,
+            "name": "Synthetic audit-bike-a"
+          },
+          {
+            "activity_id": "audit-bike-b",
+            "date": "2026-10-01",
+            "started_at_utc": "2026-10-01T17:00:00Z",
+            "sport": "bike",
+            "tss": 40.0,
+            "duration_minutes": 40.0,
+            "name": "Synthetic audit-bike-b"
+          }
+        ],
+        "data_quality": {
+          "status": "data_gap",
+          "planned_session_count": 1,
+          "matched_count": 0,
+          "ambiguous_count": 1,
+          "unmatched_count": 0,
+          "coverage": 0.0,
+          "minimum_matched_sessions": 3,
+          "minimum_coverage": 0.7,
+          "reasons": [
+            "insufficient_matched_sessions",
+            "low_match_coverage",
+            "ambiguous_matches"
+          ]
+        },
+        "metrics": {
+          "planned_tss": 40.0,
+          "matched_actual_tss": 0.0,
+          "unplanned_tss": 284.8,
+          "total_actual_tss": 284.8,
+          "exact_count": 0,
+          "substituted_count": 0,
+          "major_deviation_count": 0,
+          "unknown_count": 1
+        },
+        "provider": {
+          "status": "disabled"
+        }
+      }
+    },
+    "overview": {
+      "http_status": 200,
+      "body": {
+        "has_plan": true,
+        "goal": {
+          "goal_type": "Триатлон",
+          "distance": "Олимпийка",
+          "planning_mode": "training_goal",
+          "event": null
+        },
+        "timeline": {
+          "kind": "rolling",
+          "horizon_weeks": 1
+        },
+        "current_week": {
+          "number": 1,
+          "phase": "Base",
+          "week_start": "2026-10-01",
+          "weekly_tss": 40
+        },
+        "progress": {
+          "completed_weeks": 0,
+          "total_weeks": 1,
+          "status": "active",
+          "status_label": "Активный план"
+        },
+        "execution": {
+          "state": "data_gap",
+          "label": "В последнем checkpoint нет сохранённой сводки выполнения.",
+          "description": "Актуальные локальные данные доступны во вкладке «Выполнение»."
+        },
+        "roadmap": {
+          "state": "available",
+          "reason": null,
+          "horizon_start": "2026-10-01",
+          "horizon_end": "2026-10-01",
+          "segments": [
+            {
+              "phase": "Base",
+              "start_date": "2026-10-01",
+              "end_date": "2026-10-01",
+              "duration_days": 1,
+              "start_percent": 0.0,
+              "end_percent": 0.0,
+              "is_current": true
+            }
+          ],
+          "events": [],
+          "current_marker": {
+            "date": "2026-10-01",
+            "position_percent": 0.0
+          }
+        },
+        "form_projection": {
+          "state": "data_gap",
+          "reason": "В checkpoint нет будущих дней плана для прогноза формы.",
+          "boundary_date": "2026-10-01",
+          "actual_points": [],
+          "forecast_points": [],
+          "summary": null
+        },
+        "availability": {
+          "state": "data_gap",
+          "reason": "В сохранённом checkpoint нет недельной доступности.",
+          "available_hours": null,
+          "available_minutes": null,
+          "available_days": [],
+          "period": {
+            "kind": "selected_week",
+            "week_start": "2026-10-01",
+            "week_end": "2026-10-07"
+          },
+          "planned_minutes": null,
+          "planned_hours": null,
+          "session_count": null,
+          "daily": {
+            "state": "data_gap",
+            "reason": "В сохранённом checkpoint нет дневных лимитов доступности.",
+            "days": []
+          }
+        },
+        "weekly_target_explanation": {
+          "state": "data_gap",
+          "reason": "В сохранённом checkpoint нет разбивки недельной цели.",
+          "rows": [],
+          "goal_need_tss": null,
+          "availability_cap_tss": null,
+          "recent_load_tss": null,
+          "base_weekly_tss": null,
+          "final_target_weekly_tss": null,
+          "demand": null
+        },
+        "science_audit": {
+          "state": "available",
+          "policy_version": "plan-science-v1",
+          "source": "stored",
+          "summary": {
+            "passed": 1,
+            "attention": 0,
+            "data_gap": 5,
+            "headline": "Недостаточно данных: 5"
+          },
+          "findings": [
+            {
+              "rule_id": "hard_day_spacing",
+              "status": "passed",
+              "severity": "info",
+              "title": "Чередование тяжёлых и лёгких дней",
+              "summary": "Соседних тяжёлых дней не найдено.",
+              "recommendation": "Сохранить текущее чередование нагрузки и восстановления.",
+              "affected_dates": [],
+              "metrics": {
+                "minimum_gap_days": 2,
+                "hard_day_count": 0
+              },
+              "evidence": [
+                {
+                  "ref_id": "REF-302",
+                  "level": "B+",
+                  "doi": "10.1007/s40279-024-02067-4",
+                  "finding": "Чередование тяжёлых и лёгких дней — базовый принцип построения микроцикла."
+                }
+              ]
+            },
+            {
+              "rule_id": "triathlon_brick_specificity",
+              "status": "data_gap",
+              "severity": "info",
+              "title": "Связка велосипед — бег",
+              "summary": "Для проверки нужна подтверждённая триатлонная A-цель.",
+              "recommendation": "Подтвердить основную триатлонную цель и дату старта.",
+              "affected_dates": [],
+              "metrics": {},
+              "evidence": [
+                {
+                  "ref_id": "REF-655",
+                  "level": "A",
+                  "doi": "10.1016/j.jsams.2022.07.006",
+                  "finding": "Переход с велосипеда на бег создаёт отдельную тренируемую нагрузку."
+                }
+              ]
+            },
+            {
+              "rule_id": "taper_volume_shape",
+              "status": "data_gap",
+              "severity": "info",
+              "title": "Снижение объёма перед стартом",
+              "summary": "Для проверки нужна подтверждённая триатлонная A-цель.",
+              "recommendation": "Подтвердить основную триатлонную цель и дату старта.",
+              "affected_dates": [],
+              "metrics": {},
+              "evidence": [
+                {
+                  "ref_id": "REF-107",
+                  "level": "A",
+                  "doi": "10.1249/mss.0b013e31806010e0",
+                  "finding": "Перед стартом объём снижают, сохраняя частоту и короткую интенсивность."
+                }
+              ]
+            },
+            {
+              "rule_id": "triathlon_taper_frequency",
+              "status": "data_gap",
+              "severity": "info",
+              "title": "Частота дисциплин перед стартом",
+              "summary": "Для проверки нужна подтверждённая триатлонная A-цель.",
+              "recommendation": "Подтвердить основную триатлонную цель и дату старта.",
+              "affected_dates": [],
+              "metrics": {},
+              "evidence": [
+                {
+                  "ref_id": "REF-536",
+                  "level": "B+",
+                  "doi": "10.1007/s004210050087",
+                  "finding": "При снижении объёма плавательная частота и интенсивность сохраняются."
+                }
+              ]
+            },
+            {
+              "rule_id": "triathlon_swim_specificity",
+              "status": "data_gap",
+              "severity": "info",
+              "title": "Специфичность плавания",
+              "summary": "Для проверки нужна подтверждённая триатлонная A-цель.",
+              "recommendation": "Подтвердить основную триатлонную цель и дату старта.",
+              "affected_dates": [],
+              "metrics": {},
+              "evidence": [
+                {
+                  "ref_id": "REF-538",
+                  "level": "A",
+                  "doi": "10.2165/00007256-200232060-00001",
+                  "finding": "Три дисциплины требуют специфичной практики: экономичность между ними не переносится."
+                }
+              ]
+            },
+            {
+              "rule_id": "triathlon_taper_activation",
+              "status": "data_gap",
+              "severity": "info",
+              "title": "Короткая интенсивность перед стартом",
+              "summary": "Для проверки нужна подтверждённая триатлонная A-цель.",
+              "recommendation": "Подтвердить основную триатлонную цель и дату старта.",
+              "affected_dates": [],
+              "metrics": {},
+              "evidence": [
+                {
+                  "ref_id": "REF-107",
+                  "level": "A",
+                  "doi": "10.1249/mss.0b013e31806010e0",
+                  "finding": "При снижении нагрузки объём уменьшают, а короткую интенсивность и частоту сохраняют."
+                },
+                {
+                  "ref_id": "REF-538",
+                  "level": "A",
+                  "doi": "10.2165/00007256-200232060-00001",
+                  "finding": "Подготовка к триатлону остаётся специфичной для каждой дисциплины."
+                }
+              ]
+            }
+          ]
+        },
+        "weeks": [
+          {
+            "number": 1,
+            "week_start": "2026-10-01",
+            "phase": "Base",
+            "weekly_tss": 40
+          }
+        ]
+      }
+    }
+  },
+  "projections": {
+    "ats_6e351bd901b79fca36e182ad": {
+      "http_status": 200,
+      "body": {
+        "schema_version": "session_projection_v1",
+        "session_id": "ats_6e351bd901b79fca36e182ad",
+        "projection_status": "needs_confirmation",
+        "evidence_revision": {
+          "planning_checkpoint_id": 1,
+          "match_revision_id": null,
+          "match_revision": null,
+          "feedback_revision_id": null,
+          "feedback_revision": null,
+          "reconciliation_rule_version": "plan_actual_match_v2",
+          "as_of": "2026-10-01",
+          "provider_status": "disabled"
+        },
+        "plan": {
+          "date": "2026-10-01",
+          "sport": "bike",
+          "role": "easy",
+          "name": "Audit bike",
+          "duration_minutes": 40.0,
+          "load_tss": 40.0,
+          "legs": [],
+          "transition": {
+            "planned_minutes": null
+          }
+        },
+        "fact": {
+          "completion_status": "needs_confirmation",
+          "actual_activity_ids": [],
+          "candidate_activity_ids": [
+            "audit-bike-a",
+            "audit-bike-b"
+          ],
+          "duration_minutes": 0.0,
+          "load_tss": 0.0,
+          "legs": [],
+          "transition": {
+            "actual_minutes": null
+          }
+        },
+        "deviation": {
+          "adherence": "unknown",
+          "duration_delta_minutes": -40.0,
+          "load_delta_tss": -40.0,
+          "structure_match": null,
+          "transition_delta_minutes": null
+        },
+        "cause": {
+          "status": "needs_confirmation",
+          "code": "ambiguous_match",
+          "evidence_refs": []
+        },
+        "confidence": {
+          "status": "needs_confirmation",
+          "score": 0.35,
+          "match_status": "ambiguous",
+          "match_method": "date_sport_heuristic",
+          "evidence": [
+            "Несколько активностей одного вида спорта требуют явного выбора для плановой сессии"
+          ]
+        },
+        "data_quality": {
+          "status": "data_gap",
+          "reasons": [
+            "ambiguous_match"
+          ]
+        },
+        "load": {
+          "planned_tss": 40.0,
+          "matched_tss": 0.0,
+          "other_matched_tss": 0,
+          "additional_unmatched_tss": 85.0,
+          "day_total_tss": 85.0
+        }
+      }
+    }
+  },
+  "activity_cards": {
+    "audit-bike-a": {
+      "http_status": 200,
+      "body": {
+        "activity": {
+          "activity_id": "audit-bike-a",
+          "date": "2026-10-01",
+          "date_label": "01.10.2026",
+          "sport": "bike",
+          "sport_label": "вело",
+          "duration_minutes": 45.0,
+          "moving_duration_minutes": null,
+          "distance_km": null,
+          "tss": 45.0,
+          "garmin_training_load": null,
+          "source_tss": null,
+          "tss_ftp_used": null,
+          "tss_pace_used": null,
+          "avg_hr": null,
+          "max_hr": null,
+          "elevation_gain": null,
+          "calories": null,
+          "tss_method": "heuristic_duration_bike",
+          "tss_source": "heuristic",
+          "feedback": null,
+          "tags": [],
+          "coach_notes": null,
+          "intervals": null,
+          "power_curve": null,
+          "session_id": null,
+          "session_projection": null,
+          "planned_intervals": null,
+          "plan_vs_fact": null
+        }
+      }
+    },
+    "audit-bike-b": {
+      "http_status": 200,
+      "body": {
+        "activity": {
+          "activity_id": "audit-bike-b",
+          "date": "2026-10-01",
+          "date_label": "01.10.2026",
+          "sport": "bike",
+          "sport_label": "вело",
+          "duration_minutes": 40.0,
+          "moving_duration_minutes": null,
+          "distance_km": null,
+          "tss": 40.0,
+          "garmin_training_load": null,
+          "source_tss": null,
+          "tss_ftp_used": null,
+          "tss_pace_used": null,
+          "avg_hr": null,
+          "max_hr": null,
+          "elevation_gain": null,
+          "calories": null,
+          "tss_method": "heuristic_duration_bike",
+          "tss_source": "heuristic",
+          "feedback": null,
+          "tags": [],
+          "coach_notes": null,
+          "intervals": null,
+          "power_curve": null,
+          "session_id": null,
+          "session_projection": null,
+          "planned_intervals": null,
+          "plan_vs_fact": null
+        }
+      }
+    }
+  },
+  "coach_metrics": {
+    "ctl": 13.8,
+    "atl": 38.3,
+    "tsb": -24.4,
+    "report_period_days": 30,
+    "metrics_window_days": 90,
+    "data_through": "2026-10-01",
+    "computed_for": "2026-10-01",
+    "as_of_date": "2026-10-01",
+    "form_state": "перегрузка",
+    "fitness_trend": "стабильность",
+    "fatigue_level": "низкая",
+    "signals": {
+      "source": "models.signals_engine",
+      "load": {
+        "ctl": 13.8,
+        "atl": 38.3,
+        "tsb": -24.4,
+        "form": "Высокая усталость",
+        "label": "Высокая усталость",
+        "tone": "danger",
+        "clause": "высокая усталость — приоритет восстановлению",
+        "severity": 3,
+        "acwr": {
+          "value": null,
+          "percent": null,
+          "status": null,
+          "tone": null,
+          "label": null,
+          "severity": null,
+          "atl": 38.3,
+          "ctl": 13.8,
+          "history_days": 20,
+          "reason": "insufficient_history",
+          "cross_check": "insufficient_data",
+          "provider_status": null,
+          "acute_tau_days": 7,
+          "chronic_tau_days": 42,
+          "calculation_version": "acwr-ewma-v1",
+          "semantics_version": "descriptive-v2",
+          "limitation": "ACWR — отношение острой нагрузки к хронической: описательный контекст относительно обычной базы атлета, а не прогноз травмы и не медицинская оценка.",
+          "intervention_eligible": false
+        }
+      },
+      "hrv": {
+        "value": null,
+        "baseline": null,
+        "label": "Нет данных",
+        "tone": "neutral",
+        "severity": 1,
+        "suppressed": false
+      },
+      "sleep": {
+        "hours": null,
+        "score": null,
+        "score_source": "legacy_unknown",
+        "label": "Нет данных",
+        "tone": "neutral",
+        "severity": 1
+      },
+      "readiness": {
+        "value": 35.0,
+        "label": "Низкая готовность",
+        "tone": "danger",
+        "severity": 3,
+        "source": "fusion",
+        "drivers": [
+          {
+            "key": "tsb",
+            "label": "Баланс нагрузки (TSB)",
+            "score": 35.0,
+            "intervention_score_input": 35.0,
+            "evidence": "TSB -24.4 (глубокая усталость)",
+            "intervention_evidence": "TSB -24.4 (глубокая усталость)",
+            "as_of": "2026-10-01",
+            "observation_as_of": "2026-10-01",
+            "age_days": 0,
+            "observation_status": "confirmed_today",
+            "intervention_eligible": true,
+            "evidence_kind": "derived_state",
+            "source": "activities.tss → Banister"
+          }
+        ]
+      },
+      "state": {
+        "label": "Сильная усталость",
+        "tone": "danger",
+        "severity": 3
+      },
+      "critical": {
+        "status": "Сильная усталость",
+        "action": "Только легкие восстановительные тренировки в Зоне 1"
+      },
+      "recommendations": [
+        {
+          "title": "🔄 Активное восстановление",
+          "description": "TSB -20 до -30. Только тренировки в аэробной зоне 1.",
+          "priority": "high"
+        },
+        {
+          "title": "🍎 Питание",
+          "description": "Увеличьте потребление белка и углеводов для восстановления.",
+          "priority": "medium"
+        }
+      ]
+    },
+    "signal_source": "models.signals_engine"
+  },
+  "coach_readiness": {
+    "success": true,
+    "computed_for": "2026-10-01",
+    "readiness": {
+      "score": 60.7,
+      "status": "ready",
+      "computed_at": "2026-10-01",
+      "as_of_date": "2026-10-01",
+      "observed_at_utc": "2026-10-01T14:16:26Z",
+      "rule_version": "readiness_snapshot_v3",
+      "is_provisional": false,
+      "source_completeness": 1.0,
+      "factors": [
+        {
+          "key": "hrv",
+          "label": "HRV",
+          "score": 60.0,
+          "intervention_score_input": 60.0,
+          "weight": 0.353,
+          "raw_value": 38.0,
+          "baseline": null,
+          "deviation": null,
+          "evidence": "HRV 38.0 мс (базлайн ещё не накоплен)",
+          "intervention_evidence": "HRV 38.0 мс (базлайн ещё не накоплен)",
+          "source": "rmssd",
+          "stale_input": false,
+          "as_of": "2026-10-01",
+          "observation_as_of": "2026-10-01",
+          "age_days": 0,
+          "observation_status": "confirmed_today",
+          "intervention_eligible": true,
+          "evidence_kind": "measurement"
+        },
+        {
+          "key": "resting_hr",
+          "label": "Пульс покоя",
+          "score": 70.0,
+          "intervention_score_input": 70.0,
+          "weight": 0.235,
+          "raw_value": 52.0,
+          "baseline": null,
+          "deviation": null,
+          "evidence": "Пульс покоя 52.0 уд/мин (базлайн ещё не накоплен)",
+          "intervention_evidence": "Пульс покоя 52.0 уд/мин (базлайн ещё не накоплен)",
+          "source": "resting_hr",
+          "stale_input": false,
+          "as_of": "2026-10-01",
+          "observation_as_of": "2026-10-01",
+          "age_days": 0,
+          "observation_status": "confirmed_today",
+          "intervention_eligible": true,
+          "evidence_kind": "measurement"
+        },
+        {
+          "key": "sleep",
+          "label": "Сон",
+          "score": 72.0,
+          "intervention_score_input": 72.0,
+          "weight": 0.235,
+          "raw_value": 72.0,
+          "baseline": null,
+          "deviation": null,
+          "evidence": "Сон: оценка 72/100 (источник не сохранён)",
+          "source": "sleep_score",
+          "metric_source": "legacy_unknown",
+          "stale_input": false,
+          "as_of": "2026-10-01",
+          "observation_as_of": "2026-10-01",
+          "age_days": 0,
+          "observation_status": "confirmed_today",
+          "intervention_eligible": true,
+          "evidence_kind": "measurement",
+          "intervention_evidence": "Сон: оценка 72/100 (источник не сохранён)"
+        },
+        {
+          "key": "tsb",
+          "label": "Баланс нагрузки (TSB)",
+          "score": 35.0,
+          "intervention_score_input": 35.0,
+          "weight": 0.176,
+          "raw_value": -24.4,
+          "baseline": null,
+          "deviation": null,
+          "evidence": "TSB -24.4 (глубокая усталость)",
+          "source": "activities.tss → Banister",
+          "stale_input": false,
+          "as_of": "2026-10-01",
+          "observation_as_of": "2026-10-01",
+          "age_days": 0,
+          "observation_status": "confirmed_today",
+          "intervention_eligible": true,
+          "evidence_kind": "derived_state",
+          "intervention_evidence": "TSB -24.4 (глубокая усталость)"
+        }
+      ],
+      "missing_inputs": [],
+      "stale": false,
+      "reason": "Readiness рассчитан по полному набору основных recovery-сигналов.",
+      "drivers": [
+        {
+          "key": "tsb",
+          "label": "Баланс нагрузки (TSB)",
+          "score": 35.0,
+          "intervention_score_input": 35.0,
+          "evidence": "TSB -24.4 (глубокая усталость)",
+          "intervention_evidence": "TSB -24.4 (глубокая усталость)",
+          "as_of": "2026-10-01",
+          "observation_as_of": "2026-10-01",
+          "age_days": 0,
+          "observation_status": "confirmed_today",
+          "intervention_eligible": true,
+          "evidence_kind": "derived_state",
+          "source": "activities.tss → Banister"
+        },
+        {
+          "key": "hrv",
+          "label": "HRV",
+          "score": 60.0,
+          "intervention_score_input": 60.0,
+          "evidence": "HRV 38.0 мс (базлайн ещё не накоплен)",
+          "intervention_evidence": "HRV 38.0 мс (базлайн ещё не накоплен)",
+          "as_of": "2026-10-01",
+          "observation_as_of": "2026-10-01",
+          "age_days": 0,
+          "observation_status": "confirmed_today",
+          "intervention_eligible": true,
+          "evidence_kind": "measurement",
+          "source": "rmssd"
+        },
+        {
+          "key": "sleep",
+          "label": "Сон",
+          "score": 72.0,
+          "intervention_score_input": 72.0,
+          "evidence": "Сон: оценка 72/100 (источник не сохранён)",
+          "intervention_evidence": "Сон: оценка 72/100 (источник не сохранён)",
+          "as_of": "2026-10-01",
+          "observation_as_of": "2026-10-01",
+          "age_days": 0,
+          "observation_status": "confirmed_today",
+          "intervention_eligible": true,
+          "evidence_kind": "measurement",
+          "source": "sleep_score"
+        }
+      ],
+      "tsb": {
+        "ctl": 13.8,
+        "atl": 38.3,
+        "tsb": -24.4,
+        "window_days": 90,
+        "as_of": "2026-10-01"
+      },
+      "confidence": 0.8,
+      "input_provenance": {
+        "as_of_date": "2026-10-01",
+        "observed_at_utc": "2026-10-01T14:16:26Z",
+        "sources": {
+          "sleep": "2026-10-01",
+          "hrv": "2026-10-01",
+          "daily_health": "2026-10-01",
+          "training_status": null,
+          "activities": "2026-10-01"
+        },
+        "metric_sources": {
+          "sleep": "legacy_unknown",
+          "hrv": "garmin",
+          "resting_hr": "garmin"
+        }
+      },
+      "freshness": {
+        "state": "fresh",
+        "anchor": "2026-10-01",
+        "confirmed_today": [
+          "hrv",
+          "resting_hr",
+          "sleep",
+          "tsb"
+        ],
+        "outdated": [],
+        "unverified": [],
+        "invalid": [],
+        "missing": [
+          "training_readiness"
+        ],
+        "intervention_eligible": [
+          "hrv",
+          "resting_hr",
+          "sleep",
+          "tsb"
+        ],
+        "blocked_reason": null
+      },
+      "intervention_score": 60.8,
+      "intervention_confidence": 0.8,
+      "eligible_inputs": [
+        "hrv",
+        "resting_hr",
+        "sleep",
+        "tsb"
+      ],
+      "ineligible_inputs": [],
+      "intervention_blocked_reason": null,
+      "subjective_wellness": {
+        "status": "current",
+        "source": "intervals",
+        "date": "2026-10-01",
+        "age_days": 0,
+        "provider_updated_at": null,
+        "received_at": "2026-10-01T07:00:00.000000+00:00",
+        "mapping_version": "intervals_subjective_v1",
+        "items": [
+          {
+            "key": "sleepQuality",
+            "label": "Качество сна",
+            "value": 2,
+            "state": "present",
+            "value_label": "Хорошее"
+          },
+          {
+            "key": "soreness",
+            "label": "Болезненность",
+            "value": null,
+            "state": "missing",
+            "value_label": "Нет ответа"
+          },
+          {
+            "key": "fatigue",
+            "label": "Усталость перед тренировкой",
+            "value": 1,
+            "state": "present",
+            "value_label": "Низкая"
+          },
+          {
+            "key": "stress",
+            "label": "Субъективный стресс",
+            "value": null,
+            "state": "missing",
+            "value_label": "Нет ответа"
+          },
+          {
+            "key": "mood",
+            "label": "Настроение",
+            "value": null,
+            "state": "missing",
+            "value_label": "Нет ответа"
+          },
+          {
+            "key": "motivation",
+            "label": "Мотивация",
+            "value": null,
+            "state": "missing",
+            "value_label": "Нет ответа"
+          },
+          {
+            "key": "injury",
+            "label": "Травма — самооценка",
+            "value": 1,
+            "state": "present",
+            "value_label": "Нет"
+          },
+          {
+            "key": "hydration",
+            "label": "Гидратация — самооценка",
+            "value": null,
+            "state": "missing",
+            "value_label": "Нет ответа"
+          }
+        ],
+        "answered_current_keys": [
+          "sleepQuality",
+          "fatigue",
+          "injury"
+        ]
+      }
+    },
+    "subjective_wellness": {
+      "status": "current",
+      "source": "intervals",
+      "date": "2026-10-01",
+      "age_days": 0,
+      "provider_updated_at": null,
+      "received_at": "2026-10-01T07:00:00.000000+00:00",
+      "mapping_version": "intervals_subjective_v1",
+      "items": [
+        {
+          "key": "sleepQuality",
+          "label": "Качество сна",
+          "value": 2,
+          "state": "present",
+          "value_label": "Хорошее"
+        },
+        {
+          "key": "soreness",
+          "label": "Болезненность",
+          "value": null,
+          "state": "missing",
+          "value_label": "Нет ответа"
+        },
+        {
+          "key": "fatigue",
+          "label": "Усталость перед тренировкой",
+          "value": 1,
+          "state": "present",
+          "value_label": "Низкая"
+        },
+        {
+          "key": "stress",
+          "label": "Субъективный стресс",
+          "value": null,
+          "state": "missing",
+          "value_label": "Нет ответа"
+        },
+        {
+          "key": "mood",
+          "label": "Настроение",
+          "value": null,
+          "state": "missing",
+          "value_label": "Нет ответа"
+        },
+        {
+          "key": "motivation",
+          "label": "Мотивация",
+          "value": null,
+          "state": "missing",
+          "value_label": "Нет ответа"
+        },
+        {
+          "key": "injury",
+          "label": "Травма — самооценка",
+          "value": 1,
+          "state": "present",
+          "value_label": "Нет"
+        },
+        {
+          "key": "hydration",
+          "label": "Гидратация — самооценка",
+          "value": null,
+          "state": "missing",
+          "value_label": "Нет ответа"
+        }
+      ],
+      "answered_current_keys": [
+        "sleepQuality",
+        "fatigue",
+        "injury"
+      ]
+    },
+    "decision_story": {
+      "schema_version": "today_decision_story_v1",
+      "date": "2026-10-01",
+      "fact": {
+        "session_id": "ats_6e351bd901b79fca36e182ad",
+        "projection_status": "needs_confirmation",
+        "completion_status": "needs_confirmation",
+        "plan": {
+          "date": "2026-10-01",
+          "sport": "bike",
+          "role": "easy",
+          "name": "Audit bike",
+          "duration_minutes": 40.0,
+          "load_tss": 40.0,
+          "legs": [],
+          "transition": {
+            "planned_minutes": null
+          }
+        },
+        "actual": {
+          "activity_ids": [],
+          "load_tss": 0.0,
+          "legs": [],
+          "transition": {
+            "actual_minutes": null
+          }
+        },
+        "deviation": {
+          "adherence": "unknown",
+          "duration_delta_minutes": -40.0,
+          "load_delta_tss": -40.0,
+          "structure_match": null,
+          "transition_delta_minutes": null
+        },
+        "cause": {
+          "status": "needs_confirmation",
+          "code": "ambiguous_match",
+          "evidence_refs": []
+        },
+        "evidence_revision": {
+          "planning_checkpoint_id": 1,
+          "match_revision_id": null,
+          "match_revision": null,
+          "feedback_revision_id": null,
+          "feedback_revision": null,
+          "reconciliation_rule_version": "plan_actual_match_v2",
+          "as_of": "2026-10-01",
+          "provider_status": "disabled"
+        }
+      },
+      "interpretation": {
+        "status": "needs_confirmation",
+        "summary": "Факт активности неоднозначен и требует подтверждения.",
+        "caveat": null,
+        "rule_versions": {
+          "story": "today_decision_story_v1",
+          "readiness": "readiness_snapshot_v3",
+          "gate": "readiness_conflicts_v2",
+          "session": "plan_actual_match_v2"
+        }
+      },
+      "recommendation": {
+        "kind": "confirm_match",
+        "summary": "Подтвердите, какая активность относится к плановой сессии."
+      },
+      "next_action": {
+        "kind": "confirm_match",
+        "summary": "Подтвердите сопоставление активности с планом.",
+        "enabled": true,
+        "changes_plan": false,
+        "clearance_claim": false
+      },
+      "evidence": [
+        {
+          "kind": "session",
+          "source": "session_projection",
+          "ref": "ats_6e351bd901b79fca36e182ad",
+          "observation_date": "2026-10-01",
+          "freshness": "current",
+          "status": "needs_confirmation"
+        },
+        {
+          "kind": "readiness",
+          "source": "canonical_snapshot",
+          "ref": "canonical_snapshot",
+          "observation_date": "2026-10-01",
+          "freshness": "current",
+          "status": "ready",
+          "eligible_inputs": [
+            "hrv",
+            "resting_hr",
+            "sleep",
+            "tsb"
+          ]
+        },
+        {
+          "kind": "subjective_wellness",
+          "key": "injury",
+          "source": "intervals",
+          "ref": "intervals_subjective_v1",
+          "state": "present",
+          "value": 1,
+          "value_label": "Нет",
+          "observation_date": "2026-10-01",
+          "freshness": "current",
+          "eligible_for_clearance": false
+        }
+      ]
+    }
+  },
+  "coach_context": {
+    "date": "2026-10-01",
+    "checkpoint_id": 1,
+    "readiness": {
+      "score": 60.7,
+      "status": "ready",
+      "computed_at": "2026-10-01",
+      "as_of_date": "2026-10-01",
+      "observed_at_utc": "2026-10-01T14:16:26Z",
+      "rule_version": "readiness_snapshot_v3",
+      "is_provisional": false,
+      "source_completeness": 1.0,
+      "factors": [
+        {
+          "key": "hrv",
+          "label": "HRV",
+          "score": 60.0,
+          "intervention_score_input": 60.0,
+          "weight": 0.353,
+          "raw_value": 38.0,
+          "baseline": null,
+          "deviation": null,
+          "evidence": "HRV 38.0 мс (базлайн ещё не накоплен)",
+          "intervention_evidence": "HRV 38.0 мс (базлайн ещё не накоплен)",
+          "source": "rmssd",
+          "stale_input": false,
+          "as_of": "2026-10-01",
+          "observation_as_of": "2026-10-01",
+          "age_days": 0,
+          "observation_status": "confirmed_today",
+          "intervention_eligible": true,
+          "evidence_kind": "measurement"
+        },
+        {
+          "key": "resting_hr",
+          "label": "Пульс покоя",
+          "score": 70.0,
+          "intervention_score_input": 70.0,
+          "weight": 0.235,
+          "raw_value": 52.0,
+          "baseline": null,
+          "deviation": null,
+          "evidence": "Пульс покоя 52.0 уд/мин (базлайн ещё не накоплен)",
+          "intervention_evidence": "Пульс покоя 52.0 уд/мин (базлайн ещё не накоплен)",
+          "source": "resting_hr",
+          "stale_input": false,
+          "as_of": "2026-10-01",
+          "observation_as_of": "2026-10-01",
+          "age_days": 0,
+          "observation_status": "confirmed_today",
+          "intervention_eligible": true,
+          "evidence_kind": "measurement"
+        },
+        {
+          "key": "sleep",
+          "label": "Сон",
+          "score": 72.0,
+          "intervention_score_input": 72.0,
+          "weight": 0.235,
+          "raw_value": 72.0,
+          "baseline": null,
+          "deviation": null,
+          "evidence": "Сон: оценка 72/100 (источник не сохранён)",
+          "source": "sleep_score",
+          "metric_source": "legacy_unknown",
+          "stale_input": false,
+          "as_of": "2026-10-01",
+          "observation_as_of": "2026-10-01",
+          "age_days": 0,
+          "observation_status": "confirmed_today",
+          "intervention_eligible": true,
+          "evidence_kind": "measurement",
+          "intervention_evidence": "Сон: оценка 72/100 (источник не сохранён)"
+        },
+        {
+          "key": "tsb",
+          "label": "Баланс нагрузки (TSB)",
+          "score": 35.0,
+          "intervention_score_input": 35.0,
+          "weight": 0.176,
+          "raw_value": -24.4,
+          "baseline": null,
+          "deviation": null,
+          "evidence": "TSB -24.4 (глубокая усталость)",
+          "source": "activities.tss → Banister",
+          "stale_input": false,
+          "as_of": "2026-10-01",
+          "observation_as_of": "2026-10-01",
+          "age_days": 0,
+          "observation_status": "confirmed_today",
+          "intervention_eligible": true,
+          "evidence_kind": "derived_state",
+          "intervention_evidence": "TSB -24.4 (глубокая усталость)"
+        }
+      ],
+      "missing_inputs": [],
+      "stale": false,
+      "reason": "Readiness рассчитан по полному набору основных recovery-сигналов.",
+      "drivers": [
+        {
+          "key": "tsb",
+          "label": "Баланс нагрузки (TSB)",
+          "score": 35.0,
+          "intervention_score_input": 35.0,
+          "evidence": "TSB -24.4 (глубокая усталость)",
+          "intervention_evidence": "TSB -24.4 (глубокая усталость)",
+          "as_of": "2026-10-01",
+          "observation_as_of": "2026-10-01",
+          "age_days": 0,
+          "observation_status": "confirmed_today",
+          "intervention_eligible": true,
+          "evidence_kind": "derived_state",
+          "source": "activities.tss → Banister"
+        },
+        {
+          "key": "hrv",
+          "label": "HRV",
+          "score": 60.0,
+          "intervention_score_input": 60.0,
+          "evidence": "HRV 38.0 мс (базлайн ещё не накоплен)",
+          "intervention_evidence": "HRV 38.0 мс (базлайн ещё не накоплен)",
+          "as_of": "2026-10-01",
+          "observation_as_of": "2026-10-01",
+          "age_days": 0,
+          "observation_status": "confirmed_today",
+          "intervention_eligible": true,
+          "evidence_kind": "measurement",
+          "source": "rmssd"
+        },
+        {
+          "key": "sleep",
+          "label": "Сон",
+          "score": 72.0,
+          "intervention_score_input": 72.0,
+          "evidence": "Сон: оценка 72/100 (источник не сохранён)",
+          "intervention_evidence": "Сон: оценка 72/100 (источник не сохранён)",
+          "as_of": "2026-10-01",
+          "observation_as_of": "2026-10-01",
+          "age_days": 0,
+          "observation_status": "confirmed_today",
+          "intervention_eligible": true,
+          "evidence_kind": "measurement",
+          "source": "sleep_score"
+        }
+      ],
+      "tsb": {
+        "ctl": 13.8,
+        "atl": 38.3,
+        "tsb": -24.4,
+        "window_days": 90,
+        "as_of": "2026-10-01"
+      },
+      "confidence": 0.8,
+      "input_provenance": {
+        "as_of_date": "2026-10-01",
+        "observed_at_utc": "2026-10-01T14:16:26Z",
+        "sources": {
+          "sleep": "2026-10-01",
+          "hrv": "2026-10-01",
+          "daily_health": "2026-10-01",
+          "training_status": null,
+          "activities": "2026-10-01"
+        },
+        "metric_sources": {
+          "sleep": "legacy_unknown",
+          "hrv": "garmin",
+          "resting_hr": "garmin"
+        }
+      },
+      "freshness": {
+        "state": "fresh",
+        "anchor": "2026-10-01",
+        "confirmed_today": [
+          "hrv",
+          "resting_hr",
+          "sleep",
+          "tsb"
+        ],
+        "outdated": [],
+        "unverified": [],
+        "invalid": [],
+        "missing": [
+          "training_readiness"
+        ],
+        "intervention_eligible": [
+          "hrv",
+          "resting_hr",
+          "sleep",
+          "tsb"
+        ],
+        "blocked_reason": null
+      },
+      "intervention_score": 60.8,
+      "intervention_confidence": 0.8,
+      "eligible_inputs": [
+        "hrv",
+        "resting_hr",
+        "sleep",
+        "tsb"
+      ],
+      "ineligible_inputs": [],
+      "intervention_blocked_reason": null,
+      "subjective_wellness": {
+        "status": "current",
+        "source": "intervals",
+        "date": "2026-10-01",
+        "age_days": 0,
+        "provider_updated_at": null,
+        "received_at": "2026-10-01T07:00:00.000000+00:00",
+        "mapping_version": "intervals_subjective_v1",
+        "items": [
+          {
+            "key": "sleepQuality",
+            "label": "Качество сна",
+            "value": 2,
+            "state": "present",
+            "value_label": "Хорошее"
+          },
+          {
+            "key": "soreness",
+            "label": "Болезненность",
+            "value": null,
+            "state": "missing",
+            "value_label": "Нет ответа"
+          },
+          {
+            "key": "fatigue",
+            "label": "Усталость перед тренировкой",
+            "value": 1,
+            "state": "present",
+            "value_label": "Низкая"
+          },
+          {
+            "key": "stress",
+            "label": "Субъективный стресс",
+            "value": null,
+            "state": "missing",
+            "value_label": "Нет ответа"
+          },
+          {
+            "key": "mood",
+            "label": "Настроение",
+            "value": null,
+            "state": "missing",
+            "value_label": "Нет ответа"
+          },
+          {
+            "key": "motivation",
+            "label": "Мотивация",
+            "value": null,
+            "state": "missing",
+            "value_label": "Нет ответа"
+          },
+          {
+            "key": "injury",
+            "label": "Травма — самооценка",
+            "value": 1,
+            "state": "present",
+            "value_label": "Нет"
+          },
+          {
+            "key": "hydration",
+            "label": "Гидратация — самооценка",
+            "value": null,
+            "state": "missing",
+            "value_label": "Нет ответа"
+          }
+        ],
+        "answered_current_keys": [
+          "sleepQuality",
+          "fatigue",
+          "injury"
+        ]
+      }
+    },
+    "story": {
+      "schema_version": "today_decision_story_v1",
+      "date": "2026-10-01",
+      "fact": {
+        "session_id": "ats_6e351bd901b79fca36e182ad",
+        "projection_status": "needs_confirmation",
+        "completion_status": "needs_confirmation",
+        "plan": {
+          "date": "2026-10-01",
+          "sport": "bike",
+          "role": "easy",
+          "name": "Audit bike",
+          "duration_minutes": 40.0,
+          "load_tss": 40.0,
+          "legs": [],
+          "transition": {
+            "planned_minutes": null
+          }
+        },
+        "actual": {
+          "activity_ids": [],
+          "load_tss": 0.0,
+          "legs": [],
+          "transition": {
+            "actual_minutes": null
+          }
+        },
+        "deviation": {
+          "adherence": "unknown",
+          "duration_delta_minutes": -40.0,
+          "load_delta_tss": -40.0,
+          "structure_match": null,
+          "transition_delta_minutes": null
+        },
+        "cause": {
+          "status": "needs_confirmation",
+          "code": "ambiguous_match",
+          "evidence_refs": []
+        },
+        "evidence_revision": {
+          "planning_checkpoint_id": 1,
+          "match_revision_id": null,
+          "match_revision": null,
+          "feedback_revision_id": null,
+          "feedback_revision": null,
+          "reconciliation_rule_version": "plan_actual_match_v2",
+          "as_of": "2026-10-01",
+          "provider_status": "disabled"
+        }
+      },
+      "interpretation": {
+        "status": "needs_confirmation",
+        "summary": "Факт активности неоднозначен и требует подтверждения.",
+        "caveat": null,
+        "rule_versions": {
+          "story": "today_decision_story_v1",
+          "readiness": "readiness_snapshot_v3",
+          "gate": "readiness_conflicts_v2",
+          "session": "plan_actual_match_v2"
+        }
+      },
+      "recommendation": {
+        "kind": "confirm_match",
+        "summary": "Подтвердите, какая активность относится к плановой сессии."
+      },
+      "next_action": {
+        "kind": "confirm_match",
+        "summary": "Подтвердите сопоставление активности с планом.",
+        "enabled": true,
+        "changes_plan": false,
+        "clearance_claim": false
+      },
+      "evidence": [
+        {
+          "kind": "session",
+          "source": "session_projection",
+          "ref": "ats_6e351bd901b79fca36e182ad",
+          "observation_date": "2026-10-01",
+          "freshness": "current",
+          "status": "needs_confirmation"
+        },
+        {
+          "kind": "readiness",
+          "source": "canonical_snapshot",
+          "ref": "canonical_snapshot",
+          "observation_date": "2026-10-01",
+          "freshness": "current",
+          "status": "ready",
+          "eligible_inputs": [
+            "hrv",
+            "resting_hr",
+            "sleep",
+            "tsb"
+          ]
+        },
+        {
+          "kind": "subjective_wellness",
+          "key": "injury",
+          "source": "intervals",
+          "ref": "intervals_subjective_v1",
+          "state": "present",
+          "value": 1,
+          "value_label": "Нет",
+          "observation_date": "2026-10-01",
+          "freshness": "current",
+          "eligible_for_clearance": false
+        }
+      ]
+    }
+  },
+  "read_adapters_unchanged": true
+}

@@ -1,0 +1,434 @@
+{
+  "frozen_match": {
+    "id": 1,
+    "revision": 1,
+    "actual_activity_ids": [
+      "issue-529-bike-actual"
+    ]
+  },
+  "current_match": {
+    "id": 2,
+    "revision": 2,
+    "actual_activity_ids": [
+      "alternate-bike"
+    ]
+  },
+  "same_planning_checkpoint": 1,
+  "frozen_adapter_story": {
+    "schema_version": "today_decision_story_v1",
+    "date": "2026-08-31",
+    "fact": {
+      "session_id": null,
+      "sessions": [
+        {
+          "session_id": "ats_b5d4fae098e605e7eee15fa2",
+          "projection_status": "matched",
+          "completion_status": "complete",
+          "plan": {
+            "date": "2026-08-31",
+            "sport": "bike",
+            "role": "easy",
+            "name": "easy bike",
+            "duration_minutes": 60.0,
+            "load_tss": 60.0,
+            "legs": [],
+            "transition": {
+              "planned_minutes": null
+            }
+          },
+          "actual": {
+            "activity_ids": [
+              "issue-529-bike-actual"
+            ],
+            "load_tss": 60.0,
+            "legs": [],
+            "transition": {
+              "actual_minutes": null
+            }
+          },
+          "deviation": {
+            "adherence": "exact",
+            "duration_delta_minutes": 0.0,
+            "load_delta_tss": 0.0,
+            "structure_match": null,
+            "transition_delta_minutes": null
+          },
+          "cause": {
+            "status": "unknown",
+            "code": "no_explicit_cause_evidence",
+            "evidence_refs": []
+          },
+          "evidence_revision": {
+            "planning_checkpoint_id": 1,
+            "match_revision_id": 2,
+            "match_revision": 2,
+            "feedback_revision_id": null,
+            "feedback_revision": null,
+            "reconciliation_rule_version": "plan_actual_match_v2",
+            "as_of": "2026-08-31",
+            "provider_status": "disabled"
+          }
+        },
+        {
+          "session_id": "ats_ce14c4d14bcb3174974a56f0",
+          "projection_status": "needs_confirmation",
+          "completion_status": "needs_confirmation",
+          "plan": {
+            "date": "2026-08-31",
+            "sport": "run",
+            "role": "easy",
+            "name": "easy run",
+            "duration_minutes": 30.0,
+            "load_tss": 30.0,
+            "legs": [],
+            "transition": {
+              "planned_minutes": null
+            }
+          },
+          "actual": {
+            "activity_ids": [],
+            "load_tss": 0.0,
+            "legs": [],
+            "transition": {
+              "actual_minutes": null
+            }
+          },
+          "deviation": {
+            "adherence": "unknown",
+            "duration_delta_minutes": -30.0,
+            "load_delta_tss": -30.0,
+            "structure_match": null,
+            "transition_delta_minutes": null
+          },
+          "cause": {
+            "status": "needs_confirmation",
+            "code": "ambiguous_match",
+            "evidence_refs": []
+          },
+          "evidence_revision": {
+            "planning_checkpoint_id": 1,
+            "match_revision_id": null,
+            "match_revision": null,
+            "feedback_revision_id": null,
+            "feedback_revision": null,
+            "reconciliation_rule_version": "plan_actual_match_v2",
+            "as_of": "2026-08-31",
+            "provider_status": "disabled"
+          }
+        }
+      ],
+      "projection_status": "needs_confirmation",
+      "completion_status": "needs_confirmation",
+      "plan": {
+        "date": "2026-08-31",
+        "load_tss": 90.0,
+        "duration_minutes": 90.0
+      },
+      "actual": {
+        "activity_ids": [
+          "issue-529-bike-actual"
+        ],
+        "load_tss": 60.0,
+        "legs": [],
+        "transition": null
+      },
+      "deviation": {},
+      "cause": {
+        "status": "unknown",
+        "code": "no_aggregate_cause_evidence",
+        "evidence_refs": []
+      },
+      "evidence_revision": {
+        "as_of": "2026-08-31",
+        "planning_checkpoint_id": 1
+      }
+    },
+    "interpretation": {
+      "status": "needs_confirmation",
+      "summary": "Факт активности неоднозначен и требует подтверждения.",
+      "caveat": null,
+      "rule_versions": {
+        "story": "today_decision_story_v1",
+        "readiness": null,
+        "gate": null,
+        "session": "plan_actual_match_v2"
+      }
+    },
+    "recommendation": {
+      "kind": "confirm_match",
+      "summary": "Подтвердите, какая активность относится к плановой сессии."
+    },
+    "next_action": {
+      "kind": "confirm_match",
+      "summary": "Подтвердите сопоставление активности с планом.",
+      "enabled": true,
+      "changes_plan": false,
+      "clearance_claim": false
+    },
+    "evidence": [
+      {
+        "kind": "session",
+        "source": "session_projection",
+        "ref": "ats_b5d4fae098e605e7eee15fa2",
+        "observation_date": "2026-08-31",
+        "freshness": "current",
+        "status": "matched"
+      },
+      {
+        "kind": "session",
+        "source": "session_projection",
+        "ref": "ats_ce14c4d14bcb3174974a56f0",
+        "observation_date": "2026-08-31",
+        "freshness": "current",
+        "status": "needs_confirmation"
+      },
+      {
+        "kind": "readiness",
+        "source": "canonical_snapshot",
+        "ref": "canonical_snapshot",
+        "observation_date": "2026-08-31",
+        "freshness": "current",
+        "status": "ready",
+        "eligible_inputs": [
+          "hrv",
+          "resting_hr",
+          "sleep",
+          "tsb"
+        ]
+      },
+      {
+        "kind": "subjective_wellness",
+        "key": "injury",
+        "source": "intervals",
+        "ref": "intervals_subjective_v1",
+        "state": "present",
+        "value": 1,
+        "value_label": "Нет",
+        "observation_date": "2026-08-31",
+        "freshness": "current",
+        "eligible_for_clearance": false
+      }
+    ]
+  },
+  "fresh_snapshot_falsifier_story": {
+    "schema_version": "today_decision_story_v1",
+    "date": "2026-08-31",
+    "fact": {
+      "session_id": null,
+      "sessions": [
+        {
+          "session_id": "ats_b5d4fae098e605e7eee15fa2",
+          "projection_status": "matched",
+          "completion_status": "complete",
+          "plan": {
+            "date": "2026-08-31",
+            "sport": "bike",
+            "role": "easy",
+            "name": "easy bike",
+            "duration_minutes": 60.0,
+            "load_tss": 60.0,
+            "legs": [],
+            "transition": {
+              "planned_minutes": null
+            }
+          },
+          "actual": {
+            "activity_ids": [
+              "alternate-bike"
+            ],
+            "load_tss": 30.0,
+            "legs": [],
+            "transition": {
+              "actual_minutes": null
+            }
+          },
+          "deviation": {
+            "adherence": "major_deviation",
+            "duration_delta_minutes": -30.0,
+            "load_delta_tss": -30.0,
+            "structure_match": null,
+            "transition_delta_minutes": null
+          },
+          "cause": {
+            "status": "unknown",
+            "code": "no_explicit_cause_evidence",
+            "evidence_refs": []
+          },
+          "evidence_revision": {
+            "planning_checkpoint_id": 1,
+            "match_revision_id": 2,
+            "match_revision": 2,
+            "feedback_revision_id": null,
+            "feedback_revision": null,
+            "reconciliation_rule_version": "plan_actual_match_v2",
+            "as_of": "2026-08-31",
+            "provider_status": "disabled"
+          }
+        },
+        {
+          "session_id": "ats_ce14c4d14bcb3174974a56f0",
+          "projection_status": "needs_confirmation",
+          "completion_status": "needs_confirmation",
+          "plan": {
+            "date": "2026-08-31",
+            "sport": "run",
+            "role": "easy",
+            "name": "easy run",
+            "duration_minutes": 30.0,
+            "load_tss": 30.0,
+            "legs": [],
+            "transition": {
+              "planned_minutes": null
+            }
+          },
+          "actual": {
+            "activity_ids": [],
+            "load_tss": 0.0,
+            "legs": [],
+            "transition": {
+              "actual_minutes": null
+            }
+          },
+          "deviation": {
+            "adherence": "unknown",
+            "duration_delta_minutes": -30.0,
+            "load_delta_tss": -30.0,
+            "structure_match": null,
+            "transition_delta_minutes": null
+          },
+          "cause": {
+            "status": "needs_confirmation",
+            "code": "ambiguous_match",
+            "evidence_refs": []
+          },
+          "evidence_revision": {
+            "planning_checkpoint_id": 1,
+            "match_revision_id": null,
+            "match_revision": null,
+            "feedback_revision_id": null,
+            "feedback_revision": null,
+            "reconciliation_rule_version": "plan_actual_match_v2",
+            "as_of": "2026-08-31",
+            "provider_status": "disabled"
+          }
+        }
+      ],
+      "projection_status": "needs_confirmation",
+      "completion_status": "needs_confirmation",
+      "plan": {
+        "date": "2026-08-31",
+        "load_tss": 90.0,
+        "duration_minutes": 90.0
+      },
+      "actual": {
+        "activity_ids": [
+          "alternate-bike"
+        ],
+        "load_tss": 30.0,
+        "legs": [],
+        "transition": null
+      },
+      "deviation": {},
+      "cause": {
+        "status": "unknown",
+        "code": "no_aggregate_cause_evidence",
+        "evidence_refs": []
+      },
+      "evidence_revision": {
+        "as_of": "2026-08-31",
+        "planning_checkpoint_id": 1
+      }
+    },
+    "interpretation": {
+      "status": "needs_confirmation",
+      "summary": "Факт активности неоднозначен и требует подтверждения.",
+      "caveat": null,
+      "rule_versions": {
+        "story": "today_decision_story_v1",
+        "readiness": null,
+        "gate": null,
+        "session": "plan_actual_match_v2"
+      }
+    },
+    "recommendation": {
+      "kind": "confirm_match",
+      "summary": "Подтвердите, какая активность относится к плановой сессии."
+    },
+    "next_action": {
+      "kind": "confirm_match",
+      "summary": "Подтвердите сопоставление активности с планом.",
+      "enabled": true,
+      "changes_plan": false,
+      "clearance_claim": false
+    },
+    "evidence": [
+      {
+        "kind": "session",
+        "source": "session_projection",
+        "ref": "ats_b5d4fae098e605e7eee15fa2",
+        "observation_date": "2026-08-31",
+        "freshness": "current",
+        "status": "matched"
+      },
+      {
+        "kind": "session",
+        "source": "session_projection",
+        "ref": "ats_ce14c4d14bcb3174974a56f0",
+        "observation_date": "2026-08-31",
+        "freshness": "current",
+        "status": "needs_confirmation"
+      },
+      {
+        "kind": "readiness",
+        "source": "canonical_snapshot",
+        "ref": "canonical_snapshot",
+        "observation_date": "2026-08-31",
+        "freshness": "current",
+        "status": "ready",
+        "eligible_inputs": [
+          "hrv",
+          "resting_hr",
+          "sleep",
+          "tsb"
+        ]
+      },
+      {
+        "kind": "subjective_wellness",
+        "key": "injury",
+        "source": "intervals",
+        "ref": "intervals_subjective_v1",
+        "state": "present",
+        "value": 1,
+        "value_label": "Нет",
+        "observation_date": "2026-08-31",
+        "freshness": "current",
+        "eligible_for_clearance": false
+      }
+    ]
+  },
+  "read_adapter_nonmutation": true,
+  "mixed_checkpoint": {
+    "action": "follow_plan",
+    "state": "partial",
+    "revision": {
+      "as_of": "2026-08-31",
+      "planning_checkpoint_id": null
+    }
+  },
+  "missing_identity": {
+    "action": "follow_plan",
+    "state": "partial",
+    "revision": {
+      "as_of": "2026-08-31",
+      "planning_checkpoint_id": 1
+    }
+  },
+  "malformed_identity": {
+    "exception": "TypeError",
+    "message": "unhashable type: 'list'"
+  },
+  "malformed_confirmed_bucket": {
+    "exception": "TypeError",
+    "message": "unhashable type: 'dict'"
+  }
+}
