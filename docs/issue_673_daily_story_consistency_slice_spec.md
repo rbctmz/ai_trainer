@@ -1,6 +1,6 @@
 # Slice spec and independent review: #673
 
-- Issue / PR: https://github.com/rbctmz/ai_trainer/issues/673 / not created
+- Issue / PR: https://github.com/rbctmz/ai_trainer/issues/673 / https://github.com/rbctmz/ai_trainer/pull/675
 - Author / checker / merge owner: Spec / Architecture Owner → Domain / API Implementer explicit handoff / independent read-only reviewer / human repository owner
 - Date: 2026-10-01
 - Candidate base: 6d97787f49ce89502bfafed35a6f9f18e1a5e306
