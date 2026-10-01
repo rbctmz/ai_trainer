@@ -1,0 +1,126 @@
+{
+  "scenarios": [
+    {
+      "case": "ordinary",
+      "today_equals_coach": true,
+      "canonical_parent_and_card_parity": true,
+      "http_all_200": true,
+      "read_adapters_unchanged": true,
+      "action": "follow_plan",
+      "readiness_freshness": "current",
+      "parents": 1,
+      "actual_load_tss": 0.0,
+      "changes_plan": false,
+      "clearance_claim": false
+    },
+    {
+      "case": "completed",
+      "today_equals_coach": true,
+      "canonical_parent_and_card_parity": true,
+      "http_all_200": true,
+      "read_adapters_unchanged": true,
+      "action": "follow_plan",
+      "readiness_freshness": "current",
+      "parents": 1,
+      "actual_load_tss": 45.0,
+      "changes_plan": false,
+      "clearance_claim": false
+    },
+    {
+      "case": "two",
+      "today_equals_coach": true,
+      "canonical_parent_and_card_parity": true,
+      "http_all_200": true,
+      "read_adapters_unchanged": true,
+      "action": "follow_plan",
+      "readiness_freshness": "current",
+      "parents": 2,
+      "actual_load_tss": 45.0,
+      "changes_plan": false,
+      "clearance_claim": false
+    },
+    {
+      "case": "partial-brick",
+      "today_equals_coach": true,
+      "canonical_parent_and_card_parity": true,
+      "http_all_200": true,
+      "read_adapters_unchanged": true,
+      "action": "follow_plan",
+      "readiness_freshness": "current",
+      "parents": 1,
+      "actual_load_tss": 45.0,
+      "changes_plan": false,
+      "clearance_claim": false
+    },
+    {
+      "case": "ambiguous",
+      "today_equals_coach": true,
+      "canonical_parent_and_card_parity": true,
+      "http_all_200": true,
+      "read_adapters_unchanged": true,
+      "action": "confirm_match",
+      "readiness_freshness": "current",
+      "parents": 1,
+      "actual_load_tss": 0.0,
+      "changes_plan": false,
+      "clearance_claim": false
+    },
+    {
+      "case": "stale",
+      "today_equals_coach": true,
+      "canonical_parent_and_card_parity": true,
+      "http_all_200": true,
+      "read_adapters_unchanged": true,
+      "action": "inspect_evidence",
+      "readiness_freshness": "unknown",
+      "parents": 1,
+      "actual_load_tss": 0.0,
+      "changes_plan": false,
+      "clearance_claim": false
+    },
+    {
+      "case": "conflicting",
+      "today_equals_coach": true,
+      "canonical_parent_and_card_parity": true,
+      "http_all_200": true,
+      "read_adapters_unchanged": true,
+      "action": "inspect_evidence",
+      "readiness_freshness": "current",
+      "parents": 1,
+      "actual_load_tss": 0.0,
+      "changes_plan": false,
+      "clearance_claim": false
+    }
+  ],
+  "browser": {
+    "states": 67,
+    "today": 42,
+    "explanation": 14,
+    "planning": 7,
+    "activity_detail": 4,
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "widths": [
+      390,
+      978,
+      1280
+    ],
+    "overflow": 0,
+    "page_errors": 0,
+    "api_errors": 0,
+    "blocked_writes": 0,
+    "processes_stopped": true
+  },
+  "source_files": {
+    "api/today_snapshot.py": "b64212fa7d3f45049d28de9972968089a679460514116b84867f5b62163cc6f8",
+    "api/routers/coach.py": "2ba11981cbd082c1b26d711d2587eb5119689bd1735741825599abcc41a24c88",
+    "models/today_decision_story.py": "4476d54a5c50df39d8a8df985c205ecbcadcd4bae951f9c7b0933d70360f66aa",
+    "services/session_projection.py": "87fee438d98f40f0243d60980f5f7d6474aeca66e55bb2859fe32066c08e0b96",
+    "web/lib/types.ts": "aeec2d34882e4bd60de6d1158454bec291272e9c447918c24a88943d1de36402",
+    "tests/contracts/ts_contract.json": "a367c3335c591f3a1d336b09cf3aff14a3cd0338b98fc3ad432092410666acbd",
+    "tests/smoke/test_daily_story_consistency.py": "3277c01799121f9c261feff877b1d3bf5ea8e248180b2ea2f8bcac895c2b296f",
+    "tests/smoke/test_today_decision_story.py": "db8f117d03dcc339e043645ffc75255be6187d220922e0d0d9c166c9bf1c5b6e"
+  }
+}

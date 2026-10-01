@@ -7,7 +7,7 @@
 
 ## Change Class
 
-Class A: identity/provenance and additive cross-module contract. No migration, new persistent state, live provider calls or layout work. Review trigger manual, 1/2 spec rounds, acceptance SHA pending, exception N/A.
+Class A: identity/provenance and additive cross-module contract. No migration, new persistent state, live provider calls or layout work. Review trigger manual, 1/2 spec rounds, source acceptance SHA 65881db (independent, local; no native approval), exception N/A.
 
 ## Scope
 
@@ -70,14 +70,14 @@ ASR-REL-1 canonical identity/revision; ASR-REL-2 incomplete/conflicting evidence
 
 ## Evidence Bundle
 
-Base above; head pending. 85 focused and 2973 contributor-safe tests passed; required code/web/contract checks green; seven API variants and 67 browser states passed; independent scoped delta has no unresolved blockers. Current-commit evidence read-back and durable report pending. Residual: live LLM and athlete pilot deliberately excluded.
+Base above; product head 65881db; subsequent report-only commit does not change code. 85 focused and 2973 contributor-safe tests passed; required code/web/contract checks green; seven API variants and 67 browser states passed; independent scoped delta has no unresolved blockers. Current-commit evidence read-back PASS; durable report/evidence saved. Residual: live LLM and athlete pilot deliberately excluded.
 
 ## Review Findings
 
 | Severity | Evidence/falsifier | Gate | Disposition |
 | --- | --- | --- | --- |
-| Audit P2 F1 | actual two-session day fails; ID-only change resolves | acceptance #673 | fixed in current candidate; final commit SHA recorded in report |
-| Audit P2 F2 | fresh canonical → unknown; state-only falsifier | acceptance #673 | fixed in current candidate; final commit SHA recorded in report |
+| Audit P2 F1 | actual two-session day fails; ID-only change resolves | acceptance #673 | fixed-in 65881db; verified in regression/API evidence |
+| Audit P2 F2 | fresh canonical → unknown; state-only falsifier | acceptance #673 | fixed-in 65881db; verified in regression/API evidence |
 
 ## Native Review Rounds
 
@@ -85,8 +85,10 @@ Base above; head pending. 85 focused and 2973 contributor-safe tests passed; req
 
 ## Final Verdict
 
-SOURCE/RUNTIME ACCEPTANCE PASSED; independent scoped delta cleared G1/G2/S1. Final current-commit evidence record pending. No native approval or merge claim.
+SOURCE/RUNTIME ACCEPTANCE PASSED; independent scoped delta cleared G1/G2/S1. Final current-commit evidence read-back PASS on 65881db; no unresolved blockers. Source correction complete locally. No native approval or merge claim.
 
 Domain/API handoff 2026-10-01: independent specification round 1 established no blockers. RED: 7 failed, 9 passed; real Today multi-parent action and canonical fresh readiness failed. Implementer now owns the approved Python/API/type slice; no CSS/layout or domain policy change. Scalar reducer: all complete→complete, all unobserved→not_observed, mixed observed/unobserved→incomplete; gap→review, ambiguity→confirmation. Summary projection state prioritizes gap/ambiguity then matched/unmatched/mixed partial. Attributed IDs are ordered union; any unknown load/overlap gives null total; legs/transition remain per-parent only. One session evidence row per parent, one recovery and one injury row.
 
 Review dispositions 2026-10-01: G1 P2 reproduced same-checkpoint A→B confirmation after reconciliation. Bounded revision-head capture/fence added within existing source assembly; inherited match and feedback heads are captured by their service owner, supplied only in private in-process snapshot metadata, never API fields. Affected parent fails closed, unaffected facts remain. G2 P2 malformed/missing identities and mixed revisions now request review with unknown total. P3 malformed readiness bucket reproducibly threw TypeError; now unknown. No persistence or matching changes. Services/session_projection.py is included only for the revision-head read helper. Focused review delta and final acceptance pending.
+
+Final 2026-10-01: local source acceptance and independent evidence read-back PASS at 65881db; G1/G2/S1 fixed-in 65881db. Product/runtime acceptance complete; remaining pilot, live-model/screen-reader evaluation, remote CI/native approval and owner merge are not claimed. Report: docs/issue_673_daily_story_consistency_report.md.

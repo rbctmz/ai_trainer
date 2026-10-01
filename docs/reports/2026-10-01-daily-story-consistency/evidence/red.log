@@ -1,0 +1,181 @@
+FFFFFFF.........                                                         [100%]
+=================================== FAILURES ===================================
+_______ test_two_parent_day_preserves_completed_bike_and_unobserved_run ________
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-daily-fix-20261001/runtime/red/test_two_parent_day_preserves_0')
+
+    def test_two_parent_day_preserves_completed_bike_and_unobserved_run(tmp_path):
+        db, plan, checkpoint, ids = _database(tmp_path)
+>       story = _story(db, plan, checkpoint, ids)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/smoke/test_daily_story_consistency.py:46:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+db = <data.database.Database object at 0x11e4a4050>
+plan = {'base_weekly_tss_plan': [90], 'constraint_summary': {}, 'daily_plan': [(datetime.datetime(2026, 8, 31, 0, 0), 90.0, {'bike': 60.0, 'run': 30.0, 'swim': 0})], 'distance': 'Олимпийка', ...}
+checkpoint = {'base_peak_tss': 90, 'base_total_tss': 90, 'checkpoint_parent_id': None, 'checkpoint_restored_from_checkpoint_id': None, ...}
+ids = ['ats_b5d4fae098e605e7eee15fa2', 'ats_ce14c4d14bcb3174974a56f0']
+
+    def _story(db, plan, checkpoint, ids):
+>       return build_today_decision_story_from_sources(
+            db, as_of=DAY_ISO, session_id=plan["session_templates"][0]["session_id"],
+            session_ids=ids, readiness=build_readiness_snapshot(db, as_of=DAY),
+            subjective_wellness=_wellness(day=DAY_ISO),
+            primary_action={"kind": "follow_plan", "reason": "План на сегодня", "enabled": True},
+            expected_checkpoint_id=checkpoint["id"],
+        )
+E       TypeError: build_today_decision_story_from_sources() got an unexpected keyword argument 'session_ids'
+
+tests/smoke/test_daily_story_consistency.py:35: TypeError
+______________ test_real_today_snapshot_uses_independent_parents _______________
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-daily-fix-20261001/runtime/red/test_real_today_snapshot_uses_0')
+
+    def test_real_today_snapshot_uses_independent_parents(tmp_path):
+        db, _, _, ids = _database(tmp_path)
+        today = build_today_decision_snapshot(db, today=DAY)
+>       assert today["decision_story"]["next_action"]["kind"] == "follow_plan"
+E       AssertionError: assert 'inspect_evidence' == 'follow_plan'
+E
+E         - follow_plan
+E         + inspect_evidence
+
+tests/smoke/test_daily_story_consistency.py:69: AssertionError
+____________ test_all_unobserved_parents_are_not_an_incomplete_day _____________
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-daily-fix-20261001/runtime/red/test_all_unobserved_parents_ar0')
+
+    def test_all_unobserved_parents_are_not_an_incomplete_day(tmp_path):
+        db, plan, checkpoint, ids = _database(tmp_path, actual=False)
+>       story = _story(db, plan, checkpoint, ids)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/smoke/test_daily_story_consistency.py:75:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+db = <data.database.Database object at 0x106a73450>
+plan = {'base_weekly_tss_plan': [90], 'constraint_summary': {}, 'daily_plan': [(datetime.datetime(2026, 8, 31, 0, 0), 90.0, {'bike': 60.0, 'run': 30.0, 'swim': 0})], 'distance': 'Олимпийка', ...}
+checkpoint = {'base_peak_tss': 90, 'base_total_tss': 90, 'checkpoint_parent_id': None, 'checkpoint_restored_from_checkpoint_id': None, ...}
+ids = ['ats_b5d4fae098e605e7eee15fa2', 'ats_ce14c4d14bcb3174974a56f0']
+
+    def _story(db, plan, checkpoint, ids):
+>       return build_today_decision_story_from_sources(
+            db, as_of=DAY_ISO, session_id=plan["session_templates"][0]["session_id"],
+            session_ids=ids, readiness=build_readiness_snapshot(db, as_of=DAY),
+            subjective_wellness=_wellness(day=DAY_ISO),
+            primary_action={"kind": "follow_plan", "reason": "План на сегодня", "enabled": True},
+            expected_checkpoint_id=checkpoint["id"],
+        )
+E       TypeError: build_today_decision_story_from_sources() got an unexpected keyword argument 'session_ids'
+
+tests/smoke/test_daily_story_consistency.py:35: TypeError
+_________ test_failed_parent_preserves_known_fact_and_requires_review __________
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-daily-fix-20261001/runtime/red/test_failed_parent_preserves_k0')
+
+    def test_failed_parent_preserves_known_fact_and_requires_review(tmp_path):
+        db, plan, checkpoint, ids = _database(tmp_path)
+>       story = _story(db, plan, checkpoint, [ids[0], "absent-parent"])
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/smoke/test_daily_story_consistency.py:83:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+db = <data.database.Database object at 0x11e5164d0>
+plan = {'base_weekly_tss_plan': [90], 'constraint_summary': {}, 'daily_plan': [(datetime.datetime(2026, 8, 31, 0, 0), 90.0, {'bike': 60.0, 'run': 30.0, 'swim': 0})], 'distance': 'Олимпийка', ...}
+checkpoint = {'base_peak_tss': 90, 'base_total_tss': 90, 'checkpoint_parent_id': None, 'checkpoint_restored_from_checkpoint_id': None, ...}
+ids = ['ats_b5d4fae098e605e7eee15fa2', 'absent-parent']
+
+    def _story(db, plan, checkpoint, ids):
+>       return build_today_decision_story_from_sources(
+            db, as_of=DAY_ISO, session_id=plan["session_templates"][0]["session_id"],
+            session_ids=ids, readiness=build_readiness_snapshot(db, as_of=DAY),
+            subjective_wellness=_wellness(day=DAY_ISO),
+            primary_action={"kind": "follow_plan", "reason": "План на сегодня", "enabled": True},
+            expected_checkpoint_id=checkpoint["id"],
+        )
+E       TypeError: build_today_decision_story_from_sources() got an unexpected keyword argument 'session_ids'
+
+tests/smoke/test_daily_story_consistency.py:35: TypeError
+___________ test_mixed_checkpoint_does_not_project_a_false_known_day ___________
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-daily-fix-20261001/runtime/red/test_mixed_checkpoint_does_not0')
+
+    def test_mixed_checkpoint_does_not_project_a_false_known_day(tmp_path):
+        db, plan, checkpoint, ids = _database(tmp_path)
+        checkpoint["id"] += 1
+>       story = _story(db, plan, checkpoint, ids)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/smoke/test_daily_story_consistency.py:94:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+db = <data.database.Database object at 0x11e1862d0>
+plan = {'base_weekly_tss_plan': [90], 'constraint_summary': {}, 'daily_plan': [(datetime.datetime(2026, 8, 31, 0, 0), 90.0, {'bike': 60.0, 'run': 30.0, 'swim': 0})], 'distance': 'Олимпийка', ...}
+checkpoint = {'base_peak_tss': 90, 'base_total_tss': 90, 'checkpoint_parent_id': None, 'checkpoint_restored_from_checkpoint_id': None, ...}
+ids = ['ats_b5d4fae098e605e7eee15fa2', 'ats_ce14c4d14bcb3174974a56f0']
+
+    def _story(db, plan, checkpoint, ids):
+>       return build_today_decision_story_from_sources(
+            db, as_of=DAY_ISO, session_id=plan["session_templates"][0]["session_id"],
+            session_ids=ids, readiness=build_readiness_snapshot(db, as_of=DAY),
+            subjective_wellness=_wellness(day=DAY_ISO),
+            primary_action={"kind": "follow_plan", "reason": "План на сегодня", "enabled": True},
+            expected_checkpoint_id=checkpoint["id"],
+        )
+E       TypeError: build_today_decision_story_from_sources() got an unexpected keyword argument 'session_ids'
+
+tests/smoke/test_daily_story_consistency.py:35: TypeError
+_________ test_read_adapter_preserves_tracked_tables_and_single_shape __________
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-daily-fix-20261001/runtime/red/test_read_adapter_preserves_tr0')
+
+    def test_read_adapter_preserves_tracked_tables_and_single_shape(tmp_path):
+        db, plan, checkpoint, ids = _database(tmp_path)
+        before = _table_snapshots(db)
+>       _story(db, plan, checkpoint, ids)
+
+tests/smoke/test_daily_story_consistency.py:102:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+db = <data.database.Database object at 0x11e14df90>
+plan = {'base_weekly_tss_plan': [90], 'constraint_summary': {}, 'daily_plan': [(datetime.datetime(2026, 8, 31, 0, 0), 90.0, {'bike': 60.0, 'run': 30.0, 'swim': 0})], 'distance': 'Олимпийка', ...}
+checkpoint = {'base_peak_tss': 90, 'base_total_tss': 90, 'checkpoint_parent_id': None, 'checkpoint_restored_from_checkpoint_id': None, ...}
+ids = ['ats_b5d4fae098e605e7eee15fa2', 'ats_ce14c4d14bcb3174974a56f0']
+
+    def _story(db, plan, checkpoint, ids):
+>       return build_today_decision_story_from_sources(
+            db, as_of=DAY_ISO, session_id=plan["session_templates"][0]["session_id"],
+            session_ids=ids, readiness=build_readiness_snapshot(db, as_of=DAY),
+            subjective_wellness=_wellness(day=DAY_ISO),
+            primary_action={"kind": "follow_plan", "reason": "План на сегодня", "enabled": True},
+            expected_checkpoint_id=checkpoint["id"],
+        )
+E       TypeError: build_today_decision_story_from_sources() got an unexpected keyword argument 'session_ids'
+
+tests/smoke/test_daily_story_consistency.py:35: TypeError
+_________ test_real_canonical_fresh_recovery_measurements_are_current __________
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-daily-fix-20261001/runtime/red/test_real_canonical_fresh_reco0')
+
+    def test_real_canonical_fresh_recovery_measurements_are_current(tmp_path):
+        db, _, _, _ = _database(tmp_path)
+        readiness = build_readiness_snapshot(db, as_of=DAY)
+        assert readiness["freshness"]["state"] == "fresh"
+>       assert _evidence(readiness)["freshness"] == "current"
+E       AssertionError: assert 'unknown' == 'current'
+E
+E         - current
+E         + unknown
+
+tests/smoke/test_daily_story_consistency.py:122: AssertionError
+=========================== short test summary info ============================
+FAILED tests/smoke/test_daily_story_consistency.py::test_two_parent_day_preserves_completed_bike_and_unobserved_run
+FAILED tests/smoke/test_daily_story_consistency.py::test_real_today_snapshot_uses_independent_parents
+FAILED tests/smoke/test_daily_story_consistency.py::test_all_unobserved_parents_are_not_an_incomplete_day
+FAILED tests/smoke/test_daily_story_consistency.py::test_failed_parent_preserves_known_fact_and_requires_review
+FAILED tests/smoke/test_daily_story_consistency.py::test_mixed_checkpoint_does_not_project_a_false_known_day
+FAILED tests/smoke/test_daily_story_consistency.py::test_read_adapter_preserves_tracked_tables_and_single_shape
+FAILED tests/smoke/test_daily_story_consistency.py::test_real_canonical_fresh_recovery_measurements_are_current
+7 failed, 9 passed in 1.71s

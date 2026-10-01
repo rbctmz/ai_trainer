@@ -14,7 +14,7 @@ An athlete with two independent workouts must see the completed bike and the sti
 - [x] (2026-10-01) Domain/API implementation, optional per-parent fact contract and regenerated extraction.
 - [x] (2026-10-01) Focused 85 passed; contributor-safe 2973 passed, 18 skipped, 46 deselected; Ruff, web lint/build and contract checks passed.
 - [x] (2026-10-01) Six real API/browser scenarios (seven variants), 67 screen states, exact Today/Coach parity; independent full round plus scoped delta cleared G1/G2/S1.
-- [ ] Final current-commit evidence read-back and durable report.
+- [x] (2026-10-01) Current-commit evidence read-back PASS on 65881db; durable report and synthetic evidence saved; no unresolved blockers.
 
 ## Surprises & Discoveries
 
@@ -26,7 +26,7 @@ Decision: Class A because canonical identity/evidence and additive shared contra
 
 ## Outcomes & Retrospective
 
-Both audited P2 behaviors are corrected and the required source/runtime checks passed. Independent G1/G2 delta has no unresolved blockers; durable current-commit report/read-back remains. Primary report: `docs/issue_673_daily_story_consistency_report.md` will distinguish completed, unverified and excluded behavior.
+Both audited P2 behaviors are corrected and the required source/runtime checks passed. Independent delta and final current-commit evidence read-back have no unresolved blockers. Durable report and evidence are complete. Product correction commit 65881db; final bookkeeping is docs-only. No push/PR, native acceptance or merge. Primary report: `docs/issue_673_daily_story_consistency_report.md` will distinguish completed, unverified and excluded behavior.
 
 ## Context and Orientation
 
@@ -76,3 +76,5 @@ Domain/API handoff 2026-10-01: independent specification round 1 established no 
 Review dispositions 2026-10-01: G1 P2 reproduced same-checkpoint A→B confirmation after reconciliation. Bounded revision-head capture/fence added within existing source assembly; inherited match and feedback heads are captured by their service owner, supplied only in private in-process snapshot metadata, never API fields. Affected parent fails closed, unaffected facts remain. G2 P2 malformed/missing identities and mixed revisions now request review with unknown total. P3 malformed readiness bucket reproducibly threw TypeError; now unknown. No persistence or matching changes. Services/session_projection.py is included only for the revision-head read helper. Focused review delta and final acceptance pending.
 
 Verification milestone 2026-10-01: final guarded focused 85 passed; final guarded contributor-safe suite on hash-verified temporary source export 2973 passed, 18 skipped, 46 deselected. First worktree-wide run was blocked for seven legacy relative DB paths; export repeated without relaxing the live-data guard. First export omitted the public tracked .env.example, yielding one missing-template failure; restoring only that public template produced the green full repeat. Final seven real API variants passed exact Today/Coach and canonical parent/activity-card comparisons; 67 browser states have zero page/API errors, attempted writes or horizontal overflow, and both temporary processes stopped. Visually inspected two-parent explanation, ordinary freshness explanation and partial-brick 390px dark screenshot. No pilot, live LLM, spoken screen reader or merge claim.
+
+Completion milestone 2026-10-01: independent scoped evidence read-back PASS, eight source/test/contract hashes match product commit 65881db and exported candidate. G1/G2/S1 fixed-in 65881db. Required six scenario families (seven variants) and 67 browser states satisfy acceptance; skipped/excluded suites and integrator-observed web-log limitation documented. All new evidence/report changes after 65881db are docs-only. Goal correction complete locally, owner merge/pilot/live LLM/screen-reader acceptance excluded.
