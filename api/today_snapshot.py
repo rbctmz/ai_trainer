@@ -21,8 +21,12 @@ from models.planning_checkpoints import (
     summarize_checkpoint_provenance,
 )
 from models.readiness_conflicts import ROLE_LABELS_RU
+from models.plan_actual_reconciliation import iter_parent_sessions
 from models.today_decision_story import compose_today_decision_story
-from services.session_projection import session_projection_at
+from services.session_projection import (
+    session_projection_at, session_projection_from_reconciliation,
+    session_projection_revision_heads,
+)
 
 TODAY_SNAPSHOT_VERSION = "today_decision_snapshot_v2"
 
@@ -113,7 +117,11 @@ def build_today_decision_snapshot(
     session = _day_session(report, goal_plan, as_of)
     proposal = _resolve_proposal(db, loop_result, checkpoint)
     forecast = _resolve_forecast(db, loop_result, checkpoint, goal_plan, as_of)
-    yesterday = _yesterday_reconciliation(db, as_of, checkpoint is not None)
+    shared_reconciliation: dict[str, Any] = {}
+    yesterday = _yesterday_reconciliation(
+        db, as_of, checkpoint is not None, reconciliation_out=shared_reconciliation,
+        story_session_ids=day_parent_session_ids(goal_plan, as_of)
+    )
     feedback = _feedback_block(
         db,
         yesterday=yesterday,
@@ -138,6 +146,8 @@ def build_today_decision_snapshot(
         db,
         as_of=as_of,
         session_id=(session or {}).get("session_id"),
+        session_ids=day_parent_session_ids(goal_plan, as_of),
+        reconciliation_snapshot=shared_reconciliation,
         readiness=snapshot,
         subjective_wellness=snapshot.get("subjective_wellness"),
         primary_action=primary_action,
@@ -264,6 +274,8 @@ def build_today_decision_story_from_sources(
     subjective_wellness: Mapping[str, Any] | None,
     primary_action: Mapping[str, Any] | None,
     expected_checkpoint_id: Any = None,
+    session_ids: Sequence[str] | None = None,
+    reconciliation_snapshot: Mapping[str, Any] | None = None,
     rule_versions: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Read the local session projection and compose the shared story.
@@ -272,6 +284,13 @@ def build_today_decision_story_from_sources(
     loop; callers remain responsible for supplying the action already chosen
     by their own lifecycle.
     """
+    if session_ids is not None:
+        return _build_parent_story_from_sources(
+            db, as_of=as_of, session_ids=session_ids, readiness=readiness,
+            subjective_wellness=subjective_wellness, primary_action=primary_action,
+            expected_checkpoint_id=expected_checkpoint_id, rule_versions=rule_versions,
+            reconciliation_snapshot=reconciliation_snapshot,
+        )
     projection = None
     if session_id:
         try:
@@ -325,6 +344,75 @@ def build_today_decision_story_from_sources(
         subjective_wellness=subjective_wellness,
         primary_action=primary_action,
         rule_versions=versions,
+    )
+
+
+def day_parent_session_ids(goal_plan: Mapping[str, Any] | None, as_of: str) -> list[str]:
+    """Read executable parents from the caller's frozen plan, never day buckets/legs."""
+    return [str(entry["session"]["session_id"])
+            for entry in iter_parent_sessions((goal_plan or {}).get("session_templates") or [])
+            if entry["date"] == as_of]
+
+
+def _build_parent_story_from_sources(
+    db: Database, *, as_of: str, session_ids: Sequence[str],
+    readiness: Mapping[str, Any] | None,
+    subjective_wellness: Mapping[str, Any] | None,
+    primary_action: Mapping[str, Any] | None,
+    expected_checkpoint_id: Any,
+    rule_versions: Mapping[str, Any] | None,
+    reconciliation_snapshot: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    projections = []
+    snapshot = reconciliation_snapshot
+    if session_ids and snapshot is None:
+        try:
+            heads = session_projection_revision_heads(db, list(session_ids))
+            snapshot = dict(reconciliation_at(db, weeks=1, as_of=as_of, include_provider=False))
+            snapshot["_story_revision_heads"] = heads
+        except Exception:
+            pass  # each requested parent remains an explicit failed read
+    frozen_heads = (snapshot or {}).get("_story_revision_heads") or {}
+    current_heads = session_projection_revision_heads(db, list(session_ids))
+    for sid in session_ids:
+        projection = None
+        if (snapshot is not None and frozen_heads.get(sid) is not None
+                and frozen_heads.get(sid) == current_heads.get(sid)):
+            try:
+                projection = session_projection_from_reconciliation(db, snapshot, session_id=sid)
+            except Exception:
+                pass
+        revision = (projection or {}).get("evidence_revision")
+        observed_checkpoint = revision.get("planning_checkpoint_id") if isinstance(revision, Mapping) else None
+        if projection is None or (expected_checkpoint_id is not None and observed_checkpoint != expected_checkpoint_id):
+            projection = {
+                "session_id": sid, "projection_status": "data_gap",
+                "evidence_revision": {"as_of": as_of, "planning_checkpoint_id": observed_checkpoint},
+                "fact": {"completion_status": "not_observed"},
+            }
+        projections.append(projection)
+    final_heads = session_projection_revision_heads(db, list(session_ids))
+    for index, sid in enumerate(session_ids):
+        if frozen_heads.get(sid) is None or frozen_heads.get(sid) != final_heads.get(sid):
+            projections[index] = {"session_id": sid, "projection_status": "data_gap",
+                                  "evidence_revision": {"as_of": as_of},
+                                  "fact": {"completion_status": "not_observed"}}
+    # The service reads revision metadata separately; reject a changed plan boundary.
+    if projections and expected_checkpoint_id is not None:
+        try:
+            unchanged = (db.get_latest_planning_checkpoint() or {}).get("id") == expected_checkpoint_id
+        except Exception:
+            unchanged = False
+        if not unchanged:
+            projections = [{"session_id": sid, "projection_status": "data_gap",
+                            "fact": {"completion_status": "not_observed"}}
+                           for sid in session_ids]
+    versions = dict(rule_versions or {})
+    versions["session"] = (snapshot or {}).get("rule_version")
+    return compose_today_decision_story(
+        as_of=as_of, session_projection=None, session_projections=projections,
+        readiness=readiness, subjective_wellness=subjective_wellness,
+        primary_action=primary_action, rule_versions=versions,
     )
 
 
@@ -719,6 +807,8 @@ def _yesterday_reconciliation(
     db: Database,
     as_of: str,
     has_plan: bool,
+    *, reconciliation_out: dict[str, Any] | None = None,
+    story_session_ids: Sequence[str] = (),
 ) -> dict[str, Any]:
     try:
         anchor = date.fromisoformat(as_of)
@@ -729,6 +819,8 @@ def _yesterday_reconciliation(
     if not has_plan:
         return empty
     try:
+        heads = (session_projection_revision_heads(db, list(story_session_ids))
+                 if reconciliation_out is not None else {})
         payload = reconciliation_at(
             db,
             weeks=1,
@@ -737,6 +829,9 @@ def _yesterday_reconciliation(
         )
     except Exception as exc:
         return {**empty, "status": "unavailable", "reason": str(exc)}
+    if reconciliation_out is not None:
+        reconciliation_out.update(payload)
+        reconciliation_out["_story_revision_heads"] = heads
     if not payload.get("has_plan"):
         return empty
     target_text = target.isoformat()

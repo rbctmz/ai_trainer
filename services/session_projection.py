@@ -93,6 +93,26 @@ def session_projection_from_reconciliation(
     )
 
 
+def session_projection_revision_heads(
+    db: Database, session_ids: list[str],
+) -> dict[str, tuple[Any, Any, Any, Any] | None]:
+    """Capture the local revisions a projection reads, including inherited matches.
+
+    None marks a failed read; an empty four-tuple denotes no saved revisions.
+    Callers fence these heads around the shared reconciliation read.
+    """
+    heads = {}
+    for sid in session_ids:
+        try:
+            match = _effective_match_revision(db, sid) or {}
+            feedback = db.get_latest_session_feedback(sid) or {}
+            heads[sid] = (match.get("id"), match.get("revision"),
+                          feedback.get("id"), feedback.get("revision"))
+        except Exception:
+            heads[sid] = None
+    return heads
+
+
 def _effective_match_revision(
     db: Database,
     session_id: str,

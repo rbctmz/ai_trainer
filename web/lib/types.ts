@@ -2018,10 +2018,27 @@ export interface TodayBriefing {
   is_quiet_day: boolean;
 }
 
+export interface TodayDecisionSessionFact {
+  session_id: string | null;
+  projection_status: string;
+  completion_status: string;
+  plan: Record<string, unknown>;
+  actual: {
+    activity_ids: string[];
+    load_tss: number | null;
+    legs: Array<Record<string, unknown>>;
+    transition: Record<string, unknown> | null;
+  };
+  deviation: Record<string, unknown>;
+  cause: Record<string, unknown>;
+  evidence_revision: Record<string, unknown>;
+}
+
 export interface TodayDecisionStory {
   schema_version: "today_decision_story_v1" | string;
   date: string;
   fact: {
+    sessions?: TodayDecisionSessionFact[];
     session_id: string | null;
     projection_status: string;
     completion_status: string;
