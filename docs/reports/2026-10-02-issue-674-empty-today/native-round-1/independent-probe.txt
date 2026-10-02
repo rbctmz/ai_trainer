@@ -1,0 +1,30 @@
+from datetime import date
+from pathlib import Path
+import runpy
+from unittest.mock import patch
+import pytest
+
+@pytest.mark.parametrize(('field','value'),[
+    ('duration_minutes',10**400),
+    ('total_tss',10**400),
+    ('materialized_steps',[{'duration_seconds':600}]),
+    ('legs',[{'sport':'bike','target_tss':20}]),
+])
+def test_preserved_checkpoint_does_not_crash_or_become_confirmed_rest(tmp_path,field,value):
+    from data.database import Database
+    from models.planning_checkpoints import build_planning_checkpoint,restore_goal_plan_from_checkpoint
+    from api.routers.today import today_view
+    helpers=runpy.run_path(str(Path.cwd()/'tests/smoke/test_api_today.py'))
+    today=date(2026,10,2)
+    plan=helpers['_empty_activation_plan'](today)
+    checkpoint=build_planning_checkpoint(plan)
+    template=next(t for t in checkpoint['goal_plan_snapshot']['session_templates'] if t['date']==today.isoformat())
+    template[field]=value
+    db=Database(str(tmp_path/(field+'.db')))
+    db.save_planning_checkpoint(checkpoint)
+    restored=restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+    persisted=next(t for t in restored['session_templates'] if t['date']==today.isoformat())
+    assert persisted[field]==value
+    with patch('api.recovery_replan_loop.build_readiness_conflict_report',return_value=helpers['_report'](today)),patch('api.today_snapshot.build_readiness_snapshot',return_value=helpers['_snapshot']()):
+        payload=today_view(db=db)
+    assert payload['session'] is not None,'Explicit malformed or executable checkpoint metadata is not confirmed rest'

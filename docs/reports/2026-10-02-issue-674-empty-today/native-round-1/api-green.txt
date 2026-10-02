@@ -1,0 +1,9 @@
+{"case": "empty_activation_template", "state": "silence", "today_name": null, "tss": null, "leaf_count": 0, "planning_count": 0, "phantom": false}
+{"case": "empty_activation_report", "state": "silence", "today_name": null, "tss": null, "leaf_count": 0, "planning_count": 0, "phantom": false}
+{"case": "off_control", "state": "silence", "today_name": null, "tss": null, "leaf_count": 0, "planning_count": 0, "phantom": false}
+{"case": "modern_single", "state": "silence", "today_name": "Триатлон Олимпийка — Короткое заострение • вело", "tss": 60, "leaf_count": 1, "planning_count": 1, "phantom": false}
+{"case": "modern_multi", "state": "silence", "today_name": "Race Openers Ride", "tss": 60, "leaf_count": 2, "planning_count": 1, "phantom": false}
+{"case": "modern_brick", "state": "silence", "today_name": "Триатлон Олимпийка — Короткое заострение • вело", "tss": 60, "leaf_count": 2, "planning_count": 1, "phantom": false}
+{"case": "legacy_positive", "state": "silence", "today_name": "Quality bike", "tss": 60, "leaf_count": 1, "planning_count": 1, "phantom": false}
+{"case": "no_plan", "state": "no_plan", "today_name": null, "tss": null, "leaf_count": 0, "planning_count": 0, "phantom": false}
+Both canonical empty-day branches return NULL; controls PASS

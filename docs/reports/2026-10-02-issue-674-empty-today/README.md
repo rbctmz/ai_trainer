@@ -18,7 +18,7 @@ Class B — Standard. Issue: https://github.com/rbctmz/ai_trainer/issues/674. П
 
 Ранний исследовательский probe использовал общий helper с sport_label=бег при off-шаблоне. Это противоречащая строка, и исправление намеренно сохраняет прежнее отображение; отдельный тест закрепляет эту границу. Положительная или некорректная optional template.total_tss тоже не превращается в подтверждённый отдых.
 
-## Проверки
+## Первоначальные проверки до native review
 
 | Проверка | Результат |
 | --- | --- |
@@ -40,7 +40,16 @@ Python запускался с блокировкой .env, сети и SQLite �
 
 ## Независимое ревью
 
-Один consolidated full-code round, затем scoped delta. G1 blocking P2: optional template.total_tss=20.0 при нулевой daily row переживает save/restore, но первоначальный guard выдавал session=null. **fixed-in 49d8f61**, регрессия покрывает положительное и некорректное значение в обеих ветках. [Ревью и доказательства](independent-review.md), [review RED](review-regression-red.txt). На финальном кандидате открытых блокирующих замечаний нет. Native GitHub review, remote CI и owner acceptance не подменяются локальными проверками.
+Один consolidated full-code round, затем scoped delta. G1 blocking P2: optional template.total_tss=20.0 при нулевой daily row переживает save/restore, но первоначальный guard выдавал session=null. **fixed-in 49d8f61**, регрессия покрывает положительное и некорректное значение в обеих ветках. [Ревью и доказательства](independent-review.md), [review RED](review-regression-red.txt). На первоначальном локально проверенном кандидате открытых блокирующих замечаний не было. Последующий native round 1 нашёл два дополнительных P2; их исправление и проверки описаны ниже. Native GitHub review, remote CI и owner acceptance не подменяются локальными проверками.
+
+## Исправления native review PR #676
+
+Оба P2 воспроизведены и **fixed-in `7e75e470c08a536e436dac98b8f6694554565735`**:
+большие целые больше не вызывают OverflowError; наличие или некорректная форма
+materialized_steps/legs не позволяет подтвердить отдых.
+После исправления: Today42, independent focused101, contributor-safe2990 passed;
+контрольные API-сценарии8 и Ruff passed. [Отчёт scoped delta и RED/GREEN](native-round-1/README.md).
+Предыдущая таблица и браузерные снимки сохраняются как evidence предыдущего head.
 
 ## Изолированный экран
 
