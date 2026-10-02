@@ -82,6 +82,31 @@ def _goal_plan(today: date, *, target_days_until: int = 0, target_role: str = "q
     }
 
 
+def _empty_activation_plan(today: date) -> dict:
+    goal_plan = _goal_plan(today, target_role="activation")
+    target_index = next(
+        index
+        for index, template in enumerate(goal_plan["session_templates"])
+        if template["date"] == today.isoformat()
+    )
+    goal_plan["daily_plan"][target_index] = (
+        datetime.combine(today, datetime.min.time()),
+        0.0,
+        {},
+    )
+    goal_plan["session_templates"][target_index].update(
+        {
+            "sport": "off",
+            "sport_label": "отдых",
+            "duration_minutes": 0,
+            "total_tss": 0.0,
+            "allocated_parts": {},
+            "sessions": [],
+        }
+    )
+    return goal_plan
+
+
 def _session(today: date, *, days_until: int, role: str, tss: float = 20.0) -> dict:
     session_date = today + timedelta(days=days_until)
     return {
@@ -358,6 +383,134 @@ def test_today_silence_projects_day_session_and_canonical_readiness(
     assert payload["session"]["is_key"] is False
     assert payload["gate"]["outcome"] == "silence"
     assert payload["primary_action"]["kind"] == "follow_plan"
+
+
+def test_today_does_not_project_empty_activation_day_as_a_session(
+    tmp_path, monkeypatch
+) -> None:
+    """An explicitly empty, zero-budget off template is not a Today session."""
+    from api.routers.today import today_view
+
+    today = date(2026, 10, 2)
+    goal_plan = _empty_activation_plan(today)
+    db = Database(str(tmp_path / "empty-activation.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    _patch_report(monkeypatch, _report(today))
+    _patch_snapshot(monkeypatch, _snapshot())
+
+    payload = today_view(db=db)
+
+    assert payload["state"] == "silence"
+    assert payload["session"] is None
+    assert payload["primary_action"]["kind"] == "follow_plan"
+
+
+def test_today_evaluated_report_does_not_restore_empty_day_session(
+    tmp_path, monkeypatch
+) -> None:
+    """The evaluated-session branch respects the same persisted empty-day evidence."""
+    from api.routers.today import today_view
+
+    today = date(2026, 10, 2)
+    goal_plan = _empty_activation_plan(today)
+    evaluated = _session(today, days_until=0, role="activation", tss=0.0)
+    evaluated["sport_label"] = "отдых"
+    db = Database(str(tmp_path / "empty-activation-report.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    _patch_report(monkeypatch, _report(today, sessions=[evaluated]))
+    _patch_snapshot(monkeypatch, _snapshot())
+
+    payload = today_view(db=db)
+
+    assert payload["state"] == "silence"
+    assert payload["session"] is None
+    assert payload["primary_action"]["kind"] == "follow_plan"
+
+
+def test_today_keeps_evaluated_session_when_it_contradicts_empty_plan(
+    tmp_path, monkeypatch
+) -> None:
+    """Contradictory report evidence is not reclassified as confirmed rest."""
+    from api.routers.today import today_view
+
+    today = date(2026, 10, 2)
+    goal_plan = _empty_activation_plan(today)
+    evaluated = _session(today, days_until=0, role="activation", tss=10.0)
+    db = Database(str(tmp_path / "contradictory-empty-activation.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    _patch_report(monkeypatch, _report(today, sessions=[evaluated]))
+    _patch_snapshot(monkeypatch, _snapshot())
+
+    payload = today_view(db=db)
+
+    assert payload["session"] is not None
+    assert payload["session"]["tss"] == 10
+
+
+def test_today_keeps_card_when_empty_day_evidence_is_incomplete_or_contradictory(
+    tmp_path, monkeypatch
+) -> None:
+    """Missing duration or a reported sport mismatch remains unresolved evidence."""
+    from api.routers.today import today_view
+
+    today = date(2026, 10, 2)
+    _patch_snapshot(monkeypatch, _snapshot())
+    cases = ("missing_duration", "report_sport_mismatch")
+    for case in cases:
+        goal_plan = _empty_activation_plan(today)
+        if case == "missing_duration":
+            template = next(
+                template
+                for template in goal_plan["session_templates"]
+                if template["date"] == today.isoformat()
+            )
+            template.pop("duration_minutes")
+            sessions = []
+        else:
+            evaluated = _session(today, days_until=0, role="activation", tss=0.0)
+            sessions = [evaluated]
+
+        db = Database(str(tmp_path / f"incomplete-empty-{case}.db"))
+        db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+        _patch_report(monkeypatch, _report(today, sessions=sessions))
+
+        payload = today_view(db=db)
+
+        assert payload["session"] is not None
+
+
+def test_today_keeps_card_when_optional_template_load_contradicts_empty_day(
+    tmp_path, monkeypatch
+) -> None:
+    """Optional template TSS must agree with the zero daily budget when present."""
+    from api.routers.today import today_view
+
+    today = date(2026, 10, 2)
+    _patch_snapshot(monkeypatch, _snapshot())
+    for branch in ("fallback", "evaluated"):
+        for template_tss in (20.0, "invalid"):
+            goal_plan = _empty_activation_plan(today)
+            template = next(
+                template
+                for template in goal_plan["session_templates"]
+                if template["date"] == today.isoformat()
+            )
+            template["total_tss"] = template_tss
+            sessions = []
+            if branch == "evaluated":
+                evaluated = _session(today, days_until=0, role="activation", tss=0.0)
+                evaluated["sport_label"] = "отдых"
+                sessions = [evaluated]
+
+            db = Database(
+                str(tmp_path / f"template-tss-{branch}-{template_tss!s}.db")
+            )
+            db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+            _patch_report(monkeypatch, _report(today, sessions=sessions))
+
+            payload = today_view(db=db)
+
+            assert payload["session"] is not None
 
 
 def test_today_projects_persisted_catalog_prescription(tmp_path, monkeypatch) -> None:
