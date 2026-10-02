@@ -102,6 +102,17 @@ def test_gitleaks_exceptions_are_only_verified_non_secret_shapes() -> None:
         assert re.fullmatch(r"[0-9a-f]{64}", digest)
         expected.add(f"{checksum_path}:generic-api-key:{line}")
         expected.add(f"{checksum_commit}:{checksum_path}:generic-api-key:{line}")
+    # PR #676: an immutable source checksum trips the key-name heuristic.
+    review_checksum_path = "docs/reports/2026-10-02-issue-674-empty-today/native-round-1/source-hashes.json"
+    review_checksum_commit = "2200bdb4ecb3e4be26e4d015cd97f9d6b3be7d86"
+    assert hashlib.sha256(Path(review_checksum_path).read_bytes()).hexdigest() == "f381ff10d353be97f88c41c7d6565b0fd74e0bf34f5f8c0c9048f5f4f51cf53b"
+    review_row = json.loads("{" + Path(review_checksum_path).read_text().splitlines()[2].strip().rstrip(",") + "}")
+    assert len(review_row) == 1
+    review_source, review_digest = next(iter(review_row.items()))
+    assert review_source == "tests/smoke/test_api_today.py"
+    assert re.fullmatch(r"[0-9a-f]{64}", review_digest)
+    expected.add(f"{review_checksum_path}:generic-api-key:3")
+    expected.add(f"{review_checksum_commit}:{review_checksum_path}:generic-api-key:3")
     assert fingerprints == expected
     assert not any("archived/" in fingerprint for fingerprint in fingerprints)
     assert not Path("archived/old_debug_scripts/debug_body_battery.py").exists()

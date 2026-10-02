@@ -1,0 +1,4 @@
+Verified tracked-source export inside isolated test root.
+........................................................................ [ 79%]
+...................                                                      [100%]
+91 passed in 4.00s

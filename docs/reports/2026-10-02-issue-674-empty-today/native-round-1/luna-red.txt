@@ -1,0 +1,694 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.12, pytest-8.4.2, pluggy-1.6.0
+rootdir: /Users/gregkisel/.codex/worktrees/issue-674-empty-today/ai_trainer
+configfile: pytest.ini
+plugins: cov-7.1.0, anyio-4.14.1
+collected 38 items / 30 deselected / 8 selected
+
+tests/smoke/test_api_today.py FFFFFFFF                                   [100%]
+
+=================================== FAILURES ===================================
+_ test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[fallback-duration-huge] _
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-6h7yzzq5/pytest/test_today_does_not_confirm_re0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11dcca050>
+branch = 'fallback', field = 'duration_minutes'
+value = 100000000000000000...0000000000000000000
+
+    @pytest.mark.parametrize(
+        ("branch", "field", "value"),
+        [
+            ("fallback", "duration_minutes", 10**400),
+            ("evaluated", "duration_minutes", 10**400),
+            ("fallback", "total_tss", 10**400),
+            ("evaluated", "total_tss", 10**400),
+            ("fallback", "materialized_steps", [{"duration_seconds": 600}]),
+            ("evaluated", "materialized_steps", [{"duration_seconds": 600}]),
+            ("fallback", "legs", [{"sport": "bike", "target_tss": 20}]),
+            ("evaluated", "legs", [{"sport": "bike", "target_tss": 20}]),
+        ],
+        ids=[
+            "fallback-duration-huge",
+            "evaluated-duration-huge",
+            "fallback-tss-huge",
+            "evaluated-tss-huge",
+            "fallback-steps-present",
+            "evaluated-steps-present",
+            "fallback-legs-present",
+            "evaluated-legs-present",
+        ],
+    )
+    def test_today_does_not_confirm_rest_with_executable_or_oversized_metadata(
+        tmp_path, monkeypatch, branch, field, value
+    ) -> None:
+        """Saved executable or unrepresentable metadata keeps the day unresolved."""
+        from api.routers.today import today_view
+        from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+
+        today = date(2026, 10, 2)
+        checkpoint = build_planning_checkpoint(_empty_activation_plan(today))
+        template = next(
+            item
+            for item in checkpoint["goal_plan_snapshot"]["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        # Model malformed persisted metadata while still exercising the real
+        # checkpoint JSON save/restore and Today projection path.
+        template[field] = value
+        db = Database(str(tmp_path / f"ambiguous-{field}-{branch}.db"))
+        db.save_planning_checkpoint(checkpoint)
+        restored = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+        persisted = next(
+            item
+            for item in restored["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        assert persisted[field] == value
+
+        sessions = []
+        if branch == "evaluated":
+            evaluated = _session(today, days_until=0, role="activation", tss=0.0)
+            evaluated["sport_label"] = "отдых"
+            sessions = [evaluated]
+        _patch_report(monkeypatch, _report(today, sessions=sessions))
+        _patch_snapshot(monkeypatch, _snapshot())
+
+>       payload = today_view(db=db)
+                  ^^^^^^^^^^^^^^^^^
+
+tests/smoke/test_api_today.py:576:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+api/routers/today.py:20: in today_view
+    return build_today_decision_snapshot(db, demo=demo)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:118: in build_today_decision_snapshot
+    session = _day_session(report, goal_plan, as_of)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:996: in _day_session
+    or _is_confirmed_empty_plan_day(goal_plan, as_of)
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:1057: in _is_confirmed_empty_plan_day
+    if not _is_explicit_finite_zero(template.get("duration_minutes")):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+value = 100000000000000000...0000000000000000000
+
+    def _is_explicit_finite_zero(value: Any) -> bool:
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+>           and isfinite(value)
+                ^^^^^^^^^^^^^^^
+            and float(value) == 0.0
+        )
+E       OverflowError: int too large to convert to float
+
+api/today_snapshot.py:1081: OverflowError
+_ test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[evaluated-duration-huge] _
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-6h7yzzq5/pytest/test_today_does_not_confirm_re1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11e783710>
+branch = 'evaluated', field = 'duration_minutes'
+value = 100000000000000000...0000000000000000000
+
+    @pytest.mark.parametrize(
+        ("branch", "field", "value"),
+        [
+            ("fallback", "duration_minutes", 10**400),
+            ("evaluated", "duration_minutes", 10**400),
+            ("fallback", "total_tss", 10**400),
+            ("evaluated", "total_tss", 10**400),
+            ("fallback", "materialized_steps", [{"duration_seconds": 600}]),
+            ("evaluated", "materialized_steps", [{"duration_seconds": 600}]),
+            ("fallback", "legs", [{"sport": "bike", "target_tss": 20}]),
+            ("evaluated", "legs", [{"sport": "bike", "target_tss": 20}]),
+        ],
+        ids=[
+            "fallback-duration-huge",
+            "evaluated-duration-huge",
+            "fallback-tss-huge",
+            "evaluated-tss-huge",
+            "fallback-steps-present",
+            "evaluated-steps-present",
+            "fallback-legs-present",
+            "evaluated-legs-present",
+        ],
+    )
+    def test_today_does_not_confirm_rest_with_executable_or_oversized_metadata(
+        tmp_path, monkeypatch, branch, field, value
+    ) -> None:
+        """Saved executable or unrepresentable metadata keeps the day unresolved."""
+        from api.routers.today import today_view
+        from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+
+        today = date(2026, 10, 2)
+        checkpoint = build_planning_checkpoint(_empty_activation_plan(today))
+        template = next(
+            item
+            for item in checkpoint["goal_plan_snapshot"]["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        # Model malformed persisted metadata while still exercising the real
+        # checkpoint JSON save/restore and Today projection path.
+        template[field] = value
+        db = Database(str(tmp_path / f"ambiguous-{field}-{branch}.db"))
+        db.save_planning_checkpoint(checkpoint)
+        restored = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+        persisted = next(
+            item
+            for item in restored["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        assert persisted[field] == value
+
+        sessions = []
+        if branch == "evaluated":
+            evaluated = _session(today, days_until=0, role="activation", tss=0.0)
+            evaluated["sport_label"] = "отдых"
+            sessions = [evaluated]
+        _patch_report(monkeypatch, _report(today, sessions=sessions))
+        _patch_snapshot(monkeypatch, _snapshot())
+
+>       payload = today_view(db=db)
+                  ^^^^^^^^^^^^^^^^^
+
+tests/smoke/test_api_today.py:576:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+api/routers/today.py:20: in today_view
+    return build_today_decision_snapshot(db, demo=demo)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:118: in build_today_decision_snapshot
+    session = _day_session(report, goal_plan, as_of)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:983: in _day_session
+    if _is_confirmed_empty_plan_day(
+api/today_snapshot.py:1057: in _is_confirmed_empty_plan_day
+    if not _is_explicit_finite_zero(template.get("duration_minutes")):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+value = 100000000000000000...0000000000000000000
+
+    def _is_explicit_finite_zero(value: Any) -> bool:
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+>           and isfinite(value)
+                ^^^^^^^^^^^^^^^
+            and float(value) == 0.0
+        )
+E       OverflowError: int too large to convert to float
+
+api/today_snapshot.py:1081: OverflowError
+_ test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[fallback-tss-huge] _
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-6h7yzzq5/pytest/test_today_does_not_confirm_re2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11eacce10>
+branch = 'fallback', field = 'total_tss'
+value = 100000000000000000...0000000000000000000
+
+    @pytest.mark.parametrize(
+        ("branch", "field", "value"),
+        [
+            ("fallback", "duration_minutes", 10**400),
+            ("evaluated", "duration_minutes", 10**400),
+            ("fallback", "total_tss", 10**400),
+            ("evaluated", "total_tss", 10**400),
+            ("fallback", "materialized_steps", [{"duration_seconds": 600}]),
+            ("evaluated", "materialized_steps", [{"duration_seconds": 600}]),
+            ("fallback", "legs", [{"sport": "bike", "target_tss": 20}]),
+            ("evaluated", "legs", [{"sport": "bike", "target_tss": 20}]),
+        ],
+        ids=[
+            "fallback-duration-huge",
+            "evaluated-duration-huge",
+            "fallback-tss-huge",
+            "evaluated-tss-huge",
+            "fallback-steps-present",
+            "evaluated-steps-present",
+            "fallback-legs-present",
+            "evaluated-legs-present",
+        ],
+    )
+    def test_today_does_not_confirm_rest_with_executable_or_oversized_metadata(
+        tmp_path, monkeypatch, branch, field, value
+    ) -> None:
+        """Saved executable or unrepresentable metadata keeps the day unresolved."""
+        from api.routers.today import today_view
+        from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+
+        today = date(2026, 10, 2)
+        checkpoint = build_planning_checkpoint(_empty_activation_plan(today))
+        template = next(
+            item
+            for item in checkpoint["goal_plan_snapshot"]["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        # Model malformed persisted metadata while still exercising the real
+        # checkpoint JSON save/restore and Today projection path.
+        template[field] = value
+        db = Database(str(tmp_path / f"ambiguous-{field}-{branch}.db"))
+        db.save_planning_checkpoint(checkpoint)
+        restored = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+        persisted = next(
+            item
+            for item in restored["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        assert persisted[field] == value
+
+        sessions = []
+        if branch == "evaluated":
+            evaluated = _session(today, days_until=0, role="activation", tss=0.0)
+            evaluated["sport_label"] = "отдых"
+            sessions = [evaluated]
+        _patch_report(monkeypatch, _report(today, sessions=sessions))
+        _patch_snapshot(monkeypatch, _snapshot())
+
+>       payload = today_view(db=db)
+                  ^^^^^^^^^^^^^^^^^
+
+tests/smoke/test_api_today.py:576:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+api/routers/today.py:20: in today_view
+    return build_today_decision_snapshot(db, demo=demo)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:118: in build_today_decision_snapshot
+    session = _day_session(report, goal_plan, as_of)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:996: in _day_session
+    or _is_confirmed_empty_plan_day(goal_plan, as_of)
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:1055: in _is_confirmed_empty_plan_day
+    if "total_tss" in template and not _is_explicit_finite_zero(template["total_tss"]):
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+value = 100000000000000000...0000000000000000000
+
+    def _is_explicit_finite_zero(value: Any) -> bool:
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+>           and isfinite(value)
+                ^^^^^^^^^^^^^^^
+            and float(value) == 0.0
+        )
+E       OverflowError: int too large to convert to float
+
+api/today_snapshot.py:1081: OverflowError
+_ test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[evaluated-tss-huge] _
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-6h7yzzq5/pytest/test_today_does_not_confirm_re3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11eace050>
+branch = 'evaluated', field = 'total_tss'
+value = 100000000000000000...0000000000000000000
+
+    @pytest.mark.parametrize(
+        ("branch", "field", "value"),
+        [
+            ("fallback", "duration_minutes", 10**400),
+            ("evaluated", "duration_minutes", 10**400),
+            ("fallback", "total_tss", 10**400),
+            ("evaluated", "total_tss", 10**400),
+            ("fallback", "materialized_steps", [{"duration_seconds": 600}]),
+            ("evaluated", "materialized_steps", [{"duration_seconds": 600}]),
+            ("fallback", "legs", [{"sport": "bike", "target_tss": 20}]),
+            ("evaluated", "legs", [{"sport": "bike", "target_tss": 20}]),
+        ],
+        ids=[
+            "fallback-duration-huge",
+            "evaluated-duration-huge",
+            "fallback-tss-huge",
+            "evaluated-tss-huge",
+            "fallback-steps-present",
+            "evaluated-steps-present",
+            "fallback-legs-present",
+            "evaluated-legs-present",
+        ],
+    )
+    def test_today_does_not_confirm_rest_with_executable_or_oversized_metadata(
+        tmp_path, monkeypatch, branch, field, value
+    ) -> None:
+        """Saved executable or unrepresentable metadata keeps the day unresolved."""
+        from api.routers.today import today_view
+        from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+
+        today = date(2026, 10, 2)
+        checkpoint = build_planning_checkpoint(_empty_activation_plan(today))
+        template = next(
+            item
+            for item in checkpoint["goal_plan_snapshot"]["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        # Model malformed persisted metadata while still exercising the real
+        # checkpoint JSON save/restore and Today projection path.
+        template[field] = value
+        db = Database(str(tmp_path / f"ambiguous-{field}-{branch}.db"))
+        db.save_planning_checkpoint(checkpoint)
+        restored = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+        persisted = next(
+            item
+            for item in restored["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        assert persisted[field] == value
+
+        sessions = []
+        if branch == "evaluated":
+            evaluated = _session(today, days_until=0, role="activation", tss=0.0)
+            evaluated["sport_label"] = "отдых"
+            sessions = [evaluated]
+        _patch_report(monkeypatch, _report(today, sessions=sessions))
+        _patch_snapshot(monkeypatch, _snapshot())
+
+>       payload = today_view(db=db)
+                  ^^^^^^^^^^^^^^^^^
+
+tests/smoke/test_api_today.py:576:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+api/routers/today.py:20: in today_view
+    return build_today_decision_snapshot(db, demo=demo)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:118: in build_today_decision_snapshot
+    session = _day_session(report, goal_plan, as_of)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:983: in _day_session
+    if _is_confirmed_empty_plan_day(
+api/today_snapshot.py:1055: in _is_confirmed_empty_plan_day
+    if "total_tss" in template and not _is_explicit_finite_zero(template["total_tss"]):
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+value = 100000000000000000...0000000000000000000
+
+    def _is_explicit_finite_zero(value: Any) -> bool:
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+>           and isfinite(value)
+                ^^^^^^^^^^^^^^^
+            and float(value) == 0.0
+        )
+E       OverflowError: int too large to convert to float
+
+api/today_snapshot.py:1081: OverflowError
+_ test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[fallback-steps-present] _
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-6h7yzzq5/pytest/test_today_does_not_confirm_re4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11ed784d0>
+branch = 'fallback', field = 'materialized_steps'
+value = [{'duration_seconds': 600}]
+
+    @pytest.mark.parametrize(
+        ("branch", "field", "value"),
+        [
+            ("fallback", "duration_minutes", 10**400),
+            ("evaluated", "duration_minutes", 10**400),
+            ("fallback", "total_tss", 10**400),
+            ("evaluated", "total_tss", 10**400),
+            ("fallback", "materialized_steps", [{"duration_seconds": 600}]),
+            ("evaluated", "materialized_steps", [{"duration_seconds": 600}]),
+            ("fallback", "legs", [{"sport": "bike", "target_tss": 20}]),
+            ("evaluated", "legs", [{"sport": "bike", "target_tss": 20}]),
+        ],
+        ids=[
+            "fallback-duration-huge",
+            "evaluated-duration-huge",
+            "fallback-tss-huge",
+            "evaluated-tss-huge",
+            "fallback-steps-present",
+            "evaluated-steps-present",
+            "fallback-legs-present",
+            "evaluated-legs-present",
+        ],
+    )
+    def test_today_does_not_confirm_rest_with_executable_or_oversized_metadata(
+        tmp_path, monkeypatch, branch, field, value
+    ) -> None:
+        """Saved executable or unrepresentable metadata keeps the day unresolved."""
+        from api.routers.today import today_view
+        from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+
+        today = date(2026, 10, 2)
+        checkpoint = build_planning_checkpoint(_empty_activation_plan(today))
+        template = next(
+            item
+            for item in checkpoint["goal_plan_snapshot"]["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        # Model malformed persisted metadata while still exercising the real
+        # checkpoint JSON save/restore and Today projection path.
+        template[field] = value
+        db = Database(str(tmp_path / f"ambiguous-{field}-{branch}.db"))
+        db.save_planning_checkpoint(checkpoint)
+        restored = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+        persisted = next(
+            item
+            for item in restored["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        assert persisted[field] == value
+
+        sessions = []
+        if branch == "evaluated":
+            evaluated = _session(today, days_until=0, role="activation", tss=0.0)
+            evaluated["sport_label"] = "отдых"
+            sessions = [evaluated]
+        _patch_report(monkeypatch, _report(today, sessions=sessions))
+        _patch_snapshot(monkeypatch, _snapshot())
+
+        payload = today_view(db=db)
+
+>       assert payload["session"] is not None, f"{branch}/{field} must remain unresolved"
+E       AssertionError: fallback/materialized_steps must remain unresolved
+E       assert None is not None
+
+tests/smoke/test_api_today.py:578: AssertionError
+_ test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[evaluated-steps-present] _
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-6h7yzzq5/pytest/test_today_does_not_confirm_re5')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11ec426d0>
+branch = 'evaluated', field = 'materialized_steps'
+value = [{'duration_seconds': 600}]
+
+    @pytest.mark.parametrize(
+        ("branch", "field", "value"),
+        [
+            ("fallback", "duration_minutes", 10**400),
+            ("evaluated", "duration_minutes", 10**400),
+            ("fallback", "total_tss", 10**400),
+            ("evaluated", "total_tss", 10**400),
+            ("fallback", "materialized_steps", [{"duration_seconds": 600}]),
+            ("evaluated", "materialized_steps", [{"duration_seconds": 600}]),
+            ("fallback", "legs", [{"sport": "bike", "target_tss": 20}]),
+            ("evaluated", "legs", [{"sport": "bike", "target_tss": 20}]),
+        ],
+        ids=[
+            "fallback-duration-huge",
+            "evaluated-duration-huge",
+            "fallback-tss-huge",
+            "evaluated-tss-huge",
+            "fallback-steps-present",
+            "evaluated-steps-present",
+            "fallback-legs-present",
+            "evaluated-legs-present",
+        ],
+    )
+    def test_today_does_not_confirm_rest_with_executable_or_oversized_metadata(
+        tmp_path, monkeypatch, branch, field, value
+    ) -> None:
+        """Saved executable or unrepresentable metadata keeps the day unresolved."""
+        from api.routers.today import today_view
+        from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+
+        today = date(2026, 10, 2)
+        checkpoint = build_planning_checkpoint(_empty_activation_plan(today))
+        template = next(
+            item
+            for item in checkpoint["goal_plan_snapshot"]["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        # Model malformed persisted metadata while still exercising the real
+        # checkpoint JSON save/restore and Today projection path.
+        template[field] = value
+        db = Database(str(tmp_path / f"ambiguous-{field}-{branch}.db"))
+        db.save_planning_checkpoint(checkpoint)
+        restored = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+        persisted = next(
+            item
+            for item in restored["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        assert persisted[field] == value
+
+        sessions = []
+        if branch == "evaluated":
+            evaluated = _session(today, days_until=0, role="activation", tss=0.0)
+            evaluated["sport_label"] = "отдых"
+            sessions = [evaluated]
+        _patch_report(monkeypatch, _report(today, sessions=sessions))
+        _patch_snapshot(monkeypatch, _snapshot())
+
+        payload = today_view(db=db)
+
+>       assert payload["session"] is not None, f"{branch}/{field} must remain unresolved"
+E       AssertionError: evaluated/materialized_steps must remain unresolved
+E       assert None is not None
+
+tests/smoke/test_api_today.py:578: AssertionError
+_ test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[fallback-legs-present] _
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-6h7yzzq5/pytest/test_today_does_not_confirm_re6')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x106bad690>
+branch = 'fallback', field = 'legs'
+value = [{'sport': 'bike', 'target_tss': 20}]
+
+    @pytest.mark.parametrize(
+        ("branch", "field", "value"),
+        [
+            ("fallback", "duration_minutes", 10**400),
+            ("evaluated", "duration_minutes", 10**400),
+            ("fallback", "total_tss", 10**400),
+            ("evaluated", "total_tss", 10**400),
+            ("fallback", "materialized_steps", [{"duration_seconds": 600}]),
+            ("evaluated", "materialized_steps", [{"duration_seconds": 600}]),
+            ("fallback", "legs", [{"sport": "bike", "target_tss": 20}]),
+            ("evaluated", "legs", [{"sport": "bike", "target_tss": 20}]),
+        ],
+        ids=[
+            "fallback-duration-huge",
+            "evaluated-duration-huge",
+            "fallback-tss-huge",
+            "evaluated-tss-huge",
+            "fallback-steps-present",
+            "evaluated-steps-present",
+            "fallback-legs-present",
+            "evaluated-legs-present",
+        ],
+    )
+    def test_today_does_not_confirm_rest_with_executable_or_oversized_metadata(
+        tmp_path, monkeypatch, branch, field, value
+    ) -> None:
+        """Saved executable or unrepresentable metadata keeps the day unresolved."""
+        from api.routers.today import today_view
+        from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+
+        today = date(2026, 10, 2)
+        checkpoint = build_planning_checkpoint(_empty_activation_plan(today))
+        template = next(
+            item
+            for item in checkpoint["goal_plan_snapshot"]["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        # Model malformed persisted metadata while still exercising the real
+        # checkpoint JSON save/restore and Today projection path.
+        template[field] = value
+        db = Database(str(tmp_path / f"ambiguous-{field}-{branch}.db"))
+        db.save_planning_checkpoint(checkpoint)
+        restored = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+        persisted = next(
+            item
+            for item in restored["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        assert persisted[field] == value
+
+        sessions = []
+        if branch == "evaluated":
+            evaluated = _session(today, days_until=0, role="activation", tss=0.0)
+            evaluated["sport_label"] = "отдых"
+            sessions = [evaluated]
+        _patch_report(monkeypatch, _report(today, sessions=sessions))
+        _patch_snapshot(monkeypatch, _snapshot())
+
+        payload = today_view(db=db)
+
+>       assert payload["session"] is not None, f"{branch}/{field} must remain unresolved"
+E       AssertionError: fallback/legs must remain unresolved
+E       assert None is not None
+
+tests/smoke/test_api_today.py:578: AssertionError
+_ test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[evaluated-legs-present] _
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-6h7yzzq5/pytest/test_today_does_not_confirm_re7')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11dc11190>
+branch = 'evaluated', field = 'legs'
+value = [{'sport': 'bike', 'target_tss': 20}]
+
+    @pytest.mark.parametrize(
+        ("branch", "field", "value"),
+        [
+            ("fallback", "duration_minutes", 10**400),
+            ("evaluated", "duration_minutes", 10**400),
+            ("fallback", "total_tss", 10**400),
+            ("evaluated", "total_tss", 10**400),
+            ("fallback", "materialized_steps", [{"duration_seconds": 600}]),
+            ("evaluated", "materialized_steps", [{"duration_seconds": 600}]),
+            ("fallback", "legs", [{"sport": "bike", "target_tss": 20}]),
+            ("evaluated", "legs", [{"sport": "bike", "target_tss": 20}]),
+        ],
+        ids=[
+            "fallback-duration-huge",
+            "evaluated-duration-huge",
+            "fallback-tss-huge",
+            "evaluated-tss-huge",
+            "fallback-steps-present",
+            "evaluated-steps-present",
+            "fallback-legs-present",
+            "evaluated-legs-present",
+        ],
+    )
+    def test_today_does_not_confirm_rest_with_executable_or_oversized_metadata(
+        tmp_path, monkeypatch, branch, field, value
+    ) -> None:
+        """Saved executable or unrepresentable metadata keeps the day unresolved."""
+        from api.routers.today import today_view
+        from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+
+        today = date(2026, 10, 2)
+        checkpoint = build_planning_checkpoint(_empty_activation_plan(today))
+        template = next(
+            item
+            for item in checkpoint["goal_plan_snapshot"]["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        # Model malformed persisted metadata while still exercising the real
+        # checkpoint JSON save/restore and Today projection path.
+        template[field] = value
+        db = Database(str(tmp_path / f"ambiguous-{field}-{branch}.db"))
+        db.save_planning_checkpoint(checkpoint)
+        restored = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+        persisted = next(
+            item
+            for item in restored["session_templates"]
+            if item["date"] == today.isoformat()
+        )
+        assert persisted[field] == value
+
+        sessions = []
+        if branch == "evaluated":
+            evaluated = _session(today, days_until=0, role="activation", tss=0.0)
+            evaluated["sport_label"] = "отдых"
+            sessions = [evaluated]
+        _patch_report(monkeypatch, _report(today, sessions=sessions))
+        _patch_snapshot(monkeypatch, _snapshot())
+
+        payload = today_view(db=db)
+
+>       assert payload["session"] is not None, f"{branch}/{field} must remain unresolved"
+E       AssertionError: evaluated/legs must remain unresolved
+E       assert None is not None
+
+tests/smoke/test_api_today.py:578: AssertionError
+=========================== short test summary info ============================
+FAILED tests/smoke/test_api_today.py::test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[fallback-duration-huge]
+FAILED tests/smoke/test_api_today.py::test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[evaluated-duration-huge]
+FAILED tests/smoke/test_api_today.py::test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[fallback-tss-huge]
+FAILED tests/smoke/test_api_today.py::test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[evaluated-tss-huge]
+FAILED tests/smoke/test_api_today.py::test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[fallback-steps-present]
+FAILED tests/smoke/test_api_today.py::test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[evaluated-steps-present]
+FAILED tests/smoke/test_api_today.py::test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[fallback-legs-present]
+FAILED tests/smoke/test_api_today.py::test_today_does_not_confirm_rest_with_executable_or_oversized_metadata[evaluated-legs-present]
+======================= 8 failed, 30 deselected in 1.23s =======================

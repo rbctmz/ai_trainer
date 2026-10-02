@@ -1,0 +1,10 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.12, pytest-8.4.2, pluggy-1.6.0
+rootdir: /Users/gregkisel/.codex/worktrees/issue-674-empty-today/ai_trainer
+configfile: pytest.ini
+plugins: cov-7.1.0, anyio-4.14.1
+collected 29 items
+
+tests/smoke/test_api_today.py .............................              [100%]
+
+============================== 29 passed in 2.02s ==============================

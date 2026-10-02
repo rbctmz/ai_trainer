@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from math import isfinite
 from typing import Any, Mapping, Sequence
 
 from api.briefing_settings import get_briefing_frequency, is_quiet_day
@@ -979,10 +980,21 @@ def _day_session(
         except (TypeError, ValueError):
             continue
         session_date = str(session.get("date") or "")[:10]
+        if _is_confirmed_empty_plan_day(
+            goal_plan,
+            session_date,
+            evaluated_session=session,
+            expected_date=as_of,
+        ):
+            return None
         return _project_session(dict(session), _template_for_date(goal_plan, session_date))
 
     template = _template_for_date(goal_plan, as_of)
-    if not template or str(template.get("session_role") or "") == "off":
+    if (
+        not template
+        or str(template.get("session_role") or "") == "off"
+        or _is_confirmed_empty_plan_day(goal_plan, as_of)
+    ):
         return None
     return _project_session(
         {
@@ -994,6 +1006,84 @@ def _day_session(
         },
         template,
     )
+
+
+def _is_confirmed_empty_plan_day(
+    goal_plan: Mapping[str, Any] | None,
+    session_date: str,
+    *,
+    evaluated_session: Mapping[str, Any] | None = None,
+    expected_date: str | None = None,
+) -> bool:
+    """Recognize only a complete, internally consistent persisted empty day."""
+    if not goal_plan or not session_date or (expected_date is not None and session_date != expected_date):
+        return False
+
+    dated_rows = [
+        row
+        for row in list(goal_plan.get("daily_plan") or [])
+        if isinstance(row, (list, tuple))
+        and len(row) == 3
+        and str(row[0])[:10] == session_date
+    ]
+    if len(dated_rows) != 1:
+        return False
+    daily_row = dated_rows[0]
+    if not _is_explicit_finite_zero(daily_row[1]):
+        return False
+    if not isinstance(daily_row[2], Mapping) or daily_row[2]:
+        return False
+
+    dated_templates = [
+        template
+        for template in list(goal_plan.get("session_templates") or [])
+        if isinstance(template, Mapping) and str(template.get("date") or "")[:10] == session_date
+    ]
+    if len(dated_templates) != 1:
+        return False
+    template = dict(dated_templates[0])
+    role = template.get("session_role")
+    if not isinstance(role, str) or not role.strip() or role.strip().lower() == "race":
+        return False
+    if template.get("is_race_event"):
+        return False
+    sport = template.get("sport")
+    if not isinstance(sport, str) or sport.strip().lower() not in {"off", "rest"}:
+        return False
+    if str(template.get("sport_label") or "").strip().lower() not in {"off", "rest", "отдых"}:
+        return False
+    if "total_tss" in template and not _is_explicit_finite_zero(template["total_tss"]):
+        return False
+    if not _is_explicit_finite_zero(template.get("duration_minutes")):
+        return False
+    if not isinstance(template.get("allocated_parts"), Mapping) or template.get("allocated_parts"):
+        return False
+    if not isinstance(template.get("sessions"), list) or template["sessions"]:
+        return False
+    for field in ("materialized_steps", "legs"):
+        if field in template and (
+            not isinstance(template[field], list) or template[field]
+        ):
+            return False
+    if evaluated_session is not None:
+        if not _is_explicit_finite_zero(evaluated_session.get("tss")):
+            return False
+        if str(evaluated_session.get("sport_label") or "").strip().lower() not in {
+            "off",
+            "rest",
+            "отдых",
+        }:
+            return False
+
+    return True
+
+
+def _is_explicit_finite_zero(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return value == 0
+    return isinstance(value, float) and isfinite(value) and value == 0.0
 
 
 def _project_session(

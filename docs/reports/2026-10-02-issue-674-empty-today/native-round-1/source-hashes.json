@@ -1,0 +1,4 @@
+{
+  "api/today_snapshot.py": "ef7bb261f0ec1df85f958f471256b5ef7f496a1cd5371f151b271d367937979a",
+  "tests/smoke/test_api_today.py": "b057236eeef0ddcd3b84de136cd12eb685fd5e0f1a979519c07d90463b8c9052"
+}

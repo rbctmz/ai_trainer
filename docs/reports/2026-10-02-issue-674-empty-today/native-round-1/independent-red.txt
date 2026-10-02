@@ -1,0 +1,192 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+_ test_preserved_checkpoint_does_not_crash_or_become_confirmed_rest[duration_minutes-10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000] _
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-xjns0fbf/pytest/test_preserved_checkpoint_does0')
+field = 'duration_minutes', value = 100000000000000000...0000000000000000000
+
+    @pytest.mark.parametrize(('field','value'),[
+        ('duration_minutes',10**400),
+        ('total_tss',10**400),
+        ('materialized_steps',[{'duration_seconds':600}]),
+        ('legs',[{'sport':'bike','target_tss':20}]),
+    ])
+    def test_preserved_checkpoint_does_not_crash_or_become_confirmed_rest(tmp_path,field,value):
+        from data.database import Database
+        from models.planning_checkpoints import build_planning_checkpoint,restore_goal_plan_from_checkpoint
+        from api.routers.today import today_view
+        helpers=runpy.run_path(str(Path.cwd()/'tests/smoke/test_api_today.py'))
+        today=date(2026,10,2)
+        plan=helpers['_empty_activation_plan'](today)
+        checkpoint=build_planning_checkpoint(plan)
+        template=next(t for t in checkpoint['goal_plan_snapshot']['session_templates'] if t['date']==today.isoformat())
+        template[field]=value
+        db=Database(str(tmp_path/(field+'.db')))
+        db.save_planning_checkpoint(checkpoint)
+        restored=restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+        persisted=next(t for t in restored['session_templates'] if t['date']==today.isoformat())
+        assert persisted[field]==value
+        with patch('api.recovery_replan_loop.build_readiness_conflict_report',return_value=helpers['_report'](today)),patch('api.today_snapshot.build_readiness_snapshot',return_value=helpers['_snapshot']()):
+>           payload=today_view(db=db)
+                    ^^^^^^^^^^^^^^^^^
+
+/Users/gregkisel/.codex/visualizations/2026/09/30/01a0f448-2b96-7333-814f-a431d5408938/issue-674-implementation/review-round-1/test_review_reproductions.py:29:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+api/routers/today.py:20: in today_view
+    return build_today_decision_snapshot(db, demo=demo)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:118: in build_today_decision_snapshot
+    session = _day_session(report, goal_plan, as_of)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:996: in _day_session
+    or _is_confirmed_empty_plan_day(goal_plan, as_of)
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:1057: in _is_confirmed_empty_plan_day
+    if not _is_explicit_finite_zero(template.get("duration_minutes")):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+value = 100000000000000000...0000000000000000000
+
+    def _is_explicit_finite_zero(value: Any) -> bool:
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+>           and isfinite(value)
+                ^^^^^^^^^^^^^^^
+            and float(value) == 0.0
+        )
+E       OverflowError: int too large to convert to float
+
+api/today_snapshot.py:1081: OverflowError
+_ test_preserved_checkpoint_does_not_crash_or_become_confirmed_rest[total_tss-10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000] _
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-xjns0fbf/pytest/test_preserved_checkpoint_does1')
+field = 'total_tss', value = 100000000000000000...0000000000000000000
+
+    @pytest.mark.parametrize(('field','value'),[
+        ('duration_minutes',10**400),
+        ('total_tss',10**400),
+        ('materialized_steps',[{'duration_seconds':600}]),
+        ('legs',[{'sport':'bike','target_tss':20}]),
+    ])
+    def test_preserved_checkpoint_does_not_crash_or_become_confirmed_rest(tmp_path,field,value):
+        from data.database import Database
+        from models.planning_checkpoints import build_planning_checkpoint,restore_goal_plan_from_checkpoint
+        from api.routers.today import today_view
+        helpers=runpy.run_path(str(Path.cwd()/'tests/smoke/test_api_today.py'))
+        today=date(2026,10,2)
+        plan=helpers['_empty_activation_plan'](today)
+        checkpoint=build_planning_checkpoint(plan)
+        template=next(t for t in checkpoint['goal_plan_snapshot']['session_templates'] if t['date']==today.isoformat())
+        template[field]=value
+        db=Database(str(tmp_path/(field+'.db')))
+        db.save_planning_checkpoint(checkpoint)
+        restored=restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+        persisted=next(t for t in restored['session_templates'] if t['date']==today.isoformat())
+        assert persisted[field]==value
+        with patch('api.recovery_replan_loop.build_readiness_conflict_report',return_value=helpers['_report'](today)),patch('api.today_snapshot.build_readiness_snapshot',return_value=helpers['_snapshot']()):
+>           payload=today_view(db=db)
+                    ^^^^^^^^^^^^^^^^^
+
+/Users/gregkisel/.codex/visualizations/2026/09/30/01a0f448-2b96-7333-814f-a431d5408938/issue-674-implementation/review-round-1/test_review_reproductions.py:29:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+api/routers/today.py:20: in today_view
+    return build_today_decision_snapshot(db, demo=demo)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:118: in build_today_decision_snapshot
+    session = _day_session(report, goal_plan, as_of)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:996: in _day_session
+    or _is_confirmed_empty_plan_day(goal_plan, as_of)
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api/today_snapshot.py:1055: in _is_confirmed_empty_plan_day
+    if "total_tss" in template and not _is_explicit_finite_zero(template["total_tss"]):
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+value = 100000000000000000...0000000000000000000
+
+    def _is_explicit_finite_zero(value: Any) -> bool:
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+>           and isfinite(value)
+                ^^^^^^^^^^^^^^^
+            and float(value) == 0.0
+        )
+E       OverflowError: int too large to convert to float
+
+api/today_snapshot.py:1081: OverflowError
+_ test_preserved_checkpoint_does_not_crash_or_become_confirmed_rest[materialized_steps-value2] _
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-xjns0fbf/pytest/test_preserved_checkpoint_does2')
+field = 'materialized_steps', value = [{'duration_seconds': 600}]
+
+    @pytest.mark.parametrize(('field','value'),[
+        ('duration_minutes',10**400),
+        ('total_tss',10**400),
+        ('materialized_steps',[{'duration_seconds':600}]),
+        ('legs',[{'sport':'bike','target_tss':20}]),
+    ])
+    def test_preserved_checkpoint_does_not_crash_or_become_confirmed_rest(tmp_path,field,value):
+        from data.database import Database
+        from models.planning_checkpoints import build_planning_checkpoint,restore_goal_plan_from_checkpoint
+        from api.routers.today import today_view
+        helpers=runpy.run_path(str(Path.cwd()/'tests/smoke/test_api_today.py'))
+        today=date(2026,10,2)
+        plan=helpers['_empty_activation_plan'](today)
+        checkpoint=build_planning_checkpoint(plan)
+        template=next(t for t in checkpoint['goal_plan_snapshot']['session_templates'] if t['date']==today.isoformat())
+        template[field]=value
+        db=Database(str(tmp_path/(field+'.db')))
+        db.save_planning_checkpoint(checkpoint)
+        restored=restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+        persisted=next(t for t in restored['session_templates'] if t['date']==today.isoformat())
+        assert persisted[field]==value
+        with patch('api.recovery_replan_loop.build_readiness_conflict_report',return_value=helpers['_report'](today)),patch('api.today_snapshot.build_readiness_snapshot',return_value=helpers['_snapshot']()):
+            payload=today_view(db=db)
+>       assert payload['session'] is not None,'Explicit malformed or executable checkpoint metadata is not confirmed rest'
+E       AssertionError: Explicit malformed or executable checkpoint metadata is not confirmed rest
+E       assert None is not None
+
+/Users/gregkisel/.codex/visualizations/2026/09/30/01a0f448-2b96-7333-814f-a431d5408938/issue-674-implementation/review-round-1/test_review_reproductions.py:30: AssertionError
+_ test_preserved_checkpoint_does_not_crash_or_become_confirmed_rest[legs-value3] _
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-xjns0fbf/pytest/test_preserved_checkpoint_does3')
+field = 'legs', value = [{'sport': 'bike', 'target_tss': 20}]
+
+    @pytest.mark.parametrize(('field','value'),[
+        ('duration_minutes',10**400),
+        ('total_tss',10**400),
+        ('materialized_steps',[{'duration_seconds':600}]),
+        ('legs',[{'sport':'bike','target_tss':20}]),
+    ])
+    def test_preserved_checkpoint_does_not_crash_or_become_confirmed_rest(tmp_path,field,value):
+        from data.database import Database
+        from models.planning_checkpoints import build_planning_checkpoint,restore_goal_plan_from_checkpoint
+        from api.routers.today import today_view
+        helpers=runpy.run_path(str(Path.cwd()/'tests/smoke/test_api_today.py'))
+        today=date(2026,10,2)
+        plan=helpers['_empty_activation_plan'](today)
+        checkpoint=build_planning_checkpoint(plan)
+        template=next(t for t in checkpoint['goal_plan_snapshot']['session_templates'] if t['date']==today.isoformat())
+        template[field]=value
+        db=Database(str(tmp_path/(field+'.db')))
+        db.save_planning_checkpoint(checkpoint)
+        restored=restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+        persisted=next(t for t in restored['session_templates'] if t['date']==today.isoformat())
+        assert persisted[field]==value
+        with patch('api.recovery_replan_loop.build_readiness_conflict_report',return_value=helpers['_report'](today)),patch('api.today_snapshot.build_readiness_snapshot',return_value=helpers['_snapshot']()):
+            payload=today_view(db=db)
+>       assert payload['session'] is not None,'Explicit malformed or executable checkpoint metadata is not confirmed rest'
+E       AssertionError: Explicit malformed or executable checkpoint metadata is not confirmed rest
+E       assert None is not None
+
+/Users/gregkisel/.codex/visualizations/2026/09/30/01a0f448-2b96-7333-814f-a431d5408938/issue-674-implementation/review-round-1/test_review_reproductions.py:30: AssertionError
+=========================== short test summary info ============================
+FAILED ../../../Users/gregkisel/.codex/visualizations/2026/09/30/01a0f448-2b96-7333-814f-a431d5408938/issue-674-implementation/review-round-1/test_review_reproductions.py::test_preserved_checkpoint_does_not_crash_or_become_confirmed_rest[duration_minutes-10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000]
+FAILED ../../../Users/gregkisel/.codex/visualizations/2026/09/30/01a0f448-2b96-7333-814f-a431d5408938/issue-674-implementation/review-round-1/test_review_reproductions.py::test_preserved_checkpoint_does_not_crash_or_become_confirmed_rest[total_tss-10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000]
+FAILED ../../../Users/gregkisel/.codex/visualizations/2026/09/30/01a0f448-2b96-7333-814f-a431d5408938/issue-674-implementation/review-round-1/test_review_reproductions.py::test_preserved_checkpoint_does_not_crash_or_become_confirmed_rest[materialized_steps-value2]
+FAILED ../../../Users/gregkisel/.codex/visualizations/2026/09/30/01a0f448-2b96-7333-814f-a431d5408938/issue-674-implementation/review-round-1/test_review_reproductions.py::test_preserved_checkpoint_does_not_crash_or_become_confirmed_rest[legs-value3]
+4 failed in 0.79s
