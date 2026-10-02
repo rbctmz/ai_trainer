@@ -1060,7 +1060,11 @@ def _is_confirmed_empty_plan_day(
         return False
     if not isinstance(template.get("sessions"), list) or template["sessions"]:
         return False
-
+    for field in ("materialized_steps", "legs"):
+        if field in template and (
+            not isinstance(template[field], list) or template[field]
+        ):
+            return False
     if evaluated_session is not None:
         if not _is_explicit_finite_zero(evaluated_session.get("tss")):
             return False
@@ -1075,12 +1079,11 @@ def _is_confirmed_empty_plan_day(
 
 
 def _is_explicit_finite_zero(value: Any) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and isfinite(value)
-        and float(value) == 0.0
-    )
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return value == 0
+    return isinstance(value, float) and isfinite(value) and value == 0.0
 
 
 def _project_session(
