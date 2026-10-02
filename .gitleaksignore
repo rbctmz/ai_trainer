@@ -78,3 +78,9 @@ docs/reports/2026-10-01-daily-story-consistency/evidence/candidate-export.json:g
 docs/reports/2026-10-01-daily-story-consistency/evidence/candidate-export.json:generic-api-key:843
 docs/reports/2026-10-01-daily-story-consistency/evidence/candidate-export.json:generic-api-key:955
 docs/reports/2026-10-01-daily-story-consistency/evidence/candidate-export.json:generic-api-key:966
+
+# PR #676: independently recomputed immutable source-file checksum, not a key.
+# Pin the historical finding and current-tree line; the contract test pins the
+# whole manifest bytes so a replacement value cannot inherit this exception.
+2200bdb4ecb3e4be26e4d015cd97f9d6b3be7d86:docs/reports/2026-10-02-issue-674-empty-today/native-round-1/source-hashes.json:generic-api-key:3
+docs/reports/2026-10-02-issue-674-empty-today/native-round-1/source-hashes.json:generic-api-key:3

@@ -54,3 +54,15 @@ UI/DTO не менялись: web lint/build/contracts и 48 браузерны�
 отчёте относятся к предыдущему head. Текущие API controls повторены. Новое локальное
 ревью ограничено delta после `1a85c23`; native round 1 этим не заменяется.
 Remote CI, новый scoped native result, owner acceptance и мёрж — отдельные состояния.
+
+## Ложное срабатывание Gitleaks при публикации evidence
+
+**Observed:** [Secret scan run36992499694](https://github.com/rbctmz/ai_trainer/actions/runs/36992499694)
+на head2200bdb отметил generic-api-key в source-hashes.json:3.
+**Inferred:** имя test_api_today рядом с высокоэнтропийной строкой checksum
+вызвало эвристику ключа; это проверяется пересчётом SHA-256 исходника.
+**Verified by:** обе суммы в manifest независимо пересчитаны из проверенных
+product/test файлов и совпали. Добавлены только historical commit/path/line и
+current-tree path/line fingerprints в существующий .gitleaksignore. Contract test
+фиксирует checksum всего immutable manifest и точную форму строки. Workflow и
+правила сканирования сохранены. Замена значения в той же строке нарушит pin.
