@@ -1,0 +1,106 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.12, pytest-8.4.2, pluggy-1.6.0
+rootdir: /Users/gregkisel/.codex/worktrees/issue-674-empty-today/ai_trainer
+configfile: pytest.ini
+plugins: cov-7.1.0, anyio-4.14.1
+collected 28 items
+
+tests/smoke/test_api_today.py .....FF.....................               [100%]
+
+=================================== FAILURES ===================================
+________ test_today_does_not_project_empty_activation_day_as_a_session _________
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-m43zn7s6/pytest/test_today_does_not_project_em0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1214760d0>
+
+    def test_today_does_not_project_empty_activation_day_as_a_session(
+        tmp_path, monkeypatch
+    ) -> None:
+        """An explicitly empty, zero-budget off template is not a Today session."""
+        from api.routers.today import today_view
+
+        today = date(2026, 10, 2)
+        goal_plan = _goal_plan(today, target_role="activation")
+        target_index = next(
+            index
+            for index, template in enumerate(goal_plan["session_templates"])
+            if template["date"] == today.isoformat()
+        )
+        goal_plan["daily_plan"][target_index] = (
+            datetime.combine(today, datetime.min.time()),
+            0.0,
+            {},
+        )
+        goal_plan["session_templates"][target_index].update(
+            {
+                "sport": "off",
+                "sport_label": "отдых",
+                "duration_minutes": 0,
+                "total_tss": 0.0,
+                "allocated_parts": {},
+                "sessions": [],
+            }
+        )
+        db = Database(str(tmp_path / "empty-activation.db"))
+        db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+        _patch_report(monkeypatch, _report(today))
+        _patch_snapshot(monkeypatch, _snapshot())
+
+        payload = today_view(db=db)
+
+        assert payload["state"] == "silence"
+>       assert payload["session"] is None
+E       AssertionError: assert {'catalog_version': None, 'date': '2026-10-02', 'duration_minutes': 0, 'expected_recovery_hours': None, ...} is None
+
+tests/smoke/test_api_today.py:399: AssertionError
+________ test_today_evaluated_report_does_not_restore_empty_day_session ________
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-m43zn7s6/pytest/test_today_evaluated_report_do0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1214b91d0>
+
+    def test_today_evaluated_report_does_not_restore_empty_day_session(
+        tmp_path, monkeypatch
+    ) -> None:
+        """The evaluated-session branch respects the same persisted empty-day evidence."""
+        from api.routers.today import today_view
+
+        today = date(2026, 10, 2)
+        goal_plan = _goal_plan(today, target_role="activation")
+        target_index = next(
+            index
+            for index, template in enumerate(goal_plan["session_templates"])
+            if template["date"] == today.isoformat()
+        )
+        goal_plan["daily_plan"][target_index] = (
+            datetime.combine(today, datetime.min.time()),
+            0.0,
+            {},
+        )
+        goal_plan["session_templates"][target_index].update(
+            {
+                "sport": "off",
+                "sport_label": "отдых",
+                "duration_minutes": 0,
+                "total_tss": 0.0,
+                "allocated_parts": {},
+                "sessions": [],
+            }
+        )
+        evaluated = _session(today, days_until=0, role="activation", tss=0.0)
+        evaluated["sport_label"] = "отдых"
+        db = Database(str(tmp_path / "empty-activation-report.db"))
+        db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+        _patch_report(monkeypatch, _report(today, sessions=[evaluated]))
+        _patch_snapshot(monkeypatch, _snapshot())
+
+        payload = today_view(db=db)
+
+        assert payload["state"] == "silence"
+>       assert payload["session"] is None
+E       AssertionError: assert {'catalog_version': None, 'date': '2026-10-02', 'duration_minutes': 0, 'expected_recovery_hours': None, ...} is None
+
+tests/smoke/test_api_today.py:441: AssertionError
+=========================== short test summary info ============================
+FAILED tests/smoke/test_api_today.py::test_today_does_not_project_empty_activation_day_as_a_session
+FAILED tests/smoke/test_api_today.py::test_today_evaluated_report_does_not_restore_empty_day_session
+========================= 2 failed, 26 passed in 1.89s =========================

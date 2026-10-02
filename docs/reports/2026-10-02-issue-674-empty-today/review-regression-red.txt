@@ -1,0 +1,53 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.12, pytest-8.4.2, pluggy-1.6.0
+rootdir: /Users/gregkisel/.codex/worktrees/issue-674-empty-today/ai_trainer
+configfile: pytest.ini
+plugins: cov-7.1.0, anyio-4.14.1
+collected 30 items
+
+tests/smoke/test_api_today.py .........F....................             [100%]
+
+=================================== FAILURES ===================================
+___ test_today_keeps_card_when_optional_template_load_contradicts_empty_day ____
+
+tmp_path = PosixPath('/private/tmp/ai-trainer-674-tests-bnwebtqd/pytest/test_today_keeps_card_when_opt0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1217eeb10>
+
+    def test_today_keeps_card_when_optional_template_load_contradicts_empty_day(
+        tmp_path, monkeypatch
+    ) -> None:
+        """Optional template TSS must agree with the zero daily budget when present."""
+        from api.routers.today import today_view
+
+        today = date(2026, 10, 2)
+        _patch_snapshot(monkeypatch, _snapshot())
+        for branch in ("fallback", "evaluated"):
+            for template_tss in (20.0, "invalid"):
+                goal_plan = _empty_activation_plan(today)
+                template = next(
+                    template
+                    for template in goal_plan["session_templates"]
+                    if template["date"] == today.isoformat()
+                )
+                template["total_tss"] = template_tss
+                sessions = []
+                if branch == "evaluated":
+                    evaluated = _session(today, days_until=0, role="activation", tss=0.0)
+                    evaluated["sport_label"] = "отдых"
+                    sessions = [evaluated]
+
+                db = Database(
+                    str(tmp_path / f"template-tss-{branch}-{template_tss!s}.db")
+                )
+                db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+                _patch_report(monkeypatch, _report(today, sessions=sessions))
+
+                payload = today_view(db=db)
+
+>               assert payload["session"] is not None
+E               assert None is not None
+
+tests/smoke/test_api_today.py:513: AssertionError
+=========================== short test summary info ============================
+FAILED tests/smoke/test_api_today.py::test_today_keeps_card_when_optional_template_load_contradicts_empty_day
+========================= 1 failed, 29 passed in 2.11s =========================
