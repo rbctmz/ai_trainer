@@ -12,8 +12,9 @@
 - [x] (2026-10-13) Прочитаны existing runner, contract suffix и фикстуры; scope и заранее заданные критерии записаны.
 - [x] (2026-10-13) Независимая spec проверка без blockers; отдельно отражаем candidate gate и observed improvement над A.
 - [x] (2026-10-13) RED/GREEN: новый runner отсутствовал; 72 focused tests passed, whole-tree ruff green. Contract propagation, одинаковые snapshots, scoring, preflight16 и budget покрыты.
-- [ ] Checker реализации, focused/broad проверки.
-- [ ] Один live A/B прогон; неизменённый JSON, ручная оценка и решение.
+- [x] (2026-10-13) Checker реализации принял delta5674fd5..5d4b42a; 24 runner/A/B tests и ruff passed. Rest false-data-gap — подтверждённая limitation автоматического scorer, проверяется ручной rubric.
+- [x] (2026-10-13) Broad smoke: 2949 passed,35 skipped,1 warning за169.76с в isolated writable DB окружении.
+- [x] (2026-10-14) Один live A/B прогон: 16trials,49/64calls,zero runtime errors. Immutable JSON, заранее зафиксированная rubric, ручная оценка и отрицательное решение сохранены.
 
 ## Surprises & Discoveries
 
@@ -33,7 +34,11 @@ Decision: budget 64 total, 4 provider calls/trial, 12 tool executions/trial, 180
 
 ## Outcomes & Retrospective
 
-Пока результата нет. Автоматический score и смысловая оценка отдельны. Маленькая выборка позволяет выбрать следующий шаг, а не объявить доказанное качество или причинность. Production rollout в этот milestone не входит.
+Эксперимент завершён. B короче в7/8пар, средняя длина106.125→68.25 (−35.7%), краткость4/8→5/8. Общий automatic pass-count4/8→4/8, candidate gate fail. B не соблюдает80слов в3попытках; обе missing-cache попытки сохраняют future-fetch guarantee по ручной rubric. День отдыха уA/B правильный в обоих повторах. Cached powers/durations сохранены; B-repeat2 содержит uncertain чрезмерное обобщение об отсутствии других значений мощности (raw avg_power139).
+
+16 input snapshots одинаковы и unchanged; native calendar13октября одинаков во всех запросах. Ошибок выполнения0;49calls,170172SDKtokens. JSON frozen, predicates после live не менялись, повторов для достижения зелёного результата не было. Broad smoke2949passed/35skips,72focused и ruffgreen, independent checker accepted5d4b42a. Старый baseline побайтово неизменён.
+
+Перенос кандидата в production не рекомендован. Следующий самостоятельный эксперимент может проверять компактный system-level формат; текущий suffix сам по себе не обеспечил критерии. Механизм многословности не доказан. Scope принятого эксперимента выполнен с отрицательным качественным результатом, весь#528 и продуктовая приёмка остаются отдельными задачами.
 
 ## Context and Orientation
 

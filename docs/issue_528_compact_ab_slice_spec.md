@@ -1,6 +1,6 @@
 # #528 compact A/B — bounded slice
 
-Issue #528; base 5674fd5. Author Spec Owner → explicit handoff to Domain Implementer for experiment-only Python/CLI/tests. Checker independent/read-only; merge owner Greg. Class A (paid call). New milestone review: manual, spec0/2, implementation0/2, no native review/merge acceptance.
+Issue #528; base 5674fd5. Author Spec Owner → explicit handoff to Domain Implementer for experiment-only Python/CLI/tests. Checker independent/read-only; merge owner Greg. Class A (paid call). New milestone review: manual, spec1/2, implementation1/2 (delta accepted at5d4b42a), no native review/merge acceptance.
 
 ## Scope and Non-goals
 
@@ -12,12 +12,12 @@ CLI adds --experiment baseline|compact-ab (default baseline). v2 A/B registry an
 
 ## Definition of Done
 
-- [ ] Contract propagated to model selection, synthesis and correction; no answer post-truncation.
-- [ ] Coherent fixture, identical A/B input snapshots, DB unchanged.
-- [ ] Frozen criteria: candidate8/8 ≤80 words, facts/tools intact, missing-cache no invention or guaranteed fetch, rest-day correct.
-- [ ] 16 trials maximum; 64 calls total, 4/trial, 12 tools/trial, 1800 tokens/call,45s SDK timeout,0 retries.
-- [ ] RED/GREEN, broad check, independent checker, live trace and manual assessment recorded.
-- [ ] Greg owns follow-up/merge, local worktree retained.
+- [x] Contract propagated to model selection, synthesis and correction; no answer post-truncation.
+- [x] Coherent fixture, identical A/B input snapshots, DB unchanged (offline16-trial proof).
+- [x] Frozen criteria evaluated without post-result tuning: candidate failed (4/8 automatic passes,5/8 brevity), facts/tools checked and rest correct; missing-cache guarantees persist per manual rubric.
+- [x] 16 trials completed;49/64calls, max4/trial,12tools/trial,1800tokens/call,45sSDKtimeout,0retries.
+- [x] RED/GREEN,72focused,broad2949passed/35skipped,independent checker,live trace and manual assessment recorded.
+- [x] Greg owns follow-up/merge,local worktree retained; no rollout/merge requested.
 
 ## Failure, Reset, Rollback, Idempotency
 
@@ -44,8 +44,8 @@ Reuse ASR-SEC-1, REL-1/3, PERF-2 and ADR-0001/0010 from preceding local CLI boun
 
 ## Review Findings / Evidence Bundle
 
-Spec pending. Each finding gets fixed-in/disputed/follow-up. Independent consolidated implementation check on delta from5674fd5, then one scoped fix check. Final report separates automated candidate gate and human verdict; no post-result tuning. CI/protection/native review/merge unclaimed.
+Spec accepted without blockers. Consolidated implementation delta5674fd5..5d4b42a accepted;24permittedtests and ruffpassed. Non-blocking reproduced limitation: «По плану отдых. Структура недоступна: нет данных о тренировке» can pass automatic rest predicates; manual rubric explicitly rejects false missing-data claim (not observed in actualcontrol). No production fix/automatic scorer tuning required by this limitation. 72focusedchecks,broad2949passed/35skipped. Bundle docs/reports/2026-10-13-coach-compact-ab/ containsimmutableJSON,fullpairtable,manualrubric and negativecandidateverdict. Live49calls/16trials/0errors,allinputsidenticalandDBunchanged. CI/protection/native review/merge unclaimed.
 
 ## Final Verdict
 
-Pending experiment. Scope handed off for bounded implementation; accepted user plan fixes finite live budget and task.
+READY: bounded experiment implemented and evaluated. Candidate outcome FAIL, not recommended for production transfer. Checker blockers0. Greg owns nextscope/merge; no productacceptance/#528closure claim.
