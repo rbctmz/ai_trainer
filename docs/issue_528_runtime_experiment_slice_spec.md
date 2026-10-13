@@ -3,7 +3,7 @@
 - Issue: https://github.com/rbctmz/ai_trainer/issues/528; bounded experiment, not issue closure.
 - Author: Codex as Spec Owner, then explicit handoff below to Domain Implementer. Independent checker: separate read-only agent. Merge owner: Greg.
 - Date: 2026-10-13. Candidate base: `23fd7d6ce19a93c6d07b885daf8cf298d0afa909`.
-- Class A: paid AI call and new local CLI boundary. Manual review, budget 0/2 rounds; acceptance head pending. No exception requested.
+- Class A: paid AI call and new local CLI boundary. Manual review: spec 1/2, implementation 2/2 (full + scoped delta); code checker acceptance head 839febe. No exception requested.
 
 ## Scope and handoff
 
@@ -18,10 +18,10 @@ Production prompts, scoring, planner, API/TS/database schema, UI, CI secrets, au
 - [x] A runnable CLI records model selection, tool execution, synthesis and narrative validation on three fixtures, with development/holdout labels.
 - [x] Every trial reports checks, error category, final answer and duration; aggregate denominator includes failures.
 - [x] Fresh temp DB per trial; unknown/mutation tool denied before invocation; logical snapshot unchanged.
-- [ ] Three scenarios × two repeats; max 4 provider calls per trial, 24 total, 1800 output tokens/call, 45-second SDK timeout, zero SDK retries.
-- [ ] Offline RED/GREEN tests, broad smoke, lint and independent checker evidence recorded.
-- [ ] Live baseline or explicitly INCONCLUSIVE provider limitation with runnable artifact; manual answer assessment distinct from automated checks.
-- [ ] Merge/cleanup owner Greg; no merge without explicit decision.
+- [x] Three scenarios × two repeats; 18/24 calls, max 4 provider calls per trial, 1800 output tokens/call, 45-second SDK timeout, zero SDK retries.
+- [x] Offline RED/GREEN tests (30 passed), broad smoke (2940 passed, 35 skipped), lint (green) and independent checker (gate passed) evidence recorded.
+- [x] Live baseline: quality fail 2/6, zero runtime errors; immutable JSON and separate manual answer assessment recorded.
+- [x] Merge/cleanup owner Greg; active local worktree retained for result; no merge requested.
 
 ## Public Contracts
 
@@ -69,16 +69,18 @@ First slice: tests then minimal runner and registry, passing shared runtime/tool
 
 ## Evidence Bundle
 
-RED: new test module failed import before runner existed; subsequent wrong-response/denial/CLI tests covered actual invariants. GREEN: 27 focused eval tests passed, whole-tree ruff --no-cache green. Broad smoke running; independent implementation check and live command/cleaned JSON pending. CI not run remotely; acceptance/protection/merge unclaimed. One report bundle under `docs/reports/2026-10-13-coach-runtime-eval`. Residual risk: automated lexical/numeric predicates are limited; human interpretation and larger holdout required for broad quality claims.
+RED: new test module failed import before runner existed; subsequent wrong-response/denial/CLI tests covered actual invariants. GREEN: 30 focused eval tests, 2940 broad smoke tests passed/35 skipped, whole-tree ruff --no-cache green. Independent implementation check accepted code839febe. Live command and sanitized JSON in `docs/reports/2026-10-13-coach-runtime-eval`. Quality fail 2/6, all failures brevity; arithmetic and future-cache certainty are manual findings outside frozen predicates. CI not run remotely; acceptance/protection/merge unclaimed. Residual risk: small synthetic corpus with inconsistency, restricted tools and limited lexical/numeric predicates; human interpretation and new unseen cases required for broad quality claims.
 
 ## Review Findings
 
-Independent spec check: blocking P2 неверные 260 Вт как факт — fixed before implementation: 128/198 Вт подтверждены BIKE_INTERVALS. Один consolidated spec round; implementation check pending. No production bug cause asserted from experiment until cheap falsifying check.
+Independent spec check: blocking P2 неверные 260 Вт как факт — fixed before implementation: 128/198 Вт подтверждены BIKE_INTERVALS. Один consolidated spec round. Cheap falsifying checks for output arithmetic and unconditional cache-fetch guarantee recorded in report; no speculative production root cause asserted.
+
+Implementation consolidated round at 51e7785: blocking P2 preflight теряет denominator/provenance — fixed-in 839febe. Scoped delta round confirmed 15 runtime tests + independent probe + ruff, no remaining blockers. Reviewer stayed read-only and made no model calls.
 
 ## Native Review Rounds
 
-None dispatched. Independent checker rounds tracked here; this experiment does not request native GitHub review or merge acceptance.
+None dispatched. Independent checker: spec round 1; implementation full round 1 at 51e7785; scoped delta round 2 at 839febe. This experiment does not request native GitHub review or merge acceptance.
 
 ## Final Verdict
 
-Pending. Role handoff is complete for the bounded implementation; no approval question is required for already authorized local work and bounded experiment.
+READY for bounded local experiment; baseline PARTIAL / automated quality fail 2/6. No remaining checker blockers. Live/API full-product acceptance and #528 completion unclaimed. Merge owner Greg; no merge requested.

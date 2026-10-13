@@ -12,9 +12,10 @@
 - [x] (2026-10-13) Зафиксированы scope, бюджет и критерии.
 - [x] (2026-10-13) Независимая проверка спецификации: исправлено P2 ожидание мощности на 128/198 Вт.
 - [x] (2026-10-13) RED → GREEN: 27 focused tests passed (12 new runtime/CLI cases плюс 15 existing eval cases); ruff whole tree green с --no-cache.
-- [ ] Независимая проверка реализации и broad tests.
-- [ ] Live baseline: три сценария × два повтора, максимум 24 вызова без SDK retries.
-- [ ] Сохранить очищенный результат и человеческую оценку ответов.
+- [x] (2026-10-13) Независимая проверка реализации: один P2 в preflight report исправлен в 839febe и подтверждён scoped delta reviewer.
+- [x] (2026-10-13) Broad smoke: 2940 passed, 35 skipped, 1 warning; с отдельным writable DATABASE_PATH. Причина первых 10 failures проверена 33 targeted passes без code changes.
+- [x] (2026-10-13) Live baseline: три сценария × два повтора, 18/24 вызовов без SDK retries; quality verdict fail (2/6), zero runtime errors, все fixture DB unchanged.
+- [x] (2026-10-13) Очищенный immutable JSON и отдельная человеческая оценка сохранены в docs/reports/2026-10-13-coach-runtime-eval.
 
 ## Surprises & Discoveries
 
@@ -32,7 +33,9 @@ Decision: автоматические проверки свойств отде�
 
 ## Outcomes & Retrospective
 
-Offline runner и CLI проходят 27 focused tests. Live результат пока не получен. Отсутствие credentials или provider failure означает INCONCLUSIVE, не низкое качество Coach. Изменение production поведения и автоматические фиксы провалов исключены.
+Эксперимент завершён как PARTIAL: shared runtime и нужные инструменты отработали 6/6, но 4/6 ответов превышают 80 слов. Правильные мощности и признание отсутствующего кэша подтверждены в двух соответствующих повторах. Ручное чтение выявило arithmetic/units error в одном missing-cache ответе и необоснованную гарантию будущего cache fetch в обоих. Предикаты это не покрывают, поэтому baseline не является общей валидацией качества. Дешёвые falsifiers и следующий bounded experiment записаны в отчёте; production prompt не менялся и live повторов после чтения результатов не было.
+
+30 focused tests, 2940 broad smoke passes/35 skips, whole-tree ruff green; independent checker gate на 839febe подтверждён. Вызовов 18, SDK tokens 64853. Scope согласованного эксперимента выполнен, весь #528 не закрыт. Код сохранён локально; remote CI и merge не заявлены.
 
 ## Context and Orientation
 
@@ -72,4 +75,4 @@ ASR-SEC-1: ключи не выводятся и не сохраняются; AS
 
 Не добавлять зависимости. Использовать stdlib, существующий provider factory, AITools, runtime, narrative gate и synthetic fixture builder. `run_experiment(provider, *, today, repeats)` возвращает JSON-safe report. Provider decorator сохраняет запросы, видимые ответы, длительность и call count. Read-only decorator фильтрует schemas и проверяет имя инструмента до выполнения.
 
-Revision 2026-10-13: первоначальные конечные границы; spec checker выявил неверную числовую гипотезу (260 Вт), исправлена по существующей BIKE_INTERVALS fixture на 128/198.
+Revision 2026-10-13: первоначальные конечные границы; spec checker выявил неверную числовую гипотезу (260 Вт), исправлена по существующей BIKE_INTERVALS fixture на 128/198. Implementation checker выявил потерю знаменателя на preflight; исправлено и подтверждено в 839febe. Широкий smoke требует изолированный writable DATABASE_PATH, а не cwd checkout.
