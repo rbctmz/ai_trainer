@@ -15,8 +15,10 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
+from collections.abc import Callable
 
 from models.ai_coach_runtime import (
+    _today_context_line,
     build_grounding_tool_results,
     resolve_turn_tool_results,
     revalidate_with_correction,
@@ -54,6 +56,10 @@ class ProviderOutputError(RuntimeError):
     pass
 
 
+class CalendarChangedError(RuntimeError):
+    pass
+
+
 @dataclass
 class CallBudget:
     limit: int = 24
@@ -88,12 +94,14 @@ def _invalid_output(output: Any) -> bool:
 
 
 class _RecordingProvider:
-    def __init__(self, delegate: Any, budget: CallBudget, secrets: tuple[str, ...]):
+    def __init__(self, delegate: Any, budget: CallBudget, secrets: tuple[str, ...],
+                 calendar_guard: str | None = None):
         self.delegate = delegate
         self.budget = budget
         self.secrets = secrets
         self.trace: list[dict[str, Any]] = []
         self.failure_kind: str | None = None
+        self.calendar_guard = calendar_guard
 
     def is_available(self) -> bool:
         return bool(self.delegate.is_available())
@@ -129,6 +137,9 @@ class _RecordingProvider:
             entry["elapsed_ms"] = round((time.monotonic() - started) * 1000, 2)
 
     def generate_with_tools(self, messages: list, tools: list, system_prompt: str = "") -> dict:
+        if self.calendar_guard is not None and self.calendar_guard not in system_prompt:
+            self.failure_kind = "CalendarChangedError"
+            raise CalendarChangedError("comparison native calendar changed before model call")
         return self._call("generate_with_tools", messages=messages, tools=tools,
                           system_prompt=system_prompt)
 
@@ -192,7 +203,7 @@ def _checks(scenario: RuntimeScenario, answer: str, results: list[dict],
         )
         watt_claims = {float(number.replace(",", ".")) for number in re.findall(
             r"(\d+(?:[.,]\d+)?)\s*(?:Вт|ватт\w*|W)\b", answer, re.I)}
-        checks["no_unsupported_power"] = watt_claims <= {128, 198, 178}
+        checks["no_unsupported_power"] = watt_claims <= set(scenario.allowed_power)
     if scenario.requires_data_gap:
         checks["explicit_data_gap"] = bool(re.search(
             r"(?:нет|не хватает|недоступ|отсутств|не выгруж|не загруж|нет.*кэш)", answer, re.I))
@@ -200,18 +211,40 @@ def _checks(scenario: RuntimeScenario, answer: str, results: list[dict],
         checks["no_invented_interval_counts"] = not bool(re.search(
             r"\d+\s*(?:отрезк|повтор|интервал)|(?:отрезк|повтор|интервал)\w*\s*[:—-]\s*\d+",
             answer, re.I))
-    if scenario.required_tool == "get_workout_structure":
+    if scenario.requires_no_fetch_guarantee:
+        checks["no_unverified_fetch_promise"] = not _unverified_fetch_promise(answer)
+    if scenario.essential_patterns:
+        checks["essential_facts"] = all(re.search(pattern, answer, re.I)
+                                         for pattern in scenario.essential_patterns)
+    if scenario.requires_rest:
+        checks["planned_rest"] = bool(re.search(r"отдых|выходн", answer, re.I))
+        checks["no_rest_work_prescription"] = not bool(re.search(
+            r"(?:сделай|выполни|проведи|пробеги).*(?:интервал|отрезк|повтор)", answer, re.I))
+    elif scenario.required_tool == "get_workout_structure":
         checks["plan_labeled"] = bool(re.search(r"план", answer, re.I))
         checks["plan_structure"] = all(re.search(word, answer, re.I) for word in (
             r"размин", r"(?:основн|интервал|отрезк|работа|повтор)", r"замин"))
     return checks
 
 
+def _unverified_fetch_promise(answer: str) -> bool:
+    """Narrow future-success check, always complemented by human assessment."""
+    for sentence in re.split(r"[.!?\n]", answer.lower()):
+        if re.search(r"(?:возмож|может|могут|если|не гарант|при условии)", sentence):
+            continue
+        if re.search(r"интервал|отрезк|структур|кэш", sentence) and re.search(
+            r"появятся|появится|попадут|станет доступ|станут доступ|будут доступ|выгрузятся", sentence):
+            return True
+    return False
+
+
 def run_trial(provider: Any, scenario: RuntimeScenario, *, today: date,
               repeat: int = 1, budget: CallBudget | None = None,
-              secrets: tuple[str, ...] = ()) -> dict[str, Any]:
+              secrets: tuple[str, ...] = (), response_contract: dict | None = None,
+              fixture_factory: Callable[[Path], Any] | None = None,
+              calendar_guard: str | None = None) -> dict[str, Any]:
     """Один shared-runtime turn, изолированный от product persistence и сети tools."""
-    recorder = _RecordingProvider(provider, budget or CallBudget(), secrets)
+    recorder = _RecordingProvider(provider, budget or CallBudget(), secrets, calendar_guard)
     started = time.monotonic()
     answer = ""
     results: list[dict[str, Any]] = []
@@ -221,7 +254,8 @@ def run_trial(provider: Any, scenario: RuntimeScenario, *, today: date,
     with TemporaryDirectory(prefix="coach-runtime-eval-") as directory:
         path = Path(directory) / "synthetic.db"
         days = synthetic_fixture_days(today - timedelta(days=4))
-        database = build_synthetic_coach_database(path, days)
+        database = (fixture_factory(path) if fixture_factory is not None
+                    else build_synthetic_coach_database(path, days))
         before = _snapshot(path)
         tools = _ReadOnlyTools(AITools(database))
         goal_plan = restore_goal_plan_from_checkpoint(database.get_latest_planning_checkpoint())
@@ -229,6 +263,7 @@ def run_trial(provider: Any, scenario: RuntimeScenario, *, today: date,
             turn = resolve_turn_tool_results(
                 provider=recorder, ai_tools=tools, user_input=scenario.prompt,
                 history_messages=[], tool_result_formatter=format_tool_result, today=today,
+                response_contract=response_contract,
             )
             results = turn["tool_results"]
             if not results:
@@ -237,6 +272,7 @@ def run_trial(provider: Any, scenario: RuntimeScenario, *, today: date,
             answer = synthesize_ai_chat_response(
                 provider=recorder, history_messages=[], user_input=scenario.prompt,
                 tool_results=results, goal_plan=goal_plan, today=today,
+                response_contract=response_contract,
             )
             evidence = build_coach_narrative_evidence(
                 readiness_snapshot={}, tool_results=results, goal_plan=goal_plan,
@@ -248,6 +284,7 @@ def run_trial(provider: Any, scenario: RuntimeScenario, *, today: date,
                 provider=recorder, gate_result=gate, evidence=evidence,
                 history_messages=[], user_input=scenario.prompt, tool_results=results,
                 goal_plan=goal_plan, today=today,
+                response_contract=response_contract,
             )
             answer, gate_metadata = gate.delivered_text, gate.metadata()
             # Production correction swallows errors; retain them as experiment errors.
@@ -270,6 +307,83 @@ def run_trial(provider: Any, scenario: RuntimeScenario, *, today: date,
             "fallback_used": fallback, "narrative_gate": gate_metadata,
             "elapsed_ms": round((time.monotonic() - started) * 1000, 2),
         }, secrets)
+
+
+def run_comparison(provider: Any, *, today: date, repeats: int = 2,
+                   budget: CallBudget | None = None, secrets: tuple[str, ...] = ()) -> dict[str, Any]:
+    """Парный прогон с общей fixture, фиксированным suffix и AB/BA порядком."""
+    from data.database import Database
+    from tests.evals.coach.runtime_registry import (
+        COMPACT_CONTRACT, COMPARISON_FIXTURE_VERSION, COMPARISON_REGISTRY_VERSION,
+        COMPARISON_REPORT_VERSION, build_comparison_database, build_comparison_scenarios,
+    )
+
+    if repeats not in {1, 2}:
+        raise ValueError("repeats must be 1 or 2")
+    budget = budget or CallBudget(64)
+    if not 1 <= budget.limit <= 64:
+        raise ValueError("comparison call limit must be between 1 and 64")
+    results = []
+    native_calendar = _today_context_line()
+    with TemporaryDirectory(prefix="coach-compact-paired-") as directory:
+        canonical = Path(directory) / "canonical.db"
+        build_comparison_database(canonical, today)
+        canonical_hash = _snapshot(canonical)
+
+        def clone(path: Path) -> Database:
+            with sqlite3.connect(f"file:{canonical}?mode=ro", uri=True) as source:
+                with sqlite3.connect(str(path)) as target:
+                    source.backup(target)
+            return Database(str(path))
+
+        for scenario in build_comparison_scenarios(today):
+            for repeat in range(1, repeats + 1):
+                order = ("current", "compact") if repeat % 2 else ("compact", "current")
+                for variant in order:
+                    result = run_trial(
+                        provider, scenario, today=today, repeat=repeat, budget=budget,
+                        secrets=secrets, fixture_factory=clone,
+                        calendar_guard=native_calendar,
+                        response_contract=COMPACT_CONTRACT if variant == "compact" else None,
+                    )
+                    result["variant"] = variant
+                    result["word_count"] = len(result["final_answer"].split())
+                    result["checks"]["same_canonical_input"] = result["snapshot_before"] == canonical_hash
+                    if not result["checks"]["same_canonical_input"] and result["status"] != "error":
+                        result["status"] = "fail"
+                    results.append(result)
+        assert canonical_hash == _snapshot(canonical), "canonical fixture changed"
+    variants = {}
+    for variant in ("current", "compact"):
+        rows = [r for r in results if r["variant"] == variant]
+        variants[variant] = {
+            "total": len(rows), "passed": sum(r["status"] == "pass" for r in rows),
+            "error_trials": sum(r["status"] == "error" for r in rows),
+            "brief_answers": sum(r["checks"]["brief_answer"] for r in rows),
+            "mean_words": sum(r["word_count"] for r in rows) / len(rows),
+        }
+    candidate = variants["compact"]
+    errors = sum(r["status"] == "error" for r in results)
+    candidate_gate = ("inconclusive" if candidate["error_trials"] else
+                      ("pass" if candidate["passed"] == candidate["total"] else "fail"))
+    return {
+        "report_version": COMPARISON_REPORT_VERSION, "registry_version": COMPARISON_REGISTRY_VERSION,
+        "fixture_version": COMPARISON_FIXTURE_VERSION, "fixture_hash": canonical_hash,
+        "native_calendar": native_calendar,
+        "candidate_contract": dict(COMPACT_CONTRACT),
+        "candidate_fingerprint": hashlib.sha256(str(sorted(COMPACT_CONTRACT.items())).encode()).hexdigest(),
+        "today": today.isoformat(), "provider_class": type(provider).__name__,
+        "model": str(getattr(provider, "model", "unknown")), "repeats": repeats,
+        "call_limit": budget.limit, "calls_used": budget.used, "total": len(results),
+        "passed": sum(r["status"] == "pass" for r in results), "error_trials": errors,
+        "variants": variants, "candidate_gate": candidate_gate,
+        "verdict": "inconclusive" if errors else candidate_gate,
+        "observed_improvement": None if errors else candidate["passed"] > variants["current"]["passed"],
+        "human_assessment": "pending", "token_usage": _usage_totals(results), "cost": None,
+        "limitations": ["small paired sample, no statistical significance claim",
+                        "manual factual/semantic assessment required", "restricted read-only surface"],
+        "results": results,
+    }
 
 
 def run_experiment(provider: Any, *, today: date, repeats: int = 2,

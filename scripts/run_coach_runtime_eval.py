@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from datetime import date
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -36,36 +37,57 @@ class ScriptedRuntimeProvider:
                                             "arguments": {"date": day}}]}
 
     def generate_response(self, prompt, system_prompt=""):
+        if "день отдыха" in prompt.split("РЕЗУЛЬТАТЫ ИНСТРУМЕНТОВ:")[0]:
+            return "Плановый день отдыха. Тренировка и интервалы не назначены."
         if "выполненной беговой" in prompt:
             return "Структура недоступна: отрезки не выгружены. Нужен кэш отрезков."
         if "выполненной велосессии" in prompt:
-            return "Факт: два отрезка со средней мощностью 128 Вт и 198 Вт."
-        return "План: разминка, основная часть и заминка. Это плановая велосессия."
+            return "Факт: два отрезка, 11:00 при 128 Вт и 2:00 при 198 Вт."
+        return "План: разминка, основная часть 10×0:30 с восстановлением 2:30 и заминка."
 
 
 def _inconclusive_report(args, error_kind, calls_used=0):
     # This lightweight registry imports no settings/provider dependencies.
-    from tests.evals.coach.runtime_registry import REGISTRY_VERSION, REPORT_VERSION, build_scenarios
+    from tests.evals.coach.runtime_registry import (
+        REGISTRY_VERSION, REPORT_VERSION, build_scenarios,
+        COMPARISON_REGISTRY_VERSION, COMPARISON_REPORT_VERSION, build_comparison_scenarios,
+        COMPACT_CONTRACT, COMPARISON_FIXTURE_VERSION,
+    )
+    comparison = args.experiment == "compact-ab"
+    scenarios = build_comparison_scenarios(args.today) if comparison else build_scenarios(args.today)
     results = [{"scenario_id": scenario.scenario_id, "split": scenario.split,
                 "repeat": repeat, "prompt": scenario.prompt,
                 "target_date": scenario.target_date.isoformat(),
                 "status": "error", "error_kind": error_kind, "checks": {},
                 "final_answer": "", "provider_trace": [], "tool_results": [],
                 "database_unchanged": None}
-               for scenario in build_scenarios(args.today) for repeat in range(1, args.repeats + 1)]
-    return {"report_version": REPORT_VERSION, "registry_version": REGISTRY_VERSION,
+               for scenario in scenarios for repeat in range(1, args.repeats + 1)]
+    if comparison:
+        results = [dict(result, variant=variant) for result in results for variant in ("current", "compact")]
+    report = {"report_version": COMPARISON_REPORT_VERSION if comparison else REPORT_VERSION,
+            "registry_version": COMPARISON_REGISTRY_VERSION if comparison else REGISTRY_VERSION,
             "mode": "live" if args.live else "scripted", "provider": args.provider,
             "model": os.environ.get("DEEPSEEK_MODEL", "unresolved"),
             "today": args.today.isoformat(), "repeats": args.repeats,
             "total": len(results), "passed": 0, "error_trials": len(results), "pass_rate": 0.0,
-            "threshold": 1.0, "verdict": "inconclusive", "call_limit": 24,
+            "threshold": 1.0, "verdict": "inconclusive", "call_limit": 64 if comparison else 24,
             "calls_used": calls_used, "error_kind": error_kind, "results": results,
             "human_assessment": "not_run", "property_rates": {}, "token_usage": None, "cost": None}
+    if comparison:
+        report.update({"candidate_gate": "inconclusive", "observed_improvement": None,
+                       "fixture_version": COMPARISON_FIXTURE_VERSION, "fixture_hash": None,
+                       "candidate_contract": dict(COMPACT_CONTRACT),
+                       "candidate_fingerprint": hashlib.sha256(str(sorted(COMPACT_CONTRACT.items())).encode()).hexdigest(),
+                       "variants": {variant: {"total": len(results) // 2, "passed": 0,
+                                              "error_trials": len(results) // 2}
+                                    for variant in ("current", "compact")}})
+    return report
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--provider", required=True, choices=("scripted", "deepseek"))
+    parser.add_argument("--experiment", choices=("baseline", "compact-ab"), default="baseline")
     parser.add_argument("--today", required=True, type=date.fromisoformat)
     parser.add_argument("--repeats", type=int, choices=(1, 2), default=2)
     parser.add_argument("--output", type=Path, required=True)
@@ -127,19 +149,22 @@ def main() -> int:
                 provider.client.chat.completions.create = record_usage
             else:
                 provider = ScriptedRuntimeProvider()
-            from services.coach_runtime_eval import CallBudget, run_experiment
-            budget = CallBudget()
-            report = run_experiment(provider, today=args.today, repeats=args.repeats,
-                                    secrets=secrets, budget=budget)
+            from services.coach_runtime_eval import CallBudget, run_comparison, run_experiment
+            comparison = args.experiment == "compact-ab"
+            budget = CallBudget(64 if comparison else 24)
+            runner = run_comparison if comparison else run_experiment
+            report = runner(provider, today=args.today, repeats=args.repeats, secrets=secrets, budget=budget)
             report["mode"] = "live" if args.live else "scripted"
             report["base_sha"] = base_sha
-            report["budgets"] = {"max_provider_calls": 24, "max_calls_per_trial": 4,
+            report["budgets"] = {"max_provider_calls": budget.limit, "max_calls_per_trial": 4,
                                   "max_tool_calls_per_trial": 12, "max_output_tokens_per_call": 1800,
                                   "sdk_timeout_seconds": 45, "sdk_retries": 0}
             json.dump(report, artifact, ensure_ascii=False, indent=2)
             artifact.write("\n")
             print(f"{report['verdict']}: {report['passed']}/{report['total']} trials; "
-                  f"{report['error_trials']} errors; {report['calls_used']}/24 provider calls")
+                  f"{report['error_trials']} errors; {report['calls_used']}/{budget.limit} provider calls")
+            if comparison:
+                print(f"candidate={report['candidate_gate']}; variants={report['variants']}")
             return 2 if report["error_trials"] else (0 if report["verdict"] == "pass" else 1)
         except Exception as exc:
             report = _inconclusive_report(args, type(exc).__name__, budget.used if budget else 0)
