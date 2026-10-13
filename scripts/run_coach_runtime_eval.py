@@ -43,6 +43,26 @@ class ScriptedRuntimeProvider:
         return "План: разминка, основная часть и заминка. Это плановая велосессия."
 
 
+def _inconclusive_report(args, error_kind, calls_used=0):
+    # This lightweight registry imports no settings/provider dependencies.
+    from tests.evals.coach.runtime_registry import REGISTRY_VERSION, REPORT_VERSION, build_scenarios
+    results = [{"scenario_id": scenario.scenario_id, "split": scenario.split,
+                "repeat": repeat, "prompt": scenario.prompt,
+                "target_date": scenario.target_date.isoformat(),
+                "status": "error", "error_kind": error_kind, "checks": {},
+                "final_answer": "", "provider_trace": [], "tool_results": [],
+                "database_unchanged": None}
+               for scenario in build_scenarios(args.today) for repeat in range(1, args.repeats + 1)]
+    return {"report_version": REPORT_VERSION, "registry_version": REGISTRY_VERSION,
+            "mode": "live" if args.live else "scripted", "provider": args.provider,
+            "model": os.environ.get("DEEPSEEK_MODEL", "unresolved"),
+            "today": args.today.isoformat(), "repeats": args.repeats,
+            "total": len(results), "passed": 0, "error_trials": len(results), "pass_rate": 0.0,
+            "threshold": 1.0, "verdict": "inconclusive", "call_limit": 24,
+            "calls_used": calls_used, "error_kind": error_kind, "results": results,
+            "human_assessment": "not_run", "property_rates": {}, "token_usage": None, "cost": None}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--provider", required=True, choices=("scripted", "deepseek"))
@@ -63,7 +83,11 @@ def main() -> int:
         print("Output already exists; no calls made.", file=sys.stderr)
         return 2
     with artifact:
+        budget = None
+        base_sha = None
         try:
+            base_sha = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
             secrets = ()
             if args.provider == "deepseek":
                 if args.env_file:
@@ -103,11 +127,12 @@ def main() -> int:
                 provider.client.chat.completions.create = record_usage
             else:
                 provider = ScriptedRuntimeProvider()
-            from services.coach_runtime_eval import run_experiment
-            report = run_experiment(provider, today=args.today, repeats=args.repeats, secrets=secrets)
+            from services.coach_runtime_eval import CallBudget, run_experiment
+            budget = CallBudget()
+            report = run_experiment(provider, today=args.today, repeats=args.repeats,
+                                    secrets=secrets, budget=budget)
             report["mode"] = "live" if args.live else "scripted"
-            report["base_sha"] = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+            report["base_sha"] = base_sha
             report["budgets"] = {"max_provider_calls": 24, "max_calls_per_trial": 4,
                                   "max_tool_calls_per_trial": 12, "max_output_tokens_per_call": 1800,
                                   "sdk_timeout_seconds": 45, "sdk_retries": 0}
@@ -117,7 +142,9 @@ def main() -> int:
                   f"{report['error_trials']} errors; {report['calls_used']}/24 provider calls")
             return 2 if report["error_trials"] else (0 if report["verdict"] == "pass" else 1)
         except Exception as exc:
-            json.dump({"verdict": "inconclusive", "error_kind": type(exc).__name__}, artifact)
+            report = _inconclusive_report(args, type(exc).__name__, budget.used if budget else 0)
+            report["base_sha"] = base_sha
+            json.dump(report, artifact, ensure_ascii=False, indent=2)
             print(f"Experiment inconclusive: {type(exc).__name__}", file=sys.stderr)
             return 2
 

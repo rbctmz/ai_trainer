@@ -1,9 +1,22 @@
 """Three narrow, versioned tasks for actual Coach runtime outputs (#528)."""
+from dataclasses import dataclass
 from datetime import date, timedelta
 
-from services.coach_runtime_eval import RuntimeScenario
-
 REGISTRY_VERSION = "coach_runtime_eval_v1"
+REPORT_VERSION = "coach_runtime_report_v1"
+
+
+@dataclass(frozen=True)
+class RuntimeScenario:
+    """Question and limited response properties, without one correct text."""
+
+    scenario_id: str
+    split: str
+    target_date: date
+    prompt: str
+    required_tool: str
+    factual_power: tuple[int, ...] = ()
+    requires_data_gap: bool = False
 
 
 def build_scenarios(today: date) -> list[RuntimeScenario]:

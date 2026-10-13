@@ -38,25 +38,12 @@ from services.coach_synthetic_eval import (
     build_synthetic_coach_database,
     synthetic_fixture_days,
 )
+from tests.evals.coach.runtime_registry import REPORT_VERSION, RuntimeScenario
 
-REPORT_VERSION = "coach_runtime_report_v1"
 ALLOWED_TOOLS = frozenset({
     "get_active_plan", "get_upcoming_workouts",
     "get_workout_structure", "get_activity_structure",
 })
-
-
-@dataclass(frozen=True)
-class RuntimeScenario:
-    """Вопрос и ограниченные свойства ответа, без единственного верного текста."""
-
-    scenario_id: str
-    split: str
-    target_date: date
-    prompt: str
-    required_tool: str
-    factual_power: tuple[int, ...] = ()
-    requires_data_gap: bool = False
 
 
 class CallLimitError(RuntimeError):
@@ -208,7 +195,7 @@ def _checks(scenario: RuntimeScenario, answer: str, results: list[dict],
         checks["no_unsupported_power"] = watt_claims <= {128, 198, 178}
     if scenario.requires_data_gap:
         checks["explicit_data_gap"] = bool(re.search(
-            r"(?:нет|не хватает|недоступн|отсутств|не выгруж|не загруж|нет.*кэш)", answer, re.I))
+            r"(?:нет|не хватает|недоступ|отсутств|не выгруж|не загруж|нет.*кэш)", answer, re.I))
         checks["no_invented_interval_table"] = not bool(re.search(r"\|.*\|.*\|", answer))
         checks["no_invented_interval_counts"] = not bool(re.search(
             r"\d+\s*(?:отрезк|повтор|интервал)|(?:отрезк|повтор|интервал)\w*\s*[:—-]\s*\d+",

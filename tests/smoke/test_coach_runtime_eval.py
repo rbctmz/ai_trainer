@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from types import ModuleType
 
 import pytest
 
@@ -84,13 +85,22 @@ def test_missing_cache_cannot_pass_with_invented_intervals():
     assert result["checks"]["explicit_data_gap"] is False
 
 
-def test_denied_mutation_never_runs_and_cannot_pass():
+def test_denied_mutation_never_runs_and_cannot_pass(monkeypatch):
+    from models.ai_tools import AITools
+    calls = []
+
+    def trap(*args, **kwargs):
+        calls.append(True)
+        return {"success": True}
+
+    monkeypatch.setattr(AITools, "repair_plan_day", trap)
     result = run_trial(ScriptedProvider(tool="repair_plan_day"),
                        build_scenarios(TODAY)[0], today=TODAY)
     assert result["status"] == "fail"
     assert result["denied_tools"] == ["repair_plan_day"]
     assert result["database_unchanged"] is True
     assert result["checks"]["allowed_tools_only"] is False
+    assert calls == []
 
 
 @pytest.mark.parametrize("answer", ["", "Ошибка DeepSeekProvider: private-key"])
@@ -164,3 +174,48 @@ def test_cli_requires_explicit_live_flag_before_loading_credentials(tmp_path):
     assert result.returncode == 2
     assert "--live" in result.stderr
     assert not (tmp_path / "never.json").exists()
+
+
+def test_missing_data_disclaimer_does_not_excuse_invented_counts():
+    result = run_trial(ScriptedProvider(answer="Кэш недоступен. Было 5 отрезков по 400 метров."),
+                       build_scenarios(TODAY)[2], today=TODAY)
+    assert result["checks"]["explicit_data_gap"] is True
+    assert result["checks"]["no_invented_interval_counts"] is False
+    assert result["status"] == "fail"
+
+
+def test_unsupported_power_does_not_pass_with_correct_anchors():
+    result = run_trial(ScriptedProvider(answer="Факт: 128 Вт, 198 Вт и 999 Вт."),
+                       build_scenarios(TODAY)[1], today=TODAY)
+    assert result["checks"]["factual_power_anchors"] is True
+    assert result["checks"]["no_unsupported_power"] is False
+    assert result["status"] == "fail"
+
+
+def test_cli_missing_configuration_retains_planned_trials(tmp_path, monkeypatch):
+    from scripts import run_coach_runtime_eval as cli
+    settings_module = ModuleType("config.settings")
+
+    class MissingSettings:
+        DEEPSEEK_API_KEY = ""
+
+    settings_module.Settings = MissingSettings
+    providers_module = ModuleType("models.ai_providers")
+
+    class NoNetworkProvider:
+        def __init__(self, **kwargs):
+            raise AssertionError("preflight must not create provider")
+
+    providers_module.DeepSeekProvider = NoNetworkProvider
+    monkeypatch.setitem(sys.modules, "config.settings", settings_module)
+    monkeypatch.setitem(sys.modules, "models.ai_providers", providers_module)
+    output = tmp_path / "missing-provider.json"
+    monkeypatch.setattr(sys, "argv", ["run_coach_runtime_eval.py", "--provider", "deepseek",
+                                      "--live", "--today", TODAY.isoformat(), "--output", str(output)])
+    assert cli.main() == 2
+    report = json.loads(output.read_text())
+    assert report["total"] == 6
+    assert report["error_trials"] == 6
+    assert report["calls_used"] == 0
+    assert report["registry_version"]
+    assert report["base_sha"]
