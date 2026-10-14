@@ -53,6 +53,28 @@ def _inconclusive_report(args, error_kind, calls_used=0):
         COMPARISON_REGISTRY_VERSION, COMPARISON_REPORT_VERSION, build_comparison_scenarios,
         COMPACT_CONTRACT, COMPARISON_FIXTURE_VERSION,
     )
+    if args.experiment == "source-ab":
+        from tests.evals.coach.runtime_registry import build_source_scenario, source_report_metadata
+        scenario = build_source_scenario(args.today)
+        results = [{"scenario_id": scenario.scenario_id, "split": scenario.split,
+                    "repeat": repeat, "variant": variant, "prompt": scenario.prompt,
+                    "target_date": scenario.target_date.isoformat(), "status": "error",
+                    "error_kind": error_kind, "checks": {}, "protocol_checks": {},
+                    "truthfulness_checks": {}, "final_answer": "", "provider_trace": [],
+                    "tool_results": [], "database_unchanged": None}
+                   for repeat, order in ((1, ("before", "after")), (2, ("after", "before")))
+                   for variant in order]
+        return {**source_report_metadata(),
+                "mode": "live" if args.live else "scripted", "provider": args.provider,
+                "model": os.environ.get("DEEPSEEK_MODEL", "unresolved"),
+                "today": args.today.isoformat(), "repeats": 2, "total": 4, "passed": 0,
+                "error_trials": 4, "verdict": "inconclusive", "call_limit": 16,
+                "calls_used": calls_used, "error_kind": error_kind, "results": results,
+                "protocol_valid": False, "automated_gate": "inconclusive",
+                "human_assessment": "not_run", "fixture_hash": None,
+                "token_usage": None, "cost": None,
+                "variants": {variant: {"total": 2, "passed": 0, "error_trials": 2}
+                             for variant in ("before", "after")}}
     comparison = args.experiment == "compact-ab"
     scenarios = build_comparison_scenarios(args.today) if comparison else build_scenarios(args.today)
     results = [{"scenario_id": scenario.scenario_id, "split": scenario.split,
@@ -87,7 +109,7 @@ def _inconclusive_report(args, error_kind, calls_used=0):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--provider", required=True, choices=("scripted", "deepseek"))
-    parser.add_argument("--experiment", choices=("baseline", "compact-ab"), default="baseline")
+    parser.add_argument("--experiment", choices=("baseline", "compact-ab", "source-ab"), default="baseline")
     parser.add_argument("--today", required=True, type=date.fromisoformat)
     parser.add_argument("--repeats", type=int, choices=(1, 2), default=2)
     parser.add_argument("--output", type=Path, required=True)
@@ -98,6 +120,8 @@ def main() -> int:
         parser.error("real providers require explicit --live")
     if args.provider == "scripted" and (args.live or args.env_file):
         parser.error("scripted mode needs neither --live nor credentials")
+    if args.experiment == "source-ab" and args.repeats != 2:
+        parser.error("source-ab requires exactly --repeats 2 (four trials)")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     try:
         artifact = args.output.open("x", encoding="utf-8")
@@ -133,6 +157,8 @@ def main() -> int:
                 provider = DeepSeekProvider(settings=ExperimentSettings)
                 if not provider.is_available() or provider.client is None:
                     raise ValueError("selected provider is unavailable")
+                if args.experiment == "source-ab" and provider.model != "deepseek-flash":
+                    raise ValueError("source-ab frozen protocol requires deepseek-flash")
                 provider.client = provider.client.with_options(timeout=45.0, max_retries=0)
                 secrets = (Settings.DEEPSEEK_API_KEY,)
                 original_create = provider.client.chat.completions.create
@@ -149,13 +175,19 @@ def main() -> int:
                 provider.client.chat.completions.create = record_usage
             else:
                 provider = ScriptedRuntimeProvider()
-            from services.coach_runtime_eval import CallBudget, run_comparison, run_experiment
+            from services.coach_runtime_eval import CallBudget, run_comparison, run_experiment, run_source_comparison
             comparison = args.experiment == "compact-ab"
-            budget = CallBudget(64 if comparison else 24)
-            runner = run_comparison if comparison else run_experiment
+            source_comparison = args.experiment == "source-ab"
+            budget = CallBudget(16 if source_comparison else 64 if comparison else 24)
+            runner = run_source_comparison if source_comparison else run_comparison if comparison else run_experiment
             report = runner(provider, today=args.today, repeats=args.repeats, secrets=secrets, budget=budget)
             report["mode"] = "live" if args.live else "scripted"
             report["base_sha"] = base_sha
+            if source_comparison and args.provider == "deepseek":
+                report["provider_settings"] = {
+                    "tools_temperature": provider.settings.AI_TOOLS_TEMPERATURE,
+                    "synthesis_temperature": 0.7, "thinking_enabled": False,
+                }
             report["budgets"] = {"max_provider_calls": budget.limit, "max_calls_per_trial": 4,
                                   "max_tool_calls_per_trial": 12, "max_output_tokens_per_call": 1800,
                                   "sdk_timeout_seconds": 45, "sdk_retries": 0}
@@ -165,6 +197,8 @@ def main() -> int:
                   f"{report['error_trials']} errors; {report['calls_used']}/{budget.limit} provider calls")
             if comparison:
                 print(f"candidate={report['candidate_gate']}; variants={report['variants']}")
+            if source_comparison:
+                print(f"automated={report['automated_gate']}; semantic assessment pending; variants={report['variants']}")
             return 2 if report["error_trials"] else (0 if report["verdict"] == "pass" else 1)
         except Exception as exc:
             report = _inconclusive_report(args, type(exc).__name__, budget.used if budget else 0)

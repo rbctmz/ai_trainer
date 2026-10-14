@@ -148,10 +148,11 @@ class _RecordingProvider:
 
 
 class _ReadOnlyTools:
-    def __init__(self, tools: AITools):
+    def __init__(self, tools: AITools, missing_structure_message: str | None = None):
         self.delegate = tools
         self.denied: list[str] = []
         self.calls = 0
+        self.missing_structure_message = missing_structure_message
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         return [s for s in self.delegate.get_tool_schemas() if s["name"] in ALLOWED_TOOLS]
@@ -161,7 +162,14 @@ class _ReadOnlyTools:
         if tool_name not in ALLOWED_TOOLS or self.calls > 12:
             self.denied.append(tool_name)
             return {"success": False, "error": "tool denied by experiment boundary"}
-        return self.delegate.execute_tool(tool_name, **params)
+        outcome = self.delegate.execute_tool(tool_name, **params)
+        if (self.missing_structure_message is not None and tool_name == "get_activity_structure"
+                and outcome.get("success")):
+            outcome = copy.deepcopy(outcome)
+            for activity in outcome.get("result", {}).get("activities", []):
+                if activity.get("structure_status") == "unavailable" and activity.get("reason") == "not_fetched":
+                    activity["message"] = self.missing_structure_message
+        return outcome
 
 
 def _snapshot(path: Path) -> str:
@@ -242,7 +250,8 @@ def run_trial(provider: Any, scenario: RuntimeScenario, *, today: date,
               repeat: int = 1, budget: CallBudget | None = None,
               secrets: tuple[str, ...] = (), response_contract: dict | None = None,
               fixture_factory: Callable[[Path], Any] | None = None,
-              calendar_guard: str | None = None) -> dict[str, Any]:
+              calendar_guard: str | None = None,
+              missing_structure_message: str | None = None) -> dict[str, Any]:
     """Один shared-runtime turn, изолированный от product persistence и сети tools."""
     recorder = _RecordingProvider(provider, budget or CallBudget(), secrets, calendar_guard)
     started = time.monotonic()
@@ -257,7 +266,7 @@ def run_trial(provider: Any, scenario: RuntimeScenario, *, today: date,
         database = (fixture_factory(path) if fixture_factory is not None
                     else build_synthetic_coach_database(path, days))
         before = _snapshot(path)
-        tools = _ReadOnlyTools(AITools(database))
+        tools = _ReadOnlyTools(AITools(database), missing_structure_message)
         goal_plan = restore_goal_plan_from_checkpoint(database.get_latest_planning_checkpoint())
         try:
             turn = resolve_turn_tool_results(
@@ -382,6 +391,114 @@ def run_comparison(provider: Any, *, today: date, repeats: int = 2,
         "human_assessment": "pending", "token_usage": _usage_totals(results), "cost": None,
         "limitations": ["small paired sample, no statistical significance claim",
                         "manual factual/semantic assessment required", "restricted read-only surface"],
+        "results": results,
+    }
+
+
+def _source_message_exposed(result: dict, expected_message: str) -> bool:
+    """Prove the actual target message reached both model input surfaces."""
+    matched = [row for row in result["tool_results"]
+               if row.get("tool_name") == "get_activity_structure" and row.get("success")
+               and _has_target(row.get("raw_result"), result["target_date"])
+               and any(activity.get("structure_status") == "unavailable"
+                       and activity.get("reason") == "not_fetched"
+                       and activity.get("message") == expected_message
+                       for activity in row.get("raw_result", {}).get("activities", []))]
+    native = [message.get("content", "") for entry in result["provider_trace"]
+              for message in entry["request"].get("messages", [])
+              if message.get("role") == "tool" and message.get("name") == "get_activity_structure"]
+    synthesis = [entry["request"]["prompt"] for entry in result["provider_trace"]
+                 if entry["method"] == "generate_response"]
+    return (bool(matched) and all(expected_message in row["formatted_result"] for row in matched)
+            and any(expected_message in content for content in native)
+            and bool(synthesis) and all(expected_message in prompt for prompt in synthesis))
+
+
+def run_source_comparison(provider: Any, *, today: date, repeats: int = 2,
+                          budget: CallBudget | None = None,
+                          secrets: tuple[str, ...] = ()) -> dict[str, Any]:
+    """Exactly four message-only paired turns; truthfulness needs semantic review."""
+    from data.database import Database
+    from models.ai_tools import _ACTIVITY_STRUCTURE_MESSAGES
+    from tests.evals.coach.runtime_registry import (
+        COMPACT_CONTRACT, SOURCE_BEFORE_MESSAGE, build_comparison_database,
+        build_source_scenario, source_report_metadata,
+    )
+
+    if repeats != 2:
+        raise ValueError("source comparison requires exactly 2 repeats")
+    budget = budget or CallBudget(16)
+    if not 1 <= budget.limit <= 16:
+        raise ValueError("source comparison call limit must be between 1 and 16")
+    after_message = _ACTIVITY_STRUCTURE_MESSAGES["not_fetched"]
+    if after_message == SOURCE_BEFORE_MESSAGE:
+        raise ValueError("source comparison requires distinct before/after messages")
+    scenario = build_source_scenario(today)
+    native_calendar = _today_context_line()
+    results = []
+    with TemporaryDirectory(prefix="coach-source-paired-") as directory:
+        canonical = Path(directory) / "canonical.db"
+        build_comparison_database(canonical, today)
+        canonical_hash = _snapshot(canonical)
+
+        def clone(path: Path) -> Database:
+            with sqlite3.connect(f"file:{canonical}?mode=ro", uri=True) as source:
+                with sqlite3.connect(str(path)) as target:
+                    source.backup(target)
+            return Database(str(path))
+
+        for repeat in (1, 2):
+            order = ("before", "after") if repeat == 1 else ("after", "before")
+            for variant in order:
+                message = SOURCE_BEFORE_MESSAGE if variant == "before" else after_message
+                result = run_trial(
+                    provider, scenario, today=today, repeat=repeat, budget=budget, secrets=secrets,
+                    fixture_factory=clone, calendar_guard=native_calendar,
+                    response_contract=COMPACT_CONTRACT,
+                    missing_structure_message=SOURCE_BEFORE_MESSAGE if variant == "before" else None,
+                )
+                result.update({"variant": variant, "word_count": len(result["final_answer"].split()),
+                               "source_message_sha256": hashlib.sha256(message.encode()).hexdigest()})
+                result["protocol_checks"] = {
+                    "selected_target_tool": result["checks"]["required_tool"],
+                    "allowed_tools_only": result["checks"]["allowed_tools_only"],
+                    "database_unchanged": result["database_unchanged"],
+                    "same_canonical_input": result["snapshot_before"] == canonical_hash,
+                    "message_exposed": _source_message_exposed(result, message),
+                }
+                result["truthfulness_checks"] = {key: result["checks"][key] for key in (
+                    "explicit_data_gap", "no_invented_interval_table", "no_invented_interval_counts",
+                    "no_unverified_fetch_promise")}
+                if result["status"] != "error":
+                    result["status"] = ("pass" if all(result["protocol_checks"].values())
+                                        and all(result["truthfulness_checks"].values()) else "fail")
+                results.append(result)
+        assert canonical_hash == _snapshot(canonical), "canonical fixture changed"
+    errors = sum(row["status"] == "error" for row in results)
+    protocol_valid = not errors and all(all(row["protocol_checks"].values()) for row in results)
+    variants = {}
+    for variant in ("before", "after"):
+        rows = [row for row in results if row["variant"] == variant]
+        variants[variant] = {
+            "total": len(rows), "passed": sum(row["status"] == "pass" for row in rows),
+            "error_trials": sum(row["status"] == "error" for row in rows),
+            "brief_answers": sum(row["checks"]["brief_answer"] for row in rows),
+            "mean_words": sum(row["word_count"] for row in rows) / len(rows),
+        }
+    automated_gate = ("inconclusive" if not protocol_valid else
+                      "pass" if variants["after"]["passed"] == 2 else "fail")
+    return {
+        **source_report_metadata(after_message), "fixture_hash": canonical_hash,
+        "native_calendar": native_calendar, "today": today.isoformat(), "repeats": repeats,
+        "provider_class": type(provider).__name__, "model": str(getattr(provider, "model", "unknown")),
+        "call_limit": budget.limit, "calls_used": budget.used, "total": len(results),
+        "passed": sum(row["status"] == "pass" for row in results), "error_trials": errors,
+        "protocol_valid": protocol_valid, "variants": variants, "automated_gate": automated_gate,
+        "verdict": "pending_manual" if protocol_valid else "inconclusive",
+        "human_assessment": "pending", "token_usage": _usage_totals(results), "cost": None,
+        "limitations": ["two repeats per variant, no causal or statistical significance claim",
+                        "lexical checks are diagnostics; semantic assessment of all four answers required",
+                        "restricted read-only shared runtime; not full API/SSE or coaching validation"],
         "results": results,
     }
 

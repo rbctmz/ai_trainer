@@ -13,7 +13,9 @@ Coach должен честно объяснять отсутствие отре
 - [x] (2026-10-14) Заполнен [slice spec](issue_528_source_promise_slice_spec.md), независимый bounded spec check: блокеров нет; handoff Spec Owner → Domain Implementer.
 - [x] (2026-10-14) M1: RED/GREEN для сообщения инструмента и его доставки в контекст модели:2failed до исправления,104focused passed после.
 - [x] (2026-10-14) M1:104focused passed,2951smoke passed/35skipped, lint/diff checks passed; self-review и independent checker без блокеров.
-- [ ] M2: замороженное сравнение исходного/исправленного сообщения,4trials/16calls максимум, после принятия этапа исполнения владельцем.
+- [x] (2026-10-14) Владелец авторизовал M2 сообщением «Делай» после представления4trials/16calls бюджета. [M2 slice spec](issue_528_source_comparison_slice_spec.md) заморожен; independent spec check без блокеров, handoff Spec Owner → Domain Implementer.
+- [ ] M2: замороженное сравнение исходного/исправленного сообщения,4trials/16calls максимум.
+- [x] (2026-10-15) Source-ab runner/CLI готов:112focused passed,2957smoke passed/35skipped, lint/diff passed; independent implementation checker32passed, блокеров нет. Last2boundarytests добавлены после broad collection и проверены targeted/checker.
 - [ ] Immutable trace, отдельная human assessment, итоговое решение и локальный проверенный checkpoint.
 
 ## Surprises & Discoveries
@@ -29,6 +31,10 @@ Decision: существующие prompts, compact candidate и модель о
 Decision: live4attempts = одна missing-cache задача × два message variants × два повтора; максимум16provider calls,4/trial,12tools/trial,1800outputtokens/call,45sSDKtimeout,zero retries. Rationale: достаточный ограниченный повтор для первичной проверки источника, без нового большого eval круга. Это планируемый бюджет, здесь вызовов нет. Date:2026-10-14.
 
 Decision: основная приёмка этого этапа — правдивость сообщения и отсутствие гарантии в model answer. Краткость измерять отдельно; превышение80слов не подменяет truthfulness verdict. Старые baseline/A/B scores не пересчитывать. Date:2026-10-14.
+
+Decision: M2 использует одинаковый compact_answer_v1 response contract в обоих source variants и отдельный source-ab CLI/report. Rationale: повторить проблемный missing-cache контекст compact A/B, сохранив единственное изменяемое поле message. Immutable JSON не объявляет semantic pass, отдельная оценка всех4answers атрибутируется агенту; review Greg не заявляется. Date:2026-10-14.
+
+Decision: до первого платного вызова наступил2026-10-15; дата fixture/вопроса и live --today сдвинуты вместе на15октября/14октября факта. Rationale: native calendar соответствует дате исполнения; ни одной платной попытки до смены дня не было. Gate, registry, budget и messages не изменены. Date:2026-10-15.
 
 ## Outcomes & Retrospective
 
@@ -69,7 +75,7 @@ Spec Owner фиксирует данный bounded intent. После spec check
     python -m pytest tests/smoke/test_coach_activity_structure_tool.py tests/smoke/test_activity_intervals.py tests/smoke/test_coach_runtime_eval.py tests/smoke/test_coach_compact_ab.py -q
     python -m ruff check .
 
-В текущем sandbox использовать -p no:cacheprovider и ruff --no-cache. Broad smoke требует отдельного writable DATABASE_PATH/CHATS_DIR в новом temp каталоге, чтобы не создавать default DB в checkout. Конкретную live CLI команду записать после реализации source-comparison mode; сейчас такого режима нет, существующий compact-ab не является заменой этого эксперимента.
+В текущем sandbox использовать -p no:cacheprovider и ruff --no-cache. Broad smoke требует отдельного writable DATABASE_PATH/CHATS_DIR в новом temp каталоге, чтобы не создавать default DB в checkout. Source-comparison mode — `--experiment source-ab`, точно2repeats. Конкретная finite live CLI команда и frozen acceptance записаны в reports/2026-10-15-coach-source-ab/README.md; compact-ab не является заменой этого эксперимента.
 
 ## Validation and Acceptance
 

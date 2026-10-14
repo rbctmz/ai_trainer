@@ -7,6 +7,13 @@ REPORT_VERSION = "coach_runtime_report_v1"
 COMPARISON_REGISTRY_VERSION = "coach_compact_ab_v1"
 COMPARISON_REPORT_VERSION = "coach_compact_ab_report_v1"
 COMPARISON_FIXTURE_VERSION = "coach_coherent_fixture_v2"
+SOURCE_REGISTRY_VERSION = "coach_source_message_ab_v1"
+SOURCE_REPORT_VERSION = "coach_source_message_report_v1"
+SOURCE_BEFORE_MESSAGE = (
+    "Структура недоступна: интервалы этой активности ещё не выгружены в кэш. "
+    "Они появятся после синхронизации с Intervals.icu или после открытия "
+    "карточки активности; за сетью инструмент не ходит."
+)
 COMPACT_CONTRACT = {
     "mode": "compact_answer_v1",
     "prompt_suffix": "До 80 слов. Ответь только на заданный вопрос. "
@@ -76,6 +83,31 @@ def build_comparison_scenarios(today: date) -> list[RuntimeScenario]:
             "get_workout_structure", requires_rest=True,
         ),
     ]
+
+
+def build_source_scenario(today: date) -> RuntimeScenario:
+    """Frozen missing-cache regression, no new prompt or response contract."""
+    return build_comparison_scenarios(today)[2]
+
+
+def source_report_metadata(after_message: str | None = None) -> dict:
+    """Lightweight metadata also available on credential/preflight failure."""
+    import hashlib
+
+    def message(text: str | None, provenance: str) -> dict:
+        return {"text": text, "sha256": hashlib.sha256(text.encode()).hexdigest() if text else None,
+                "provenance": provenance}
+
+    return {
+        "report_version": SOURCE_REPORT_VERSION, "registry_version": SOURCE_REGISTRY_VERSION,
+        "fixture_version": COMPARISON_FIXTURE_VERSION,
+        "response_contract": dict(COMPACT_CONTRACT),
+        "source_messages": {
+            "before": message(SOURCE_BEFORE_MESSAGE,
+                              "docs/reports/2026-10-13-coach-compact-ab/live-comparison.json"),
+            "after": message(after_message, "models/ai_tools.py::_ACTIVITY_STRUCTURE_MESSAGES[not_fetched]"),
+        },
+    }
 
 
 def build_comparison_database(path, today: date):
