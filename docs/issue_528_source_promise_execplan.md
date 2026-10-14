@@ -14,9 +14,9 @@ Coach должен честно объяснять отсутствие отре
 - [x] (2026-10-14) M1: RED/GREEN для сообщения инструмента и его доставки в контекст модели:2failed до исправления,104focused passed после.
 - [x] (2026-10-14) M1:104focused passed,2951smoke passed/35skipped, lint/diff checks passed; self-review и independent checker без блокеров.
 - [x] (2026-10-14) Владелец авторизовал M2 сообщением «Делай» после представления4trials/16calls бюджета. [M2 slice spec](issue_528_source_comparison_slice_spec.md) заморожен; independent spec check без блокеров, handoff Spec Owner → Domain Implementer.
-- [ ] M2: замороженное сравнение исходного/исправленного сообщения,4trials/16calls максимум.
+- [x] (2026-10-15) M2: один frozen live run,4trials/12calls из16,0errors; same-input/read-only/message exposure4/4.
 - [x] (2026-10-15) Source-ab runner/CLI готов:112focused passed,2957smoke passed/35skipped, lint/diff passed; independent implementation checker32passed, блокеров нет. Last2boundarytests добавлены после broad collection и проверены targeted/checker.
-- [ ] Immutable trace, отдельная human assessment, итоговое решение и локальный проверенный checkpoint.
+- [x] (2026-10-15) Immutable trace и отдельная семантическая оценка всех4answers двумя агентами, итоговое ограниченное решение и локальный checkpoint. Человеческая оценка Greg остаётся pending; не заявляется выполненной.
 
 ## Surprises & Discoveries
 
@@ -38,7 +38,7 @@ Decision: до первого платного вызова наступил2026
 
 ## Outcomes & Retrospective
 
-M1 исправляет исходную гарантию и подтверждает доставку ограничения в оба контекста модели офлайн. Real synthetic DB native+synthesis probe сохранил одинаковый logical hash; внешних вызовов нет. Independent checker:21passed, блокеров нет, checkout не изменён reviewer. M2 ещё не выполнен. Источник ошибочной гарантии воспроизведён; краткость остаётся отдельной гипотезой. Исправление источника не гарантирует исчезновения всех неподтверждённых утверждений модели.
+M1 исправляет исходную гарантию и подтверждает доставку ограничения в оба контекста модели офлайн. M2 выполнен на05c932b:4trials,12/16calls,0errors; явная гарантия sync/card исчезла2/2after против2/2before с гарантией. Narrow gate before0/2→after2/2, но after1 обещает успешный повторный запрос без подтверждённого получения в кэш, after2 содержит неоднозначное начало. Поэтому2/2fully truthful не заявлено; source fix сохранить, остаток выделить в следующий bounded slice. [Trace/report](reports/2026-10-15-coach-source-ab/README.md) и [семантическая оценка](reports/2026-10-15-coach-source-ab/assessment.md) атрибутированы агентам; Greg human review pending. Initial requests одинаковы4/4; tool/synthesis input отличаются только message; DB unchanged4/4. Это ограниченное наблюдение, не статистическая значимость или общее доказательство причинности.
 
 ## Context and Orientation
 
@@ -95,4 +95,4 @@ ASR-REL-2: data gap остаётся неизвестностью; ASR-SEC-1: tr
 
 Отдельный будущий slice spec, RED/GREEN evidence, immutable source-comparison JSON и human assessment. Новое source-comparison report имеет собственную registry/version/provenance, source-message variants и same-input hash; старые baseline/compact-ab files immutable. Переиспользовать run_trial, recording provider, read-only tools и budget guard. Существующий baseline cap24 и compact-ab cap64 не повышаются. No new dependency/framework.
 
-Revision2026-10-14: после запроса «Что дальше?» выполнен M1; paid M2 остаётся отдельным следующим этапом. RED/GREEN, probe и независимая проверка записаны в slice spec.
+Revision2026-10-15: по явному «Делай» выполнен конечный M2, сохранены trace и отдельно семантическая оценка всех4answers; исходная гарантия ушла, другое обещание осталось. Никакой подстройки/повторного paid run или merge; дальнейшая корректировка — отдельный scope.

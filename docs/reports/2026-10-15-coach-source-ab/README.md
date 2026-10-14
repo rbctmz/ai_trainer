@@ -26,6 +26,15 @@ JSON создаётся исключительно новым файлом; cred
 
 ## Результат
 
-Прогон ещё не выполнен. Перед ним:112focused passed;2957smoke passed/35skipped/1warning на отдельной temp DB/chats (190.53s), whole-tree ruff/diff checks passed. Broad collection до добавления последних2boundarytests; final focused/checker включают их. Independent spec и delta checks без блокеров; checker32tests passed, checkout не изменён. Старые baseline/compact JSON byte-identical80649bc.
+**Конкретная гарантия sync/card → появление отрезков исчезла:before0/2,after2/2 по замороженному узкому критерию. Полностью правдивыми оба ответа назвать нельзя:** after1 заменил её другим обещанием «повторите запрос — тогда назову отрезки», пропустив условие получения данных в кэш. After2 начинает с неоднозначного «Отрезков ... нет», затем явно объясняет отсутствие кэша. [Отдельная семантическая оценка всех4ответов](assessment.md) выполнена первичным и независимым агентами; человеческая оценка Greg не заявлена. [Immutable trace](live-comparison.json) остаётся pending_manual, автоматический gate диагностический.
 
-Здесь будут immutable trace, отдельная оценка всех4answers, calls/usage/provenance, проверки и решение. Remote CI, PR, merge и закрытие#528 не заявлены.
+| Повтор | Before:слова | After:слова | Гарантия sync/card до/после | Остаток after |
+| --- | ---: | ---: | --- | --- |
+|1|63|66|есть → нет|неподтверждённое обещание следующего запроса|
+|2|65|75|есть → нет|неоднозначное начало, затем ограничение отсутствием кэша|
+
+Один live run на05c932b,12/16calls,4trials,0errors; все4в пределах80слов, средняя длина64→70.5. Canonical DB inputs одинаковы4/4 и unchanged4/4; exposure в native/synthesis подтверждён4/4. Начальные model requests одинаковы; raw/formatted tool results и synthesis requests различаются только точным message. Model deepseek-flash, tools temperature0.0/synthesis0.7, thinking disabled. SDK usage39232input+1242output=40474tokens; денежная стоимость не рассчитывалась. Нет повторного запуска или подстройки.
+
+Перед ним:112focused passed;2957smoke passed/35skipped/1warning на отдельной temp DB/chats (190.53s), whole-tree ruff/diff checks passed. Broad collection до добавления последних2boundarytests; final focused/checker включают их. Independent spec и delta checks без блокеров; checker32tests passed, checkout не изменён. Старые baseline/compact JSON byte-identical80649bc.
+
+Решение: сохранить исправление источника M1; результат поддерживает его пользу в данном ограниченном сценарии. Следующий bounded slice — не обещать успех повторного запроса без подтверждённого кэша и начинать объяснение со «структура недоступна». Общее качество Coach, причинность и статистическая значимость не установлены. Remote CI, PR, merge и закрытие#528 не заявлены.

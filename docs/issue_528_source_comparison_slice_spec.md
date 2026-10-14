@@ -7,7 +7,7 @@
 
 ## Change Class
 
-Class A: one explicitly authorized paid experiment. Manual review; budget0/2 before execution. No native GitHub review, push, PR or merge. User's «Делай» authorizes the presented4trials/16calls experiment.
+Class A: one explicitly authorized paid experiment. Manual review; one spec check and one implementation delta check completed. Subsequent semantic assessment inspects the4outputs, not another code-review round. No native GitHub review, push, PR or merge. User's «Делай» authorizes the presented4trials/16calls experiment.
 
 ## Scope / Non-goals
 
@@ -23,8 +23,8 @@ No changes to product prompts/runtime, M1 message, sync, persistence, UI/API/TS,
 - Global cap16provider calls,4/trial,12tool executions/trial,1800output tokens/call,45sSDK timeout,0retries. Native calendar guard freezes current timezone/day and stops if it changes. CLI preflight failures retain all4planned trials. Existing baseline24/compact64caps unchanged.
 - [x] RED→GREEN offline checks prove message-only delta, delivery in native+synthesis, exposure, AB/BA, same-input/read-only boundaries, denominator/caps/preflight and output no-overwrite.
 - [x] Focused/broad tests, lint, independent checker before paid run.
-- [ ] Immutable JSON with source-message texts/hashes, fixture hash, model/settings/head/calendar, calls/token totals, raw/formatted traces and every trial including errors.
-- [ ] Separate semantic assessment of ALL4answers; local verified checkpoint. Greg owns merge; worktree retained.
+- [x] Immutable JSON with source-message texts/hashes, fixture hash, model/settings/head/calendar, calls/token totals, raw/formatted traces and every trial including errors.
+- [x] Separate semantic assessment of ALL4answers by primary/independent agents; this evidence is included in local verified checkpoint. Human review Greg pending. Greg owns merge; worktree retained.
 
 ## Acceptance and Public Contracts
 
@@ -68,4 +68,6 @@ ASR-REL-2: missing evidence remains unknown. ASR-SEC-1: synthetic-only/sanitized
 
 Independent spec check: no blockers; handoff to Domain Implementer. RED: new test module could not collect because run_source_comparison interface did not exist. GREEN:112focused tests passed including all8source tests; whole-tree ruff and diff checks passed. Broad smoke:2957passed/35skipped/1existing Starlette warning,190.53s on separate temp DB/chats. Broad collection preceded the final2source boundary tests; both were subsequently covered by112focused checks and checker32tests. Skips are TypeScript dependency, fixture-regeneration, historical pilot/process and socket environment checks; no web/API contract changed.
 
-Independent implementation delta check against80649bc:32passed, lint/diff checks passed; no blockers, no edits, unchanged git status. One spec check and one implementation delta review, no native GitHub review. Old baseline/compact JSON files byte-identical to80649bc; no scoring/report rewrite. Pending immutable live run and semantic assessment. A negative result is retained as evidence rather than tuned away. No human semantic review by Greg claimed; agent semantic assessment will be clearly attributed. READY for the already-authorized finite execution, not a model-quality verdict or merge approval.
+Independent implementation delta check against80649bc:32passed, lint/diff checks passed; no blockers, no edits, unchanged git status. One spec check and one implementation delta review, no native GitHub review. Old baseline/compact JSON files byte-identical to80649bc; no scoring/report rewrite.
+
+One authorized live run on05c932b:4trials,12/16calls,0errors, same-input/read-only/exposure4/4;39232prompt+1242completion tokens. Artifact/hash and all4semantic assessments in [report](reports/2026-10-15-coach-source-ab/README.md) and [assessment](reports/2026-10-15-coach-source-ab/assessment.md). Narrow sync/card criterion before0/2→after2/2; other repeat-query guarantee remains in after1, ambiguity in after2. Primary and independent semantic agent assessments agree; Greg human review pending, immutable JSON unchanged/pending_manual. No claim of2/2fully truthful answers or general model quality. Final M2 execution/evidence complete; M1 source fix retained; residual follow-up owned by Greg for prioritization, not silently implemented. No merge approval.
