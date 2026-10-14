@@ -17,6 +17,9 @@ Coach должен честно объяснять отсутствие отре
 - [x] (2026-10-15) M2: один frozen live run,4trials/12calls из16,0errors; same-input/read-only/message exposure4/4.
 - [x] (2026-10-15) Source-ab runner/CLI готов:112focused passed,2957smoke passed/35skipped, lint/diff passed; independent implementation checker32passed, блокеров нет. Last2boundarytests добавлены после broad collection и проверены targeted/checker.
 - [x] (2026-10-15) Immutable trace и отдельная семантическая оценка всех4answers двумя агентами, итоговое ограниченное решение и локальный checkpoint. Человеческая оценка Greg остаётся pending; не заявляется выполненной.
+- [x] (2026-10-15) По «Закрепляй условия» открыт новый M3 scope, [slice spec](issue_528_cache_conditions_slice_spec.md) проверен независимым checker без блокеров; handoff Spec Owner → Domain Implementer.
+- [x] (2026-10-15) M3: shared prompt condition добавлено после RED5failed;117focused passed, lint/diff passed. Paid calls0.
+- [x] (2026-10-15) M3:2964smoke passed/35skipped/1existing warning на отдельной DB/chats,208s; independent checker59passed, блокеров нет; local verified checkpoint, zero paid calls.
 
 ## Surprises & Discoveries
 
@@ -36,9 +39,13 @@ Decision: M2 использует одинаковый compact_answer_v1 respons
 
 Decision: до первого платного вызова наступил2026-10-15; дата fixture/вопроса и live --today сдвинуты вместе на15октября/14октября факта. Rationale: native calendar соответствует дате исполнения; ни одной платной попытки до смены дня не было. Gate, registry, budget и messages не изменены. Date:2026-10-15.
 
+Decision: M3 меняет одну общую cognitive instruction в существующем runtime, без нового deterministic validator и paid run. Rationale: явное успешное получение в кэш уже есть в tool result, но при synthesis теряется; правило должно поступать на все prompt paths и correction. Offline tests доказывают доставку, не поведение живой модели. Frozen M2 остаётся результатом05c932b, новые prompts не приписываются тому запуску. Date:2026-10-15.
+
 ## Outcomes & Retrospective
 
 M1 исправляет исходную гарантию и подтверждает доставку ограничения в оба контекста модели офлайн. M2 выполнен на05c932b:4trials,12/16calls,0errors; явная гарантия sync/card исчезла2/2after против2/2before с гарантией. Narrow gate before0/2→after2/2, но after1 обещает успешный повторный запрос без подтверждённого получения в кэш, after2 содержит неоднозначное начало. Поэтому2/2fully truthful не заявлено; source fix сохранить, остаток выделить в следующий bounded slice. [Trace/report](reports/2026-10-15-coach-source-ab/README.md) и [семантическая оценка](reports/2026-10-15-coach-source-ab/assessment.md) атрибутированы агентам; Greg human review pending. Initial requests одинаковы4/4; tool/synthesis input отличаются только message; DB unchanged4/4. Это ограниченное наблюдение, не статистическая значимость или общее доказательство причинности.
+
+M3 закрепил оба условия в общей инструкции: неизвестная структура не становится отсутствующими отрезками, а повторный запрос/provider availability не становится подтверждённым кэшем. Доставка в marker/native/synthesis/correction проверена real-tool synthetic turns;117focused и2964smoke passed, independent checker без блокеров. Это instruction contract, не новый output blocker; поведение настоящей модели после M3 не измерено. Все3historical live JSON побайтово совпадают с9e4d717. Никаких paid calls/push/merge для M3.
 
 ## Context and Orientation
 
@@ -50,7 +57,7 @@ M1 исправляет исходную гарантию и подтвержд�
 
 ## Scope and Role Handoff
 
-Spec Owner фиксирует данный bounded intent. После spec check Domain Implementer правит только message и contract-backed tests; fixture/runner/CLI изменения допускаются только для source A/B с одним изменяемым полем. Independent Reviewer проверяет read-only delta и разрешённые offline tests. Greg — владелец следующего исполнения/merge. UI/CSS, API schemas, readiness/TSS/planner, data persistence, sync behavior, prompts и provider settings в срез не входят.
+Spec Owner фиксирует bounded intent. Для M1 после spec check Domain Implementer правит только message и contract-backed tests; M2 fixture/runner/CLI допускаются только для source A/B с одним изменяемым полем. M3 отдельно авторизован владельцем: shared runtime prompt instruction и regressions, без изменения source/gate/scorer/history. Independent Reviewer проверяет read-only delta и разрешённые offline tests. Greg — владелец следующего исполнения/merge. UI/CSS, API schemas, readiness/TSS/planner, data persistence, sync behavior и provider settings вне всех трёх срезов; prompts были frozen в M1/M2 и намеренно меняются только в M3.
 
 ## Milestones / Plan of Work
 
@@ -67,6 +74,12 @@ Spec Owner фиксирует данный bounded intent. После spec check
 Зафиксировать одну согласованную canonical synthetic DB и одну missing-cache задачу. Два варианта tool message — исходный, сохранённый в старой trace, и исправленный. В экспериментальной read-only обвязке подменяется только message при его формировании; настоящий tool, formatter и shared runtime работают как раньше. Product default остаётся исправленным, экспериментальная подстановка исходного message не становится production mode.
 
 Для каждого из двух повторов чередовать before/after порядок, клонировать одинаковую DB через SQLite backup. Model, settings, prompts, response contract, data/date одинаковы. Перед live freeze criteria, независимый checker, explicit finite run setup. Выполнить только4trials с одним global cap16; если среда/календарь/провайдер не позволяют сравнение, сохранить INCONCLUSIVE без бесконечного retry.
+
+### M3 — явные условия получения фактических отрезков
+
+По отдельному запросу «Закрепляй условия» добавить правило в существующий `_COGNITIVE_GUARDRAILS` в models/ai_coach_runtime.py. При unavailable объяснение начинается со «Структура недоступна», а не утверждения отсутствия отрезков. Наличие у provider/синхронизация/карточка/повтор запроса не подтверждают получение в кэш; фактические отрезки называть по подтверждающему результату инструмента после получения данных. Structured уже полученные данные остаются доступными, analyzed-empty допускает «анализ не нашёл отрезков».
+
+RED tests в tests/smoke/test_ai_coach_runtime.py проверяют общие model-facing условия в marker/native/synthesis. Offline real-tool turns на synthetic SQLite и существующая calendar correction подтверждают доставку этих условий также в corrective synthesis при compact contract; fixture unchanged. Запустить focused suites, whole-tree lint, isolated smoke, independent checker; сохранить локальный checkpoint. Никаких paid model calls, новых classifiers или изменения frozen M2 reports. Это instruction contract, не детерминированная гарантия соблюдения моделью.
 
 ## Concrete Steps
 
@@ -96,3 +109,5 @@ ASR-REL-2: data gap остаётся неизвестностью; ASR-SEC-1: tr
 Отдельный будущий slice spec, RED/GREEN evidence, immutable source-comparison JSON и human assessment. Новое source-comparison report имеет собственную registry/version/provenance, source-message variants и same-input hash; старые baseline/compact-ab files immutable. Переиспользовать run_trial, recording provider, read-only tools и budget guard. Существующий baseline cap24 и compact-ab cap64 не повышаются. No new dependency/framework.
 
 Revision2026-10-15: по явному «Делай» выполнен конечный M2, сохранены trace и отдельно семантическая оценка всех4answers; исходная гарантия ушла, другое обещание осталось. Никакой подстройки/повторного paid run или merge; дальнейшая корректировка — отдельный scope.
+
+Revision2026-10-15 M3: владелец отдельно авторизовал закрепление условий. Новое правило инструкции относится к следующей версии runtime; source A/B artifacts и результаты05c932b остаются неизменными. Behavioral effect M3 пока не измерен.

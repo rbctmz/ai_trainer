@@ -132,6 +132,91 @@ def test_prompts_anchor_today_as_single_date_source(monkeypatch):
         assert "ошибочна" in prompt
 
 
+def _assert_activity_cache_conditions(prompt):
+    """Model-facing contract: unknown ≠ empty; requery ≠ cached evidence."""
+    assert "get_activity_structure" in prompt
+    assert "structure_status=unavailable" in prompt
+    assert "Начинай объяснение со слов «Структура недоступна»" in prompt
+    assert "не утверждай «Отрезков нет» или «отрезков не было»" in prompt
+    assert "Наличие отрезков в Intervals.icu" in prompt
+    assert "не подтверждают получение данных в локальный кэш" in prompt
+    assert "Не обещай «повторите запрос — тогда назову отрезки»" in prompt
+    assert "после успешного получения данных в кэш" in prompt
+    assert "новый результат инструмента подтверждает structure_status=structured" in prompt
+    assert "structure_status=empty" in prompt
+
+
+@pytest.mark.parametrize("factory", [
+    ai_coach_runtime.create_chat_system_prompt_with_tools,
+    ai_coach_runtime.create_native_chat_system_prompt,
+    ai_coach_runtime.create_chat_synthesis_system_prompt,
+])
+def test_all_prompt_paths_state_actual_cache_conditions(factory):
+    _assert_activity_cache_conditions(factory(None))
+
+
+@pytest.mark.parametrize("native", [True, False])
+def test_cache_conditions_reach_real_tool_turn_and_correction(native):
+    """Capture requests; scripted responses are not evidence of model obedience."""
+    from datetime import date
+    from services.coach_runtime_eval import run_trial
+    from tests.evals.coach.runtime_registry import (
+        COMPACT_CONTRACT, build_comparison_database, build_source_scenario,
+    )
+
+    class Provider:
+        model = "offline-cache-condition-probe"
+
+        def __init__(self):
+            self.responses = 0
+            self.request_count = 0
+
+        def is_available(self):
+            return True
+
+        def supports_native_tools(self):
+            return native
+
+        def generate_with_tools(self, messages, tools, system_prompt=""):
+            self.request_count += 1
+            if any(message["role"] == "tool" for message in messages):
+                return {"text": "Структура недоступна.", "tool_calls": []}
+            return {"tool_calls": [{"id": "cache-condition-1", "name": "get_activity_structure",
+                                    "arguments": {"activity_id": "syn-run-uncached"}}]}
+
+        def generate_response(self, prompt, system_prompt=""):
+            self.request_count += 1
+            if not native and self.request_count == 1:
+                return "[TOOL: get_activity_structure, activity_id=syn-run-uncached]"
+            self.responses += 1
+            if self.responses == 1:
+                # Existing calendar rule triggers the real bounded correction path.
+                return "Сегодня 2025-01-01."
+            return "Структура недоступна: отрезки ещё не получены в кэш."
+
+    today = date(2026, 10, 15)
+    provider = Provider()
+    result = run_trial(provider, build_source_scenario(today), today=today,
+                       response_contract=COMPACT_CONTRACT,
+                       fixture_factory=lambda path: build_comparison_database(path, today))
+    assert result["error_kind"] is None
+    assert provider.responses == 2
+    assert result["database_unchanged"] is True
+    activity = result["tool_results"][0]["raw_result"]["activities"][0]
+    assert activity["structure_status"] == "unavailable"
+    assert activity["reason"] == "not_fetched"
+    assert "intervals" not in activity
+    trace = result["provider_trace"]
+    assert len(trace) == (4 if native else 3)
+    for entry in trace:
+        request = entry["request"]
+        # Marker selection embeds its system instructions in the plain prompt.
+        _assert_activity_cache_conditions(request["system_prompt"] or request.get("prompt", ""))
+    assert "ИСПРАВЛЕНИЕ" in trace[-1]["request"]["prompt"]
+    assert activity["message"] in trace[-1]["request"]["prompt"]
+    assert COMPACT_CONTRACT["prompt_suffix"] in trace[-1]["request"]["prompt"]
+
+
 def test_synthesis_prompt_uses_frozen_today_anchor():
     class Provider:
         system_prompt = ""
