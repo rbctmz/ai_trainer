@@ -9,6 +9,9 @@ COMPARISON_REPORT_VERSION = "coach_compact_ab_report_v1"
 COMPARISON_FIXTURE_VERSION = "coach_coherent_fixture_v2"
 SOURCE_REGISTRY_VERSION = "coach_source_message_ab_v1"
 SOURCE_REPORT_VERSION = "coach_source_message_report_v1"
+VALIDATION_REGISTRY_VERSION = "coach_cache_conditions_validation_v1"
+VALIDATION_REPORT_VERSION = "coach_cache_conditions_report_v1"
+VALIDATION_FIXTURE_VERSION = "coach_cache_three_states_v1"
 SOURCE_BEFORE_MESSAGE = (
     "Структура недоступна: интервалы этой активности ещё не выгружены в кэш. "
     "Они появятся после синхронизации с Intervals.icu или после открытия "
@@ -90,6 +93,42 @@ def build_source_scenario(today: date) -> RuntimeScenario:
     return build_comparison_scenarios(today)[2]
 
 
+@dataclass(frozen=True)
+class CacheValidationCase:
+    scenario: RuntimeScenario
+    repeat: int
+    activity_id: str
+    expected_status: str
+
+
+def build_cache_validation_schedule(today: date) -> list[CacheValidationCase]:
+    """Two missing-cache regressions, one structured and one empty control."""
+    scenarios = build_comparison_scenarios(today)
+    empty_day = today - timedelta(days=3)
+    empty = RuntimeScenario(
+        "analyzed-empty-actual-structure", "control", empty_day,
+        f"Какие отрезки были в выполненной беговой сессии за {empty_day.isoformat()}? "
+        "Коротко, только по данным выполненной активности.", "get_activity_structure",
+    )
+    return [CacheValidationCase(scenarios[2], 1, "syn-run-uncached", "unavailable"),
+            CacheValidationCase(scenarios[1], 1, "syn-bike-cached", "structured"),
+            CacheValidationCase(empty, 1, "syn-run-empty", "empty"),
+            CacheValidationCase(scenarios[2], 2, "syn-run-uncached", "unavailable")]
+
+
+def cache_validation_metadata(today: date) -> dict:
+    """Preflight keeps the full fixed schedule without importing providers."""
+    return {"report_version": VALIDATION_REPORT_VERSION,
+            "registry_version": VALIDATION_REGISTRY_VERSION,
+            "fixture_version": VALIDATION_FIXTURE_VERSION,
+            "response_contract": dict(COMPACT_CONTRACT),
+            "schedule": [{"scenario_id": case.scenario.scenario_id, "repeat": case.repeat,
+                          "expected_activity_id": case.activity_id,
+                          "expected_structure_status": case.expected_status,
+                          "target_date": case.scenario.target_date.isoformat()}
+                         for case in build_cache_validation_schedule(today)]}
+
+
 def source_report_metadata(after_message: str | None = None) -> dict:
     """Lightweight metadata also available on credential/preflight failure."""
     import hashlib
@@ -135,4 +174,20 @@ def build_comparison_database(path, today: date):
     # Database startup fills missing TSS provenance. Complete that once before
     # the canonical snapshot, so opening a clone doesn't change its inputs.
     from data.database import Database
+    return Database(str(path))
+
+
+def build_cache_validation_database(path, today: date):
+    """Three coherent actual cache states, normalized once before cloning."""
+    from data.database import Database
+    from services.coach_synthetic_eval import _activity, _link_provider, _provider_cache
+    database = build_comparison_database(path, today)
+    day = today - timedelta(days=3)
+    activity = _activity("syn-run-empty", day, "run", "Синтетика — анализ без отрезков")
+    activity.update(duration_minutes=40, distance_km=6, avg_hr=125, avg_power=None, tss=35)
+    database.save_activities([activity])
+    cache = _provider_cache([])
+    cache["analyzed"] = f"{day.isoformat()}T12:00:00Z"
+    database.save_activity_intervals("syn-run-empty", cache)
+    _link_provider(path, "syn-run-empty", "syn-provider-empty")
     return Database(str(path))

@@ -20,6 +20,9 @@ Coach должен честно объяснять отсутствие отре
 - [x] (2026-10-15) По «Закрепляй условия» открыт новый M3 scope, [slice spec](issue_528_cache_conditions_slice_spec.md) проверен независимым checker без блокеров; handoff Spec Owner → Domain Implementer.
 - [x] (2026-10-15) M3: shared prompt condition добавлено после RED5failed;117focused passed, lint/diff passed. Paid calls0.
 - [x] (2026-10-15) M3:2964smoke passed/35skipped/1existing warning на отдельной DB/chats,208s; independent checker59passed, блокеров нет; local verified checkpoint, zero paid calls.
+- [x] (2026-10-15) Владелец «Отлично! Делай» авторизовал M4: final4trials/max16calls по трём состояниям кэша; [slice spec](issue_528_final_validation_slice_spec.md) и [frozen rubric](reports/2026-10-15-coach-final-validation/README.md) записаны до реализации/запуска.
+- [x] (2026-10-15) M4: registry/fixture/runner/CLI, RED missing interface→124focused passed;2971smoke passed/35skipped, lint/diff green; independent spec/delta без блокеров, checker39passed; pre-run checkpoint.
+- [ ] M4: один finite live run, immutable trace, семантическая оценка всех4answers и завершение среза; review brief/career case при прохождении.
 
 ## Surprises & Discoveries
 
@@ -40,6 +43,8 @@ Decision: M2 использует одинаковый compact_answer_v1 respons
 Decision: до первого платного вызова наступил2026-10-15; дата fixture/вопроса и live --today сдвинуты вместе на15октября/14октября факта. Rationale: native calendar соответствует дате исполнения; ни одной платной попытки до смены дня не было. Gate, registry, budget и messages не изменены. Date:2026-10-15.
 
 Decision: M3 меняет одну общую cognitive instruction в существующем runtime, без нового deterministic validator и paid run. Rationale: явное успешное получение в кэш уже есть в tool result, но при synthesis теряется; правило должно поступать на все prompt paths и correction. Offline tests доказывают доставку, не поведение живой модели. Frozen M2 остаётся результатом05c932b, новые prompts не приписываются тому запуску. Date:2026-10-15.
+
+Decision: M4 завершает поведенческую проверку M3 четырьмя текущими turns:missing twice,cached once,analyzed-empty once; one global16call cap. Rationale: проверить устранение найденных формулировок и сохранение двух легитимных состояний, без нового paired A/B или общей оценки Coach. Все4clones одной новой canonical fixture содержат все3states; контрольные state/date различия явно заданы в расписании. Date:2026-10-15.
 
 ## Outcomes & Retrospective
 
@@ -80,6 +85,12 @@ Spec Owner фиксирует bounded intent. Для M1 после spec check Do
 По отдельному запросу «Закрепляй условия» добавить правило в существующий `_COGNITIVE_GUARDRAILS` в models/ai_coach_runtime.py. При unavailable объяснение начинается со «Структура недоступна», а не утверждения отсутствия отрезков. Наличие у provider/синхронизация/карточка/повтор запроса не подтверждают получение в кэш; фактические отрезки называть по подтверждающему результату инструмента после получения данных. Structured уже полученные данные остаются доступными, analyzed-empty допускает «анализ не нашёл отрезков».
 
 RED tests в tests/smoke/test_ai_coach_runtime.py проверяют общие model-facing условия в marker/native/synthesis. Offline real-tool turns на synthetic SQLite и существующая calendar correction подтверждают доставку этих условий также в corrective synthesis при compact contract; fixture unchanged. Запустить focused suites, whole-tree lint, isolated smoke, independent checker; сохранить локальный checkpoint. Никаких paid model calls, новых classifiers или изменения frozen M2 reports. Это instruction contract, не детерминированная гарантия соблюдения моделью.
+
+### M4 — конечная поведенческая приёмка трёх состояний
+
+Проверить новые инструкции на живом Coach:missing1,cached1,empty1,missing2, максимум16calls. Новый `cache-validation` CLI mode и собственная registry/fixture/report provenance используют существующий run_trial/shared runtime без изменения production. Одна canonical synthetic DB добавляет analyzed-empty активность с явным analyzed timestamp, normalized перед SQLite backup clones. Missing/cached вопросы переиспользуют существующие scenarios; empty вопрос не подсказывает состояние ответа.
+
+Зафиксировать spec и rubric, провести независимый spec check; добавить failing runner/CLI boundary tests, реализовать только experimental schedule/exposure checks. Focused/isolated broad tests, lint/diff и independent delta check обязательны до pre-run commit. Затем один явно авторизованный finite run DeepSeek/deepseek-flash, immutable trace и отдельная семантическая оценка всех4outputs двумя агентами. Unknown≠empty; cached цифры из source; no sync/card/requery guarantees. Краткость diagnostic. All4semantic passes дают локальный review brief/career case; negative/inconclusive сохраняется без prompt tuning, следующая проверка ответа — отдельный scope. Push/PR/merge/закрытие всего#528 не заявлять.
 
 ## Concrete Steps
 

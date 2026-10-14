@@ -503,6 +503,105 @@ def run_source_comparison(provider: Any, *, today: date, repeats: int = 2,
     }
 
 
+def _activity_evidence_exposed(result: dict, activity_id: str, expected_status: str) -> bool:
+    """Require the expected raw identity/state plus actual formatted delivery."""
+    matched = [row for row in result["tool_results"]
+               if row.get("tool_name") == "get_activity_structure" and row.get("success")
+               and any(activity.get("activity_id") == activity_id
+                       and activity.get("date") == result["target_date"]
+                       and activity.get("structure_status") == expected_status
+                       for activity in row.get("raw_result", {}).get("activities", []))]
+    native = [message.get("content", "") for entry in result["provider_trace"]
+              for message in entry["request"].get("messages", [])
+              if message.get("role") == "tool" and message.get("name") == "get_activity_structure"]
+    synthesis = [entry["request"]["prompt"] for entry in result["provider_trace"]
+                 if entry["method"] == "generate_response"]
+    return (bool(matched) and bool(synthesis)
+            and all(row["formatted_result"] in native
+                    and all(row["formatted_result"] in prompt for prompt in synthesis)
+                    for row in matched))
+
+
+def run_cache_validation(provider: Any, *, today: date, repeats: int = 2,
+                         budget: CallBudget | None = None,
+                         secrets: tuple[str, ...] = ()) -> dict[str, Any]:
+    """One finite four-turn validation; semantic verdict is a separate artifact."""
+    from data.database import Database
+    from models.ai_coach_runtime import _COGNITIVE_GUARDRAILS
+    from tests.evals.coach.runtime_registry import (
+        COMPACT_CONTRACT, build_cache_validation_database, build_cache_validation_schedule,
+        cache_validation_metadata,
+    )
+    if repeats != 2:
+        raise ValueError("cache validation requires fixed schedule (repeats=2)")
+    budget = budget or CallBudget(16)
+    if not 1 <= budget.limit <= 16:
+        raise ValueError("cache validation call limit must be between 1 and 16")
+    native_calendar = _today_context_line()
+    results = []
+    with TemporaryDirectory(prefix="coach-cache-validation-") as directory:
+        canonical = Path(directory) / "canonical.db"
+        build_cache_validation_database(canonical, today)
+        canonical_hash = _snapshot(canonical)
+
+        def clone(path: Path) -> Database:
+            with sqlite3.connect(f"file:{canonical}?mode=ro", uri=True) as source:
+                with sqlite3.connect(str(path)) as target:
+                    source.backup(target)
+            return Database(str(path))
+
+        for case in build_cache_validation_schedule(today):
+            result = run_trial(provider, case.scenario, today=today, repeat=case.repeat,
+                               budget=budget, secrets=secrets, fixture_factory=clone,
+                               calendar_guard=native_calendar, response_contract=COMPACT_CONTRACT)
+            result.update({"expected_activity_id": case.activity_id,
+                           "expected_structure_status": case.expected_status,
+                           "word_count": len(result["final_answer"].split())})
+            result["protocol_checks"] = {
+                "selected_target_tool": result["checks"]["required_tool"],
+                "allowed_tools_only": result["checks"]["allowed_tools_only"],
+                "database_unchanged": result["database_unchanged"],
+                "same_canonical_input": result["snapshot_before"] == canonical_hash,
+                "activity_evidence_exposed": _activity_evidence_exposed(
+                    result, case.activity_id, case.expected_status),
+                "cache_conditions_exposed": bool(result["provider_trace"]) and all(
+                    _COGNITIVE_GUARDRAILS in entry["request"].get("system_prompt", "")
+                    for entry in result["provider_trace"]),
+            }
+            result["acceptance_checks"] = {key: value for key, value in result["checks"].items()
+                                           if key not in {"brief_answer", "useful_answer", "required_tool",
+                                                          "allowed_tools_only", "database_unchanged"}}
+            if case.expected_status == "empty":
+                text = result["final_answer"]
+                result["acceptance_checks"]["analyzed_empty_acknowledged"] = bool(
+                    re.search(r"анализ|обработ", text, re.I) and re.search(
+                        r"не\s+(?:наш[её]л|найден\w*|обнаружен\w*|выявлен\w*)|"
+                        r"(?:отрезк\w*|интервал\w*)\s+нет|нет\s+(?:отрезк\w*|интервал\w*)", text, re.I))
+            if result["status"] != "error":
+                result["status"] = ("pass" if all(result["protocol_checks"].values())
+                                    and all(result["acceptance_checks"].values()) else "fail")
+            results.append(result)
+        assert canonical_hash == _snapshot(canonical), "canonical fixture changed"
+    errors = sum(row["status"] == "error" for row in results)
+    protocol_valid = not errors and all(all(row["protocol_checks"].values()) for row in results)
+    passed = sum(row["status"] == "pass" for row in results)
+    return {
+        **cache_validation_metadata(today), "fixture_hash": canonical_hash,
+        "shared_guardrails_sha256": hashlib.sha256(_COGNITIVE_GUARDRAILS.encode()).hexdigest(),
+        "native_calendar": native_calendar, "today": today.isoformat(), "repeats": repeats,
+        "provider_class": type(provider).__name__, "model": str(getattr(provider, "model", "unknown")),
+        "call_limit": budget.limit, "calls_used": budget.used, "total": len(results),
+        "passed": passed, "error_trials": errors, "protocol_valid": protocol_valid,
+        "automated_gate": "inconclusive" if not protocol_valid else "pass" if passed == 4 else "fail",
+        "verdict": "pending_manual" if protocol_valid else "inconclusive", "human_assessment": "pending",
+        "token_usage": _usage_totals(results), "cost": None,
+        "limitations": ["small regression/control sample; not general Coach quality or causal proof",
+                        "lexical diagnostics require separate semantic assessment of all four answers",
+                        "synthetic shared runtime, not API/SSE/live athlete acceptance"],
+        "results": results,
+    }
+
+
 def run_experiment(provider: Any, *, today: date, repeats: int = 2,
                    budget: CallBudget | None = None, secrets: tuple[str, ...] = ()) -> dict[str, Any]:
     """Конечный прогон с полным знаменателем, включая provider failures."""

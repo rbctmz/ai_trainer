@@ -39,6 +39,8 @@ class ScriptedRuntimeProvider:
     def generate_response(self, prompt, system_prompt=""):
         if "день отдыха" in prompt.split("РЕЗУЛЬТАТЫ ИНСТРУМЕНТОВ:")[0]:
             return "Плановый день отдыха. Тренировка и интервалы не назначены."
+        if "сессия проанализирована, интервалов в ней нет" in prompt:
+            return "Анализ сессии не нашёл отрезков. Это подтверждённая пустая структура."
         if "выполненной беговой" in prompt:
             return "Структура недоступна: отрезки не выгружены. Нужен кэш отрезков."
         if "выполненной велосессии" in prompt:
@@ -53,6 +55,25 @@ def _inconclusive_report(args, error_kind, calls_used=0):
         COMPARISON_REGISTRY_VERSION, COMPARISON_REPORT_VERSION, build_comparison_scenarios,
         COMPACT_CONTRACT, COMPARISON_FIXTURE_VERSION,
     )
+    if args.experiment == "cache-validation":
+        from tests.evals.coach.runtime_registry import build_cache_validation_schedule, cache_validation_metadata
+        results = [{"scenario_id": case.scenario.scenario_id, "split": case.scenario.split,
+                    "repeat": case.repeat, "prompt": case.scenario.prompt,
+                    "target_date": case.scenario.target_date.isoformat(),
+                    "expected_activity_id": case.activity_id, "expected_structure_status": case.expected_status,
+                    "status": "error", "error_kind": error_kind, "checks": {},
+                    "protocol_checks": {}, "acceptance_checks": {}, "final_answer": "",
+                    "provider_trace": [], "tool_results": [], "database_unchanged": None}
+                   for case in build_cache_validation_schedule(args.today)]
+        return {**cache_validation_metadata(args.today),
+                "mode": "live" if args.live else "scripted", "provider": args.provider,
+                "model": os.environ.get("DEEPSEEK_MODEL", "unresolved"),
+                "today": args.today.isoformat(), "repeats": 2, "total": 4, "passed": 0,
+                "error_trials": 4, "verdict": "inconclusive", "call_limit": 16,
+                "calls_used": calls_used, "error_kind": error_kind, "results": results,
+                "protocol_valid": False, "automated_gate": "inconclusive",
+                "human_assessment": "not_run", "fixture_hash": None,
+                "token_usage": None, "cost": None}
     if args.experiment == "source-ab":
         from tests.evals.coach.runtime_registry import build_source_scenario, source_report_metadata
         scenario = build_source_scenario(args.today)
@@ -109,7 +130,7 @@ def _inconclusive_report(args, error_kind, calls_used=0):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--provider", required=True, choices=("scripted", "deepseek"))
-    parser.add_argument("--experiment", choices=("baseline", "compact-ab", "source-ab"), default="baseline")
+    parser.add_argument("--experiment", choices=("baseline", "compact-ab", "source-ab", "cache-validation"), default="baseline")
     parser.add_argument("--today", required=True, type=date.fromisoformat)
     parser.add_argument("--repeats", type=int, choices=(1, 2), default=2)
     parser.add_argument("--output", type=Path, required=True)
@@ -120,8 +141,8 @@ def main() -> int:
         parser.error("real providers require explicit --live")
     if args.provider == "scripted" and (args.live or args.env_file):
         parser.error("scripted mode needs neither --live nor credentials")
-    if args.experiment == "source-ab" and args.repeats != 2:
-        parser.error("source-ab requires exactly --repeats 2 (four trials)")
+    if args.experiment in {"source-ab", "cache-validation"} and args.repeats != 2:
+        parser.error(f"{args.experiment} requires exactly --repeats 2 (four trials)")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     try:
         artifact = args.output.open("x", encoding="utf-8")
@@ -152,13 +173,16 @@ def main() -> int:
                     AI_RESPONSE_MAX_TOKENS = 1800
                     AI_DEEPSEEK_THINKING = False
 
+                if args.experiment == "cache-validation":
+                    ExperimentSettings.AI_TOOLS_TEMPERATURE = 0.0
+
                 if not Settings.DEEPSEEK_API_KEY:
                     raise ValueError("selected provider is not configured")
                 provider = DeepSeekProvider(settings=ExperimentSettings)
                 if not provider.is_available() or provider.client is None:
                     raise ValueError("selected provider is unavailable")
-                if args.experiment == "source-ab" and provider.model != "deepseek-flash":
-                    raise ValueError("source-ab frozen protocol requires deepseek-flash")
+                if args.experiment in {"source-ab", "cache-validation"} and provider.model != "deepseek-flash":
+                    raise ValueError(f"{args.experiment} frozen protocol requires deepseek-flash")
                 provider.client = provider.client.with_options(timeout=45.0, max_retries=0)
                 secrets = (Settings.DEEPSEEK_API_KEY,)
                 original_create = provider.client.chat.completions.create
@@ -175,15 +199,19 @@ def main() -> int:
                 provider.client.chat.completions.create = record_usage
             else:
                 provider = ScriptedRuntimeProvider()
-            from services.coach_runtime_eval import CallBudget, run_comparison, run_experiment, run_source_comparison
+            from services.coach_runtime_eval import (
+                CallBudget, run_cache_validation, run_comparison, run_experiment, run_source_comparison,
+            )
             comparison = args.experiment == "compact-ab"
             source_comparison = args.experiment == "source-ab"
-            budget = CallBudget(16 if source_comparison else 64 if comparison else 24)
-            runner = run_source_comparison if source_comparison else run_comparison if comparison else run_experiment
+            validation = args.experiment == "cache-validation"
+            budget = CallBudget(16 if source_comparison or validation else 64 if comparison else 24)
+            runner = {"baseline": run_experiment, "compact-ab": run_comparison,
+                      "source-ab": run_source_comparison, "cache-validation": run_cache_validation}[args.experiment]
             report = runner(provider, today=args.today, repeats=args.repeats, secrets=secrets, budget=budget)
             report["mode"] = "live" if args.live else "scripted"
             report["base_sha"] = base_sha
-            if source_comparison and args.provider == "deepseek":
+            if (source_comparison or validation) and args.provider == "deepseek":
                 report["provider_settings"] = {
                     "tools_temperature": provider.settings.AI_TOOLS_TEMPERATURE,
                     "synthesis_temperature": 0.7, "thinking_enabled": False,
@@ -199,6 +227,8 @@ def main() -> int:
                 print(f"candidate={report['candidate_gate']}; variants={report['variants']}")
             if source_comparison:
                 print(f"automated={report['automated_gate']}; semantic assessment pending; variants={report['variants']}")
+            if validation:
+                print(f"automated={report['automated_gate']}; semantic assessment pending")
             return 2 if report["error_trials"] else (0 if report["verdict"] == "pass" else 1)
         except Exception as exc:
             report = _inconclusive_report(args, type(exc).__name__, budget.used if budget else 0)
