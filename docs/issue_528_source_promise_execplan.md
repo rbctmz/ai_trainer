@@ -1,6 +1,6 @@
 # #528: достоверное сообщение инструмента при отсутствии отрезков
 
-Этот ExecPlan ведётся по `.agent/PLANS.md`. Текущий запрос — оформить план, без реализации и платного запуска. Документация — Class C; будущий полный срез — Class A из-за конечного live сравнения, источник исправляется как узкое изменение совместимого message. Базовый код для планирования:52e0e6d, локальная ветка codex/issue-528-runtime-experiment. Issue: https://github.com/rbctmz/ai_trainer/issues/528.
+Этот ExecPlan ведётся по `.agent/PLANS.md`. После сохранения плана выполняется M1 без платного запуска. M1 — Class B: узкое исправление совместимого message; полный срез остаётся Class A из-за будущего live сравнения. Базовый код для планирования:52e0e6d, база M1:d53d529, локальная ветка codex/issue-528-runtime-experiment. Issue: https://github.com/rbctmz/ai_trainer/issues/528.
 
 ## Purpose / Big Picture
 
@@ -10,9 +10,9 @@ Coach должен честно объяснять отсутствие отре
 
 - [x] (2026-10-14) Прочитаны текущие A/B traces и источник сообщения; гипотеза проверена офлайн на synthetic DB.
 - [x] (2026-10-14) Scope, этапы, бюджет и критерии этого плана записаны до реализации.
-- [ ] Перед реализацией заполнить отдельный slice spec по docs/templates/slice_spec_review_template.md и провести bounded spec check.
-- [ ] M1: RED/GREEN для сообщения инструмента и его доставки в контекст модели.
-- [ ] M1: focused проверки, self-review и independent checker.
+- [x] (2026-10-14) Заполнен [slice spec](issue_528_source_promise_slice_spec.md), независимый bounded spec check: блокеров нет; handoff Spec Owner → Domain Implementer.
+- [x] (2026-10-14) M1: RED/GREEN для сообщения инструмента и его доставки в контекст модели:2failed до исправления,104focused passed после.
+- [x] (2026-10-14) M1:104focused passed,2951smoke passed/35skipped, lint/diff checks passed; self-review и independent checker без блокеров.
 - [ ] M2: замороженное сравнение исходного/исправленного сообщения,4trials/16calls максимум, после принятия этапа исполнения владельцем.
 - [ ] Immutable trace, отдельная human assessment, итоговое решение и локальный проверенный checkpoint.
 
@@ -32,7 +32,7 @@ Decision: основная приёмка этого этапа — правди
 
 ## Outcomes & Retrospective
 
-План создан, код сообщения пока не исправлен, M1/M2 не выполнены. Источник ошибочной гарантии воспроизведён. Этот вывод уточняет предыдущую рекомендацию начинать с system-level формата: краткость остаётся отдельной гипотезой, а guarantee имеет конкретный неправильный вход. Исправление источника не гарантирует исчезновения всех неподтверждённых утверждений модели.
+M1 исправляет исходную гарантию и подтверждает доставку ограничения в оба контекста модели офлайн. Real synthetic DB native+synthesis probe сохранил одинаковый logical hash; внешних вызовов нет. Independent checker:21passed, блокеров нет, checkout не изменён reviewer. M2 ещё не выполнен. Источник ошибочной гарантии воспроизведён; краткость остаётся отдельной гипотезой. Исправление источника не гарантирует исчезновения всех неподтверждённых утверждений модели.
 
 ## Context and Orientation
 
@@ -89,4 +89,4 @@ ASR-REL-2: data gap остаётся неизвестностью; ASR-SEC-1: tr
 
 Отдельный будущий slice spec, RED/GREEN evidence, immutable source-comparison JSON и human assessment. Новое source-comparison report имеет собственную registry/version/provenance, source-message variants и same-input hash; старые baseline/compact-ab files immutable. Переиспользовать run_trial, recording provider, read-only tools и budget guard. Существующий baseline cap24 и compact-ab cap64 не повышаются. No new dependency/framework.
 
-Revision2026-10-14: план зафиксирован после запроса «План есть?»; только документация, исполнение M1/M2 ещё не заявлено.
+Revision2026-10-14: после запроса «Что дальше?» выполнен M1; paid M2 остаётся отдельным следующим этапом. RED/GREEN, probe и независимая проверка записаны в slice spec.

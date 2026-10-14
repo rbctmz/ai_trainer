@@ -23,6 +23,7 @@ from typing import Any
 import pytest
 
 from models.ai_tools import AITools
+from models.ai_coach_runtime import run_native_tool_loop, synthesize_ai_chat_response
 from models.coach_tool_presenter import format_tool_result
 
 
@@ -296,6 +297,68 @@ def test_missing_cache_is_unavailable_not_an_empty_list() -> None:
     assert activity["reason"] == "not_fetched"
     assert "intervals" not in activity
     assert "недоступна" in activity["message"].lower()
+
+
+def _assert_conditional_missing_structure(message: str) -> None:
+    """Повторный запрос допустим после получения данных, успех не обещан."""
+    assert "ещё не выгружены" in message
+    assert "После успешного получения этих данных" in message
+    assert "Они появятся" not in message
+    assert "после открытия карточки" not in message
+
+
+def test_missing_cache_does_not_guarantee_future_intervals() -> None:
+    tools = _tools(
+        activities=[_activity("act-bike")], links={"act-bike": "i991"}
+    )
+
+    activity = tools.get_activity_structure(date=_DAY)["activities"][0]
+
+    assert activity["structure_status"] == "unavailable"
+    assert activity["reason"] == "not_fetched"
+    assert "intervals" not in activity
+    _assert_conditional_missing_structure(activity["message"])
+
+
+def test_missing_cache_limitation_reaches_native_and_synthesis_context() -> None:
+    """Реальные tool/presenter/runtime передают ограничение без сетевого LLM."""
+    class CapturingProvider:
+        def __init__(self) -> None:
+            self.native_context: list[dict[str, Any]] = []
+            self.synthesis_prompt = ""
+
+        def generate_with_tools(
+            self, messages: list[dict[str, Any]], schemas: Any, *, system_prompt: str
+        ) -> dict[str, Any]:
+            if not any(message["role"] == "tool" for message in messages):
+                return {"tool_calls": [{
+                    "id": "structure-1",
+                    "name": "get_activity_structure",
+                    "arguments": {"date": _DAY},
+                }]}
+            self.native_context = [dict(message) for message in messages]
+            return {"text": "Структура недоступна.", "tool_calls": []}
+
+        def generate_response(self, prompt: str, system_prompt: str) -> str:
+            self.synthesis_prompt = prompt
+            return "Структура недоступна."
+
+    tools = _tools(
+        activities=[_activity("act-bike")], links={"act-bike": "i991"}
+    )
+    provider = CapturingProvider()
+    question = "Какие отрезки были в выполненной тренировке?"
+    _, results = run_native_tool_loop(provider, tools, question, [], format_tool_result)
+    synthesize_ai_chat_response(provider, [], question, results)
+
+    message = results[0]["raw_result"]["activities"][0]["message"]
+    native_tools = [entry for entry in provider.native_context if entry["role"] == "tool"]
+    assert len(native_tools) == 1
+    assert native_tools[0]["content"] == results[0]["formatted_result"]
+    assert message in native_tools[0]["content"]
+    assert message in provider.synthesis_prompt
+    _assert_conditional_missing_structure(native_tools[0]["content"])
+    _assert_conditional_missing_structure(provider.synthesis_prompt)
 
 
 def test_activity_without_provider_link_is_reported_separately() -> None:
