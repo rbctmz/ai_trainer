@@ -22,7 +22,7 @@ Coach должен честно объяснять отсутствие отре
 - [x] (2026-10-15) M3:2964smoke passed/35skipped/1existing warning на отдельной DB/chats,208s; independent checker59passed, блокеров нет; local verified checkpoint, zero paid calls.
 - [x] (2026-10-15) Владелец «Отлично! Делай» авторизовал M4: final4trials/max16calls по трём состояниям кэша; [slice spec](issue_528_final_validation_slice_spec.md) и [frozen rubric](reports/2026-10-15-coach-final-validation/README.md) записаны до реализации/запуска.
 - [x] (2026-10-15) M4: registry/fixture/runner/CLI, RED missing interface→124focused passed;2971smoke passed/35skipped, lint/diff green; independent spec/delta без блокеров, checker39passed; pre-run checkpoint.
-- [ ] M4: один finite live run, immutable trace, семантическая оценка всех4answers и завершение среза; review brief/career case при прохождении.
+- [x] (2026-10-15) M4: один finite live run,4trials/12of16calls,0errors; immutable trace, семантическая оценка всех4answers двумя агентами. Целевые state criteria выполнены, но empty ответ содержит другое неподтверждённое обещание; clean final acceptance не заявлено. Partial result сохранён, отдельный verification design подготовлен.
 
 ## Surprises & Discoveries
 
@@ -50,7 +50,9 @@ Decision: M4 завершает поведенческую проверку M3 �
 
 M1 исправляет исходную гарантию и подтверждает доставку ограничения в оба контекста модели офлайн. M2 выполнен на05c932b:4trials,12/16calls,0errors; явная гарантия sync/card исчезла2/2after против2/2before с гарантией. Narrow gate before0/2→after2/2, но after1 обещает успешный повторный запрос без подтверждённого получения в кэш, after2 содержит неоднозначное начало. Поэтому2/2fully truthful не заявлено; source fix сохранить, остаток выделить в следующий bounded slice. [Trace/report](reports/2026-10-15-coach-source-ab/README.md) и [семантическая оценка](reports/2026-10-15-coach-source-ab/assessment.md) атрибутированы агентам; Greg human review pending. Initial requests одинаковы4/4; tool/synthesis input отличаются только message; DB unchanged4/4. Это ограниченное наблюдение, не статистическая значимость или общее доказательство причинности.
 
-M3 закрепил оба условия в общей инструкции: неизвестная структура не становится отсутствующими отрезками, а повторный запрос/provider availability не становится подтверждённым кэшем. Доставка в marker/native/synthesis/correction проверена real-tool synthetic turns;117focused и2964smoke passed, independent checker без блокеров. Это instruction contract, не новый output blocker; поведение настоящей модели после M3 не измерено. Все3historical live JSON побайтово совпадают с9e4d717. Никаких paid calls/push/merge для M3.
+M3 закрепил оба условия в общей инструкции: неизвестная структура не становится отсутствующими отрезками, а повторный запрос/provider availability не становится подтверждённым кэшем. Доставка в marker/native/synthesis/correction проверена real-tool synthetic turns;117focused и2964smoke passed, independent checker без блокеров. Это instruction contract, не новый output blocker; на checkpoint M3 поведение не измерялось, последующее ограниченное наблюдение M4 записано ниже. Все3historical live JSON побайтово совпадают с9e4d717. Никаких paid calls/push/merge для M3.
+
+M4 на02687ef:4trials/12calls из16,0errors; missing2/2 без прежних гарантий/ложного отсутствия, cached1/1 сохраняет фактические числа, empty1/1 распознан. Однако empty говорит «это подтвердит проверка карточки» для гипотезы; оба агента не принимают вывод о4fully supported answers. [Финальный отчёт](reports/2026-10-15-coach-final-validation/README.md) сохраняет partial outcome и JSONpending_manual. [Отдельный verification design](issue_528_answer_verification_followup.md) подготовлен вместо нового prompt tuning/live retry; реализация не начата. M4 execution/evidence complete, broader truthfulness/human approval/merge не заявлены.
 
 ## Context and Orientation
 
@@ -121,4 +123,6 @@ ASR-REL-2: data gap остаётся неизвестностью; ASR-SEC-1: tr
 
 Revision2026-10-15: по явному «Делай» выполнен конечный M2, сохранены trace и отдельно семантическая оценка всех4answers; исходная гарантия ушла, другое обещание осталось. Никакой подстройки/повторного paid run или merge; дальнейшая корректировка — отдельный scope.
 
-Revision2026-10-15 M3: владелец отдельно авторизовал закрепление условий. Новое правило инструкции относится к следующей версии runtime; source A/B artifacts и результаты05c932b остаются неизменными. Behavioral effect M3 пока не измерен.
+Revision2026-10-15 M3: владелец отдельно авторизовал закрепление условий. Новое правило инструкции относится к следующей версии runtime; source A/B artifacts и результаты05c932b остаются неизменными. На этом checkpoint behavioral effect не измерялся; дальнейший M4 записан отдельно.
+
+Revision2026-10-15 M4: финальный finite run завершён, partial result/immutable trace/две семантические оценки/verification draft/local review brief сохранены. Отрицательная часть не скрыта за автоматическим4/4. Чистая итоговая приёмка и merge не заявлены; никаких новых платных попыток или реализации следующего validator.
