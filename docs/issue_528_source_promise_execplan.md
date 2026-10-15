@@ -31,7 +31,8 @@ Coach должен честно объяснять отсутствие отре
 - [x] (2026-10-15) M6 отдельно авторизован владельцем: один новый4turn run/max16calls, включая correction. [Frozen scope](issue_528_live_protection_slice_spec.md) записан до edits/run.
 - [x] (2026-10-15) M6: independent spec no blockers; handoff, RED5failed→124focused passed; observation-only15lines added. Independent findings repaired, scoped28passed, lint/diff green.
 - [x] (2026-10-15) M6: итоговый isolated smoke3018passed/35skipped/1existing warning,199.54s; whole-tree ruff/diff green. Product/runtime/registry/CLI6files byte-identical toa3d0687. Pre-run checkpoint создан до paid calls.
-- [ ] M6: один finite live run; immutable trace, initial/corrective/delivered semantic assessment, timing/call cost и M4 comparison; local outcome/checkpoint.
+- [x] (2026-10-15) M6: один finite live run наbad70d5,13/16calls,0errors; immutable trace, primary+independent semantic assessment, timing/call cost и M4 comparison. Core state4/4, strictly supported initial3/4/delivered3/4; false-positive correction и status/name attribution сохранены. Clean acceptance не заявлена, никаких live retries/policy edits.
+- [x] (2026-10-15) M6: immutable SHA/private-tmp bytes, credential absence,13actual calls/1correction/protocol4/4 проверены; product6files и historical5artifacts unchanged. Отчёт/оценки/dispositions включены в local evidence commit; push/PR/merge не выполнялись.
 
 ## Surprises & Discoveries
 
@@ -62,6 +63,8 @@ Decision: M4 завершает поведенческую проверку M3 �
 Decision: M5 добавляет один ограниченный activity claim domain в существующую narrative boundary, без общего фактчекера и новых вызовов модели. Rationale: M4 сохранил конкретный контрпример; одних инструкций недостаточно для этой наблюдаемой формы. Public metadata shape открыт и совместим, internal evidence/rules становятся v3. Исправить только misleading empty source observation и general hypothesis wording; не менять исторические traces/predicates. Date:2026-10-15.
 
 ## Outcomes & Retrospective
+
+M6 исполнен наbad70d5:4turns/13calls,0errors,protocol/automated4/4, но semantic partial. Независимый checker и primary согласны: initial/delivered3fully supported из4; empty выдаёт activity name за structure status. Missing1 был уже корректен, отрицал гарантию, но gate вызвал лишнюю correction1call/2033.52ms; исправленный ответ поддержан. Live rejection truly unsafe output и deterministic fallback в этом запуске не продемонстрированы. [Report](reports/2026-10-15-coach-live-protection/README.md) сохраняет immutable trace/оценки/стоимость/два residuals. Никакого post-run tuning/retry. Следующий bounded repair — negation false positive; attribution coverage отдельно, без расширения на общий фактчекер.
 
 M1 исправляет исходную гарантию и подтверждает доставку ограничения в оба контекста модели офлайн. M2 выполнен на05c932b:4trials,12/16calls,0errors; явная гарантия sync/card исчезла2/2after против2/2before с гарантией. Narrow gate before0/2→after2/2, но after1 обещает успешный повторный запрос без подтверждённого получения в кэш, after2 содержит неоднозначное начало. Поэтому2/2fully truthful не заявлено; source fix сохранить, остаток выделить в следующий bounded slice. [Trace/report](reports/2026-10-15-coach-source-ab/README.md) и [семантическая оценка](reports/2026-10-15-coach-source-ab/assessment.md) атрибутированы агентам; Greg human review pending. Initial requests одинаковы4/4; tool/synthesis input отличаются только message; DB unchanged4/4. Это ограниченное наблюдение, не статистическая значимость или общее доказательство причинности.
 
@@ -157,3 +160,5 @@ Revision2026-10-15 M3: владелец отдельно авторизовал 
 Revision2026-10-15 M4: финальный finite run завершён, partial result/immutable trace/две семантические оценки/verification draft/local review brief сохранены. Отрицательная часть не скрыта за автоматическим4/4. Чистая итоговая приёмка и merge не заявлены; никаких новых платных попыток или реализации следующего validator.
 
 Revision2026-10-15 M5: по отдельному «Реализуй план» выполнен bounded activity evidence/gate/fallback, checkpoint2f9db64.286focused/3012smoke passed,35skipped; independent findings fixed-in2f9db64. Офлайн30saved outputs не заменяют fresh live acceptance, все4старых JSON неизменны; новых provider calls0. Реализация завершена локально, main/athlete state/push/merge не затронуты.
+
+Revision2026-10-15 M6: по отдельному явному запросу выполнен один fresh live protection run наbad70d5 после124focused/3018smoke passed и independent checker.13/16calls,0errors,4state criteria observed; strict initial/delivered3/4supported, false-positive correction и status/name attribution сохранены как partial evidence. Новых policy edits/paid retries нет; локальный отчёт отделяет автоматический4/4 от семантической приёмки и цены защиты.
