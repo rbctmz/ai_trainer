@@ -98,6 +98,92 @@ def test_canonical_fixture_has_coherent_cached_missing_and_analyzed_empty(tmp_pa
     assert database.get_activity("syn-run-empty")["avg_power"] is None
 
 
+def test_verification_observation_preserves_clean_first_answers():
+    report = run_cache_validation(ValidationProvider(), today=TODAY)
+    for row in report["results"]:
+        observation = row["answer_verification"]
+        assert observation["version"] == "coach_answer_verification_observation_v1"
+        assert observation["initial_answer"] == row["final_answer"]
+        assert observation["initial_gate"] == row["narrative_gate"]
+        assert observation["correction_attempted"] is False
+        assert observation["correction_trace_indices"] == []
+        assert observation["correction_calls"] == observation["correction_provider_elapsed_ms"] == 0
+        assert observation["verification_elapsed_ms"] >= 0
+        assert observation["fallback_delivered"] is False
+
+
+class RejectedEmptyProvider(ValidationProvider):
+    def __init__(self, corrected):
+        super().__init__()
+        self.corrected = corrected
+
+    def generate_response(self, prompt, system_prompt=""):
+        if "Синтетика — анализ без отрезков" in prompt:
+            self.calls += 1
+            if "ВАЖНО — ИСПРАВЛЕНИЕ:" in prompt:
+                return self.corrected
+            return "Проверка карточки активности подтвердит гипотезу об отрезках. private-token"
+        return super().generate_response(prompt, system_prompt)
+
+
+@pytest.mark.parametrize("corrected,fallback,error", [
+    ("Анализ сохранённых данных не нашёл отрезков.", False, False),
+    ("Проверка карточки подтвердит гипотезу об отрезках.", True, False),
+    ("Ошибка провайдера", True, True),
+])
+def test_verification_observation_distinguishes_correction_and_fallback(corrected, fallback, error):
+    report = run_cache_validation(RejectedEmptyProvider(corrected), today=TODAY, secrets=("private-token",))
+    empty = next(row for row in report["results"] if row["expected_structure_status"] == "empty")
+    observation = empty["answer_verification"]
+    assert "private-token" not in json.dumps(report)
+    assert "[REDACTED]" in observation["initial_answer"]
+    assert observation["initial_gate"]["outcome"] == "replaced"
+    assert observation["correction_attempted"] is True
+    assert observation["correction_calls"] == 1
+    assert observation["correction_trace_indices"] == [3]
+    trace = empty["provider_trace"][3]
+    assert observation["correction_provider_elapsed_ms"] == trace["elapsed_ms"]
+    assert observation["verification_elapsed_ms"] >= observation["correction_provider_elapsed_ms"] - 1
+    assert observation["fallback_delivered"] is fallback
+    assert empty["narrative_gate"]["outcome"] == ("replaced" if fallback else "pass")
+    assert report["calls_used"] == 13
+    assert report["error_trials"] == int(error)
+    # Existing lexical empty predicate misses the factual fallback's
+    # "не выявил" wording. Keep it unchanged and expose the false negative.
+    assert empty["status"] == ("error" if error else "fail" if fallback else "pass")
+    if fallback and not error:
+        assert empty["acceptance_checks"]["analyzed_empty_acknowledged"] is False
+        assert "анализ сохранённых данных не выявил отрезков" in empty["final_answer"]
+
+
+def test_soft_data_gap_is_not_reported_as_a_factual_fallback():
+    class SoftGapProvider(ValidationProvider):
+        def generate_response(self, prompt, system_prompt=""):
+            if "Синтетика — анализ без отрезков" in prompt:
+                self.calls += 1
+                return "Восстановление плохое — нагрузку нужно снизить."
+            return super().generate_response(prompt, system_prompt)
+    report = run_cache_validation(SoftGapProvider(), today=TODAY)
+    empty = report["results"][2]
+    assert empty["narrative_gate"]["outcome"] == "data_gap"
+    assert empty["final_answer"] == empty["answer_verification"]["initial_answer"]
+    assert empty["answer_verification"]["fallback_delivered"] is False
+
+
+def test_verification_observation_retains_cap_interruption_and_denominator():
+    report = run_cache_validation(RejectedEmptyProvider("unused"), today=TODAY, budget=CallBudget(9))
+    empty = report["results"][2]
+    observation = empty["answer_verification"]
+    assert observation["correction_attempted"] is True
+    assert observation["correction_calls"] == 0
+    assert observation["correction_trace_indices"] == []
+    assert observation["fallback_delivered"] is True
+    assert empty["error_kind"] == "CallLimitError"
+    assert report["results"][3]["answer_verification"] == {}
+    assert report["total"] == 4 and report["calls_used"] == 9
+    assert report["verdict"] == "inconclusive"
+
+
 def test_failures_and_global_cap_keep_complete_denominator():
     provider = ValidationProvider(fail=True)
     report = run_cache_validation(provider, today=TODAY)

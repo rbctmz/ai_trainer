@@ -28,12 +28,20 @@ Coach должен честно объяснять отсутствие отре
 - [x] (2026-10-15) M5: offline replay30saved outputs,12activity rejections; все4исходных контрпримера остановлены,3supported M4answers unchanged. Все4historical JSON byte-identical; новых model calls0.
 - [x] (2026-10-15) M5: итоговый isolated smoke3012passed/35skipped/1existing warning,183.36s; whole-tree ruff/diff green. Replay повторён в новый temp file, bytes identical.
 - [x] (2026-10-15) M5: локальный implementation/evidence commit2f9db64; reviewer dispositions и итоговый report закреплены. Никаких paid calls/push/PR/merge.
+- [x] (2026-10-15) M6 отдельно авторизован владельцем: один новый4turn run/max16calls, включая correction. [Frozen scope](issue_528_live_protection_slice_spec.md) записан до edits/run.
+- [x] (2026-10-15) M6: independent spec no blockers; handoff, RED5failed→124focused passed; observation-only15lines added. Independent findings repaired, scoped28passed, lint/diff green.
+- [x] (2026-10-15) M6: итоговый isolated smoke3018passed/35skipped/1existing warning,199.54s; whole-tree ruff/diff green. Product/runtime/registry/CLI6files byte-identical toa3d0687. Pre-run checkpoint создан до paid calls.
+- [ ] M6: один finite live run; immutable trace, initial/corrective/delivered semantic assessment, timing/call cost и M4 comparison; local outcome/checkpoint.
 
 ## Surprises & Discoveries
+
+M6 **Observed:** initial focused2failures demanded lexical pass for safe «анализ ... не выявил»; frozen empty predicate only matches «нашёл»/«выявлен». Reviewer reproduced soft data_gap reported as fallback despite unchanged text. **Inferred:** experiment stage semantics must distinguish actual replacement from gate.changed, and lexical result cannot be semantic verdict. Cheap falsifiers: exact fake-provider turns. **Verified by:** soft-gap RED1failed before fix, final124focused/independent28passed; fallback flag now replaced-only, tests preserve old lexical false negative, scorer unchanged.
 
 **Observed:** `_ACTIVITY_STRUCTURE_MESSAGES['not_fetched']` в models/ai_tools.py:117–119 содержит «Они появятся после синхронизации ... или после открытия карточки». Та же строка присутствует в raw_result.message и formatted_result сохранённого A/B JSON. **Inferred:** часть обещаний модели может быть повторением ошибочного исходного сообщения, поэтому приоритет исправления начинается до synthesis. Самый дешёвый falsifier — проверить реальный tool/presenter на missing-cache fixture и попытку fetch с недоступным provider. **Verified by:** офлайн synthetic DB + AITools.get_activity_structure + format_tool_result подтвердили доставку строки; fetch_activity_intervals с пустым cache и is_configured=False вернулNone. Это доказывает неверную безусловную гарантию в источнике, но не объясняет всё поведение модели.
 
 ## Decision Log
+
+Decision: M6 добавляет только versioned stage observation в experimental runner, чтобы различить initial answer, correction и factual fallback. Product/runtime/scorers не меняются; cap16 включает correction. Raw response/time уже существуют, финальный pass не должен скрывать цену защиты. Один авторизованный run останавливается независимо от результата. Date:2026-10-15.
 
 Decision: менять только not_fetched сообщение, сохраняя статус unavailable, reason not_fetched и structured/empty/no_provider_link/corrupt_cache значения. Rationale: исправляется факт в исходном контексте, не формулы, загрузка или форма API. Date:2026-10-14.
 
@@ -109,7 +117,13 @@ RED tests в tests/smoke/test_ai_coach_runtime.py проверяют общие 
 
 Переиспользовать существующую one-shot correction, при любой неудаче выдавать factual fallback без нового retry. Исходное empty message описывает анализ сохранённых данных; general hypothesis instruction допускает подтверждение или опровержение. API/legacy потребляют shared policy; UI/API schemas/persistence shapes не меняются. RED saved cases + positive/mixed/malformed/metadata/delivery tests → focused/broad/lint → independent bounded review → scoped repairs. Offline replay всех30saved outputs с source/implementation hashes, без модели, старые live JSON неизменны. Локальный checkpoint и честный career evidence update; не заявлять fresh live acceptance.
 
+### M6 — свежие ответы и наблюдаемая цена защиты
+
+Использовать docs/issue_528_live_protection_slice_spec.md и frozen rubric docs/reports/2026-10-15-coach-live-protection/README.md. Добавить только observation в run_trial: initial synthesis/gate, correction attempted/calls/trace indices/provider time, verification stage time/fallback flag. RED pass/correction/fallback/cap → focused/broad/lint → independent bounded delta → pre-run checkpoint. Один cache-validation run, все4rows сохраняются; semantic assessment всех initial/corrective/delivered текстов, сравнение с M4 описательное. Без prompt tuning/retry/push/merge.
+
 ## Concrete Steps
+
+M6: один запуск из этого worktree после pre-run commit: `/Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python scripts/run_coach_runtime_eval.py --experiment cache-validation --provider deepseek --live --env-file /Users/gregkisel/Developer/ai_trainer/.env --today 2026-10-15 --repeats 2 --output /private/tmp/coach-live-protection-20261015.json`. Output exclusive; при ошибке не повторять платный запуск. Сохранить sanitized immutable bytes в новом report namespace;4historical JSON сравнить сa3d0687. Исходные/исправленные/итоговые ответы и extra calls/time оценивать раздельно.
 
 Работать в `/Users/gregkisel/.codex/worktrees/coach-runtime-eval/ai_trainer`; использовать `/Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python` либо активированный эквивалентный venv.
 

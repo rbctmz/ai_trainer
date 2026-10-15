@@ -259,6 +259,7 @@ def run_trial(provider: Any, scenario: RuntimeScenario, *, today: date,
     results: list[dict[str, Any]] = []
     error_kind = None
     gate_metadata: dict[str, Any] = {}
+    verification: dict[str, Any] = {}
     fallback = False
     with TemporaryDirectory(prefix="coach-runtime-eval-") as directory:
         path = Path(directory) / "synthetic.db"
@@ -288,13 +289,26 @@ def run_trial(provider: Any, scenario: RuntimeScenario, *, today: date,
                 athlete_timezone="UTC",
                 observed_at_utc=datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc),
             )
+            verification_started = time.monotonic()
             gate = validate_coach_narrative(answer, evidence)
+            correction_start = len(recorder.trace)
+            verification = {"version": "coach_answer_verification_observation_v1",
+                            "initial_answer": answer, "initial_gate": gate.metadata(),
+                            "correction_attempted": gate.changed}
             gate = revalidate_with_correction(
                 provider=recorder, gate_result=gate, evidence=evidence,
                 history_messages=[], user_input=scenario.prompt, tool_results=results,
                 goal_plan=goal_plan, today=today,
                 response_contract=response_contract,
             )
+            correction_indices = list(range(correction_start, len(recorder.trace)))
+            verification.update({
+                "correction_trace_indices": correction_indices,
+                "correction_calls": len(correction_indices),
+                "correction_provider_elapsed_ms": sum(recorder.trace[i]["elapsed_ms"] for i in correction_indices),
+                "verification_elapsed_ms": round((time.monotonic() - verification_started) * 1000, 2),
+                "fallback_delivered": gate.outcome == "replaced",
+            })
             answer, gate_metadata = gate.delivered_text, gate.metadata()
             # Production correction swallows errors; retain them as experiment errors.
             if recorder.failure_kind:
@@ -314,6 +328,7 @@ def run_trial(provider: Any, scenario: RuntimeScenario, *, today: date,
             "denied_tools": tools.denied, "database_unchanged": unchanged,
             "snapshot_before": before, "snapshot_after": _snapshot(path),
             "fallback_used": fallback, "narrative_gate": gate_metadata,
+            "answer_verification": verification,
             "elapsed_ms": round((time.monotonic() - started) * 1000, 2),
         }, secrets)
 
