@@ -1,6 +1,6 @@
 # #528: bounded follow-up for evidence-backed answer verification
 
-Proposed design after M4,2026-10-15; no implementation or live run here. OwnerGreg for prioritization; Spec Owner defines acceptance before Domain Implementer handoff. Future Class A: adding a claim domain to structured narrative evidence/output validation. Preserve all previous traces/scores.
+Design after M4,2026-10-15; accepted by Greg «Реализуй план». Implemented locally as M5 under [slice spec](issue_528_answer_verification_slice_spec.md), Class A, Spec Owner → Domain Implementer after independent spec check. [Offline evidence](reports/2026-10-15-coach-answer-verification/README.md); no new live run. Previous traces/scores preserved.
 
 ## Problem and evidence boundary
 
@@ -28,4 +28,4 @@ No new agents/integrations/UI or mutations, no wholesale planner/readiness class
 
 ## Stop rule / status
 
-Draft design only. Greg has not accepted a new implementation/paid-run budget. M4 is not rerun or tuned. Next executable slice starts with its own approved scope/spec/RED matrix; existing main and athlete state remain untouched.
+M5 implements the bounded scope above; independent consolidated review and scoped repairs completed.286focused passed,30saved outputs replayed without a provider; all4initial counterexamples blocked,3supported M4answers unchanged. Internal evidence/rulesv3; public metadata shape unchanged. No new paid-run budget; M4 is not rerun or tuned. Main and athlete state remain untouched; live quality and human merge approval remain separate.

@@ -103,8 +103,11 @@ def test_length_is_diagnostic_and_known_lexical_blind_spot_stays_manual():
 def test_visible_guarantee_and_missing_exposure_cannot_pass():
     bad = run_source_comparison(SourceProvider(
         answer="Кэш недоступен. Синхронизируй — отрезки появятся."), today=TODAY)
-    assert bad["automated_gate"] == "fail"
-    assert bad["variants"]["after"]["passed"] == 0
+    # Production v3 now blocks the raw promise; old lexical predicate/report
+    # versions are unchanged. Score the safe delivered fallback, not raw LLM.
+    assert all(row["narrative_gate"]["outcome"] == "replaced" for row in bad["results"])
+    assert all("отрезки появятся" not in row["final_answer"] for row in bad["results"])
+    assert bad["automated_gate"] == "pass" and bad["verdict"] == "pending_manual"
     absent = run_source_comparison(SourceProvider(tool="get_active_plan"), today=TODAY)
     assert absent["verdict"] == "inconclusive"
     assert absent["protocol_valid"] is False

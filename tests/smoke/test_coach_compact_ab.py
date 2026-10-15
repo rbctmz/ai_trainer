@@ -116,7 +116,7 @@ def test_global_budget_limits_calls_without_losing_pairs():
     assert report["error_trials"] == 16
 
 
-def test_missing_cache_guarantee_fails_new_property():
+def test_missing_cache_guarantee_is_replaced_before_scoring_delivery():
     from services.coach_runtime_eval import run_trial
 
     class GuaranteedProvider(PairedProvider):
@@ -126,8 +126,11 @@ def test_missing_cache_guarantee_fails_new_property():
     result = run_trial(GuaranteedProvider(), build_comparison_scenarios(TODAY)[2], today=TODAY,
                        fixture_factory=lambda path: build_comparison_database(path, TODAY))
     assert result["checks"]["explicit_data_gap"] is True
-    assert result["checks"]["no_unverified_fetch_promise"] is False
-    assert result["status"] == "fail"
+    assert result["narrative_gate"]["outcome"] == "replaced"
+    assert "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED" in result["narrative_gate"]["reason_codes"]
+    assert any("интервалы появятся" in str(entry.get("response")) for entry in result["provider_trace"])
+    assert result["checks"]["no_unverified_fetch_promise"] is True
+    assert "интервалы появятся" not in result["final_answer"]
 
 
 def test_short_plan_without_essential_steps_cannot_pass():

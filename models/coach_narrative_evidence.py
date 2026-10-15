@@ -2,7 +2,8 @@
 
 The policy is intentionally narrow. It is not a generic factuality checker:
 only recovery/readiness, HRV suppression, bounded trends, causal claims from a
-single-session comparison, missed sessions and calendar-relative claims are recognized.
+single-session comparison, missed sessions, calendar-relative claims and bounded
+cached-activity structure assurances are recognized.
 """
 from __future__ import annotations
 
@@ -14,14 +15,18 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from models.coach_activity_structure_evidence import (
+    activity_claim_unsupported, activity_factual_bullets, activity_structure_evidence,
+)
+
 from models.coach_narrative_evidence_gate import (
     TrendClaimContract,
     classify_historical_trend_claim,
 )
 
 
-COACH_NARRATIVE_EVIDENCE_VERSION = "coach_narrative_evidence_v2"
-COACH_NARRATIVE_GATE_RULE_VERSION = "coach_narrative_gate_v2"
+COACH_NARRATIVE_EVIDENCE_VERSION = "coach_narrative_evidence_v3"
+COACH_NARRATIVE_GATE_RULE_VERSION = "coach_narrative_gate_v3"
 
 READINESS_CLAIM_CONTRADICTED = "READINESS_CLAIM_CONTRADICTED"
 HRV_CLAIM_CONTRADICTED = "HRV_CLAIM_CONTRADICTED"
@@ -34,6 +39,7 @@ READINESS_EVIDENCE_STALE = "READINESS_EVIDENCE_STALE"
 HRV_EVIDENCE_MISSING = "HRV_EVIDENCE_MISSING"
 INVALID_ATHLETE_TIMEZONE = "INVALID_ATHLETE_TIMEZONE"
 CAUSAL_CLAIM_UNSUPPORTED = "CAUSAL_CLAIM_UNSUPPORTED"
+ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED = "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
 
 _REASON_ORDER = (
     READINESS_CLAIM_CONTRADICTED,
@@ -47,6 +53,7 @@ _REASON_ORDER = (
     HRV_EVIDENCE_MISSING,
     INVALID_ATHLETE_TIMEZONE,
     CAUSAL_CLAIM_UNSUPPORTED,
+    ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED,
 )
 _DATA_GAP_CODES = {
     TREND_COMPARATOR_MISSING,
@@ -267,6 +274,8 @@ def build_coach_narrative_evidence(
         "readiness": _readiness_evidence(readiness_snapshot),
         "comparators": _comparator_evidence(tools),
         "sessions": _session_evidence(session_evidence),
+        "activity_structures": activity_structure_evidence(tools),
+        "activity_structure_attempted": any(item.get("tool_name") == "get_activity_structure" for item in tools),
     }
     encoded = json.dumps(
         payload,
@@ -361,6 +370,10 @@ def validate_coach_narrative(
         and _unsupported_comparison_causal_claim(claim_text)
     ):
         found.add(CAUSAL_CLAIM_UNSUPPORTED)
+
+    if activity_claim_unsupported(claim_text, list(payload.get("activity_structures") or []),
+                                  attempted=bool(payload.get("activity_structure_attempted"))):
+        found.add(ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED)
 
     reason_codes = tuple(code for code in _REASON_ORDER if code in found)
     if not reason_codes:
@@ -1152,6 +1165,8 @@ def _replacement_bullets(
         lines.append("- Данных недостаточно, чтобы считать тренировку пропущенной.")
     if CAUSAL_CLAIM_UNSUPPORTED in reason_codes:
         lines.append("- Одно сравнение не доказывает причину или адаптацию.")
+    if ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED in reason_codes:
+        lines.extend(activity_factual_bullets(list(payload.get("activity_structures") or [])))
     if any(
         code in reason_codes
         for code in (

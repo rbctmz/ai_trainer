@@ -23,6 +23,11 @@ Coach должен честно объяснять отсутствие отре
 - [x] (2026-10-15) Владелец «Отлично! Делай» авторизовал M4: final4trials/max16calls по трём состояниям кэша; [slice spec](issue_528_final_validation_slice_spec.md) и [frozen rubric](reports/2026-10-15-coach-final-validation/README.md) записаны до реализации/запуска.
 - [x] (2026-10-15) M4: registry/fixture/runner/CLI, RED missing interface→124focused passed;2971smoke passed/35skipped, lint/diff green; independent spec/delta без блокеров, checker39passed; pre-run checkpoint.
 - [x] (2026-10-15) M4: один finite live run,4trials/12of16calls,0errors; immutable trace, семантическая оценка всех4answers двумя агентами. Целевые state criteria выполнены, но empty ответ содержит другое неподтверждённое обещание; clean final acceptance не заявлено. Partial result сохранён, отдельный verification design подготовлен.
+- [x] (2026-10-15) M5 отдельно авторизован «Реализуй план»: [slice spec](issue_528_answer_verification_slice_spec.md), independent spec check без блокеров, handoff Spec Owner → Domain Implementer. RED16failed/9passed до реализации.
+- [x] (2026-10-15) M5: allowlisted activity evidence + bounded hard gate + factual fallback в shared Python; correction budget прежний.286focused passed, API SSE/persistence и legacy path проверены офлайн. Три reviewer P2 и одна repair-регрессия исправлены с точными RED/GREEN; scoped checker7passed, блокеров нет.
+- [x] (2026-10-15) M5: offline replay30saved outputs,12activity rejections; все4исходных контрпримера остановлены,3supported M4answers unchanged. Все4historical JSON byte-identical; новых model calls0.
+- [x] (2026-10-15) M5: итоговый isolated smoke3012passed/35skipped/1existing warning,183.36s; whole-tree ruff/diff green. Replay повторён в новый temp file, bytes identical.
+- [ ] M5: локальный commit после проверок.
 
 ## Surprises & Discoveries
 
@@ -46,6 +51,8 @@ Decision: M3 меняет одну общую cognitive instruction в суще�
 
 Decision: M4 завершает поведенческую проверку M3 четырьмя текущими turns:missing twice,cached once,analyzed-empty once; one global16call cap. Rationale: проверить устранение найденных формулировок и сохранение двух легитимных состояний, без нового paired A/B или общей оценки Coach. Все4clones одной новой canonical fixture содержат все3states; контрольные state/date различия явно заданы в расписании. Date:2026-10-15.
 
+Decision: M5 добавляет один ограниченный activity claim domain в существующую narrative boundary, без общего фактчекера и новых вызовов модели. Rationale: M4 сохранил конкретный контрпример; одних инструкций недостаточно для этой наблюдаемой формы. Public metadata shape открыт и совместим, internal evidence/rules становятся v3. Исправить только misleading empty source observation и general hypothesis wording; не менять исторические traces/predicates. Date:2026-10-15.
+
 ## Outcomes & Retrospective
 
 M1 исправляет исходную гарантию и подтверждает доставку ограничения в оба контекста модели офлайн. M2 выполнен на05c932b:4trials,12/16calls,0errors; явная гарантия sync/card исчезла2/2after против2/2before с гарантией. Narrow gate before0/2→after2/2, но after1 обещает успешный повторный запрос без подтверждённого получения в кэш, after2 содержит неоднозначное начало. Поэтому2/2fully truthful не заявлено; source fix сохранить, остаток выделить в следующий bounded slice. [Trace/report](reports/2026-10-15-coach-source-ab/README.md) и [семантическая оценка](reports/2026-10-15-coach-source-ab/assessment.md) атрибутированы агентам; Greg human review pending. Initial requests одинаковы4/4; tool/synthesis input отличаются только message; DB unchanged4/4. Это ограниченное наблюдение, не статистическая значимость или общее доказательство причинности.
@@ -53,6 +60,8 @@ M1 исправляет исходную гарантию и подтвержд�
 M3 закрепил оба условия в общей инструкции: неизвестная структура не становится отсутствующими отрезками, а повторный запрос/provider availability не становится подтверждённым кэшем. Доставка в marker/native/synthesis/correction проверена real-tool synthetic turns;117focused и2964smoke passed, independent checker без блокеров. Это instruction contract, не новый output blocker; на checkpoint M3 поведение не измерялось, последующее ограниченное наблюдение M4 записано ниже. Все3historical live JSON побайтово совпадают с9e4d717. Никаких paid calls/push/merge для M3.
 
 M4 на02687ef:4trials/12calls из16,0errors; missing2/2 без прежних гарантий/ложного отсутствия, cached1/1 сохраняет фактические числа, empty1/1 распознан. Однако empty говорит «это подтвердит проверка карточки» для гипотезы; оба агента не принимают вывод о4fully supported answers. [Финальный отчёт](reports/2026-10-15-coach-final-validation/README.md) сохраняет partial outcome и JSONpending_manual. [Отдельный verification design](issue_528_answer_verification_followup.md) подготовлен вместо нового prompt tuning/live retry; реализация не начата. M4 execution/evidence complete, broader truthfulness/human approval/merge не заявлены.
+
+M5: новая защита блокирует четыре исходных unsupported assurances в сохранённых ответах и сохраняет три supported M4 answers. [Офлайн-отчёт](reports/2026-10-15-coach-answer-verification/README.md) содержит все30outputs и границы выводов. Нельзя приписывать replay улучшение живой модели: новых model calls0, correction проверен fake providers. Safe fallback сохраняет source aggregates/interval values, недостоверная raw фраза не выдаётся API и не сохраняется как ответ. Возможные формулировки вне bounded rule остаются вне доказанного результата.
 
 ## Context and Orientation
 
@@ -93,6 +102,12 @@ RED tests в tests/smoke/test_ai_coach_runtime.py проверяют общие 
 Проверить новые инструкции на живом Coach:missing1,cached1,empty1,missing2, максимум16calls. Новый `cache-validation` CLI mode и собственная registry/fixture/report provenance используют существующий run_trial/shared runtime без изменения production. Одна canonical synthetic DB добавляет analyzed-empty активность с явным analyzed timestamp, normalized перед SQLite backup clones. Missing/cached вопросы переиспользуют существующие scenarios; empty вопрос не подсказывает состояние ответа.
 
 Зафиксировать spec и rubric, провести независимый spec check; добавить failing runner/CLI boundary tests, реализовать только experimental schedule/exposure checks. Focused/isolated broad tests, lint/diff и independent delta check обязательны до pre-run commit. Затем один явно авторизованный finite run DeepSeek/deepseek-flash, immutable trace и отдельная семантическая оценка всех4outputs двумя агентами. Unknown≠empty; cached цифры из source; no sync/card/requery guarantees. Краткость diagnostic. All4semantic passes дают локальный review brief/career case; negative/inconclusive сохраняется без prompt tuning, следующая проверка ответа — отдельный scope. Push/PR/merge/закрытие всего#528 не заявлять.
+
+### M5 — проверка ответа по фактам активности
+
+По отдельно принятому verification design добавить bounded helper models/coach_activity_structure_evidence.py и подключить его к существующему models/coach_narrative_evidence.py. Allowlist identity/date/status/provenance/numeric source facts; malformed/failed/conflicting evidence не даёт structured/empty proof. Проверять известные assurances, unknown≠empty и unsupported circumstances; scope по activity/date не должен заимствовать proof у другой активности. Conditional checks и реальные structured facts сохранять. Новый hard reason не является soft data gap.
+
+Переиспользовать существующую one-shot correction, при любой неудаче выдавать factual fallback без нового retry. Исходное empty message описывает анализ сохранённых данных; general hypothesis instruction допускает подтверждение или опровержение. API/legacy потребляют shared policy; UI/API schemas/persistence shapes не меняются. RED saved cases + positive/mixed/malformed/metadata/delivery tests → focused/broad/lint → independent bounded review → scoped repairs. Offline replay всех30saved outputs с source/implementation hashes, без модели, старые live JSON неизменны. Локальный checkpoint и честный career evidence update; не заявлять fresh live acceptance.
 
 ## Concrete Steps
 
