@@ -42,4 +42,11 @@ python docs/reports/2026-10-15-coach-answer-verification/replay.py /private/tmp/
 
 Итоговый smoke на отдельной synthetic DB/chats: **3012 passed,35 skipped**,183.36s; один существующий Starlette/httpx deprecation warning. Пропуски:22TypeScript extractor/inventory без web/node_modules/typescript,10opt-in fixture regeneration,2pilot/process prerequisites,1socket limitation. Web/API contract shape не менялась; web lint/build не запускались. Whole-tree ruff и git diff --check зелёные. Replay воспроизведён второй раз в новый временный файл: идентичные байты и текущие implementation hashes.
 
-Push/PR/merge не входят в этот этап; live effect M5 не измерен. Локальный checkpoint фиксируется ниже после commit.
+Локальная реализация и replay: **2f9db64**. Dispositions независимого ревью:
+
+- P2 valid structured naming replaced: fixed-in 2f9db64.
+- P2 permission to check qualifying a later guarantee: fixed-in 2f9db64.
+- P2 negative tool result qualifying a promise: fixed-in 2f9db64.
+- P2 repair rejected positive named-tool/«уже» premise: fixed-in 2f9db64.
+
+Push/PR/merge не выполнялись; live effect M5 не измерен. Этап реализации/офлайн-проверки завершён; human merge approval и новый finite live run остаются отдельными решениями.

@@ -34,7 +34,7 @@ Allowlist: actual activity_id/date/sport/status/reason/source/analyzed/count plu
 - [x] GREEN helper/gate integration, safe fallback retains source facts with activity/date, bounded correction succeeds or safely fails.286focused passed.
 - [x] API SSE uses validated delivered text and retains open metadata shape; legacy/shared path characterization and existing domain tests pass.
 - [x] Focused + isolated broad tests, lint/diff, independent checker, offline replay all saved answers, historical artifacts byte-identical.3012smoke passed/35skipped/1existing warning,183.36s; replay twice byte-identical.
-- [ ] Local commit and concise evidence/case update. No claim of live quality improvement without a new authorized live run.
+- [x] Local commit2f9db64 and concise evidence/case update. No claim of live quality improvement without a new authorized live run.
 
 ## Failure / Reset / Rollback / ASR
 
@@ -42,4 +42,4 @@ No new persistent state; reset/rollback revert code, no data operation. Preserve
 
 ## Evidence / Review / Verdict
 
-Observed at base: saved M4 empty answer and pre-M3 source traces passed gate; evidence omitted activity structure. Inferred: supplying this domain and checking the named forms can block these observed unsupported claims. Cheapest falsifier: offline replay with real saved tool results and positive/mixed controls. Verified by: initial RED16failed/9passed; final focused286passed,smoke3012passed and [replay](reports/2026-10-15-coach-answer-verification/README.md). Independent spec check no blockers; implementation checker found3P2, all fixed with exact regressions; one repair regression fixed, scoped7cases pass, no remaining blockers. New module is a narrow claim-domain helper, not another product path. Local checkpoint pending; merge remains human-owned. Live effect not measured.
+Observed at base: saved M4 empty answer and pre-M3 source traces passed gate; evidence omitted activity structure. Inferred: supplying this domain and checking the named forms can block these observed unsupported claims. Cheapest falsifier: offline replay with real saved tool results and positive/mixed controls. Verified by: initial RED16failed/9passed; final focused286passed,smoke3012passed and [replay](reports/2026-10-15-coach-answer-verification/README.md). Independent spec check no blockers; implementation checker found3P2, all fixed with exact regressions; one repair regression fixed, scoped7cases pass, no remaining blockers. New module is a narrow claim-domain helper, not another product path. Local checkpoint2f9db64; merge remains human-owned. Live effect not measured.

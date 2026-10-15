@@ -27,7 +27,7 @@ Coach должен честно объяснять отсутствие отре
 - [x] (2026-10-15) M5: allowlisted activity evidence + bounded hard gate + factual fallback в shared Python; correction budget прежний.286focused passed, API SSE/persistence и legacy path проверены офлайн. Три reviewer P2 и одна repair-регрессия исправлены с точными RED/GREEN; scoped checker7passed, блокеров нет.
 - [x] (2026-10-15) M5: offline replay30saved outputs,12activity rejections; все4исходных контрпримера остановлены,3supported M4answers unchanged. Все4historical JSON byte-identical; новых model calls0.
 - [x] (2026-10-15) M5: итоговый isolated smoke3012passed/35skipped/1existing warning,183.36s; whole-tree ruff/diff green. Replay повторён в новый temp file, bytes identical.
-- [ ] M5: локальный commit после проверок.
+- [x] (2026-10-15) M5: локальный implementation/evidence commit2f9db64; reviewer dispositions и итоговый report закреплены. Никаких paid calls/push/PR/merge.
 
 ## Surprises & Discoveries
 
@@ -141,3 +141,5 @@ Revision2026-10-15: по явному «Делай» выполнен конеч
 Revision2026-10-15 M3: владелец отдельно авторизовал закрепление условий. Новое правило инструкции относится к следующей версии runtime; source A/B artifacts и результаты05c932b остаются неизменными. На этом checkpoint behavioral effect не измерялся; дальнейший M4 записан отдельно.
 
 Revision2026-10-15 M4: финальный finite run завершён, partial result/immutable trace/две семантические оценки/verification draft/local review brief сохранены. Отрицательная часть не скрыта за автоматическим4/4. Чистая итоговая приёмка и merge не заявлены; никаких новых платных попыток или реализации следующего validator.
+
+Revision2026-10-15 M5: по отдельному «Реализуй план» выполнен bounded activity evidence/gate/fallback, checkpoint2f9db64.286focused/3012smoke passed,35skipped; independent findings fixed-in2f9db64. Офлайн30saved outputs не заменяют fresh live acceptance, все4старых JSON неизменны; новых provider calls0. Реализация завершена локально, main/athlete state/push/merge не затронуты.
