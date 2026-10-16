@@ -9,14 +9,13 @@ import pytest
 from models.coach_narrative_evidence import build_coach_narrative_evidence, validate_coach_narrative
 
 pytestmark = pytest.mark.smoke
-REPORTS = Path(__file__).resolve().parents[2] / "docs/reports"
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/coach_activity_narrative_cases.json"
 REASON = "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
 
 
 def _saved(report="final", *, state="empty", repeat=1, variant=None):
-    path = (REPORTS / "2026-10-15-coach-final-validation/live-validation.json" if report == "final"
-            else REPORTS / "2026-10-15-coach-source-ab/live-comparison.json")
-    return next(row for row in json.loads(path.read_text())["results"]
+    rows = json.loads(FIXTURES.read_text())["final" if report == "final" else "source"]
+    return next(row for row in rows
                 if row["repeat"] == repeat
                 and (row.get("expected_structure_status") == state if report == "final"
                      else row["variant"] == variant))
@@ -56,7 +55,7 @@ def test_saved_supported_answers_are_preserved(state, repeat):
 
 def test_saved_live_denial_passes_without_correction():
     from models.ai_coach_runtime import revalidate_with_correction
-    row = json.loads((REPORTS / "2026-10-15-coach-live-protection/live-validation.json").read_text())["results"][0]
+    row = json.loads(FIXTURES.read_text())["live"][0]
     original = row["answer_verification"]["initial_answer"]
     evidence = _evidence(row["tool_results"])
     gate = validate_coach_narrative(original, evidence)
@@ -252,9 +251,9 @@ def test_legacy_shared_finalizer_never_delivers_saved_unsafe_answer(tmp_path):
     from models.ai_coach_runtime import finalize_ai_chat_response
     from models.ai_tools import AITools
     from models.coach_tool_presenter import format_tool_result
-    from tests.evals.coach.runtime_registry import build_cache_validation_database
+    from tests.fixtures.coach_activity_cases import build_analyzed_empty_database
 
-    database = build_cache_validation_database(tmp_path / "legacy.db", date(2026, 10, 15))
+    database = build_analyzed_empty_database(tmp_path / "legacy.db", date(2026, 10, 12))
     unsafe = _saved()["final_answer"]
     delivered = finalize_ai_chat_response(
         "[TOOL: get_activity_structure, activity_id=syn-run-empty]\n" + unsafe,
