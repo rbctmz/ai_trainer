@@ -16,6 +16,11 @@ _NAMING = re.compile(r"\b(?:назову|перечислю|покажу|раз�
 _UNCERTAIN = re.compile(r"(?:может|могут|могла\s+бы|возможно|не\s+факт,?\s+что|"
                         r"нельзя\s+(?:утверждать|гарантировать),?\s+что|не\s+означает,?\s+что|"
                         r"не\s+обещаю,?\s+что)\b", re.I)
+_DENIED_GUARANTEES = (
+    re.compile(r"\bне\s+могу\s+гарантировать\s*,?\s*что\s+(?P<claim>[^,;.!?\n]+)", re.I),
+    re.compile(r"\bгарантировать\s*,?\s*что\s+(?P<claim>[^,;.!?\n]+?)\s*(?:,|[—–])?"
+               r"\s+не\s+могу\b(?!\s+не\b)", re.I),
+)
 _ABSENCE = re.compile(r"\b(?:отрезков|интервалов)(?:\s+(?!не\b|нет\b)[\w.-]+){0,9}\s+(?:нет|не\s+было)\b|"
                       r"\bнет\s+(?:отрезков|интервалов)\b", re.I)
 _REAL_ABSENCE = re.compile(r"(?:сесси\w*|трениров\w*).{0,30}(?:прошл\w*|был\w*|выполнен\w*)"
@@ -107,6 +112,18 @@ def _conditional_premise(prefix: str) -> bool:
     return bool(re.search(r"\b(?:если|когда)\b", re.split(r"[,—:]", prefix)[-1], re.I))
 
 
+def _denied_guarantee(text: str, claim: re.Match[str]) -> bool:
+    # Exempt only the proposition inside the explicit denial, not a later
+    # assertion in the same sentence or an unrelated use of "не могу".
+    for pattern in _DENIED_GUARANTEES:
+        for denial in pattern.finditer(text):
+            start, end = denial.span("claim")
+            if start <= claim.start() and claim.end() <= end:
+                if not re.search(r"\b(?:но|однако|зато|а)\b", text[start:claim.start()], re.I):
+                    return True
+    return False
+
+
 def _cache_condition(text: str) -> bool:
     text = re.split(r"\b(?:но|однако|зато)\b", text, flags=re.I)[-1]
     condition = re.search(r"(?:если|когда|после|при\s+условии).{0,180}"
@@ -139,7 +156,7 @@ def activity_claim_unsupported(text: str, records: list[Mapping[str, Any]], *, a
             activity_context = True
         for match in _FUTURE.finditer(clause):
             prefix = clause[:match.start()]
-            if _qualified(prefix) or _conditional_premise(prefix):
+            if _qualified(prefix) or _conditional_premise(prefix) or _denied_guarantee(clause, match):
                 continue
             is_confirmation = match.group().lower() in {"подтвердит", "докажет"}
             if is_confirmation:
@@ -152,7 +169,8 @@ def activity_claim_unsupported(text: str, records: list[Mapping[str, Any]], *, a
                 and not (scope and all(row["structure_status"] == "structured" for row in scope)
                          and not re.search(r"повтор|после|когда|если|синхронизац|открыти|тогда", clause, re.I))
                 and not _qualified(clause[:_NAMING.search(clause).start()]) and not _cache_condition(clause)):
-            return True
+            if not _denied_guarantee(clause, _NAMING.search(clause)):
+                return True
         for match in _REAL_ABSENCE.finditer(clause):
             if not _qualified(clause[:match.start()]) and not _conditional_premise(clause[:match.start()]):
                 return True

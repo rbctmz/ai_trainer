@@ -8,6 +8,11 @@ Coach должен честно объяснять отсутствие отре
 
 ## Progress
 
+- [x] (2026-10-16) M7 авторизован «Делай что важно» после согласованного finite stop-rule. [Acceptance contract](issue_528_protection_acceptance.md): один bounded negation repair, пять условий, ClassB,0paid calls; историческая M6partial оценка неизменна.
+- [x] (2026-10-16) M7: RED8failed/10passed→263focused passed; explicit denial scope+gatev4/evidencev3.14offline acceptance cases pass, saved M6denial0correction calls,6historical JSON и M6assessment unchanged.
+- [x] (2026-10-16) M7: independent consolidated review193passed +6probes, все5criteria ACCEPTED, no blockers; repair check не понадобился. Ruff/diff green; итоговый isolated smoke3036passed/35skipped/1existing warning,211.53s.
+- [x] (2026-10-16) M7: финальное **ACCEPTED bounded offline protection** решение и local code/evidence checkpoint. Цикл приёмки закрыт; автоматического M8/live retry нет.
+
 - [x] (2026-10-14) Прочитаны текущие A/B traces и источник сообщения; гипотеза проверена офлайн на synthetic DB.
 - [x] (2026-10-14) Scope, этапы, бюджет и критерии этого плана записаны до реализации.
 - [x] (2026-10-14) Заполнен [slice spec](issue_528_source_promise_slice_spec.md), независимый bounded spec check: блокеров нет; handoff Spec Owner → Domain Implementer.
@@ -42,6 +47,8 @@ M6 **Observed:** initial focused2failures demanded lexical pass for safe «ан�
 
 ## Decision Log
 
+Decision: закрыть цикл по узкому контракту M7, а не общей безошибочности Coach. Scope: отрицание гарантии, сохранение4unsafe counterexamples/valid states/correction bounds. Rulesv4/evidencev3, metadata compatible. Name/status attribution остаётся отдельной known limitation; M6не переоценивается. Один consolidated review + максимум1scoped repair check; после решения остановка без новой автоматической итерации. Date:2026-10-16.
+
 Decision: M6 добавляет только versioned stage observation в experimental runner, чтобы различить initial answer, correction и factual fallback. Product/runtime/scorers не меняются; cap16 включает correction. Raw response/time уже существуют, финальный pass не должен скрывать цену защиты. Один авторизованный run останавливается независимо от результата. Date:2026-10-15.
 
 Decision: менять только not_fetched сообщение, сохраняя статус unavailable, reason not_fetched и structured/empty/no_provider_link/corrupt_cache значения. Rationale: исправляется факт в исходном контексте, не формулы, загрузка или форма API. Date:2026-10-14.
@@ -63,6 +70,8 @@ Decision: M4 завершает поведенческую проверку M3 �
 Decision: M5 добавляет один ограниченный activity claim domain в существующую narrative boundary, без общего фактчекера и новых вызовов модели. Rationale: M4 сохранил конкретный контрпример; одних инструкций недостаточно для этой наблюдаемой формы. Public metadata shape открыт и совместим, internal evidence/rules становятся v3. Исправить только misleading empty source observation и general hypothesis wording; не менять исторические traces/predicates. Date:2026-10-15.
 
 ## Outcomes & Retrospective
+
+M7 завершён2026-10-16: явное отрицание гарантии сохраняется безcorrection, все4старых unsafe counterexamples блокируются, соседние/double-negated guarantees не освобождаются.263focused/3036smoke passed, independent193passed+6probes принимает все5frozen criteria. [Final acceptance](reports/2026-10-16-coach-protection-acceptance/README.md): **ACCEPTED bounded offline protection**, цикл закрыт. Никаких новых model calls; M6partial3/4 и status/name coverage limit сохранены. Это local delivery readiness узкой защиты; не общая безошибочность Coach и не human merge approval. Дальнейший scope требует отдельного решения, автоматического M8 нет.
 
 M6 исполнен наbad70d5:4turns/13calls,0errors,protocol/automated4/4, но semantic partial. Независимый checker и primary согласны: initial/delivered3fully supported из4; empty выдаёт activity name за structure status. Missing1 был уже корректен, отрицал гарантию, но gate вызвал лишнюю correction1call/2033.52ms; исправленный ответ поддержан. Live rejection truly unsafe output и deterministic fallback в этом запуске не продемонстрированы. [Report](reports/2026-10-15-coach-live-protection/README.md) сохраняет immutable trace/оценки/стоимость/два residuals. Никакого post-run tuning/retry. Следующий bounded repair — negation false positive; attribution coverage отдельно, без расширения на общий фактчекер.
 
@@ -126,6 +135,8 @@ RED tests в tests/smoke/test_ai_coach_runtime.py проверяют общие 
 
 ## Concrete Steps
 
+M7: работать по docs/issue_528_protection_acceptance.md; добавить saved M6initial и минимальные denial/affirmative/neighbor/double-negation tests до helper edit. Править только models/coach_activity_structure_evidence.py, rule version в models/coach_narrative_evidence.py и связанные metadata assertions. Все prior live JSON/оценки immutable; новый offline acceptance report содержит отдельные verdicts, zero provider calls. Focused activity gate/runtime/eval/correction tests, isolated tests/smoke, ruff --no-cache и diff; independent consolidated checker, максимум1scoped repair verification. Критерии выполнены→bounded protection ACCEPTED/local delivery readiness; scoped blocker→STOPPED/отдельное решение подхода. Никаких paid runs/push/merge.
+
 M6: один запуск из этого worktree после pre-run commit: `/Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python scripts/run_coach_runtime_eval.py --experiment cache-validation --provider deepseek --live --env-file /Users/gregkisel/Developer/ai_trainer/.env --today 2026-10-15 --repeats 2 --output /private/tmp/coach-live-protection-20261015.json`. Output exclusive; при ошибке не повторять платный запуск. Сохранить sanitized immutable bytes в новом report namespace;4historical JSON сравнить сa3d0687. Исходные/исправленные/итоговые ответы и extra calls/time оценивать раздельно.
 
 Работать в `/Users/gregkisel/.codex/worktrees/coach-runtime-eval/ai_trainer`; использовать `/Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python` либо активированный эквивалентный venv.
@@ -162,3 +173,5 @@ Revision2026-10-15 M4: финальный finite run завершён, partial r
 Revision2026-10-15 M5: по отдельному «Реализуй план» выполнен bounded activity evidence/gate/fallback, checkpoint2f9db64.286focused/3012smoke passed,35skipped; independent findings fixed-in2f9db64. Офлайн30saved outputs не заменяют fresh live acceptance, все4старых JSON неизменны; новых provider calls0. Реализация завершена локально, main/athlete state/push/merge не затронуты.
 
 Revision2026-10-15 M6: по отдельному явному запросу выполнен один fresh live protection run наbad70d5 после124focused/3018smoke passed и independent checker.13/16calls,0errors,4state criteria observed; strict initial/delivered3/4supported, false-positive correction и status/name attribution сохранены как partial evidence. Новых policy edits/paid retries нет; локальный отчёт отделяет автоматический4/4 от семантической приёмки и цены защиты.
+
+Revision2026-10-16 M7: по запросу о конечной приёмке и «Делай что важно» выполнен последний bounded negation repair. Пять заранее зафиксированных условий приняты;263focused/3036smoke/193independent passed,0new model calls. Gatev4/evidencev3, исторические оценки immutable. Решение ACCEPTED относится к узкой защите; acceptance cycle завершён без следующего автоматического этапа.

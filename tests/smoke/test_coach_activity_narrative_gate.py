@@ -54,6 +54,53 @@ def test_saved_supported_answers_are_preserved(state, repeat):
     assert result.delivered_text == row["final_answer"]
 
 
+def test_saved_live_denial_passes_without_correction():
+    from models.ai_coach_runtime import revalidate_with_correction
+    row = json.loads((REPORTS / "2026-10-15-coach-live-protection/live-validation.json").read_text())["results"][0]
+    original = row["answer_verification"]["initial_answer"]
+    evidence = _evidence(row["tool_results"])
+    gate = validate_coach_narrative(original, evidence)
+    assert gate.outcome == "pass" and gate.delivered_text == original
+
+    class NoCallProvider:
+        def generate_response(self, *args, **kwargs):
+            pytest.fail("supported denial must not request correction")
+    delivered = revalidate_with_correction(provider=NoCallProvider(), gate_result=gate, evidence=evidence,
+        history_messages=[], user_input=row["prompt"], tool_results=row["tool_results"])
+    assert delivered.delivered_text == original and delivered.outcome == "pass"
+
+
+@pytest.mark.parametrize("text", [
+    "Гарантировать, что после этого отрезки появятся, не могу.",
+    "Не могу гарантировать, что после этого отрезки появятся.",
+    "Не могу гарантировать, что данные попадут в кэш и отрезки появятся.",
+    "Гарантировать, что проверка карточки подтвердит гипотезу об отрезках, не могу.",
+    "Не могу гарантировать, что проверка карточки подтвердит гипотезу об отрезках.",
+    "Гарантировать, что после запроса назову отрезки, не могу.",
+    "Не могу гарантировать, что после запроса назову отрезки.",
+])
+def test_explicit_guarantee_denial_is_preserved(text):
+    result = validate_coach_narrative(text, _evidence(_saved(state="unavailable")["tool_results"]))
+    assert result.outcome == "pass" and result.delivered_text == text
+
+
+@pytest.mark.parametrize("text", [
+    "После этого отрезки появятся.",
+    "Гарантировать, что после этого отрезки появятся, могу.",
+    "Не могу не гарантировать, что после этого отрезки появятся.",
+    "Гарантировать, что после этого отрезки появятся, не могу не обещать.",
+    "Не могу гарантировать, что отрезки появятся, но после синхронизации они появятся.",
+    "Гарантировать, что отрезки появятся, не могу, но проверка карточки подтвердит гипотезу об отрезках.",
+    "Не могу гарантировать, что отрезки появятся, а после открытия карточки они появятся.",
+    "Не могу гарантировать, что отрезки появятся, и проверка карточки подтвердит гипотезу об отрезках.",
+    "Не могу гарантировать исправность часов, но после синхронизации отрезки появятся.",
+    "Не могу гарантировать, что отрезки появятся; повторите запрос — тогда назову отрезки.",
+])
+def test_denial_cannot_exempt_a_real_or_neighboring_guarantee(text):
+    result = validate_coach_narrative(text, _evidence(_saved(state="unavailable")["tool_results"]))
+    assert result.outcome == "replaced" and REASON in result.reason_codes
+
+
 @pytest.mark.parametrize("state,text", [
     ("empty", "Анализ сохранённых данных не выявил отрезков. Проверка карточки может подтвердить или опровергнуть гипотезу."),
     ("empty", "Анализ не нашёл отрезков. Проверьте карточку активности, чтобы проверить гипотезу."),
@@ -196,7 +243,7 @@ def test_successful_correction_preserves_facts_and_metadata_shape():
     assert result.outcome == "pass" and result.delivered_text == corrected
     metadata = result.metadata()
     assert set(metadata) == {"rule_version", "outcome", "reason_codes", "evidence_version", "evidence_fingerprint"}
-    assert metadata["rule_version"] == "coach_narrative_gate_v3"
+    assert metadata["rule_version"] == "coach_narrative_gate_v4"
     assert metadata["evidence_version"] == "coach_narrative_evidence_v3"
 
 
@@ -258,5 +305,5 @@ def test_api_streams_and_persists_only_validated_activity_text(tmp_path, monkeyp
     assert "это подтвердит" not in delivered.lower()
     assert "40" in delivered and "6" in delivered
     assert done["evidence_gate"]["reason_codes"] == [REASON]
-    assert done["evidence_gate"]["rule_version"] == "coach_narrative_gate_v3"
+    assert done["evidence_gate"]["rule_version"] == "coach_narrative_gate_v4"
     assert ChatManager().get_chat_messages(done["chat_id"])[-1]["content"] == delivered

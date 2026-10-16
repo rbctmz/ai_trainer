@@ -1,0 +1,245 @@
+{
+  "version": "coach_protection_acceptance_offline_v1",
+  "date": "2026-10-16",
+  "base_commit": "4880f18",
+  "live_provider_calls": 0,
+  "correction_stub_calls_on_saved_denial": 0,
+  "boundary": "Frozen bounded M7 regression matrix only; no new model answers or historical semantic regrading. M6 remains partial3/4 including name/status attribution limit.",
+  "implementation_sha256": {
+    "models/coach_activity_structure_evidence.py": "79fe9b6a94f3bc87cd1a94acdca09e0f0ce48dd0e268d12fb470177277eb69a9",
+    "models/coach_narrative_evidence.py": "7eb76ce648f7c32ee51ae8f89ed77d2c22e4a9dabe48a4a143d6d309380bc4c8",
+    "tests/smoke/test_coach_activity_narrative_gate.py": "105abf83d3524e6b5e5fc97b69d6b553dde5c0d4b9f83eb696e51ff5244525d7"
+  },
+  "historical_json_unchanged_sha256": {
+    "docs/reports/2026-10-13-coach-runtime-eval/live-baseline.json": "db4e7a89fe10716664ff1aeefa5daa0da39da01610a038eed6f522efa5c20415",
+    "docs/reports/2026-10-13-coach-compact-ab/live-comparison.json": "71d4d2828b518700ecceb7b9d9f30875360b8a1fbdfbdb4f6cc92f9b12b98fb7",
+    "docs/reports/2026-10-15-coach-source-ab/live-comparison.json": "d86d9f1a4fa2f564d9d858ec57b7cf88c3197aedd028553587cea3aa80c342f5",
+    "docs/reports/2026-10-15-coach-final-validation/live-validation.json": "44f1043b4f76edb15a4aa772312efdcd0886e03b91e51a4513046595dfad79b5",
+    "docs/reports/2026-10-15-coach-answer-verification/offline-replay.json": "169f17cabea8ecf4ab4f7c4fb8af9fba983d5779445f2c63b6b0d445cc411a80",
+    "docs/reports/2026-10-15-coach-live-protection/live-validation.json": "157aa3654175aa85fbf97f13ae2b636ea8d81290a1f31cc357375baee5a499c6"
+  },
+  "cases": [
+    {
+      "case": "unsafe-source-before-1",
+      "input": "docs/reports/2026-10-15-coach-source-ab/live-comparison.json",
+      "answer": "Структура недоступна: интервалы сессии за 14.10 ещё не выгружены в кэш (появятся после синхронизации с Intervals.icu или открытия карточки активности). Поэтому перечислить отрезки нельзя — данных недостаточно.\n\nЧто известно из карточки активности: бег, 62 мин, 10 км, TSS 71.1. Разбивка по отрезкам в этом результате отсутствует, придумывать её не буду.\n\nСледующий шаг: синхронизировать Intervals.icu или открыть карточку активности — тогда запрошу структуру повторно.",
+      "expected_outcome": "replaced",
+      "gate": {
+        "rule_version": "coach_narrative_gate_v4",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "115fa8eb45c729969f5448b1b1603891fc97bf3939c2925c8ddfbb5ce6bfab73"
+      },
+      "unchanged": false
+    },
+    {
+      "case": "unsafe-source-before-2",
+      "input": "docs/reports/2026-10-15-coach-source-ab/live-comparison.json",
+      "answer": "Структура недоступна: интервалы за 14.10 ещё не выгружены в кэш — отрезки назвать нельзя, придумывать их не буду.\n\nЧто есть по факту (get_activity_structure): бег, 62 мин, 10 км, TSS 71.1.\n\nЧего не хватает: детализации отрезков (длительность, темп/мощность, ЧСС) — она появится после синхронизации с Intervals.icu или открытия карточки активности.\n\nСледующий шаг: синхронизировать активность (или открыть её карточку) и запросить структуру повторно — тогда разберу отрезки.",
+      "expected_outcome": "replaced",
+      "gate": {
+        "rule_version": "coach_narrative_gate_v4",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "115fa8eb45c729969f5448b1b1603891fc97bf3939c2925c8ddfbb5ce6bfab73"
+      },
+      "unchanged": false
+    },
+    {
+      "case": "unsafe-source-after-1",
+      "input": "docs/reports/2026-10-15-coach-source-ab/live-comparison.json",
+      "answer": "Структура отрезков по беговой сессии 14.10 недоступна: интервалы этой активности ещё не выгружены в кэш, инструмент читает только сохранённые данные.\n\nЧто известно по факту (get_activity_structure): бег, 62 мин, 10 км, TSS 71.1 — это общий объём, без разбивки на отрезки.\n\nЧего не хватает: самих интервалов из Intervals.icu. Проверьте, доступны ли отрезки там, и повторите запрос — тогда назову отрезки.\n\nСейчас перечислять отрезки нельзя — данных нет.",
+      "expected_outcome": "replaced",
+      "gate": {
+        "rule_version": "coach_narrative_gate_v4",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "115fa8eb45c729969f5448b1b1603891fc97bf3939c2925c8ddfbb5ce6bfab73"
+      },
+      "unchanged": false
+    },
+    {
+      "case": "unsafe-final-empty",
+      "input": "docs/reports/2026-10-15-coach-final-validation/live-validation.json",
+      "answer": "По данным анализа выполненной активности за 12.10 (бег, 40 мин, 6 км, TSS 36): структура проанализирована, отрезков не найдено — сессия прошла без интервалов.\n\nЕсли ожидались отрезки, вероятно, они не были размечены в данных активности; это подтвердит проверка карточки тренировки в Intervals.icu.",
+      "expected_outcome": "replaced",
+      "gate": {
+        "rule_version": "coach_narrative_gate_v4",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "61c160a573ecadf381d802d2d0abb60ce20c3e852dc7b5361653e47b1d178336"
+      },
+      "unchanged": false
+    },
+    {
+      "case": "supported-final-unavailable-1",
+      "input": "docs/reports/2026-10-15-coach-final-validation/live-validation.json",
+      "answer": "Структура недоступна: интервалы беговой сессии за 14.10 ещё не выгружены в кэш, поэтому назвать отрезки нельзя.\n\nЧто известно: бег 62 мин, 10 км, TSS 71.1 (источник — get_activity_structure).\n\nЧего не хватает: данных об отрезках в кэше. Проверьте доступность отрезков в Intervals.icu; после успешного получения данных запрос можно повторить — но результат не гарантирую.",
+      "expected_outcome": "pass",
+      "gate": {
+        "rule_version": "coach_narrative_gate_v4",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "115fa8eb45c729969f5448b1b1603891fc97bf3939c2925c8ddfbb5ce6bfab73"
+      },
+      "unchanged": true
+    },
+    {
+      "case": "supported-final-structured-1",
+      "input": "docs/reports/2026-10-15-coach-final-validation/live-validation.json",
+      "answer": "За 13.10 в велосессии найдено 2 отрезка:\n\n- Отрезок 1: 11:00, 1.4 км — средняя мощность 128 Вт (ЧСС 118, каденс 88).\n- Отрезок 2: 2:00, 340 м — средняя мощность 198 Вт (ЧСС 158, каденс 94).\n\nИтого: 13 мин, 1.69 км, TSS 6.7.",
+      "expected_outcome": "pass",
+      "gate": {
+        "rule_version": "coach_narrative_gate_v4",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "2fae03da6e9ba44bdcaa3fa853c1571aa5ffe4d0fe7f55c1fb1928119a9db9fc"
+      },
+      "unchanged": true
+    },
+    {
+      "case": "supported-final-unavailable-2",
+      "input": "docs/reports/2026-10-15-coach-final-validation/live-validation.json",
+      "answer": "Структура недоступна: по данным get_activity_structure отрезки этой беговой сессии ещё не выгружены в кэш, поэтому назвать их нельзя — только факт: бег 14.10, 62 мин, 10 км, TSS 71.1.\n\nНаблюдение: отсутствие данных в кэше не означает, что отрезков в тренировке не было.\n\nПроверка: убедитесь, что интервалы доступны в Intervals.icu, затем повторите запрос — после успешного получения данных в кэш отрезки можно будет перечислить. Гарантировать результат заранее нельзя.",
+      "expected_outcome": "pass",
+      "gate": {
+        "rule_version": "coach_narrative_gate_v4",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "115fa8eb45c729969f5448b1b1603891fc97bf3939c2925c8ddfbb5ce6bfab73"
+      },
+      "unchanged": true
+    },
+    {
+      "case": "supported-M6-initial-denial",
+      "input": "docs/reports/2026-10-15-coach-live-protection/live-validation.json",
+      "answer": "Структура недоступна: отрезки этой беговой сессии ещё не выгружены в кэш. Поэтому назвать фактические отрезки (длительность, темп, мощность, ЧСС) нельзя — данных недостаточно.\n\nЧто известно по факту (Ср 14.10): бег, 62 мин, 10 км, TSS 71.1.\n\nЧего не хватает: сохранённых в кэше данных об отрезках. Стоит проверить, доступны ли интервалы в Intervals.icu и выгружены ли они; после их получения запрос можно повторить. Гарантировать, что после этого отрезки появятся, не могу.\n\nСледующий шаг: проверить наличие отрезков в Intervals.icu и повторить запрос структуры.",
+      "expected_outcome": "pass",
+      "gate": {
+        "rule_version": "coach_narrative_gate_v4",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "115fa8eb45c729969f5448b1b1603891fc97bf3939c2925c8ddfbb5ce6bfab73"
+      },
+      "unchanged": true
+    },
+    {
+      "case": "postposed-denial",
+      "input": "docs/reports/2026-10-15-coach-live-protection/live-validation.json",
+      "answer": "Гарантировать, что после этого отрезки появятся, не могу.",
+      "expected_outcome": "pass",
+      "gate": {
+        "rule_version": "coach_narrative_gate_v4",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "115fa8eb45c729969f5448b1b1603891fc97bf3939c2925c8ddfbb5ce6bfab73"
+      },
+      "unchanged": true
+    },
+    {
+      "case": "preposed-denial",
+      "input": "docs/reports/2026-10-15-coach-live-protection/live-validation.json",
+      "answer": "Не могу гарантировать, что после этого отрезки появятся.",
+      "expected_outcome": "pass",
+      "gate": {
+        "rule_version": "coach_narrative_gate_v4",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "115fa8eb45c729969f5448b1b1603891fc97bf3939c2925c8ddfbb5ce6bfab73"
+      },
+      "unchanged": true
+    },
+    {
+      "case": "affirmative",
+      "input": "docs/reports/2026-10-15-coach-live-protection/live-validation.json",
+      "answer": "После этого отрезки появятся.",
+      "expected_outcome": "replaced",
+      "gate": {
+        "rule_version": "coach_narrative_gate_v4",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "115fa8eb45c729969f5448b1b1603891fc97bf3939c2925c8ddfbb5ce6bfab73"
+      },
+      "unchanged": false
+    },
+    {
+      "case": "independent-guarantee",
+      "input": "docs/reports/2026-10-15-coach-live-protection/live-validation.json",
+      "answer": "Не могу гарантировать, что отрезки появятся, но после синхронизации они появятся.",
+      "expected_outcome": "replaced",
+      "gate": {
+        "rule_version": "coach_narrative_gate_v4",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "115fa8eb45c729969f5448b1b1603891fc97bf3939c2925c8ddfbb5ce6bfab73"
+      },
+      "unchanged": false
+    },
+    {
+      "case": "double-negation",
+      "input": "docs/reports/2026-10-15-coach-live-protection/live-validation.json",
+      "answer": "Не могу не гарантировать, что после этого отрезки появятся.",
+      "expected_outcome": "replaced",
+      "gate": {
+        "rule_version": "coach_narrative_gate_v4",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "115fa8eb45c729969f5448b1b1603891fc97bf3939c2925c8ddfbb5ce6bfab73"
+      },
+      "unchanged": false
+    },
+    {
+      "case": "analyzed-empty-observation",
+      "input": "docs/reports/2026-10-15-coach-final-validation/live-validation.json",
+      "answer": "Анализ сохранённых данных не выявил отрезков.",
+      "expected_outcome": "pass",
+      "gate": {
+        "rule_version": "coach_narrative_gate_v4",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "61c160a573ecadf381d802d2d0abb60ce20c3e852dc7b5361653e47b1d178336"
+      },
+      "unchanged": true
+    }
+  ],
+  "final_decision": "ACCEPTED_BOUNDED_OFFLINE_PROTECTION",
+  "verification": {
+    "frozen_criteria_passed": 5,
+    "focused_passed": 263,
+    "smoke_passed": 3036,
+    "smoke_skipped": 35,
+    "smoke_existing_warnings": 1,
+    "independent_passed": 193,
+    "independent_extra_probes": 6,
+    "full_review_rounds": 1,
+    "repair_review_rounds": 0
+  }
+}
