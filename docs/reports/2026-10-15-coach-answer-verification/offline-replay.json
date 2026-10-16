@@ -1,0 +1,1020 @@
+{
+  "version": "coach_activity_claim_offline_replay_v1",
+  "date": "2026-10-15",
+  "base_commit": "f1b03ce",
+  "provider_calls": 0,
+  "boundary": "Saved outputs, not fresh model trials or an estimate of live quality. No correction provider invoked.",
+  "inputs_sha256": {
+    "2026-10-13-coach-runtime-eval/live-baseline.json": "db4e7a89fe10716664ff1aeefa5daa0da39da01610a038eed6f522efa5c20415",
+    "2026-10-13-coach-compact-ab/live-comparison.json": "71d4d2828b518700ecceb7b9d9f30875360b8a1fbdfbdb4f6cc92f9b12b98fb7",
+    "2026-10-15-coach-source-ab/live-comparison.json": "d86d9f1a4fa2f564d9d858ec57b7cf88c3197aedd028553587cea3aa80c342f5",
+    "2026-10-15-coach-final-validation/live-validation.json": "44f1043b4f76edb15a4aa772312efdcd0886e03b91e51a4513046595dfad79b5"
+  },
+  "implementation_sha256": {
+    "models/coach_activity_structure_evidence.py": "24521108b7fc5b713a50f498f3274c41295f2ef8b4a9ea78027e78617e087a3b",
+    "models/coach_narrative_evidence.py": "9bdac323f581139c500e4d5e4fd2a93bce981174a2fa42a5cafe7c457ff5e246",
+    "models/ai_coach_runtime.py": "e9ed31cb3c0d197f2d052d890cbc08805508e47f5d3e5123c00d211dc0b17943",
+    "models/ai_tools.py": "0de4b3c8225859a2ae1aa580cff1721ec85d9b6b5930290cef56444b5d64904c"
+  },
+  "summary": {
+    "saved_outputs": 30,
+    "activity_claim_blocked": 12,
+    "unchanged": 15,
+    "outcomes": {
+      "pass": 15,
+      "replaced": 15
+    }
+  },
+  "results": [
+    {
+      "input": "2026-10-13-coach-runtime-eval/live-baseline.json",
+      "index": 0,
+      "scenario_id": "planned-structure",
+      "variant": null,
+      "repeat": 1,
+      "source_answer_sha256": "8d044b6761d51808fa2dd6d5ba39233e16db6318b623c0607f849189237030a3",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "00e271e1e4a31b762d985e70a3cd4a7c57b52f0ef4dafaa08d418aa3a0fbf202"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "**Структура плановой велотренировки 09.10 (Пт)**\n\n- План: «Синтетика — VO2max Intervals», вело, 60 мин, TSS 50, фаза Taper.\n- Разминка: Warm-up 17:52, 84–116 Вт (42–58% FTP).\n- Основная часть: 10× Sprint по 0:30 (254–266 Вт, 127–133% FTP) с восстановлением 2:30 (54–86 Вт) между ними.\n- Заминка: Cool-down 14:38, 64–96 Вт (32–48% FTP).\n- Факт: активности за 2026-10-09 не найдено — структура выполнения недоступна.\n\n**План vs факт**\nПриведённая выше структура — это план (источник: get_workout_structure). Фактическую структуру выполненной активности подтвердить нельзя: get_activity_structure вернул «активность по date=2026-10-09 не найдена». То есть по имеющимся данным нельзя утверждать, была ли сессия выполнена и с какими отрезками/мощностью/ЧСС.\n\n**Практический вывод**\nЕсли тренировка всё же проводилась, вероятная причина отсутствия факта — активность не записана/не синхронизирована (это гипотеза, а не установленный факт). Проверить можно через поиск активностей за диапазон дат вокруг 09.10 или по activity_id.\n\n**Следующий шаг**\nУточни, нужна ли проверка факта по соседним датам (get_activities_by_date_range) — тогда отдельно сопоставим план и выполнение.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "00e271e1e4a31b762d985e70a3cd4a7c57b52f0ef4dafaa08d418aa3a0fbf202"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-runtime-eval/live-baseline.json",
+      "index": 1,
+      "scenario_id": "planned-structure",
+      "variant": null,
+      "repeat": 2,
+      "source_answer_sha256": "ceb72e80d6b28d9e2e333a2fcff2f36aaf41a90af07bdd018c24d93ef31b3fc5",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "CALENDAR_REFERENCE_MISMATCH"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "00e271e1e4a31b762d985e70a3cd4a7c57b52f0ef4dafaa08d418aa3a0fbf202"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Каноническая дата: 2026-10-13 (вторник, Europe/Moscow).",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "00e271e1e4a31b762d985e70a3cd4a7c57b52f0ef4dafaa08d418aa3a0fbf202"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-runtime-eval/live-baseline.json",
+      "index": 2,
+      "scenario_id": "cached-actual-structure",
+      "variant": null,
+      "repeat": 1,
+      "source_answer_sha256": "2901cabd393d3605503fc83ddcf0bc42a990fc32ad6b03c8a949978e1b3a1050",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "65ca5f3f7b248ef7103be827d343ce191a4939d78dcf9fa880cf8ffef2d8121a"
+      },
+      "activity_claim_blocked": true,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Проверка может подтвердить или опровергнуть гипотезу; её результат заранее неизвестен.\n- Активность за 2026-10-11 (62 мин, 32.5 км, 55 TSS): в кэше сохранено отрезков: 2.\n  Отрезок 1: 660 с, 128 Вт, 1.35 км\n  Отрезок 2: 120 с, 198 Вт, 0.34 км",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "65ca5f3f7b248ef7103be827d343ce191a4939d78dcf9fa880cf8ffef2d8121a"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-runtime-eval/live-baseline.json",
+      "index": 3,
+      "scenario_id": "cached-actual-structure",
+      "variant": null,
+      "repeat": 2,
+      "source_answer_sha256": "94ef546ba7658c03a662afcb0de755a54118bdbce37a3d89b4b9360c9e54ec82",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "65ca5f3f7b248ef7103be827d343ce191a4939d78dcf9fa880cf8ffef2d8121a"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "**Факт по структуре велосессии 11.10 (источник: Intervals.icu):**\n\n- Всего 2 отрезка за 62 мин, 32.5 км, TSS 55.\n- Отрезок 1: 11:00, 1.4 км — средняя мощность **128 Вт** (ЧСС 118, каденс 88).\n- Отрезок 2: 2:00, 340 м — средняя мощность **198 Вт** (ЧСС 158, каденс 94).\n\nКоротко: два отрезка — 128 Вт и 198 Вт.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "65ca5f3f7b248ef7103be827d343ce191a4939d78dcf9fa880cf8ffef2d8121a"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-runtime-eval/live-baseline.json",
+      "index": 4,
+      "scenario_id": "missing-actual-structure",
+      "variant": null,
+      "repeat": 1,
+      "source_answer_sha256": "e1c35d42606f27a492e55ac6a8fefe3d35ddab8a630307bb4e88eddd2df1849c",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "59b7a559feb53c5012141f066ccb9bf5880aa88ab9c6220206a8f057a09e8c63"
+      },
+      "activity_claim_blocked": true,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Проверка может подтвердить или опровергнуть гипотезу; её результат заранее неизвестен.\n- Активность за 2026-10-12 (62 мин, 32.5 км, 55 TSS): структура недоступна. Данных недостаточно, чтобы назвать отрезки.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "59b7a559feb53c5012141f066ccb9bf5880aa88ab9c6220206a8f057a09e8c63"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-runtime-eval/live-baseline.json",
+      "index": 5,
+      "scenario_id": "missing-actual-structure",
+      "variant": null,
+      "repeat": 2,
+      "source_answer_sha256": "b561faf88a69e46310f20c664f51e0a67cb508dd5c42a81ac03fe5bc06a55f40",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "59b7a559feb53c5012141f066ccb9bf5880aa88ab9c6220206a8f057a09e8c63"
+      },
+      "activity_claim_blocked": true,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Проверка может подтвердить или опровергнуть гипотезу; её результат заранее неизвестен.\n- Активность за 2026-10-12 (62 мин, 32.5 км, 55 TSS): структура недоступна. Данных недостаточно, чтобы назвать отрезки.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "59b7a559feb53c5012141f066ccb9bf5880aa88ab9c6220206a8f057a09e8c63"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 0,
+      "scenario_id": "planned-structure",
+      "variant": "current",
+      "repeat": 1,
+      "source_answer_sha256": "cde2a4efcbe7d1c5aa05a6832d2e03b4c8aba108f5565d9c50e14cfeadb5f0db",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "00e271e1e4a31b762d985e70a3cd4a7c57b52f0ef4dafaa08d418aa3a0fbf202"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "**Плановая велотренировка 09.10 — «Синтетика — VO2max Intervals», 60 мин, TSS 50, фаза Taper.**\n\n**План (по данным get_workout_structure):**\n- **Разминка:** 17:52, 84–116 Вт (42–58% FTP).\n- **Основная часть:** 10× спринтов по 0:30 (254–266 Вт, 127–133% FTP) с восстановлением 2:30 (54–86 Вт) между ними — суммарно ~30 мин.\n- **Заминка:** 14:38, 64–96 Вт (32–48% FTP).\n\n**Факт:** по данным get_activity_structure активность за 2026-10-09 не найдена — фактическая структура (отрезки, мощность, ЧСС) недоступна. Отдельно: get_upcoming_workouts в этом запросе не вызывался, поэтому статус выполнения сессии не проверял.\n\n**Вывод:** план — короткая нейромышечная стимуляция (спринты), что типично для подводки в taper. Выполнение подтвердить нечем: либо активность не записана, либо сохранена под другой датой/ID.\n\n**Следующий шаг:** если тренировка была — проверь запись по диапазону дат (get_activities_by_date_range) или по activity_id, чтобы сверить фактические спринты с целевыми 254–266 Вт. Если не выполнялась — учитывай это при подводке к старту (до него 4 дня).",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "00e271e1e4a31b762d985e70a3cd4a7c57b52f0ef4dafaa08d418aa3a0fbf202"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 1,
+      "scenario_id": "planned-structure",
+      "variant": "compact",
+      "repeat": 1,
+      "source_answer_sha256": "71498642979bdd4f6040a1dd112a918ebb04da792b6a6f97805f9e3cd2f34f7d",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "7b57ee26438db187075ae91e3ef9ac0933dc15c4f30a180ff482a97807cb0585"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "**План на Пт 09.10 — «Синтетика — VO2max Intervals», вело, 60 мин, TSS 50, фаза Taper (по данным get_workout_structure):**\n\n- **Разминка:** 17:52, 84–116 Вт (42–58% FTP).\n- **Основная часть:** 10× спринт 0:30 (254–266 Вт, 127–133% FTP) через восстановление 2:30 (54–86 Вт).\n- **Заминка:** 14:38, 64–96 Вт (32–48% FTP).\n- Опора цели: FTP 200 Вт.\n\n**План vs факт:** это только плановая структура. Фактическую (выполненные отрезки, мощность, ЧСС) я в этом запросе не получал — данных о факте нет, поэтому сверить план с выполнением не могу.\n\n**Следующий шаг:** если нужно отделить факт, запросите структуру выполненной активности за 09.10.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "7b57ee26438db187075ae91e3ef9ac0933dc15c4f30a180ff482a97807cb0585"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 2,
+      "scenario_id": "planned-structure",
+      "variant": "compact",
+      "repeat": 2,
+      "source_answer_sha256": "89bb9826f5c2de7aa33ade9eb3f99d5420d87f14d89c7c86c20a813afde33e2f",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "7b57ee26438db187075ae91e3ef9ac0933dc15c4f30a180ff482a97807cb0585"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "**План на Пт 09.10 — «Синтетика — VO2max Intervals», вело, 60 мин, TSS 50, фаза Taper.**\n\n- Разминка: 17:52, 84–116 Вт (42–58% FTP).\n- Основная часть: 10× спринт 0:30 по 254–266 Вт (127–133% FTP), между ними 9× восстановление 2:30 по 54–86 Вт (27–43% FTP).\n- Заминка: 14:38, 64–96 Вт (32–48% FTP).\n\nЭто **план** из get_workout_structure; фактическую структуру выполненной активности в этом запросе не запрашивал, поэтому план с фактом не сопоставляю — данных о факте нет.\n\nИсточник целей по мощности — профиль (FTP 200 Вт).",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "7b57ee26438db187075ae91e3ef9ac0933dc15c4f30a180ff482a97807cb0585"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 3,
+      "scenario_id": "planned-structure",
+      "variant": "current",
+      "repeat": 2,
+      "source_answer_sha256": "32f7f420a14c510acaeadafa9b7fcb76d86da58cf2cfb837877bf3d9e49022a3",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "CALENDAR_REFERENCE_MISMATCH"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "00e271e1e4a31b762d985e70a3cd4a7c57b52f0ef4dafaa08d418aa3a0fbf202"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Каноническая дата: 2026-10-13 (вторник, Europe/Moscow).",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "00e271e1e4a31b762d985e70a3cd4a7c57b52f0ef4dafaa08d418aa3a0fbf202"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 4,
+      "scenario_id": "cached-actual-structure",
+      "variant": "current",
+      "repeat": 1,
+      "source_answer_sha256": "ed204dbd15b33164eda3d6b1b2a9b1fe19362356b00f935dbd49fafd495f615e",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "a83aa5ed8a6a3bdeb130748fbc645389a2ca7cc2a06217173b7ed10681a76552"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "**Факт по выполненной велосессии 11.10 (структура из Intervals.icu, 2 отрезка):**\n\n- Отрезок 1: 11:00, 1.4 км — **128 Вт** (ЧСС 118, каденс 88)\n- Отрезок 2: 2:00, 340 м — **198 Вт** (ЧСС 158, каденс 94)\n- Вся сессия: 13 мин, 1.69 км, TSS 6.7\n\nДанных больше нет — по этим двум отрезкам картина полная, других отрезков инструмент не вернул.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "a83aa5ed8a6a3bdeb130748fbc645389a2ca7cc2a06217173b7ed10681a76552"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 5,
+      "scenario_id": "cached-actual-structure",
+      "variant": "compact",
+      "repeat": 1,
+      "source_answer_sha256": "e10c91d8f0380c9b5eb4927685c3e177706c12535c7d973946c501586e6f42bb",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "a83aa5ed8a6a3bdeb130748fbc645389a2ca7cc2a06217173b7ed10681a76552"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "По данным структуры активности за 11.10 (вело, 13 мин, 1.69 км, TSS 6.7) — два отрезка:\n\n1. 11:00, 1.4 км — 128 Вт (ЧСС 118, каденс 88)\n2. 2:00, 340 м — 198 Вт (ЧСС 158, каденс 94)\n\nЭто весь факт из данных; других отрезков инструмент не показал.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "a83aa5ed8a6a3bdeb130748fbc645389a2ca7cc2a06217173b7ed10681a76552"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 6,
+      "scenario_id": "cached-actual-structure",
+      "variant": "compact",
+      "repeat": 2,
+      "source_answer_sha256": "3421951510c12de4f9b3116d5471d53f4a4120a7e28b0386596d0f40bda67cf7",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "a83aa5ed8a6a3bdeb130748fbc645389a2ca7cc2a06217173b7ed10681a76552"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "В велосессии 11.10 (13 мин, 1.69 км, TSS 6.7) инструмент показал 2 отрезка:\n\n- Отрезок 1: 11:00, 1.4 км — средняя мощность 128 Вт (ЧСС 118, каденс 88).\n- Отрезок 2: 2:00, 340 м — средняя мощность 198 Вт (ЧСС 158, каденс 94).\n\nЭто все отрезки, что есть в данных; иных значений мощности по сессии нет.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "a83aa5ed8a6a3bdeb130748fbc645389a2ca7cc2a06217173b7ed10681a76552"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 7,
+      "scenario_id": "cached-actual-structure",
+      "variant": "current",
+      "repeat": 2,
+      "source_answer_sha256": "0ad008749d8f760fd71eafaba37fe2704cd86bd7bf2aea0b06db7abb405c2f5f",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "a83aa5ed8a6a3bdeb130748fbc645389a2ca7cc2a06217173b7ed10681a76552"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "**Факт по выполненной велосессии 11.10** (источник: Intervals.icu, структура материализована, 2 отрезка):\n\n1. Отрезок 1: 11:00, 1.4 км — **128 Вт**, ЧСС 118, каденс 88.\n2. Отрезок 2: 2:00, 340 м — **198 Вт**, ЧСС 158, каденс 94.\n3. Всего: 13 мин, 1.69 км, TSS 6.7.\n\nКоротко: два отрезка — 128 Вт и 198 Вт.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "a83aa5ed8a6a3bdeb130748fbc645389a2ca7cc2a06217173b7ed10681a76552"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 8,
+      "scenario_id": "missing-actual-structure",
+      "variant": "current",
+      "repeat": 1,
+      "source_answer_sha256": "c9c879058f006dd8395227c6048fc919af5b7918f7172677756125b83b560b24",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "cb1b73a639254a314fba40e9720482f34156a99eece4d030b6396f4aecbac9e3"
+      },
+      "activity_claim_blocked": true,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Проверка может подтвердить или опровергнуть гипотезу; её результат заранее неизвестен.\n- Активность за 2026-10-12 (62 мин, 10 км, 71.1 TSS): структура недоступна. Данных недостаточно, чтобы назвать отрезки.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "cb1b73a639254a314fba40e9720482f34156a99eece4d030b6396f4aecbac9e3"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 9,
+      "scenario_id": "missing-actual-structure",
+      "variant": "compact",
+      "repeat": 1,
+      "source_answer_sha256": "d204802ea3e849e62cc307aedeb6f71bd5c316f55dc152f2b829dd23d8175b3f",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "cb1b73a639254a314fba40e9720482f34156a99eece4d030b6396f4aecbac9e3"
+      },
+      "activity_claim_blocked": true,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Проверка может подтвердить или опровергнуть гипотезу; её результат заранее неизвестен.\n- Активность за 2026-10-12 (62 мин, 10 км, 71.1 TSS): структура недоступна. Данных недостаточно, чтобы назвать отрезки.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "cb1b73a639254a314fba40e9720482f34156a99eece4d030b6396f4aecbac9e3"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 10,
+      "scenario_id": "missing-actual-structure",
+      "variant": "compact",
+      "repeat": 2,
+      "source_answer_sha256": "1f5ea486699f3652b884e975faed585bb1e3b53c7c9b24c37256e8a2cce43883",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "cb1b73a639254a314fba40e9720482f34156a99eece4d030b6396f4aecbac9e3"
+      },
+      "activity_claim_blocked": true,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Проверка может подтвердить или опровергнуть гипотезу; её результат заранее неизвестен.\n- Активность за 2026-10-12 (62 мин, 10 км, 71.1 TSS): структура недоступна. Данных недостаточно, чтобы назвать отрезки.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "cb1b73a639254a314fba40e9720482f34156a99eece4d030b6396f4aecbac9e3"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 11,
+      "scenario_id": "missing-actual-structure",
+      "variant": "current",
+      "repeat": 2,
+      "source_answer_sha256": "789b9fa456ab72f685a45bc90aebfad4f368211e7e7f5860842b2b18e35f657c",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "cb1b73a639254a314fba40e9720482f34156a99eece4d030b6396f4aecbac9e3"
+      },
+      "activity_claim_blocked": true,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Проверка может подтвердить или опровергнуть гипотезу; её результат заранее неизвестен.\n- Активность за 2026-10-12 (62 мин, 10 км, 71.1 TSS): структура недоступна. Данных недостаточно, чтобы назвать отрезки.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "cb1b73a639254a314fba40e9720482f34156a99eece4d030b6396f4aecbac9e3"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 12,
+      "scenario_id": "planned-rest-control",
+      "variant": "current",
+      "repeat": 1,
+      "source_answer_sha256": "150855e0fff98651d29dbfb2bcb2fc602a13bca64aba21f402ff362d3667ddf5",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "CALENDAR_REFERENCE_MISMATCH"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "7b57ee26438db187075ae91e3ef9ac0933dc15c4f30a180ff482a97807cb0585"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Каноническая дата: 2026-10-13 (вторник, Europe/Moscow).",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "7b57ee26438db187075ae91e3ef9ac0933dc15c4f30a180ff482a97807cb0585"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 13,
+      "scenario_id": "planned-rest-control",
+      "variant": "compact",
+      "repeat": 1,
+      "source_answer_sha256": "66f9187ca594775d9d3a9c5d0e6ca0da515993b61ee2e9f5c0dbfc6dbbca90ca",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "7b57ee26438db187075ae91e3ef9ac0933dc15c4f30a180ff482a97807cb0585"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "**Сб 10.10 — день отдыха.** Тренировка не запланирована: TSS 0, фаза Taper.\n\nСтруктуры сессии нет — по плану это полный отдых, отдельных отрезков или зон не предусмотрено.\n\nПрактически: не добавляй нагрузку в этот день; при желании — лёгкая активность вне плана, но плановой тренировки на 10.10 не было.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "7b57ee26438db187075ae91e3ef9ac0933dc15c4f30a180ff482a97807cb0585"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 14,
+      "scenario_id": "planned-rest-control",
+      "variant": "compact",
+      "repeat": 2,
+      "source_answer_sha256": "6afa4622b0036470df05af80876440ed9a913668d5c95a1d9d978ac8662e4ff0",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "7b57ee26438db187075ae91e3ef9ac0933dc15c4f30a180ff482a97807cb0585"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "- 10.10 (Сб) — **день отдыха**, тренировка не запланирована.\n- Нагрузка: TSS 0, фаза — Taper.\n- Структуры сессии нет: это не тренировка, а восстановительный день.\n- Данных о фактической активности за 10.10 в этом запросе нет.\n\nВывод: планировать нагрузку на 10.10 не нужно — день был отведён под отдых в рамках подводки.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "7b57ee26438db187075ae91e3ef9ac0933dc15c4f30a180ff482a97807cb0585"
+      }
+    },
+    {
+      "input": "2026-10-13-coach-compact-ab/live-comparison.json",
+      "index": 15,
+      "scenario_id": "planned-rest-control",
+      "variant": "current",
+      "repeat": 2,
+      "source_answer_sha256": "6453ebcb4c58a42a1867ffce5663129c7c4413019f0490a0f92a4b4dd97f822d",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "666064f1e75773d8f595334b9ece58878c14eec80ebec7bf55aa228f050156e7"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "7b57ee26438db187075ae91e3ef9ac0933dc15c4f30a180ff482a97807cb0585"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "**По плану на Сб 10.10 — день отдыха.**\n\n- Структура тренировки: день отдыха, тренировка не запланирована.\n- Плановый TSS: 0.\n- Фаза: Taper.\n- Отрезков/шагов/целевых зон в плане нет — это не тренировочная сессия.\n\n**Вывод:** 10.10 был днём отдыха по плану, а не тренировкой. Никаких отрезков, зон или нагрузки на этот день не заложено.\n\n**Следующий шаг:** если нужно, могу разобрать структуру ближайших плановых сессий в оставшиеся дни до старта.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "7b57ee26438db187075ae91e3ef9ac0933dc15c4f30a180ff482a97807cb0585"
+      }
+    },
+    {
+      "input": "2026-10-15-coach-source-ab/live-comparison.json",
+      "index": 0,
+      "scenario_id": "missing-actual-structure",
+      "variant": "before",
+      "repeat": 1,
+      "source_answer_sha256": "99732ca97c719029fa9f5219073c7fe686d96928ff7379ebaceb1131721c39ce",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "5b18486c61c2cf017fdf4ebb095ba1c9e6055e14b45006c7596084f9b4f2ad93"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "9d031f975c640b53df3cef9f2347acdcabb0f5d41a89b452c0805d219e454749"
+      },
+      "activity_claim_blocked": true,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Проверка может подтвердить или опровергнуть гипотезу; её результат заранее неизвестен.\n- Активность за 2026-10-14 (62 мин, 10 км, 71.1 TSS): структура недоступна. Данных недостаточно, чтобы назвать отрезки.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "9d031f975c640b53df3cef9f2347acdcabb0f5d41a89b452c0805d219e454749"
+      }
+    },
+    {
+      "input": "2026-10-15-coach-source-ab/live-comparison.json",
+      "index": 1,
+      "scenario_id": "missing-actual-structure",
+      "variant": "after",
+      "repeat": 1,
+      "source_answer_sha256": "b79d5db464818117bc8e359f13934f67aac72891cb0ad7ff533c7745371b4cd4",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "5b18486c61c2cf017fdf4ebb095ba1c9e6055e14b45006c7596084f9b4f2ad93"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "9d031f975c640b53df3cef9f2347acdcabb0f5d41a89b452c0805d219e454749"
+      },
+      "activity_claim_blocked": true,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Проверка может подтвердить или опровергнуть гипотезу; её результат заранее неизвестен.\n- Активность за 2026-10-14 (62 мин, 10 км, 71.1 TSS): структура недоступна. Данных недостаточно, чтобы назвать отрезки.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "9d031f975c640b53df3cef9f2347acdcabb0f5d41a89b452c0805d219e454749"
+      }
+    },
+    {
+      "input": "2026-10-15-coach-source-ab/live-comparison.json",
+      "index": 2,
+      "scenario_id": "missing-actual-structure",
+      "variant": "after",
+      "repeat": 2,
+      "source_answer_sha256": "68f535e2c311048f9aa1098c5d112b671dee54a4f94446be66f3af2b9ee19df5",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "5b18486c61c2cf017fdf4ebb095ba1c9e6055e14b45006c7596084f9b4f2ad93"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "9d031f975c640b53df3cef9f2347acdcabb0f5d41a89b452c0805d219e454749"
+      },
+      "activity_claim_blocked": true,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Проверка может подтвердить или опровергнуть гипотезу; её результат заранее неизвестен.\n- Активность за 2026-10-14 (62 мин, 10 км, 71.1 TSS): структура недоступна. Данных недостаточно, чтобы назвать отрезки.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "9d031f975c640b53df3cef9f2347acdcabb0f5d41a89b452c0805d219e454749"
+      }
+    },
+    {
+      "input": "2026-10-15-coach-source-ab/live-comparison.json",
+      "index": 3,
+      "scenario_id": "missing-actual-structure",
+      "variant": "before",
+      "repeat": 2,
+      "source_answer_sha256": "6dd9da2a79ec4a06eacee32c6c0354665804d10749defb05b9a4ecbdbd46c31c",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "5b18486c61c2cf017fdf4ebb095ba1c9e6055e14b45006c7596084f9b4f2ad93"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "9d031f975c640b53df3cef9f2347acdcabb0f5d41a89b452c0805d219e454749"
+      },
+      "activity_claim_blocked": true,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Проверка может подтвердить или опровергнуть гипотезу; её результат заранее неизвестен.\n- Активность за 2026-10-14 (62 мин, 10 км, 71.1 TSS): структура недоступна. Данных недостаточно, чтобы назвать отрезки.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "9d031f975c640b53df3cef9f2347acdcabb0f5d41a89b452c0805d219e454749"
+      }
+    },
+    {
+      "input": "2026-10-15-coach-final-validation/live-validation.json",
+      "index": 0,
+      "scenario_id": "missing-actual-structure",
+      "variant": null,
+      "repeat": 1,
+      "source_answer_sha256": "26ded8835aede44fe34c69d8fbf2063a1de186f6c4377d12ed6530f345850e95",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "5b18486c61c2cf017fdf4ebb095ba1c9e6055e14b45006c7596084f9b4f2ad93"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "9d031f975c640b53df3cef9f2347acdcabb0f5d41a89b452c0805d219e454749"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "Структура недоступна: интервалы беговой сессии за 14.10 ещё не выгружены в кэш, поэтому назвать отрезки нельзя.\n\nЧто известно: бег 62 мин, 10 км, TSS 71.1 (источник — get_activity_structure).\n\nЧего не хватает: данных об отрезках в кэше. Проверьте доступность отрезков в Intervals.icu; после успешного получения данных запрос можно повторить — но результат не гарантирую.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "9d031f975c640b53df3cef9f2347acdcabb0f5d41a89b452c0805d219e454749"
+      }
+    },
+    {
+      "input": "2026-10-15-coach-final-validation/live-validation.json",
+      "index": 1,
+      "scenario_id": "cached-actual-structure",
+      "variant": null,
+      "repeat": 1,
+      "source_answer_sha256": "9583f3212a7435c8355607bd678b4554abb77cceb6e66bdcbb1a7bc6156c0dfc",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "5b18486c61c2cf017fdf4ebb095ba1c9e6055e14b45006c7596084f9b4f2ad93"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "f6d9d06defc2c8daefd262151ac16d41750ac0bf6420dac1a5409199a9b61212"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "За 13.10 в велосессии найдено 2 отрезка:\n\n- Отрезок 1: 11:00, 1.4 км — средняя мощность 128 Вт (ЧСС 118, каденс 88).\n- Отрезок 2: 2:00, 340 м — средняя мощность 198 Вт (ЧСС 158, каденс 94).\n\nИтого: 13 мин, 1.69 км, TSS 6.7.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "f6d9d06defc2c8daefd262151ac16d41750ac0bf6420dac1a5409199a9b61212"
+      }
+    },
+    {
+      "input": "2026-10-15-coach-final-validation/live-validation.json",
+      "index": 2,
+      "scenario_id": "analyzed-empty-actual-structure",
+      "variant": null,
+      "repeat": 1,
+      "source_answer_sha256": "6d0598f2775ce89793ad02274c1ecf59c94cd255d6bdaf49a808a09c52193bf0",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "5b18486c61c2cf017fdf4ebb095ba1c9e6055e14b45006c7596084f9b4f2ad93"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "replaced",
+        "reason_codes": [
+          "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED"
+        ],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "eedf3b50c8f0c3c29a95a3a999640680e1ffc8eddb216a3c0830367380c692a5"
+      },
+      "activity_claim_blocked": true,
+      "unchanged": false,
+      "delivered_text": "Не могу подтвердить исходный вывод по имеющимся данным.\n- Проверка может подтвердить или опровергнуть гипотезу; её результат заранее неизвестен.\n- Активность за 2026-10-12 (40 мин, 6 км, 36 TSS): анализ сохранённых данных не выявил отрезков.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "eedf3b50c8f0c3c29a95a3a999640680e1ffc8eddb216a3c0830367380c692a5"
+      }
+    },
+    {
+      "input": "2026-10-15-coach-final-validation/live-validation.json",
+      "index": 3,
+      "scenario_id": "missing-actual-structure",
+      "variant": null,
+      "repeat": 2,
+      "source_answer_sha256": "a223050a503e47e1971b06045bf1691b5271ea674aa51999893c6956b8557637",
+      "historical_gate": {
+        "rule_version": "coach_narrative_gate_v2",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v2",
+        "evidence_fingerprint": "5b18486c61c2cf017fdf4ebb095ba1c9e6055e14b45006c7596084f9b4f2ad93"
+      },
+      "current_gate": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "9d031f975c640b53df3cef9f2347acdcabb0f5d41a89b452c0805d219e454749"
+      },
+      "activity_claim_blocked": false,
+      "unchanged": true,
+      "delivered_text": "Структура недоступна: по данным get_activity_structure отрезки этой беговой сессии ещё не выгружены в кэш, поэтому назвать их нельзя — только факт: бег 14.10, 62 мин, 10 км, TSS 71.1.\n\nНаблюдение: отсутствие данных в кэше не означает, что отрезков в тренировке не было.\n\nПроверка: убедитесь, что интервалы доступны в Intervals.icu, затем повторите запрос — после успешного получения данных в кэш отрезки можно будет перечислить. Гарантировать результат заранее нельзя.",
+      "delivered_self_check": {
+        "rule_version": "coach_narrative_gate_v3",
+        "outcome": "pass",
+        "reason_codes": [],
+        "evidence_version": "coach_narrative_evidence_v3",
+        "evidence_fingerprint": "9d031f975c640b53df3cef9f2347acdcabb0f5d41a89b452c0805d219e454749"
+      }
+    }
+  ]
+}
