@@ -9,10 +9,16 @@ from types import ModuleType
 import pytest
 
 from services.coach_runtime_eval import CallBudget, run_source_comparison
+from tests.fixtures.coach_runtime_calendar import actual_runtime_today, freeze_runtime_calendar
 from tests.evals.coach.runtime_registry import COMPACT_CONTRACT, SOURCE_BEFORE_MESSAGE
 
 pytestmark = pytest.mark.smoke
 TODAY = date(2026, 10, 14)
+
+
+@pytest.fixture(autouse=True)
+def _frozen_calendar(monkeypatch):
+    freeze_runtime_calendar(monkeypatch, TODAY)
 
 
 class SourceProvider:
@@ -166,8 +172,8 @@ def test_calendar_change_stops_source_calls_and_preserves_four_rows(monkeypatch)
             return result
 
     report = run_source_comparison(ChangingProvider(), today=TODAY)
-    assert report["calls_used"] == 3
-    assert report["error_trials"] == 3
+    assert report["calls_used"] == 1
+    assert report["error_trials"] == 4
     assert report["total"] == 4
     assert report["verdict"] == "inconclusive"
 
@@ -176,7 +182,7 @@ def test_source_cli_keeps_denominator_and_never_overwrites(tmp_path, monkeypatch
     script = Path(__file__).resolve().parents[2] / "scripts/run_coach_runtime_eval.py"
     output = tmp_path / "source-offline.json"
     command = [sys.executable, str(script), "--experiment", "source-ab", "--provider", "scripted",
-               "--today", TODAY.isoformat(), "--output", str(output)]
+               "--today", actual_runtime_today().isoformat(), "--output", str(output)]
     first = subprocess.run(command, capture_output=True, text=True)
     assert first.returncode == 1, first.stdout + first.stderr
     report = json.loads(output.read_text())

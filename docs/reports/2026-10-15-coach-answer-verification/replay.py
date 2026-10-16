@@ -8,11 +8,6 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
-from models.coach_narrative_evidence import (  # noqa: E402
-    ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED,
-    build_coach_narrative_evidence,
-    validate_coach_narrative,
-)
 
 INPUTS = (
     "2026-10-13-coach-runtime-eval/live-baseline.json",
@@ -32,7 +27,21 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _verify_implementation() -> dict[str, str]:
+    captured = json.loads(Path(__file__).with_name("offline-replay.json").read_text())
+    actual = {name: sha((ROOT / name).read_bytes()) for name in IMPLEMENTATION}
+    if actual != captured["implementation_sha256"]:
+        raise RuntimeError("Replay implementation does not match historical pins; use revision 2f9db64.")
+    return actual
+
+
 def replay() -> dict:
+    implementation = _verify_implementation()
+    from models.coach_narrative_evidence import (
+        ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED,
+        build_coach_narrative_evidence,
+        validate_coach_narrative,
+    )
     results, hashes = [], {}
     for relative in INPUTS:
         data = (ROOT / "docs/reports" / relative).read_bytes()
@@ -61,7 +70,7 @@ def replay() -> dict:
         "base_commit": "f1b03ce", "provider_calls": 0,
         "boundary": "Saved outputs, not fresh model trials or an estimate of live quality. No correction provider invoked.",
         "inputs_sha256": hashes,
-        "implementation_sha256": {name: sha((ROOT / name).read_bytes()) for name in IMPLEMENTATION},
+        "implementation_sha256": implementation,
         "summary": {"saved_outputs": len(results),
                     "activity_claim_blocked": sum(row["activity_claim_blocked"] for row in results),
                     "unchanged": sum(row["unchanged"] for row in results),

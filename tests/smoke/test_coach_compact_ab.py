@@ -8,6 +8,7 @@ import sys
 import pytest
 
 from services.coach_runtime_eval import run_comparison
+from tests.fixtures.coach_runtime_calendar import actual_runtime_today, freeze_runtime_calendar
 from tests.evals.coach.runtime_registry import (
     COMPACT_CONTRACT,
     build_comparison_database,
@@ -16,6 +17,11 @@ from tests.evals.coach.runtime_registry import (
 
 pytestmark = pytest.mark.smoke
 TODAY = date(2026, 10, 13)
+
+
+@pytest.fixture(autouse=True)
+def _frozen_calendar(monkeypatch):
+    freeze_runtime_calendar(monkeypatch, TODAY)
 
 
 class PairedProvider:
@@ -150,7 +156,7 @@ def test_cli_comparison_and_preflight_preserve_sixteen_trials(tmp_path, monkeypa
     script = Path(__file__).resolve().parents[2] / "scripts/run_coach_runtime_eval.py"
     output = tmp_path / "offline-ab.json"
     command = [sys.executable, str(script), "--experiment", "compact-ab", "--provider", "scripted",
-               "--today", TODAY.isoformat(), "--output", str(output)]
+               "--today", actual_runtime_today().isoformat(), "--output", str(output)]
     completed = subprocess.run(command, capture_output=True, text=True)
     assert completed.returncode == 0, completed.stdout + completed.stderr
     report = json.loads(output.read_text())
@@ -191,7 +197,7 @@ def test_calendar_change_stops_further_provider_calls(monkeypatch):
             return result
 
     report = run_comparison(ClockChangingProvider(), today=TODAY, repeats=2)
-    assert report["calls_used"] == 3
+    assert report["calls_used"] == 1
     assert report["total"] == 16
-    assert report["error_trials"] == 15
+    assert report["error_trials"] == 16
     assert report["verdict"] == "inconclusive"

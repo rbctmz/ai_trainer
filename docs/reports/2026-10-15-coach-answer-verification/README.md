@@ -28,6 +28,8 @@ Internal evidence/rule версии v3; новый hard reason ACTIVITY_STRUCTUR
 
 Воспроизведение из корня checkout без сети/модели, с новым выходным путём (существующий файл не перезаписывается):
 
+Уточнение после native review2026-10-16: исторический replay требует точного совпадения четырёх implementation hashes из offline-replay.json. Они соответствуют реализации2f9db64; base_commit=f1b03ce обозначает исходную базу того изменения. Текущий gatev5 имеет другие хэши: исправленный replay.py остановится до импорта gate и создания output вместо того, чтобы приписать новый verdict старой реализации. Для повторения этого исторического результата нужны четыре implementation-файла из2f9db64 и текущий replay.py с проверкой pins. Сам offline-replay.json, исходные live JSON, scores и ручные оценки не менялись.
+
 ```bash
 python docs/reports/2026-10-15-coach-answer-verification/replay.py /private/tmp/coach-activity-replay-new.json
 ```

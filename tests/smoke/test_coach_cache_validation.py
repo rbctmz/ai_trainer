@@ -9,12 +9,18 @@ from types import ModuleType
 import pytest
 
 from services.coach_runtime_eval import CallBudget, run_cache_validation
+from tests.fixtures.coach_runtime_calendar import actual_runtime_today, freeze_runtime_calendar
 from tests.evals.coach.runtime_registry import (
     COMPACT_CONTRACT, build_cache_validation_database, build_cache_validation_schedule,
 )
 
 pytestmark = pytest.mark.smoke
 TODAY = date(2026, 10, 15)
+
+
+@pytest.fixture(autouse=True)
+def _frozen_calendar(monkeypatch):
+    freeze_runtime_calendar(monkeypatch, TODAY)
 
 
 class ValidationProvider:
@@ -227,7 +233,7 @@ def test_calendar_shift_stops_calls_and_keeps_four_trials(monkeypatch):
             return result
 
     report = run_cache_validation(ChangingProvider(), today=TODAY)
-    assert report["calls_used"] == 3 and report["error_trials"] == 3
+    assert report["calls_used"] == 1 and report["error_trials"] == 4
     assert report["total"] == 4 and report["verdict"] == "inconclusive"
 
 
@@ -235,7 +241,7 @@ def test_cli_fixed_schedule_preflight_and_exclusive_output(tmp_path, monkeypatch
     script = Path(__file__).resolve().parents[2] / "scripts/run_coach_runtime_eval.py"
     output = tmp_path / "validation.json"
     command = [sys.executable, str(script), "--experiment", "cache-validation", "--provider", "scripted",
-               "--today", TODAY.isoformat(), "--output", str(output)]
+               "--today", actual_runtime_today().isoformat(), "--output", str(output)]
     first = subprocess.run(command, capture_output=True, text=True)
     assert first.returncode == 1, first.stdout + first.stderr
     report = json.loads(output.read_text())

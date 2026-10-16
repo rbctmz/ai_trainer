@@ -156,7 +156,7 @@ def test_all_prompt_paths_state_actual_cache_conditions(factory):
 
 
 @pytest.mark.parametrize("native", [True, False])
-def test_cache_conditions_reach_real_tool_turn_and_correction(native):
+def test_cache_conditions_reach_real_tool_turn_and_correction(native, monkeypatch):
     """Capture requests; scripted responses are not evidence of model obedience."""
     from datetime import date
     from services.coach_runtime_eval import run_trial
@@ -195,6 +195,8 @@ def test_cache_conditions_reach_real_tool_turn_and_correction(native):
             return "Структура недоступна: отрезки ещё не получены в кэш."
 
     today = date(2026, 10, 15)
+    from tests.fixtures.coach_runtime_calendar import freeze_runtime_calendar
+    freeze_runtime_calendar(monkeypatch, today)
     provider = Provider()
     result = run_trial(provider, build_source_scenario(today), today=today,
                        response_contract=COMPACT_CONTRACT,

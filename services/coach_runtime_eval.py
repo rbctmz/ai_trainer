@@ -17,6 +17,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from collections.abc import Callable
 
+from models import ai_coach_runtime
 from models.ai_coach_runtime import (
     _today_context_line,
     build_grounding_tool_results,
@@ -110,6 +111,12 @@ class _RecordingProvider:
         return bool(self.delegate.supports_native_tools())
 
     def _call(self, method: str, **request: Any) -> Any:
+        if self.calendar_guard is not None:
+            prompt = str(request.get("system_prompt", "")) + "\n" + str(request.get("prompt", ""))
+            if (ai_coach_runtime._today_context_line() != self.calendar_guard
+                    or self.calendar_guard not in prompt):
+                self.failure_kind = "CalendarChangedError"
+                raise CalendarChangedError("frozen calendar differs from runtime or model prompt")
         if len(self.trace) >= 4:
             self.failure_kind = "CallLimitError"
             raise CallLimitError("trial call budget exhausted")
@@ -137,9 +144,6 @@ class _RecordingProvider:
             entry["elapsed_ms"] = round((time.monotonic() - started) * 1000, 2)
 
     def generate_with_tools(self, messages: list, tools: list, system_prompt: str = "") -> dict:
-        if self.calendar_guard is not None and self.calendar_guard not in system_prompt:
-            self.failure_kind = "CalendarChangedError"
-            raise CalendarChangedError("comparison native calendar changed before model call")
         return self._call("generate_with_tools", messages=messages, tools=tools,
                           system_prompt=system_prompt)
 
@@ -253,7 +257,8 @@ def run_trial(provider: Any, scenario: RuntimeScenario, *, today: date,
               calendar_guard: str | None = None,
               missing_structure_message: str | None = None) -> dict[str, Any]:
     """Один shared-runtime turn, изолированный от product persistence и сети tools."""
-    recorder = _RecordingProvider(provider, budget or CallBudget(), secrets, calendar_guard)
+    frozen_calendar = _today_context_line(today)
+    recorder = _RecordingProvider(provider, budget or CallBudget(), secrets, frozen_calendar)
     started = time.monotonic()
     answer = ""
     results: list[dict[str, Any]] = []
@@ -270,6 +275,8 @@ def run_trial(provider: Any, scenario: RuntimeScenario, *, today: date,
         tools = _ReadOnlyTools(AITools(database), missing_structure_message)
         goal_plan = restore_goal_plan_from_checkpoint(database.get_latest_planning_checkpoint())
         try:
+            if calendar_guard is not None and calendar_guard != frozen_calendar:
+                raise CalendarChangedError("run calendar differs from trial date")
             turn = resolve_turn_tool_results(
                 provider=recorder, ai_tools=tools, user_input=scenario.prompt,
                 history_messages=[], tool_result_formatter=format_tool_result, today=today,
@@ -348,7 +355,7 @@ def run_comparison(provider: Any, *, today: date, repeats: int = 2,
     if not 1 <= budget.limit <= 64:
         raise ValueError("comparison call limit must be between 1 and 64")
     results = []
-    native_calendar = _today_context_line()
+    native_calendar = _today_context_line(today)
     with TemporaryDirectory(prefix="coach-compact-paired-") as directory:
         canonical = Path(directory) / "canonical.db"
         build_comparison_database(canonical, today)
@@ -449,7 +456,7 @@ def run_source_comparison(provider: Any, *, today: date, repeats: int = 2,
     if after_message == SOURCE_BEFORE_MESSAGE:
         raise ValueError("source comparison requires distinct before/after messages")
     scenario = build_source_scenario(today)
-    native_calendar = _today_context_line()
+    native_calendar = _today_context_line(today)
     results = []
     with TemporaryDirectory(prefix="coach-source-paired-") as directory:
         canonical = Path(directory) / "canonical.db"
@@ -552,7 +559,7 @@ def run_cache_validation(provider: Any, *, today: date, repeats: int = 2,
     budget = budget or CallBudget(16)
     if not 1 <= budget.limit <= 16:
         raise ValueError("cache validation call limit must be between 1 and 16")
-    native_calendar = _today_context_line()
+    native_calendar = _today_context_line(today)
     results = []
     with TemporaryDirectory(prefix="coach-cache-validation-") as directory:
         canonical = Path(directory) / "canonical.db"

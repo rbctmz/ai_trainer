@@ -12,9 +12,15 @@ import pytest
 
 from services.coach_runtime_eval import CallBudget, run_experiment, run_trial
 from tests.evals.coach.runtime_registry import build_scenarios
+from tests.fixtures.coach_runtime_calendar import actual_runtime_today, freeze_runtime_calendar
 
 pytestmark = pytest.mark.smoke
 TODAY = date(2026, 10, 13)
+
+
+@pytest.fixture(autouse=True)
+def _frozen_calendar(monkeypatch):
+    freeze_runtime_calendar(monkeypatch, TODAY)
 
 
 class ScriptedProvider:
@@ -67,6 +73,9 @@ def test_real_runtime_executes_tools_and_keeps_fresh_fixture_unchanged():
         assert result["provider_trace"]
         assert result["tool_results"]
         assert result["final_answer"]
+        from models.ai_coach_runtime import _today_context_line
+        assert all(_today_context_line(TODAY) in entry["request"]["system_prompt"]
+                   for entry in result["provider_trace"])
     assert {r["split"] for r in report["results"]} == {"development", "holdout"}
 
 
@@ -152,7 +161,7 @@ def test_quality_failures_count_in_property_denominator():
 def test_cli_offline_report_and_existing_file_guard(tmp_path):
     script = Path(__file__).resolve().parents[2] / "scripts/run_coach_runtime_eval.py"
     output = tmp_path / "report.json"
-    command = [sys.executable, str(script), "--provider", "scripted", "--today", TODAY.isoformat(),
+    command = [sys.executable, str(script), "--provider", "scripted", "--today", actual_runtime_today().isoformat(),
                "--repeats", "1", "--output", str(output)]
     first = subprocess.run(command, capture_output=True, text=True)
     assert first.returncode == 0, first.stdout + first.stderr
@@ -219,3 +228,41 @@ def test_cli_missing_configuration_retains_planned_trials(tmp_path, monkeypatch)
     assert report["calls_used"] == 0
     assert report["registry_version"]
     assert report["base_sha"]
+
+
+@pytest.mark.parametrize("stage,expected_calls", [("synthesis", 2), ("correction", 3)])
+def test_native_review_calendar_shift_stops_synthesis_and_correction(monkeypatch, stage, expected_calls):
+    from models import ai_coach_runtime as runtime
+    anchor = runtime._today_context_line(TODAY)
+    monkeypatch.setattr(runtime, "_today_context_line", lambda today=None: anchor)
+
+    class ChangingProvider(ScriptedProvider):
+        def generate_with_tools(self, messages, tools, system_prompt=""):
+            result = super().generate_with_tools(messages, tools, system_prompt)
+            if stage == "synthesis" and self.calls == 2:
+                monkeypatch.setattr(runtime, "_today_context_line", lambda today=None: "Сегодня: shifted")
+            return result
+
+        def generate_response(self, prompt, system_prompt=""):
+            self.calls += 1
+            monkeypatch.setattr(runtime, "_today_context_line", lambda today=None: "Сегодня: shifted")
+            return "Сегодня 2025-01-01."
+
+    provider = ChangingProvider()
+    result = run_trial(provider, build_scenarios(TODAY)[0], today=TODAY, calendar_guard=anchor)
+    assert result["status"] == "error" and result["error_kind"] == "CalendarChangedError"
+    assert provider.calls == expected_calls
+    assert len(result["provider_trace"]) == expected_calls
+    assert result["database_unchanged"] is True
+
+
+def test_native_review_backdated_trial_stops_before_any_provider_call(monkeypatch):
+    from models import ai_coach_runtime as runtime
+    actual = runtime._today_context_line(date(2026, 10, 16))
+    monkeypatch.setattr(runtime, "_today_context_line", lambda today=None: actual)
+    provider = ScriptedProvider()
+    budget = CallBudget(4)
+    result = run_trial(provider, build_scenarios(TODAY)[0], today=TODAY, budget=budget)
+    assert result["status"] == "error" and result["error_kind"] == "CalendarChangedError"
+    assert provider.calls == budget.used == 0
+    assert result["provider_trace"] == []
