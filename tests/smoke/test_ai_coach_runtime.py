@@ -132,6 +132,29 @@ def test_prompts_anchor_today_as_single_date_source(monkeypatch):
         assert "ошибочна" in prompt
 
 
+def _assert_activity_cache_conditions(prompt):
+    """Model-facing contract: unknown ≠ empty; requery ≠ cached evidence."""
+    assert "get_activity_structure" in prompt
+    assert "structure_status=unavailable" in prompt
+    assert "Начинай объяснение со слов «Структура недоступна»" in prompt
+    assert "не утверждай «Отрезков нет» или «отрезков не было»" in prompt
+    assert "Наличие отрезков в Intervals.icu" in prompt
+    assert "не подтверждают получение данных в локальный кэш" in prompt
+    assert "Не обещай «повторите запрос — тогда назову отрезки»" in prompt
+    assert "после успешного получения данных в кэш" in prompt
+    assert "новый результат инструмента подтверждает structure_status=structured" in prompt
+    assert "structure_status=empty" in prompt
+
+
+@pytest.mark.parametrize("factory", [
+    ai_coach_runtime.create_chat_system_prompt_with_tools,
+    ai_coach_runtime.create_native_chat_system_prompt,
+    ai_coach_runtime.create_chat_synthesis_system_prompt,
+])
+def test_all_prompt_paths_state_actual_cache_conditions(factory):
+    _assert_activity_cache_conditions(factory(None))
+
+
 def test_synthesis_prompt_uses_frozen_today_anchor():
     class Provider:
         system_prompt = ""
