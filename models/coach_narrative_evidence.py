@@ -26,7 +26,7 @@ from models.coach_narrative_evidence_gate import (
 
 
 COACH_NARRATIVE_EVIDENCE_VERSION = "coach_narrative_evidence_v3"
-COACH_NARRATIVE_GATE_RULE_VERSION = "coach_narrative_gate_v4"
+COACH_NARRATIVE_GATE_RULE_VERSION = "coach_narrative_gate_v5"
 
 READINESS_CLAIM_CONTRADICTED = "READINESS_CLAIM_CONTRADICTED"
 HRV_CLAIM_CONTRADICTED = "HRV_CLAIM_CONTRADICTED"
