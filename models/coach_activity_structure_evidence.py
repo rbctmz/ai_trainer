@@ -30,6 +30,9 @@ _POSITIVE_STRUCTURE = re.compile(
     r"\bфактическая\s+структура\s*:\s*\d+\s*[×xх*]\s*\d+|"
     r"\b(?:первый|второй|третий|\d+[-й]*)\s+(?:отрезок|интервал)\s+"
     r"(?:длился|занял|продолжался)\s+\d+", re.I)
+_CLAIM_SOURCE = re.compile(r"\b(?:(?P<plan>в\s+плане|по\s+плану|планов\w*)|"
+                           r"(?P<actual>фактическ\w*|выполненн\w*|активност\w*))", re.I)
+_CONTRAST = re.compile(r",\s*(?:а|но|однако|зато)\b\s*", re.I)
 _REAL_ABSENCE = re.compile(r"(?:сесси\w*|трениров\w*).{0,30}(?:прошл\w*|был\w*|выполнен\w*)"
                            r"\s+без\s+(?:интервал\w*|отрезк\w*)", re.I)
 _EFFORT = re.compile(r"(?:сесси\w*|трениров\w*|бег).{0,24}(?:был\w*|прошл\w*).{0,20}"
@@ -115,9 +118,13 @@ def _qualified(prefix: str) -> bool:
     qualifiers = list(_UNCERTAIN.finditer(prefix))
     if not qualifiers:
         return False
-    # Preserve introductory "Возможно," and "Не факт, что". A later comma
-    # ends that proposition: a possible delay cannot qualify a promised result.
+    # A modal qualifies its own predicate, not an independent coordinated one.
+    # An introductory uncertainty marker can include a nested if/when premise.
     tail = re.sub(r"^\s*,\s*", "", prefix[qualifiers[-1].end():])
+    if re.fullmatch(r"может|могут|могла\s+бы", qualifiers[-1].group(), re.I):
+        if re.search(r"\b(?:и|а)\b", tail, re.I):
+            return False
+    tail = re.sub(r"^\s*(?:если|когда)\b[^,;:—]+,\s*", "", tail, flags=re.I)
     return not re.search(r"[,;:—]", tail)
 
 
@@ -141,11 +148,32 @@ def _cache_condition(text: str) -> bool:
     text = re.split(r"\b(?:но|однако|зато)\b", text, flags=re.I)[-1]
     condition = re.search(r"(?:если|когда|после|при\s+условии).{0,180}"
                           r"(?:получ|загруж|выгруж|сохран)\w*.{0,35}(?:в\s+кэш|кэш)", text, re.I)
-    return bool(condition and not re.search(r"\bне\s+(?:получ|загруж|выгруж|сохран)", condition.group(), re.I)
-                and re.search(r"инструмент(?:\s+(?:get_?activity_?structure|уже|успешно)){0,3}\s+"
-                              r"(?:вернул|верн[её]т|подтвер\w*)\s+"
-                              r"(?:отрезки|интервалы|наличие\s+(?:отрезков|интервалов)|непустую\s+структуру)\b|"
-                              r"structure_?status\s*=\s*structured\b", text, re.I))
+    if not condition or re.search(r"\bне\s+(?:получ|загруж|выгруж|сохран)", condition.group(), re.I):
+        return False
+    if re.search(r"инструмент(?:\s+(?:get_?activity_?structure|уже|успешно)){0,3}\s+"
+                 r"(?:вернул|верн[её]т|подтвер\w*)\s+"
+                 r"(?:отрезки|интервалы|наличие\s+(?:отрезков|интервалов)|непустую\s+структуру)\b", text, re.I):
+        return True
+    for status in re.finditer(r"structure_?status\s*=\s*structured\b", text, re.I):
+        prefix = re.split(r"[,;]|\b(?:и|а)\b", text[:status.start()], flags=re.I)[-1]
+        if not re.search(r"\bне\b", prefix, re.I) and not re.match(r"\s+не\b", text[status.end():], re.I):
+            return True
+    return False
+
+
+def _activity_scope(text: str, records: list[Mapping[str, Any]],
+                    inherited: list[Mapping[str, Any]]) -> tuple[list[Mapping[str, Any]], bool]:
+    dates = re.findall(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{2}\.\d{2}(?:\.\d{4})?\b", text)
+    ids = re.findall(r"activity_?id\s*[:=]\s*([\w-]+)", text)
+    explicit_ids = [row["activity_id"] for row in records if not row["activity_id"].isdecimal()
+                    and re.search(rf"(?<![\w-]){re.escape(row['activity_id'])}(?![\w-])", text)]
+    if not (dates or ids or explicit_ids):
+        return inherited, False
+    return [row for row in records if
+            (not dates or row["date"] in dates or date.fromisoformat(row["date"]).strftime("%d.%m") in dates
+             or date.fromisoformat(row["date"]).strftime("%d.%m.%Y") in dates)
+            and (not ids or row["activity_id"].replace("_", "") in [item.replace("_", "") for item in ids])
+            and (not explicit_ids or row["activity_id"] in explicit_ids)], True
 
 
 def activity_claim_unsupported(text: str, records: list[Mapping[str, Any]], *, attempted: bool = False) -> bool:
@@ -155,16 +183,8 @@ def activity_claim_unsupported(text: str, records: list[Mapping[str, Any]], *, a
     scope = records if len(records) == 1 else []
     activity_context = len(records) == 1
     for clause in re.split(r"\n|;|(?<=[.!?])\s+", text):
-        dates = re.findall(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{2}\.\d{2}(?:\.\d{4})?\b", clause)
-        ids = re.findall(r"activity_?id\s*[:=]\s*([\w-]+)", clause)
-        explicit_ids = [row["activity_id"] for row in records if not row["activity_id"].isdecimal()
-                        and re.search(rf"(?<![\w-]){re.escape(row['activity_id'])}(?![\w-])", clause)]
-        if dates or ids or explicit_ids:
-            scope = [row for row in records if
-                     (not dates or row["date"] in dates or date.fromisoformat(row["date"]).strftime("%d.%m") in dates
-                      or date.fromisoformat(row["date"]).strftime("%d.%m.%Y") in dates)
-                     and (not ids or row["activity_id"].replace("_", "") in [item.replace("_", "") for item in ids])
-                     and (not explicit_ids or row["activity_id"] in explicit_ids)]
+        scope, explicit_scope = _activity_scope(clause, records, scope)
+        if explicit_scope:
             activity_context = True
         local_activity = bool(_ACTIVITY.search(clause))
         if local_activity:
@@ -189,11 +209,22 @@ def activity_claim_unsupported(text: str, records: list[Mapping[str, Any]], *, a
         for match in _REAL_ABSENCE.finditer(clause):
             if not _qualified(clause[:match.start()]) and not _conditional_premise(clause[:match.start()]):
                 return True
+        for match in _POSITIVE_STRUCTURE.finditer(clause):
+            # Bind only this matched claim to its contrasting proposition's
+            # source and identity; later dates/plan facts cannot taint it.
+            boundaries = list(_CONTRAST.finditer(clause))
+            start = max((item.end() for item in boundaries if item.end() <= match.start()), default=0)
+            end = min((item.start() for item in boundaries if item.start() >= match.end()), default=len(clause))
+            sources = list(_CLAIM_SOURCE.finditer(clause[start:match.end()]))
+            if sources and sources[-1].lastgroup == "plan":
+                continue
+            claim_scope, _ = _activity_scope(clause[start:end], records, scope)
+            if claim_scope and all(row["structure_status"] == "structured" for row in claim_scope):
+                continue
+            prefix = clause[start:match.start()]
+            if not (_qualified(prefix) or _conditional_premise(prefix) or re.search(r"\bне\s*$", prefix, re.I)):
+                return True
         if not scope or any(row["structure_status"] != "structured" for row in scope):
-            for match in _POSITIVE_STRUCTURE.finditer(clause):
-                prefix = clause[:match.start()]
-                if not (_qualified(prefix) or _conditional_premise(prefix) or re.search(r"\bне\s*$", prefix, re.I)):
-                    return True
             for match in _EFFORT.finditer(clause):
                 if not _qualified(clause[:match.start()]) and not _conditional_premise(clause[:match.start()]):
                     return True
