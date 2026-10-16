@@ -203,6 +203,71 @@ def test_independent_review_claim_boundaries(state, text, expected):
     assert validate_coach_narrative(text, _evidence(_saved(state=state)["tool_results"])).outcome == expected
 
 
+@pytest.mark.parametrize("text", [
+    "Может возникнуть задержка, после синхронизации интервалы появятся.",
+    "Возможно, возникнет задержка, после синхронизации интервалы появятся.",
+    "Если данные успешно получены в кэш и инструмент уже вернул ошибку, тогда назову отрезки.",
+    "Если данные успешно получены в кэш и инструмент уже вернул unavailable, тогда назову отрезки.",
+    "Если данные успешно получены в кэш и инструмент уже вернул пустой результат, тогда назову отрезки.",
+    "Если данные успешно получены в кэш и инструмент вернул пустую структуру, тогда назову отрезки.",
+])
+def test_native_review_unrelated_qualifiers_cannot_exempt_promises(text):
+    result = validate_coach_narrative(text, _evidence(_saved(state="unavailable")["tool_results"]))
+    assert result.outcome == "replaced" and REASON in result.reason_codes
+
+
+@pytest.mark.parametrize("text", [
+    "Возможно, после синхронизации интервалы появятся.",
+    "После синхронизации интервалы могут появиться.",
+    "Не факт, что после синхронизации интервалы появятся.",
+    "Если данные получены в кэш и structure_status=structured, тогда назову отрезки.",
+])
+def test_native_review_local_uncertainty_and_structured_condition_are_preserved(text):
+    result = validate_coach_narrative(text, _evidence(_saved(state="unavailable")["tool_results"]))
+    assert result.outcome == "pass" and result.delivered_text == text
+
+
+@pytest.mark.parametrize("state", ["unavailable", "empty", "structured"])
+@pytest.mark.parametrize("text", [
+    "Анализ не нашёл отрезков.",
+    "Анализ структуры не выявил интервалов.",
+    "В сохранённых данных отрезки не найдены.",
+])
+def test_native_review_analyzer_empty_requires_empty_evidence(state, text):
+    result = validate_coach_narrative(text, _evidence(_saved(state=state)["tool_results"]))
+    assert result.outcome == ("pass" if state == "empty" else "replaced")
+    if state != "empty":
+        assert REASON in result.reason_codes
+
+
+@pytest.mark.parametrize("state", ["unavailable", "empty"])
+@pytest.mark.parametrize("text", [
+    "В активности вижу 6 отрезков.",
+    "Фактическая структура: 4 × 5 минут.",
+    "Первый отрезок длился 10 минут при 200 Вт.",
+])
+def test_native_review_positive_structure_requires_scoped_structured_evidence(state, text):
+    result = validate_coach_narrative(text, _evidence(_saved(state=state)["tool_results"]))
+    assert result.outcome == "replaced" and REASON in result.reason_codes
+
+
+@pytest.mark.parametrize("text", [
+    "В активности вижу 2 отрезка.",
+    "Первый отрезок длился 11 минут при 128 Вт.",
+])
+def test_native_review_supported_positive_structure_is_preserved(text):
+    result = validate_coach_narrative(text, _evidence(_saved(state="structured")["tool_results"]))
+    assert result.outcome == "pass" and result.delivered_text == text
+
+
+def test_native_review_positive_structure_does_not_borrow_other_activity_proof():
+    tools = [deepcopy(_saved(state=state)["tool_results"][0]) for state in ("unavailable", "structured")]
+    evidence = _evidence(tools)
+    assert validate_coach_narrative("За 2026-10-13: в активности вижу 2 отрезка.", evidence).outcome == "pass"
+    result = validate_coach_narrative("За 2026-10-14: в активности вижу 6 отрезков.", evidence)
+    assert result.outcome == "replaced" and REASON in result.reason_codes
+
+
 @pytest.mark.parametrize("response", [None, "", "Проверка карточки подтвердит гипотезу об отрезках.", "error"])
 def test_one_shot_correction_failure_keeps_safe_factual_fallback(response):
     from models.ai_coach_runtime import revalidate_with_correction
@@ -242,7 +307,7 @@ def test_successful_correction_preserves_facts_and_metadata_shape():
     assert result.outcome == "pass" and result.delivered_text == corrected
     metadata = result.metadata()
     assert set(metadata) == {"rule_version", "outcome", "reason_codes", "evidence_version", "evidence_fingerprint"}
-    assert metadata["rule_version"] == "coach_narrative_gate_v4"
+    assert metadata["rule_version"] == "coach_narrative_gate_v5"
     assert metadata["evidence_version"] == "coach_narrative_evidence_v3"
 
 
@@ -304,5 +369,5 @@ def test_api_streams_and_persists_only_validated_activity_text(tmp_path, monkeyp
     assert "это подтвердит" not in delivered.lower()
     assert "40" in delivered and "6" in delivered
     assert done["evidence_gate"]["reason_codes"] == [REASON]
-    assert done["evidence_gate"]["rule_version"] == "coach_narrative_gate_v4"
+    assert done["evidence_gate"]["rule_version"] == "coach_narrative_gate_v5"
     assert ChatManager().get_chat_messages(done["chat_id"])[-1]["content"] == delivered

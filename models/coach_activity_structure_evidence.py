@@ -23,6 +23,13 @@ _DENIED_GUARANTEES = (
 )
 _ABSENCE = re.compile(r"\b(?:отрезков|интервалов)(?:\s+(?!не\b|нет\b)[\w.-]+){0,9}\s+(?:нет|не\s+было)\b|"
                       r"\bнет\s+(?:отрезков|интервалов)\b", re.I)
+_ANALYZER_EMPTY = re.compile(r"\bне\s+(?:наш[её]л|выявил)\s+(?:отрезков|интервалов)\b|"
+                             r"\b(?:отрезки|интервалы)\s+не\s+(?:найдены|выявлены)\b", re.I)
+_POSITIVE_STRUCTURE = re.compile(
+    r"\b(?:вижу|видны|найдены|обнаружены)\s+\d+\s+(?:отрезк\w*|интервал\w*)\b|"
+    r"\bфактическая\s+структура\s*:\s*\d+\s*[×xх*]\s*\d+|"
+    r"\b(?:первый|второй|третий|\d+[-й]*)\s+(?:отрезок|интервал)\s+"
+    r"(?:длился|занял|продолжался)\s+\d+", re.I)
 _REAL_ABSENCE = re.compile(r"(?:сесси\w*|трениров\w*).{0,30}(?:прошл\w*|был\w*|выполнен\w*)"
                            r"\s+без\s+(?:интервал\w*|отрезк\w*)", re.I)
 _EFFORT = re.compile(r"(?:сесси\w*|трениров\w*|бег).{0,24}(?:был\w*|прошл\w*).{0,20}"
@@ -105,7 +112,13 @@ def _qualified(prefix: str) -> bool:
     # Only the local clause can qualify a claim. Earlier "вероятно" does not
     # excuse a later assertion that a future check WILL confirm a hypothesis.
     prefix = re.split(r"\b(?:но|однако|зато)\b", prefix, flags=re.I)[-1]
-    return bool(_UNCERTAIN.search(prefix[-100:]))
+    qualifiers = list(_UNCERTAIN.finditer(prefix))
+    if not qualifiers:
+        return False
+    # Preserve introductory "Возможно," and "Не факт, что". A later comma
+    # ends that proposition: a possible delay cannot qualify a promised result.
+    tail = re.sub(r"^\s*,\s*", "", prefix[qualifiers[-1].end():])
+    return not re.search(r"[,;:—]", tail)
 
 
 def _conditional_premise(prefix: str) -> bool:
@@ -130,7 +143,9 @@ def _cache_condition(text: str) -> bool:
                           r"(?:получ|загруж|выгруж|сохран)\w*.{0,35}(?:в\s+кэш|кэш)", text, re.I)
     return bool(condition and not re.search(r"\bне\s+(?:получ|загруж|выгруж|сохран)", condition.group(), re.I)
                 and re.search(r"инструмент(?:\s+(?:get_?activity_?structure|уже|успешно)){0,3}\s+"
-                              r"(?:вернул|верн[её]т|подтвер\w*)\b|structure_?status\s*=\s*structured", text, re.I))
+                              r"(?:вернул|верн[её]т|подтвер\w*)\s+"
+                              r"(?:отрезки|интервалы|наличие\s+(?:отрезков|интервалов)|непустую\s+структуру)\b|"
+                              r"structure_?status\s*=\s*structured\b", text, re.I))
 
 
 def activity_claim_unsupported(text: str, records: list[Mapping[str, Any]], *, attempted: bool = False) -> bool:
@@ -175,8 +190,17 @@ def activity_claim_unsupported(text: str, records: list[Mapping[str, Any]], *, a
             if not _qualified(clause[:match.start()]) and not _conditional_premise(clause[:match.start()]):
                 return True
         if not scope or any(row["structure_status"] != "structured" for row in scope):
+            for match in _POSITIVE_STRUCTURE.finditer(clause):
+                prefix = clause[:match.start()]
+                if not (_qualified(prefix) or _conditional_premise(prefix) or re.search(r"\bне\s*$", prefix, re.I)):
+                    return True
             for match in _EFFORT.finditer(clause):
                 if not _qualified(clause[:match.start()]) and not _conditional_premise(clause[:match.start()]):
+                    return True
+        for match in _ANALYZER_EMPTY.finditer(clause):
+            prefix = clause[:match.start()]
+            if not (_qualified(prefix) or _conditional_premise(prefix)):
+                if not scope or any(row["structure_status"] != "empty" for row in scope):
                     return True
         for match in _ABSENCE.finditer(clause):
             prefix = clause[:match.start()]
