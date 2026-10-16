@@ -17,7 +17,8 @@ function isSubmittedNativeReview(review) {
 
 function cleanNativeReviewHead(comment) {
   const login = comment.user?.login || comment.author?.login || '';
-  const body = String(comment.body || '');
+  const body = String(comment.body || '')
+    .replace(/^<!-- codex-review-receipt:v1 -->\s*/, '');
   if (!CODEX_REVIEWER_LOGINS.has(login) ||
       !body.startsWith("Codex Review: Didn't find any major issues.")) {
     return null;

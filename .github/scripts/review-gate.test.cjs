@@ -101,6 +101,82 @@ test('clean Codex result comments count as current-head native review rounds', (
   assert.equal(shouldInvalidateAcceptance('issue_comment', 'created', cleanComment), true);
 });
 
+// Minimal public response from PR #682, issuecomment-6216769986.
+const receiptCleanComment = {
+  id: 6216769986,
+  user: { login: 'chatgpt-codex-connector[bot]' },
+  body: [
+    '<!-- codex-review-receipt:v1 -->',
+    '',
+    "Codex Review: Didn't find any major issues. :tada:",
+    '',
+    '**Reviewed commit:** `9dc9039fb9`',
+  ].join('\n'),
+};
+
+test('receipt-prefixed clean results preserve review identity and head scope', () => {
+  const plainComment = {
+    ...receiptCleanComment,
+    body: receiptCleanComment.body.split('\n').slice(2).join('\n'),
+  };
+  const reviewedHead = '9dc9039fb9';
+  const laterHead = '32ba1edb00ce1b9a5e3dfa31564e149980fc8d32';
+  const reviews = [{
+    user: { login: 'chatgpt-codex-connector[bot]' },
+    state: 'COMMENTED',
+    commit_id: '7af3dfb',
+  }];
+
+  assert.equal(cleanNativeReviewHead(receiptCleanComment), reviewedHead);
+  assert.deepEqual(cleanNativeReviewStatus(receiptCleanComment), cleanNativeReviewStatus(plainComment));
+  const status = {
+    ...cleanNativeReviewStatus(receiptCleanComment),
+    state: 'success',
+    creator: { login: 'github-actions[bot]' },
+  };
+  assert.equal(status.context, 'review-gate/codex-clean/6216769986:9dc9039fb9');
+  assert.equal(countNativeReviewRounds([], [plainComment, receiptCleanComment], [status]), 1);
+  assert.equal(countNativeReviewRounds(reviews, [receiptCleanComment], [status]), 2);
+  assert.equal(countNativeReviewRoundsForHead(reviews, reviewedHead, [receiptCleanComment]), 1);
+  assert.equal(countNativeReviewRoundsForHead(reviews, laterHead, [receiptCleanComment], [status]), 0);
+  assert.equal(shouldInvalidateAcceptance('issue_comment', 'created', receiptCleanComment), true);
+
+  const gate = {
+    accepted: true,
+    nativeReviewRounds: countNativeReviewRounds(reviews, [receiptCleanComment], [status]),
+    currentHeadNativeReviewRounds: 0,
+    unresolvedThreads: 0,
+    hasBudgetException: true,
+  };
+  assert.equal(evaluateReviewGate(gate).ready, true);
+  assert.equal(evaluateReviewGate({ ...gate, accepted: false }).ready, false);
+  assert.equal(evaluateReviewGate({ ...gate, hasBudgetException: false }).ready, false);
+});
+
+test('receipt marker does not authenticate maintainer or unrelated bot comments', () => {
+  for (const login of ['rbctmz', 'unrelated[bot]']) {
+    const comment = { ...receiptCleanComment, user: { login } };
+    assert.equal(cleanNativeReviewHead(comment), null);
+    assert.equal(cleanNativeReviewStatus(comment), null);
+    assert.equal(countNativeReviewRounds([], [comment]), 0);
+  }
+});
+
+test('receipt parsing rejects arbitrary prefixes and missing reviewed SHA', () => {
+  const bodies = [
+    `Other prefix\n${receiptCleanComment.body}`,
+    receiptCleanComment.body.replace('codex-review-receipt:v1', 'codex-review-receipt:v2'),
+    receiptCleanComment.body.replace('**Reviewed commit:** `9dc9039fb9`', ''),
+    receiptCleanComment.body.replace('9dc9039fb9', 'not-a-sha'),
+  ];
+  for (const body of bodies) {
+    const comment = { ...receiptCleanComment, body };
+    assert.equal(cleanNativeReviewHead(comment), null);
+    assert.equal(cleanNativeReviewStatus(comment), null);
+    assert.equal(countNativeReviewRounds([], [comment]), 0);
+  }
+});
+
 test('persisted clean-result statuses keep rounds after source comment deletion', () => {
   const comments = [
     {
