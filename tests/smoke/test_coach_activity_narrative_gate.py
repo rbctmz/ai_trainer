@@ -268,6 +268,61 @@ def test_native_review_positive_structure_does_not_borrow_other_activity_proof()
     assert result.outcome == "replaced" and REASON in result.reason_codes
 
 
+@pytest.mark.parametrize("text,expected", [
+    ("Может возникнуть задержка и после синхронизации интервалы появятся.", "replaced"),
+    ("Могут возникнуть задержки и после синхронизации интервалы появятся.", "replaced"),
+    ("Возможно, если синхронизация завершится, интервалы появятся.", "pass"),
+    ("Не факт, что если синхронизация завершится, интервалы появятся.", "pass"),
+    ("Возможно, данные попадут в кэш и интервалы появятся.", "pass"),
+])
+def test_delta_review_uncertainty_is_bound_to_its_proposition(text, expected):
+    result = validate_coach_narrative(text, _evidence(_saved(state="unavailable")["tool_results"]))
+    assert result.outcome == expected
+    if expected == "pass":
+        assert result.delivered_text == text
+
+
+@pytest.mark.parametrize("proof,expected", [
+    ("structure_status=structured не был возвращён", "replaced"),
+    ("не был возвращён structure_status=structured", "replaced"),
+    ("инструмент не вернул structure_status=structured", "replaced"),
+    ("не structure_status=structured", "replaced"),
+    ("structure_status=structured был возвращён", "pass"),
+    ("инструмент вернул structure_status=structured", "pass"),
+])
+def test_delta_review_structured_status_must_be_affirmative(proof, expected):
+    text = f"Если данные успешно получены в кэш и {proof}, тогда назову отрезки."
+    result = validate_coach_narrative(text, _evidence(_saved(state="unavailable")["tool_results"]))
+    assert result.outcome == expected
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("За 2026-10-13 в активности вижу 2 отрезка, а за 2026-10-14 структура недоступна.", "pass"),
+    ("За 2026-10-14 структура недоступна, а за 2026-10-13 в активности вижу 2 отрезка.", "pass"),
+    ("За 2026-10-13 в активности вижу 2 отрезка, а за 2026-10-14 вижу 6 отрезков.", "replaced"),
+    ("За 2026-10-14 в активности вижу 6 отрезков, а за 2026-10-13 структура доступна.", "replaced"),
+])
+def test_delta_review_contrasting_activity_claims_keep_their_own_date(text, expected):
+    tools = [deepcopy(_saved(state=state)["tool_results"][0]) for state in ("unavailable", "structured")]
+    result = validate_coach_narrative(text, _evidence(tools))
+    assert result.outcome == expected
+    if expected == "pass":
+        assert result.delivered_text == text
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("В плане видны 6 интервалов, но фактическая структура активности недоступна.", "pass"),
+    ("По плану видны 6 интервалов, а структура выполненной активности недоступна.", "pass"),
+    ("В плане видны 6 интервалов, но в активности вижу 6 отрезков.", "replaced"),
+    ("В плане видны 6 интервалов, но фактическая структура: 4 × 5 минут.", "replaced"),
+])
+def test_delta_review_planned_counts_do_not_become_actual_activity_claims(text, expected):
+    result = validate_coach_narrative(text, _evidence(_saved(state="unavailable")["tool_results"]))
+    assert result.outcome == expected
+    if expected == "pass":
+        assert result.delivered_text == text
+
+
 @pytest.mark.parametrize("response", [None, "", "Проверка карточки подтвердит гипотезу об отрезках.", "error"])
 def test_one_shot_correction_failure_keeps_safe_factual_fallback(response):
     from models.ai_coach_runtime import revalidate_with_correction
@@ -307,7 +362,7 @@ def test_successful_correction_preserves_facts_and_metadata_shape():
     assert result.outcome == "pass" and result.delivered_text == corrected
     metadata = result.metadata()
     assert set(metadata) == {"rule_version", "outcome", "reason_codes", "evidence_version", "evidence_fingerprint"}
-    assert metadata["rule_version"] == "coach_narrative_gate_v5"
+    assert metadata["rule_version"] == "coach_narrative_gate_v6"
     assert metadata["evidence_version"] == "coach_narrative_evidence_v3"
 
 
@@ -369,5 +424,5 @@ def test_api_streams_and_persists_only_validated_activity_text(tmp_path, monkeyp
     assert "это подтвердит" not in delivered.lower()
     assert "40" in delivered and "6" in delivered
     assert done["evidence_gate"]["reason_codes"] == [REASON]
-    assert done["evidence_gate"]["rule_version"] == "coach_narrative_gate_v5"
+    assert done["evidence_gate"]["rule_version"] == "coach_narrative_gate_v6"
     assert ChatManager().get_chat_messages(done["chat_id"])[-1]["content"] == delivered
