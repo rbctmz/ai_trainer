@@ -412,8 +412,9 @@ information redesign remain out of scope.
 
 ## RED Matrix
 
-All future GREEN entries are **NOT YET**. Existing baseline is not new-behavior
-RED. Proposed test names below belong in
+The table retains the initial planned matrix; executed M1–M4 evidence and actual
+commands are recorded in the implementation checkpoints below. Final whole-S1
+acceptance remains M5. Existing baseline is not new-behavior RED. Proposed names belong in
 `tests/smoke/test_planning_build_confirmation.py` (service/HTTP),
 `tests/smoke/test_planning_build_confirmation_storage.py` (real SQLite), and
 `tests/e2e/test_planning_build_confirmation.py` (isolated web). Split/parameterize
@@ -522,6 +523,56 @@ This narrows unlock behavior under the same reviewed invariant. Final edits also
 record review/publication status; no new full review was requested.
 
 ## Final Verdict
+
+### M4 implementation checkpoint (2026-10-17)
+
+Product code at `f681b82` connects both public build callers. Coach tool prepares
+origin=coach identity and derives its summary from frozen data; persistence binds
+only its saved/deduplicated card in one transaction. Approval precedes the generic
+pending claim, verifies action/status/params/binding inside the writer lock and
+commits proposal approved/result with checkpoint/settings/receipt. Repeated approval
+replays; rejected/mismatched/legacy unbound builds cannot apply. Other actions use
+the existing generic path. Supplemental audit remains best effort on first success.
+
+Planning sends only preview_id/confirm and removes the separate profile PUT. Every
+pre-confirm edit/cancel, including distance, invalidates request generations.
+Confirming/uncertain state retains identity and locks edit/reset/another preview;
+explicit stale outcomes unlock an explicit rebuild. Ambiguous/corrupt/missing
+receipt and 422 preserve ownership. Historical replay does not claim to activate
+the old plan. Parent locks prevent local tab/new-chat controls from discarding an
+unresolved attempt. Unknown-outcome text makes no false not-applied claim.
+
+Independent full review: no product P1/blocking P2; one P2 test-fixture mismatch
+found (explicit demand passed despite a no-write assertion). Its focused run had
+1 failed/170 passed in 23.36s. A fixed timestamp sentinel reproduced both affected
+base cases. **fixed-in `495d589`**: helper now reflects omitted demand of the actual
+Coach tool; separate same/new explicit-demand cases verify allowed writes,
+unchanged profile and write-free replay. Author focused: 173 passed in 21.94s.
+Independent scoped round 2: 20 passed in 3.05s, READY for bounded M4 draft handoff,
+zero open blockers, budget 2/2 complete. Native/final S1 approval remains M5.
+
+Final contributor-safe run at `495d589`: **3366 passed, 14 skipped, 64 deselected,
+7 warnings in 170.80s**, no file exclusions. Skips/warnings are the same environment,
+fixture-regeneration and optional dependency limitations recorded in M3. Repository
+Ruff/whitespace, web lint/build, API/TS extraction/freshness and conformance/inventory
+pass. There are no new TS/public API schema changes in M4; existing M3 contracts
+are consumed.
+
+Isolated Chromium: **18 passed in 21.91s** in
+`tests/e2e/test_planning_build_confirmation_ui.py` (unique basename avoids smoke
+collector collision). Covers both callers, real commit plus dropped response,
+strict request/no profile PUT, held late preview after distance change, stale
+return, unknown/corrupt/missing/422/busy ownership, historical replay, cancel with
+unchanged active state, keyboard and 390/900/1280 light/dark. Synthetic images in
+`docs/design/evidence/issue-685/` were visually inspected; no WCAG certification or
+live-athlete validation is claimed. Coach SSE is synthetic; binding/approval/replay
+use the real API/store. Initial harness locator/hydration issues were corrected
+without changing acceptance, and are documented in the ExecPlan.
+
+M4 completes its caller wiring. M5 whole-S1 acceptance, current-head CI/native
+review and human merge/rollout remain outstanding. Parent #677 S2 lifecycle,
+S3 training mathematics and S4 explanation/redesign are untouched. No athlete DB,
+live provider, deployment or merge was used.
 
 ### M3 implementation checkpoint (2026-10-17)
 

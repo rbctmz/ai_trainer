@@ -43,7 +43,8 @@ dates/events, training mathematics, or the whole confirmation-screen design.
 - [x] (2026-10-17) M3 final verification: 3346 passed, 14 skipped, 46 deselected in 227.62s; no file exclusions. Ruff, whitespace, web lint/build, contract freshness/conformance/inventory and ExecPlan structure/links pass. Draft publication follows; M4 callers remain unchanged.
 - [x] (2026-10-17) M4 implementation: bound Coach prepare/approve/replay and identity-only Planning UI; generation invalidation, locked uncertainty, historical result, no separate profile PUT.
 - [x] (2026-10-17) M4 targeted UI: 18 isolated Chromium scenarios pass in 21.91s; 390/900/1280 light/dark, keyboard, both public callers. Synthetic screenshots inspected.
-- [ ] M4 independent review, final checks and draft publication.
+- [x] (2026-10-17) M4 independent review: one P2 test-fixture mismatch reproduced and fixed at `495d589`; scoped review 20 passed, zero open blockers, budget 2/2.
+- [x] (2026-10-17) M4 final checks: 3366 passed, 14 skipped, 64 deselected in 170.80s, no file exclusions; UI 18 passed, web lint/build and contracts green. Draft publication follows.
 - [ ] M5: isolated browser acceptance, required checks, implementation review and human merge gate.
 
 ## Surprises & Discoveries
@@ -702,3 +703,39 @@ All 18 browser scenarios pass in 21.91s. All six synthetic images in
 and Coach). Author contributor-safe run: 3364 passed, 14 skipped, 63 deselected in
 186.75s (before the additional excluded cancel browser case). Final review/checks
 are pending; no merge or deployment is authorized by this handoff.
+
+M4 review and final evidence (2026-10-17): full product diff at `f681b82` had no
+product P1/blocking P2. Independent focused run exposed one P2 acceptance-fixture
+mismatch (1 failed, 170 passed in 23.36s): the helper explicitly requested demand
+while expecting no settings write, and equality was accidentally masked when both
+SQLite timestamps fell within one second. **Observed:** exact demand updated_at
+changed across a second. **Inferred:** the test contradicts the reviewed explicit
+Coach demand-write contract. **Verified by:** checker synthetic probe and author
+sentinel reproduction (both first/existing cases failed in 1.20s). `495d589`
+omits demand for the current Coach-tool helper, retains the sentinel to detect
+unintended writes, and adds two explicit-demand cases checking unchanged profile
+and a replay SQL trace with zero INSERT/UPDATE/DELETE. No product change was needed.
+P2 disposition: fixed-in `495d589`. Author focused suite: 173 passed in 21.94s;
+independent scoped round 2: 20 passed in 3.05s, READY for bounded M4 draft handoff,
+zero open blockers, 2/2 rounds used.
+
+Final contributor-safe run at `495d589`, without file exclusions:
+
+    ./ai_trainer_env/bin/python -m pytest -m "not live and not debug and not e2e" tests/ -q --tb=short
+    3366 passed, 14 skipped, 64 deselected, 7 warnings in 170.80s
+
+Skips remain unavailable process/socket capabilities (2), explicit fixture
+regeneration (10), optional garth dependency (2). Warnings remain the existing
+Starlette/httpx deprecation and six synthetic connection-proxy pandas warnings.
+Final UI command:
+
+    ./ai_trainer_env/bin/python -m pytest -m e2e tests/e2e/test_planning_build_confirmation_ui.py -x -q --tb=short
+    18 passed in 21.91s
+
+Web lint/build on the final product UI, repository Ruff, whitespace, unchanged
+API/TS extraction/freshness, conformance/inventory and ExecPlan sections/links
+pass. All screenshots are synthetic and inspected. The checker did not execute
+browser servers; author browser evidence is explicitly separate. M4 is complete
+for draft handoff. Next M5: final whole-S1 acceptance/current-head CI/native review
+and human merge/rollout decision. No merge, deployment, live data access or
+provider write occurred in M4.
