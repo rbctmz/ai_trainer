@@ -1,8 +1,6 @@
-"""#685 M1: HTTP acceptance RED for the new confirmation protocol.
+"""#685 HTTP acceptance: M1 recorded RED; M3 must keep these assertions GREEN.
 
-These are ordinary assertions, deliberately not xfail/skip. M1 records failures
-before implementation; do not merge this draft milestone as a completed fix.
-The two raw-save tests reach the existing unsafe writer, not just a missing route.
+The raw-save tests exercise explicit rejection of the former unsafe writer.
 """
 from __future__ import annotations
 
@@ -134,3 +132,60 @@ def test_strict_confirmation_cannot_write(scenario, payload):
     assert response.status_code == 422, response.text
     assert response.json()["code"] == "invalid_confirmation"
     assert protected_state(db) == before
+
+
+@pytest.mark.parametrize("payload", [
+    {"preview_id": "not-a-uuid", "confirm": True},
+    {"preview_id": None, "confirm": True},
+    {"preview_id": 123, "confirm": True},
+    {"preview_id": "00000000-0000-4000-8000-000000000001"},
+])
+def test_bad_identity_uses_safe_protocol_envelope(scenario, payload):
+    client, db = scenario
+    before = protected_state(db)
+    response = client.post(CONFIRM, json=payload)
+    assert response.status_code == 422
+    assert response.json() == {"code": "invalid_confirmation", "retryable": False, "detail": "Проверьте подтверждение."}
+    assert protected_state(db) == before
+
+
+@pytest.mark.parametrize("patch,code,status", [
+    ({"persist": True}, "preview_required", 409),
+    ({"confirm": True}, "invalid_confirmation", 422),
+    ({"start_week": "2026-99-99"}, "invalid_build_request", 422),
+    ({"available_hours": -1}, "invalid_build_request", 422),
+    ({"available_hours": "nan"}, "invalid_build_request", 422),
+    ({"origin": "coach"}, "invalid_build_request", 422),
+    ({"checkpoint_json": "{}"}, "invalid_build_request", 422),
+    ({"base_checkpoint_id": 999}, "preview_stale", 409),
+])
+def test_invalid_build_and_legacy_flags_never_write(scenario, patch, code, status):
+    client, db = scenario
+    before = protected_state(db)
+    response = client.post(BUILD, json={**parameters(), **patch})
+    assert response.status_code == status, response.text
+    assert response.json()["code"] == code
+    assert response.json()["retryable"] is False
+    assert isinstance(response.json()["detail"], str)
+    assert protected_state(db) == before
+
+
+def test_unknown_identity_uses_protocol_envelope(scenario):
+    client, db = scenario
+    before = protected_state(db)
+    response = client.post(CONFIRM, json={"preview_id": "00000000-0000-4000-8000-000000000001", "confirm": True})
+    assert response.status_code == 404
+    assert response.json()["code"] == "preview_not_found"
+    assert protected_state(db) == before
+
+
+def test_malformed_json_is_safe_and_unrelated_route_keeps_validation(scenario):
+    client, db = scenario
+    for endpoint, code in ((BUILD, "invalid_build_request"), (CONFIRM, "invalid_confirmation")):
+        response = client.post(endpoint, content="{broken", headers={"Content-Type": "application/json"})
+        assert response.status_code == 422
+        assert response.json()["code"] == code
+    unrelated = client.post("/api/planning/history/restore", json={})
+    assert unrelated.status_code == 422
+    assert isinstance(unrelated.json()["detail"], list)
+    assert "code" not in unrelated.json()

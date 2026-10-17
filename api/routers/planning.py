@@ -5,12 +5,16 @@
 """
 from __future__ import annotations
 
-from datetime import date
 from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
-from pydantic import BaseModel, Field, field_validator
+from fastapi.responses import JSONResponse, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
+
+from api.planning_build_contract import BuildConfirmRequest, BuildConfirmResponse, BuildPreviewResponse
+from models.planning_build_confirmation import BuildParameters, PlanningBuildPreviewError
 
 from api import planning_service
 from api.deps import get_database
@@ -18,10 +22,35 @@ from data.database import Database
 from models.session_projection import SessionProjectionNotFoundError
 from services import session_projection as session_projection_service
 
-router = APIRouter(prefix="/api/planning", tags=["planning"])
+class PlanningRoute(APIRoute):
+    """Normalize only the two build protocol routes, including body validation."""
+
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+        if self.path not in {"/api/planning/build", "/api/planning/build/confirm"}:
+            return handler
+
+        async def protocol_handler(request):
+            try:
+                return await handler(request)
+            except RequestValidationError:
+                is_confirm = self.path.endswith("/confirm")
+                return JSONResponse(status_code=422, content={
+                    "detail": "Проверьте подтверждение." if is_confirm else "Проверьте параметры плана.",
+                    "code": "invalid_confirmation" if is_confirm else "invalid_build_request", "retryable": False,
+                })
+            except PlanningBuildPreviewError as exc:
+                return JSONResponse(status_code=exc.status, content={
+                    "detail": str(exc), "code": exc.code, "retryable": exc.retryable,
+                })
+        return protocol_handler
+
+
+router = APIRouter(prefix="/api/planning", tags=["planning"], route_class=PlanningRoute)
 
 
 class BuildRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     goal_type: str
     distance: str
     event_date: Optional[str] = None  # YYYY-MM-DD; legacy event_goal input
@@ -35,8 +64,8 @@ class BuildRequest(BaseModel):
     available_hours: float = 10.0
     available_days: Optional[List[str]] = None  # ["mon","tue",...]
     demand: Optional[str] = None
-    persist: bool = False
-    confirm: bool = False
+    persist: StrictBool = False
+    confirm: StrictBool = False
     base_checkpoint_id: Optional[int] = None
 
 
@@ -327,39 +356,26 @@ def planning_demand_confirm(
         raise HTTPException(status_code=422, detail=str(exc))
 
 
-@router.post("/build")
+@router.post("/build", response_model=BuildPreviewResponse)
 def planning_build(req: BuildRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
-    if req.persist and not req.confirm:
-        raise HTTPException(status_code=409, detail="Сначала просмотрите план, затем подтвердите сохранение.")
-    start_week = None
-    if req.start_week:
-        try:
-            start_week = date.fromisoformat(str(req.start_week)[:10])
-        except ValueError:
-            raise HTTPException(status_code=422, detail="start_week must be YYYY-MM-DD")
+    if req.persist:
+        raise PlanningBuildPreviewError("preview_required", "Сначала создайте предпросмотр, затем подтвердите его.")
+    if req.confirm:
+        raise PlanningBuildPreviewError("invalid_confirmation", "Подтвердите сохранённый предпросмотр по его идентификатору.", status=422)
     try:
-        return planning_service.build_plan(
-            db,
-            goal_type=req.goal_type,
-            distance=req.distance,
-            event_date=req.event_date,
-            start_week=start_week,
-            available_hours=req.available_hours,
-            available_days=req.available_days,
-            demand=req.demand,
-            persist=req.persist,
-            planning_mode=req.planning_mode,
-            intent=req.intent,
-            focus=req.focus,
-            horizon_weeks=req.horizon_weeks,
-            manual_phases=req.manual_phases,
-            events=req.events,
-            expected_base_checkpoint_id=req.base_checkpoint_id,
+        return planning_service.prepare_plan_build(
+            db, parameters=BuildParameters.from_mapping(req.model_dump(exclude={"persist", "confirm"})),
+            origin="planning_ui",
         )
-    except planning_service.StalePlanningCheckpointError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+    except PlanningBuildPreviewError:
+        raise
+    except (ValueError, TypeError, KeyError) as exc:
+        raise PlanningBuildPreviewError("invalid_build_request", "Проверьте параметры плана.", status=422) from exc
+
+
+@router.post("/build/confirm", response_model=BuildConfirmResponse)
+def planning_build_confirm(req: BuildConfirmRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
+    return planning_service.confirm_plan_build(db, preview_id=str(req.preview_id), origin="planning_ui")
 
 
 @router.get("/events")

@@ -19,7 +19,7 @@ import pandas as pd
 
 from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
-from data.planning_build_preview_store import store_pending
+from data.planning_build_preview_store import apply_preview, preview_response, store_pending
 from config.settings import Settings
 from models import planning_build_confirmation as build_protocol
 from models.planning_build_confirmation import (
@@ -1346,10 +1346,50 @@ def prepare_plan_build(
             "Хранилище занято; повторите запрос." if busy else "Не удалось сохранить предпросмотр; повторите запрос.",
             status=503 if busy else 500, retryable=True,
         ) from exc
-    return {**json.loads(row["response_json"]), "parameters": values,
-            "confirmation": {"protocol_version": build_protocol.PROTOCOL_VERSION,
-                             "preview_id": row["preview_id"], "expires_at": row["expires_at"],
-                             "status": "pending", "replayed": False, "is_current": None}}
+    return preview_response(row)
+
+
+def confirm_plan_build(
+    db: Database, *, preview_id: str, origin: Literal["planning_ui", "coach"],
+) -> dict[str, Any]:
+    """Apply the retained result once; retry returns its durable receipt."""
+    from api.planning_build_contract import BuildConfirmResponse
+    from pydantic import ValidationError
+
+    def recheck(conn: sqlite3.Connection, row: dict[str, Any]) -> bool:
+        try:
+            captured = _capture_plan_build_inputs(db, BuildParameters(row["parameters_json"]), conn=conn)
+            return captured.dependency_digest == row["dependency_digest"]
+        except (ValueError, TypeError, KeyError):
+            # Current dependencies may have become unusable since preparation.
+            return False
+
+    def validate_response(result: dict[str, Any]) -> None:
+        try:
+            BuildConfirmResponse.model_validate(result)
+            canonical_json(result)
+        except (ValidationError, ValueError, TypeError) as exc:
+            raise PlanningBuildPreviewError("preview_corrupt", "Предпросмотр повреждён; требуется проверка.", status=500) from exc
+
+    try:
+        return apply_preview(db, preview_id, origin=origin, now=lambda: datetime.now(timezone.utc),
+                             recheck=recheck, validate_response=validate_response)
+    except sqlite3.Error as exc:
+        busy = isinstance(exc, sqlite3.OperationalError) and any(word in str(exc).lower() for word in ("locked", "busy"))
+        raise PlanningBuildPreviewError(
+            "planning_busy" if busy else "planning_storage_error",
+            "Хранилище занято; повторите запрос." if busy else "Не удалось подтвердить план; повторите запрос с тем же предпросмотром.",
+            status=503 if busy else 500, retryable=True,
+        ) from exc
+    except PlanningBuildPreviewError:
+        raise
+    except Exception as exc:
+        # The transaction owner has rolled back (or committed before an unknown
+        # response failure). Preserve identity so retry can resolve either case.
+        raise PlanningBuildPreviewError(
+            "planning_storage_error", "Не удалось подтвердить план; повторите запрос с тем же предпросмотром.",
+            status=500, retryable=True,
+        ) from exc
 
 
 def build_plan(

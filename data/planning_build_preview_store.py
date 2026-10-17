@@ -76,10 +76,18 @@ def read_preview(conn: sqlite3.Connection, preview_id: str, *, origin: str) -> d
                 or (origin == "planning_ui" and row["coach_proposal_id"] is not None)
                 or row["payload_digest"] != _payload_digest(row)):
             raise _corrupt()
+        receipt_fields = ("applied_checkpoint_id", "applied_at", "applied_response_json", "receipt_digest")
+        if row["state"] == "applied":
+            if any(row[key] is None for key in receipt_fields):
+                raise _corrupt()
+        elif any(row[key] is not None for key in receipt_fields):
+            raise _corrupt()
         for name in ("parameters_json", "dependency_context_json", "checkpoint_json",
                      "response_json", "settings_write_json"):
-            if not isinstance(json.loads(row[name]), dict):
+            decoded = json.loads(row[name])
+            if not isinstance(decoded, dict):
                 raise _corrupt()
+            canonical_json(decoded)
         for name in ("created_at", "expires_at"):
             value = datetime.fromisoformat(row[name].replace("Z", "+00:00"))
             if value.tzinfo is None:
@@ -154,6 +162,109 @@ def store_pending(
                      f"VALUES ({', '.join('?' for _ in names)})", tuple(row.values()))
         conn.commit()
         return row
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+_RECEIPT_FIELDS = (
+    "payload_digest", "coach_proposal_id", "applied_checkpoint_id", "applied_at", "applied_response_json",
+)
+
+
+def _receipt_digest(row: dict[str, Any]) -> str:
+    return fingerprint({key: row[key] for key in _RECEIPT_FIELDS})
+
+
+def preview_response(row: dict[str, Any]) -> dict[str, Any]:
+    """Public frozen projection shared by preparation and receipt validation."""
+    return {**json.loads(row["response_json"]), "parameters": json.loads(row["parameters_json"]),
+            "confirmation": {"protocol_version": row["protocol_version"], "preview_id": row["preview_id"],
+                             "expires_at": row["expires_at"], "status": "pending",
+                             "replayed": False, "is_current": None}}
+
+
+def _applied_response(row: dict[str, Any], checkpoint_id: int) -> dict[str, Any]:
+    result = preview_response(row)
+    return {**result, "plan_id": str(checkpoint_id), "confirmation_required": False,
+            "confirmation": {**result["confirmation"], "status": "applied", "is_current": True}}
+
+
+def _read_receipt(conn: sqlite3.Connection, row: dict[str, Any]) -> dict[str, Any]:
+    try:
+        if row["receipt_digest"] != _receipt_digest(row):
+            raise _corrupt()
+        applied_at = datetime.fromisoformat(row["applied_at"].replace("Z", "+00:00"))
+        if applied_at.tzinfo is None or type(row["applied_checkpoint_id"]) is not int or row["applied_checkpoint_id"] <= 0:
+            raise _corrupt()
+        result = json.loads(row["applied_response_json"])
+        if result != _applied_response(row, row["applied_checkpoint_id"]):
+            raise _corrupt()
+    except (ValueError, TypeError, KeyError) as exc:
+        if isinstance(exc, PlanningBuildPreviewError):
+            raise
+        raise _corrupt() from exc
+    if conn.execute("SELECT id FROM planning_checkpoints WHERE id=?", (row["applied_checkpoint_id"],)).fetchone() is None:
+        raise PlanningBuildPreviewError("preview_checkpoint_missing", "Сохранённый план не найден; требуется проверка.")
+    latest = conn.execute("SELECT id FROM planning_checkpoints ORDER BY id DESC LIMIT 1").fetchone()
+    result["confirmation"] = {**result["confirmation"], "replayed": True,
+                              "is_current": latest[0] == row["applied_checkpoint_id"]}
+    return result
+
+
+def apply_preview(
+    db: Database, preview_id: str, *, origin: str, now: Callable[[], datetime],
+    recheck: Callable[[sqlite3.Connection, dict[str, Any]], bool],
+    validate_response: Callable[[dict[str, Any]], None],
+) -> dict[str, Any]:
+    """Publish frozen data and receipt in one transaction; replay never reactivates."""
+    conn = db._connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = read_preview(conn, preview_id, origin=origin)
+        # Coach binding/approval is a separate M4 adapter, never an unbound bypass.
+        if origin != "planning_ui":
+            raise PlanningBuildPreviewError("preview_not_found", "Предпросмотр не найден.", status=404)
+        if row["state"] == "applied":
+            result = _read_receipt(conn, row)
+            validate_response(result)
+            conn.rollback()  # read-only replay releases the writer lock
+            return result
+        # Validate retained public/parameter shape before eligibility checks, so
+        # malformed stored data cannot be mistaken for a changed dependency.
+        validate_response(preview_response(row))
+        instant = now()  # expiry is evaluated after lock acquisition
+        validate_pending(row, now=instant)
+        if not recheck(conn, row):
+            conn.execute("UPDATE planning_build_previews SET state='invalidated' WHERE preview_id=?", (preview_id,))
+            conn.commit()
+            raise PlanningBuildPreviewError("preview_stale", "Данные изменились — пересоберите предпросмотр.")
+        checkpoint = json.loads(row["checkpoint_json"])
+        settings = json.loads(row["settings_write_json"])
+        if set(settings) - {"planning_demand_level", "planning_profile"} or not checkpoint:
+            raise _corrupt()
+        saved = db._insert_planning_checkpoint(conn, checkpoint, payload=row["checkpoint_json"])
+        result = _applied_response(row, saved["id"])
+        validate_response(result)  # serialization/schema failure must precede commit
+        for key, value in settings.items():
+            if key == "planning_profile":
+                value = canonical_json({**value, "updated_at": utc_text(instant)})
+            conn.execute(
+                "INSERT INTO user_settings(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+                (key, value),
+            )
+        row.update(applied_checkpoint_id=saved["id"], applied_at=utc_text(instant),
+                   applied_response_json=canonical_json(result))
+        conn.execute(
+            "UPDATE planning_build_previews SET state='applied', applied_checkpoint_id=?, applied_at=?, "
+            "applied_response_json=?, receipt_digest=? WHERE preview_id=?",
+            (row["applied_checkpoint_id"], row["applied_at"], row["applied_response_json"], _receipt_digest(row), preview_id),
+        )
+        conn.commit()
+        return result
     except Exception:
         conn.rollback()
         raise

@@ -65,6 +65,43 @@
         {"state": "edge_no_plan", "expect": 200}
       ]
     },
+    "/api/planning/build": {
+      "interface": "BuildPreviewResponse",
+      "method": "POST",
+      "scenarios": [
+        {
+          "state": "empty",
+          "expect": 200,
+          "json": {
+            "goal_type": "triathlon",
+            "distance": "olympic",
+            "planning_mode": "training_goal",
+            "horizon_weeks": 4,
+            "available_hours": 10
+          }
+        }
+      ]
+    },
+    "/api/planning/build/confirm": {
+      "interface": "BuildConfirmResponse",
+      "method": "POST",
+      "scenarios": [
+        {
+          "state": "empty",
+          "expect": 200,
+          "prepare_preview": {
+            "goal_type": "triathlon",
+            "distance": "olympic",
+            "planning_mode": "training_goal",
+            "horizon_weeks": 4,
+            "available_hours": 10
+          },
+          "json": {
+            "confirm": true
+          }
+        }
+      ]
+    },
     "/api/planning/status": {
       "interface": "PlanningStatus",
       "scenarios": [

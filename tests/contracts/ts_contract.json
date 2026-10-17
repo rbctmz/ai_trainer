@@ -1,14 +1,16 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "aeec2d34882e4bd60de6d1158454bec291272e9c447918c24a88943d1de36402",
+    "source_sha256": "5516791e7fbc6b92fb5d7dc9d54385cdd0035e6f2394484a8216a9f8ae8e9296",
     "registry": "tests/contracts/registry.json",
-    "registry_sha256": "14d777a744748ad7195793cb15aae03417e97727b3651c960fbe08189cb5e6f1"
+    "registry_sha256": "c2f3c0639caec888444c3e0eee5e4fb8ae2890eea188798950f8f47f74835615"
   },
   "roots": [
     "ActivitiesResponse",
     "AdherenceRibbonResponse",
     "AthleteProfileResponse",
+    "BuildConfirmResponse",
+    "BuildPreviewResponse",
     "CoachDecisionsResponse",
     "DashboardResponse",
     "DashboardWidgets",
@@ -2528,6 +2530,3741 @@
               "items": null,
               "fields": null,
               "ref": "ThresholdDriftWarning",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "BuildConfirmResponse": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "confirmation": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "BuildConfirmation",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "confirmation_required": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "constraint_application": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "ConstraintApplication",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "event_overlay": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "microcycle_changes": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceMicrocycleChange",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "overlays": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": {
+                      "affected_dates": {
+                        "optional": false,
+                        "spec": {
+                          "kinds": [
+                            "array"
+                          ],
+                          "literals": [],
+                          "widened": false,
+                          "items": {
+                            "kinds": [
+                              "string"
+                            ],
+                            "literals": [],
+                            "widened": false,
+                            "items": null,
+                            "fields": null,
+                            "ref": null,
+                            "wildcard": false,
+                            "variants": null,
+                            "record_values": null,
+                            "array_length": null
+                          },
+                          "fields": null,
+                          "ref": null,
+                          "wildcard": false,
+                          "variants": null,
+                          "record_values": null,
+                          "array_length": null
+                        }
+                      },
+                      "date": {
+                        "optional": false,
+                        "spec": {
+                          "kinds": [
+                            "string"
+                          ],
+                          "literals": [],
+                          "widened": false,
+                          "items": null,
+                          "fields": null,
+                          "ref": null,
+                          "wildcard": false,
+                          "variants": null,
+                          "record_values": null,
+                          "array_length": null
+                        }
+                      },
+                      "label": {
+                        "optional": false,
+                        "spec": {
+                          "kinds": [
+                            "string"
+                          ],
+                          "literals": [],
+                          "widened": false,
+                          "items": null,
+                          "fields": null,
+                          "ref": null,
+                          "wildcard": false,
+                          "variants": null,
+                          "record_values": null,
+                          "array_length": null
+                        }
+                      },
+                      "priority": {
+                        "optional": false,
+                        "spec": {
+                          "kinds": [
+                            "string"
+                          ],
+                          "literals": [
+                            "A",
+                            "B",
+                            "C"
+                          ],
+                          "widened": false,
+                          "items": null,
+                          "fields": null,
+                          "ref": null,
+                          "wildcard": false,
+                          "variants": null,
+                          "record_values": null,
+                          "array_length": null
+                        }
+                      }
+                    },
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "protected_dates": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "rule_version": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "forecast": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "final_tsb": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "message": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "points": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "ForecastPoint",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "goal": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "distance": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "event_date": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "events": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceEvent",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "goal_type": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "macrocycle_event_date": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "weeks_to_race": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "parameters": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "BuildParameters",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "plan_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "planning_mode": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "event_goal",
+              "manual",
+              "training_goal"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "preview": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "base_checkpoint_id": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "events_after": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceEvent",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "events_before": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceEvent",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "microcycle_changes": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceMicrocycleChange",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "phases_after": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "phases_before": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "weekly_tss_after": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "number"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "weekly_tss_before": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "number"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "weekly_tss_delta": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "science_audit": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "PlanScienceAudit",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "totals": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "peak_tss": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "total_tss": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "weekly_target": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "base_weekly_tss": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "breakdown": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": "WeeklyTargetBreakdown",
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "demand": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": "PlanningDemand",
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "final_target_weekly_tss": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "history": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": {
+                    "avg_4": {
+                      "optional": false,
+                      "spec": {
+                        "kinds": [
+                          "number"
+                        ],
+                        "literals": [],
+                        "widened": false,
+                        "items": null,
+                        "fields": null,
+                        "ref": null,
+                        "wildcard": false,
+                        "variants": null,
+                        "record_values": null,
+                        "array_length": null
+                      }
+                    },
+                    "best_8": {
+                      "optional": false,
+                      "spec": {
+                        "kinds": [
+                          "number"
+                        ],
+                        "literals": [],
+                        "widened": false,
+                        "items": null,
+                        "fields": null,
+                        "ref": null,
+                        "wildcard": false,
+                        "variants": null,
+                        "record_values": null,
+                        "array_length": null
+                      }
+                    },
+                    "last_week": {
+                      "optional": false,
+                      "spec": {
+                        "kinds": [
+                          "number"
+                        ],
+                        "literals": [],
+                        "widened": false,
+                        "items": null,
+                        "fields": null,
+                        "ref": null,
+                        "wildcard": false,
+                        "variants": null,
+                        "record_values": null,
+                        "array_length": null
+                      }
+                    }
+                  },
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "range_max": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "range_min": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "target_weekly_tss": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "weeks": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "PlanWeek",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "BuildConfirmation": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "expires_at": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "is_current": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean",
+              "null"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "preview_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "protocol_version": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [
+              1
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "replayed": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "status": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "applied",
+              "pending"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "BuildParameters": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "available_days": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "string"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": null,
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "available_hours": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "base_checkpoint_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "demand": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "distance": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "event_date": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "events": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "RaceEvent",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "focus": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "goal_type": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "horizon_weeks": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "intent": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "manual_phases": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array",
+              "null"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "string"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": null,
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "planning_mode": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "event_goal",
+              "manual",
+              "training_goal"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "start_week": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "BuildPreviewResponse": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "confirmation": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "BuildConfirmation",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "confirmation_required": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "constraint_application": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "ConstraintApplication",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "event_overlay": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "microcycle_changes": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceMicrocycleChange",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "overlays": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": {
+                      "affected_dates": {
+                        "optional": false,
+                        "spec": {
+                          "kinds": [
+                            "array"
+                          ],
+                          "literals": [],
+                          "widened": false,
+                          "items": {
+                            "kinds": [
+                              "string"
+                            ],
+                            "literals": [],
+                            "widened": false,
+                            "items": null,
+                            "fields": null,
+                            "ref": null,
+                            "wildcard": false,
+                            "variants": null,
+                            "record_values": null,
+                            "array_length": null
+                          },
+                          "fields": null,
+                          "ref": null,
+                          "wildcard": false,
+                          "variants": null,
+                          "record_values": null,
+                          "array_length": null
+                        }
+                      },
+                      "date": {
+                        "optional": false,
+                        "spec": {
+                          "kinds": [
+                            "string"
+                          ],
+                          "literals": [],
+                          "widened": false,
+                          "items": null,
+                          "fields": null,
+                          "ref": null,
+                          "wildcard": false,
+                          "variants": null,
+                          "record_values": null,
+                          "array_length": null
+                        }
+                      },
+                      "label": {
+                        "optional": false,
+                        "spec": {
+                          "kinds": [
+                            "string"
+                          ],
+                          "literals": [],
+                          "widened": false,
+                          "items": null,
+                          "fields": null,
+                          "ref": null,
+                          "wildcard": false,
+                          "variants": null,
+                          "record_values": null,
+                          "array_length": null
+                        }
+                      },
+                      "priority": {
+                        "optional": false,
+                        "spec": {
+                          "kinds": [
+                            "string"
+                          ],
+                          "literals": [
+                            "A",
+                            "B",
+                            "C"
+                          ],
+                          "widened": false,
+                          "items": null,
+                          "fields": null,
+                          "ref": null,
+                          "wildcard": false,
+                          "variants": null,
+                          "record_values": null,
+                          "array_length": null
+                        }
+                      }
+                    },
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "protected_dates": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "rule_version": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "forecast": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "final_tsb": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "message": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "points": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "ForecastPoint",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "goal": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "distance": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "event_date": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "events": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceEvent",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "goal_type": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "macrocycle_event_date": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "weeks_to_race": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "parameters": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "BuildParameters",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "plan_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "planning_mode": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "event_goal",
+              "manual",
+              "training_goal"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "preview": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "base_checkpoint_id": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "events_after": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceEvent",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "events_before": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceEvent",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "microcycle_changes": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceMicrocycleChange",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "phases_after": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "phases_before": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "weekly_tss_after": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "number"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "weekly_tss_before": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "number"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "weekly_tss_delta": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "science_audit": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "PlanScienceAudit",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "totals": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "peak_tss": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "total_tss": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "weekly_target": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "base_weekly_tss": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "breakdown": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": "WeeklyTargetBreakdown",
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "demand": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": "PlanningDemand",
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "final_target_weekly_tss": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "history": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": {
+                    "avg_4": {
+                      "optional": false,
+                      "spec": {
+                        "kinds": [
+                          "number"
+                        ],
+                        "literals": [],
+                        "widened": false,
+                        "items": null,
+                        "fields": null,
+                        "ref": null,
+                        "wildcard": false,
+                        "variants": null,
+                        "record_values": null,
+                        "array_length": null
+                      }
+                    },
+                    "best_8": {
+                      "optional": false,
+                      "spec": {
+                        "kinds": [
+                          "number"
+                        ],
+                        "literals": [],
+                        "widened": false,
+                        "items": null,
+                        "fields": null,
+                        "ref": null,
+                        "wildcard": false,
+                        "variants": null,
+                        "record_values": null,
+                        "array_length": null
+                      }
+                    },
+                    "last_week": {
+                      "optional": false,
+                      "spec": {
+                        "kinds": [
+                          "number"
+                        ],
+                        "literals": [],
+                        "widened": false,
+                        "items": null,
+                        "fields": null,
+                        "ref": null,
+                        "wildcard": false,
+                        "variants": null,
+                        "record_values": null,
+                        "array_length": null
+                      }
+                    }
+                  },
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "range_max": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "range_min": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "target_weekly_tss": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "weeks": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "PlanWeek",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "BuiltPlan": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "confirmation_required": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "constraint_application": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "ConstraintApplication",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "event_overlay": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "microcycle_changes": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceMicrocycleChange",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "overlays": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": {
+                      "affected_dates": {
+                        "optional": false,
+                        "spec": {
+                          "kinds": [
+                            "array"
+                          ],
+                          "literals": [],
+                          "widened": false,
+                          "items": {
+                            "kinds": [
+                              "string"
+                            ],
+                            "literals": [],
+                            "widened": false,
+                            "items": null,
+                            "fields": null,
+                            "ref": null,
+                            "wildcard": false,
+                            "variants": null,
+                            "record_values": null,
+                            "array_length": null
+                          },
+                          "fields": null,
+                          "ref": null,
+                          "wildcard": false,
+                          "variants": null,
+                          "record_values": null,
+                          "array_length": null
+                        }
+                      },
+                      "date": {
+                        "optional": false,
+                        "spec": {
+                          "kinds": [
+                            "string"
+                          ],
+                          "literals": [],
+                          "widened": false,
+                          "items": null,
+                          "fields": null,
+                          "ref": null,
+                          "wildcard": false,
+                          "variants": null,
+                          "record_values": null,
+                          "array_length": null
+                        }
+                      },
+                      "label": {
+                        "optional": false,
+                        "spec": {
+                          "kinds": [
+                            "string"
+                          ],
+                          "literals": [],
+                          "widened": false,
+                          "items": null,
+                          "fields": null,
+                          "ref": null,
+                          "wildcard": false,
+                          "variants": null,
+                          "record_values": null,
+                          "array_length": null
+                        }
+                      },
+                      "priority": {
+                        "optional": false,
+                        "spec": {
+                          "kinds": [
+                            "string"
+                          ],
+                          "literals": [
+                            "A",
+                            "B",
+                            "C"
+                          ],
+                          "widened": false,
+                          "items": null,
+                          "fields": null,
+                          "ref": null,
+                          "wildcard": false,
+                          "variants": null,
+                          "record_values": null,
+                          "array_length": null
+                        }
+                      }
+                    },
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "protected_dates": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "rule_version": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "forecast": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "final_tsb": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "message": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "points": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "ForecastPoint",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "goal": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "distance": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "event_date": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "events": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceEvent",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "goal_type": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "macrocycle_event_date": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "weeks_to_race": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "plan_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "planning_mode": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "event_goal",
+              "manual",
+              "training_goal"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "preview": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "base_checkpoint_id": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "events_after": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceEvent",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "events_before": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceEvent",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "microcycle_changes": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": "RaceMicrocycleChange",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "phases_after": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "phases_before": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "weekly_tss_after": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "number"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "weekly_tss_before": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "number"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "weekly_tss_delta": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "science_audit": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "PlanScienceAudit",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "totals": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "peak_tss": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "total_tss": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "weekly_target": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "base_weekly_tss": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "breakdown": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": "WeeklyTargetBreakdown",
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "demand": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": "PlanningDemand",
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "final_target_weekly_tss": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "history": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": {
+                    "avg_4": {
+                      "optional": false,
+                      "spec": {
+                        "kinds": [
+                          "number"
+                        ],
+                        "literals": [],
+                        "widened": false,
+                        "items": null,
+                        "fields": null,
+                        "ref": null,
+                        "wildcard": false,
+                        "variants": null,
+                        "record_values": null,
+                        "array_length": null
+                      }
+                    },
+                    "best_8": {
+                      "optional": false,
+                      "spec": {
+                        "kinds": [
+                          "number"
+                        ],
+                        "literals": [],
+                        "widened": false,
+                        "items": null,
+                        "fields": null,
+                        "ref": null,
+                        "wildcard": false,
+                        "variants": null,
+                        "record_values": null,
+                        "array_length": null
+                      }
+                    },
+                    "last_week": {
+                      "optional": false,
+                      "spec": {
+                        "kinds": [
+                          "number"
+                        ],
+                        "literals": [],
+                        "widened": false,
+                        "items": null,
+                        "fields": null,
+                        "ref": null,
+                        "wildcard": false,
+                        "variants": null,
+                        "record_values": null,
+                        "array_length": null
+                      }
+                    }
+                  },
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "range_max": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "range_min": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "target_weekly_tss": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "weeks": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "PlanWeek",
               "wildcard": false,
               "variants": null,
               "record_values": null,
@@ -5394,6 +9131,174 @@
             "literals": [],
             "widened": false,
             "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "ConstraintApplication": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "applied_count": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "constraints": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": {
+                "constraint_id": {
+                  "optional": true,
+                  "spec": {
+                    "kinds": [
+                      "null",
+                      "number"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "date": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "kind": {
+                  "optional": true,
+                  "spec": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [
+                      "disabled_plan_day",
+                      "forced_rest",
+                      "manual_delete",
+                      "sick",
+                      "unavailable"
+                    ],
+                    "widened": true,
+                    "items": null,
+                    "fields": null,
+                    "ref": "CoachConstraintKind",
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "source": {
+                  "optional": true,
+                  "spec": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                }
+              },
+              "ref": null,
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "protected_dates": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "string"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": null,
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
             "fields": null,
             "ref": null,
             "wildcard": false,
@@ -9777,6 +13682,193 @@
             "kinds": [
               "null",
               "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "PlanWeek": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "adjustment_note": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "bike": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "capacity_tss": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "index": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "phase": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "race_forecast_tss": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "run": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "swim": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "week_start": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "weekly_tss": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
             ],
             "literals": [],
             "widened": false,
@@ -14228,6 +18320,244 @@
           "spec": {
             "kinds": [
               "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "RaceMicrocycleChange": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "after": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "RaceMicrocycleState",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "before": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "RaceMicrocycleState",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "date": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "event_date": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "label": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "offset": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "phase": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "priority": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "A",
+              "B",
+              "C"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "RaceMicrocycleState": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "focus": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "role": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "sport": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "tss": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
             ],
             "literals": [],
             "widened": false,

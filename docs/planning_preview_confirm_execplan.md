@@ -38,11 +38,32 @@ dates/events, training mathematics, or the whole confirmation-screen design.
 - [x] (2026-10-17) Independent M1 checker reviewed e0cd700..097cf99: no blocking P1/P2, 12 characterization cases independently pass. M1 draft handoff only; acceptance RED remains.
 - [x] (2026-10-17) M2 implementation: coherent connection-bound read snapshot, immutable serialized inputs/result, prepare-time freshness recheck and additive preview store. After review fixes, 75 M2/characterization tests pass; initial existing focused pass: 108 tests.
 - [x] (2026-10-17) M2 verification: 3236 contributor-safe tests passed (14 skipped, 46 deselected; only the known M1 HTTP RED file excluded). Independent scoped round 2 accepted `6516989`, zero open blocking findings. Ready for bounded draft handoff only.
-- [ ] M3: transactional confirmation, replay, failure and concurrency coverage.
+- [x] (2026-10-17) M3 implementation: frozen publication, same-connection freshness/receipt/settings transaction, replay, strict HTTP protocol and typed API/TS responses. Original 20 HTTP RED cases are GREEN.
+- [ ] M3 verification: final focused/broad runs, independent code review and draft publication. M4 callers remain unchanged.
 - [ ] M4: minimal Planning UI and Coach build-proposal adapters; contract refresh.
 - [ ] M5: isolated browser acceptance, required checks, implementation review and human merge gate.
 
 ## Surprises & Discoveries
+
+
+**Observed:** the M3 pre-change run reproduced all 20 M1 HTTP failures in 4.70s,
+including unsafe raw writes. A separate 35-case transaction/replay suite failed
+on the absent `confirm_plan_build` interface. **Inferred:** preparation storage
+alone cannot satisfy confirmation; the cheapest falsifying check is the same
+HTTP and transaction matrix after wiring the retained artifact.
+**Verified by:** initial M3 run passed 118 tests in 28.45s, including every original
+M1 HTTP case, all six full-checkpoint mode/base comparisons, write rollback,
+real-connection duplicate/competing confirmation and SQLite writer exclusion.
+Final broader evidence and independent review are pending below.
+
+**Observed:** the contract inventory previously treated every registered endpoint
+as a GET, while M3 adds two POST response contracts. **Inferred:** listing the new
+POSTs without method semantics falsely reports dead GETs. **Verified by:** the
+registry now declares POST explicitly; conformance exercises real prepare/confirm
+on separate temporary fixtures, and the unchanged GET coverage obligation filters
+only GET entries. 50 inventory/conformance checks passed in 5.29s. No UI adapter
+or visual change is included; old Planning raw-save receives the reviewed 409
+until M4 switches it to identity confirmation.
 
 
 **Observed:** M2 review found a hidden live-day read through the unused readiness
@@ -580,3 +601,9 @@ capabilities (2), explicit fixture regeneration (10), and optional garth (2).
 Known M1 HTTP RED was tested separately (20 expected failures); no new failure
 was excluded as expected. A final corrected-tree 16-week prepare took 0.339s
 with active state unchanged. M3 remains the next explicit milestone.
+
+Revision note (2026-10-17, M3 in progress): public preparation now retains an
+artifact; confirmation applies its exact JSON without scheduler calls. The store
+owns checkpoint/settings/receipt publication and replays without reactivation.
+Coach origin remains fail-closed pending the M4 proposal-binding adapter. M3
+initial RED/GREEN and contract harness evidence recorded; final checks/review pending.

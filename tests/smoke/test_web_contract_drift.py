@@ -123,8 +123,8 @@ def test_artifact_is_fresh() -> None:
     )
 
 
-def _build_state(state_name: str) -> Database:
-    db = Database(str(_TEMP_DIR / f"{state_name}.db"))
+def _build_state(state_name: str, *, suffix: str = "") -> Database:
+    db = Database(str(_TEMP_DIR / f"{state_name}{suffix}.db"))
     if state_name in {"demo", "edge_no_plan"}:
         activate_demo_mode(make_headless_state(db))
     if state_name == "demo":
@@ -191,22 +191,34 @@ def _cases():
 
 @pytest.mark.parametrize(("path", "interface", "scenario"), _cases())
 def test_endpoint_scenario(path: str, interface: str, scenario: dict, network_guard, app_override) -> None:
-    db, client = _state(scenario["state"])
+    method = REGISTRY["endpoints"][path].get("method", "GET")
+    if method != "GET":
+        # A contract write must not turn the cached "empty" read fixture into a plan.
+        db = _build_state(scenario["state"], suffix=f"-{interface}")
+        client = TestClient(app)
+    else:
+        db, client = _state(scenario["state"])
     _CURRENT_DB["db"] = db
 
     url = path
     for name, source in (scenario.get("path_params") or {}).items():
         url = url.replace(f"{{{name}}}", _resolve_param(db, client, source))
 
-    response = client.get(url, params=scenario.get("query_params"))
+    body = scenario.get("json")
+    if scenario.get("prepare_preview"):
+        prepared = client.post("/api/planning/build", json=scenario["prepare_preview"])
+        assert prepared.status_code == 200, prepared.text
+        body = {**body, "preview_id": prepared.json()["confirmation"]["preview_id"]}
+    response = client.request(method, url,
+                              params=scenario.get("query_params"), json=body)
     assert response.status_code == scenario["expect"], (
-        f"GET {url} -> {response.status_code}: {response.text[:300]}"
+        f"{method} {url} -> {response.status_code}: {response.text[:300]}"
     )
 
     payload = response.json()
     spec = ARTIFACT["types"][interface]
     violations = validate(payload, spec, ARTIFACT["types"])
-    assert not violations, f"GET {url}: дрейф контракта\n" + "\n".join(violations)
+    assert not violations, f"{method} {url}: дрейф контракта\n" + "\n".join(violations)
 
     for line in find_extra_fields(payload, spec, ARTIFACT["types"]):
         print(f"INFO {url}: {line}")

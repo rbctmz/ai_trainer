@@ -3,7 +3,8 @@
 Гарантирует, что каждый GET-вызов фронтенда (``useSWR``/``fetcher`` с путём
 ``/api/*``) либо зарегистрирован в ``tests/contracts/registry.json``, либо явно
 исключён (аннотация ``// api-contract: exclude:`` или секция ``excluded``).
-POST/PUT/DELETE инвентаризируются для отчёта, но вне conformance-сверки.
+POST/PUT/DELETE инвентаризируются для отчёта. Явно зарегистрированные POST
+проверяются conformance-сценариями; GET coverage gate остаётся отдельным.
 
 Контракт: docs/web_contract_drift_execplan.md.
 """
@@ -41,6 +42,7 @@ def test_registry_schema() -> None:
     for path, entry in endpoints.items():
         assert path.startswith("/api/"), f"путь вне /api/: {path}"
         assert isinstance(entry.get("interface"), str) and entry["interface"], f"{path}: пустой interface"
+        assert entry.get("method", "GET") in {"GET", "POST"}, f"{path}: неизвестный method"
         scenarios = entry.get("scenarios")
         assert isinstance(scenarios, list) and scenarios, f"{path}: нет сценариев"
         for scenario in scenarios:
@@ -88,7 +90,8 @@ def test_inventory_matches_registry() -> None:
     """Каждый GET фронтенда зарегистрирован или исключён; реестр не содержит мёртвых путей."""
     inventory = _run_inventory()
     registry = _load_registry()
-    endpoints = set(registry["endpoints"])
+    endpoints = {path for path, entry in registry["endpoints"].items()
+                 if entry.get("method", "GET") == "GET"}
     excluded = registry.get("excluded", [])
 
     calls = inventory.get("calls")

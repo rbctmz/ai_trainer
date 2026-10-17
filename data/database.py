@@ -1463,33 +1463,32 @@ class Database:
         if not checkpoint_data or not isinstance(checkpoint_data, dict):
             raise ValueError("checkpoint_data must be a non-empty dict")
 
-        payload = json.dumps(checkpoint_data, ensure_ascii=False)
         conn = self._connect()
-        cursor = conn.cursor()
-        cursor.execute(
-            '''
-            INSERT INTO planning_checkpoints (goal_type, distance, weeks_to_race, checkpoint_data)
-            VALUES (?, ?, ?, ?)
-            ''',
-            (
-                self.clean_value(checkpoint_data.get('goal_type')),
-                self.clean_value(checkpoint_data.get('distance')),
-                self.clean_value(checkpoint_data.get('weeks_to_race')),
-                payload,
-            ),
+        try:
+            saved = self._insert_planning_checkpoint(conn, checkpoint_data)
+            conn.commit()
+            return saved
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def _insert_planning_checkpoint(self, conn, checkpoint_data, *, payload=None):
+        """Insert on the caller's transaction; never commit or open a connection."""
+        if payload is None:
+            payload = json.dumps(checkpoint_data, ensure_ascii=False)
+        cursor = conn.execute(
+            "INSERT INTO planning_checkpoints (goal_type, distance, weeks_to_race, checkpoint_data) "
+            "VALUES (?, ?, ?, ?)",
+            (self.clean_value(checkpoint_data.get('goal_type')),
+             self.clean_value(checkpoint_data.get('distance')),
+             self.clean_value(checkpoint_data.get('weeks_to_race')), payload),
         )
-        checkpoint_id = cursor.lastrowid
-        cursor.execute(
-            '''
-            SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at
-            FROM planning_checkpoints
-            WHERE id = ?
-            ''',
-            (checkpoint_id,),
-        )
-        row = cursor.fetchone()
-        conn.commit()
-        conn.close()
+        row = conn.execute(
+            "SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at "
+            "FROM planning_checkpoints WHERE id = ?", (cursor.lastrowid,),
+        ).fetchone()
         return self._deserialize_planning_checkpoint_row(row)
 
     def commit_coach_plan_mutation(

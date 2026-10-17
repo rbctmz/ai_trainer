@@ -1175,6 +1175,40 @@ export interface BuiltPlan {
   forecast: { points: ForecastPoint[]; final_tsb: number; message: string };
 }
 
+// Server-owned prepared build; unrelated BuiltPlan producers remain unchanged.
+export interface BuildParameters {
+  goal_type: string;
+  distance: string;
+  event_date: string | null;
+  start_week: string;
+  planning_mode: "event_goal" | "training_goal" | "manual";
+  intent: string;
+  focus: string;
+  horizon_weeks: number;
+  manual_phases: string[] | null;
+  events: RaceEvent[];
+  available_hours: number;
+  available_days: string[];
+  demand: string;
+  base_checkpoint_id: number;
+}
+
+export interface BuildConfirmation {
+  protocol_version: 1;
+  preview_id: string;
+  expires_at: string;
+  status: "pending" | "applied";
+  replayed: boolean;
+  is_current: boolean | null;
+}
+
+export interface BuildPreviewResponse extends BuiltPlan {
+  parameters: BuildParameters;
+  confirmation: BuildConfirmation;
+}
+
+export interface BuildConfirmResponse extends BuildPreviewResponse {}
+
 // --- Planning: export ---
 export interface WorkoutTarget {
   type?: string;
