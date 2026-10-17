@@ -20,7 +20,7 @@ handoff. The reviewed acceptance and public contracts below are unchanged.
   and rollback. No provider integration or personal-data migration is introduced.
 - Spec review budget: 2/2 used; manual trigger only. Round 2 verified the
   uncertain-state correction and returned READY for specification handoff.
-- Implementation/native review budget: 0/2; no implementation PR or acceptance head.
+- M3 implementation review budget: 2/2 used (full code at `0fc01c4`, scoped test-only delta at `77b51b2`); zero open blockers. M2 review is separately recorded below. Native/final S1 acceptance remains M5.
 - Budget exception: N/A; no extra round requested.
 
 ## Scope
@@ -522,6 +522,55 @@ This narrows unlock behavior under the same reviewed invariant. Final edits also
 record review/publication status; no new full review was requested.
 
 ## Final Verdict
+
+### M3 implementation checkpoint (2026-10-17)
+
+Final complete contributor-safe run at `77b51b2`: **3346 passed, 14 skipped,
+46 deselected, 7 warnings in 227.62s**, with no file exclusions. All original
+20 HTTP RED cases are included and GREEN. Skips: process/socket limitations (2),
+explicit fixture regeneration (10), optional garth dependency (2). Warnings:
+existing Starlette/httpx deprecation and six synthetic pandas connection-proxy
+warnings. Full repository Ruff, whitespace, web lint/build, contract
+extraction/freshness/conformance/inventory and ExecPlan structure/links pass.
+
+
+M3 Domain/API code is accepted for bounded draft handoff at `0fc01c4`, with
+protocol-test adaptation `77b51b2`. Independent `m3_checker` completed full-diff
+round 1 and scoped round 2, reporting zero actionable P1/blocking P2 or suggestions.
+Its independent commands passed 177 cases in 28.05s and 62 cases in 12.39s;
+changed Python Ruff and whitespace checks passed. No native GitHub review,
+merge approval, deployment or browser acceptance is claimed.
+
+The original M1 HTTP matrix is GREEN without skip/xfail. Backend coverage maps to
+the acceptance table above through actual tests in
+`tests/smoke/test_planning_build_commit.py`: complete frozen checkpoint/public
+response equality for all six mode/base pairs, named dependency and nondependency
+changes, stale-only invalidation, expiry before/equal/after, one-winner concurrency,
+writer-before/writer-blocked ordering, rollback after every write for first inserts
+and existing updates, retry after simulated lost commit response, restart and
+Backup API receipt restore, later-plan replay without reactivation, and safe
+unknown/corrupt/missing-checkpoint outcomes. Full input/checkpoint oracles remain
+unchanged. No planning/forecast/science calculation occurs during confirmation.
+
+Public models in `api/planning_build_contract.py` back the two Planning routes.
+The API/TS contract adds dedicated preview/confirm responses; other `BuiltPlan`
+producers stay unchanged. POST errors retain safe top-level string detail plus
+code/retryable, and unrelated routes retain their original validation envelope.
+Conformance now supports explicitly registered POST scenarios on separate
+synthetic fixtures; the existing GET inventory obligation remains strict.
+
+The first complete contributor-safe run had 3338 passed and two legacy integration
+requests failing on the intentional 409 rejection; `77b51b2` changes only those
+requests to the identity route, preserving visibility assertions. Final full-run
+evidence follows when complete. Web lint/build and contract extraction/freshness
+checks pass. Product changes after the accepted code are NOT required by review.
+
+Outstanding: AC3 Coach proposal-state transaction, AC5 client ownership/error UX,
+AC6 Coach adapter, and AC8 browser/final rollout evidence remain M4/M5. The new
+service rejects Coach origin until proposal binding is implemented. Existing
+Coach internal facade is not yet switched; S1 must not deploy from this milestone.
+Cycle lifecycle, date/event carry-over, load interpretation and step-4 redesign
+remain parent #677 S2–S4. Human merge ownership is unchanged.
 
 ### M2 implementation checkpoint (2026-10-17)
 

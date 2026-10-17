@@ -39,7 +39,8 @@ dates/events, training mathematics, or the whole confirmation-screen design.
 - [x] (2026-10-17) M2 implementation: coherent connection-bound read snapshot, immutable serialized inputs/result, prepare-time freshness recheck and additive preview store. After review fixes, 75 M2/characterization tests pass; initial existing focused pass: 108 tests.
 - [x] (2026-10-17) M2 verification: 3236 contributor-safe tests passed (14 skipped, 46 deselected; only the known M1 HTTP RED file excluded). Independent scoped round 2 accepted `6516989`, zero open blocking findings. Ready for bounded draft handoff only.
 - [x] (2026-10-17) M3 implementation: frozen publication, same-connection freshness/receipt/settings transaction, replay, strict HTTP protocol and typed API/TS responses. Original 20 HTTP RED cases are GREEN.
-- [ ] M3 verification: final focused/broad runs, independent code review and draft publication. M4 callers remain unchanged.
+- [x] (2026-10-17) M3 independent review: full round at `0fc01c4` and test-only delta at `77b51b2`, no blocking P1/P2; independent runs 177 passed and 62 passed.
+- [x] (2026-10-17) M3 final verification: 3346 passed, 14 skipped, 46 deselected in 227.62s; no file exclusions. Ruff, whitespace, web lint/build, contract freshness/conformance/inventory and ExecPlan structure/links pass. Draft publication follows; M4 callers remain unchanged.
 - [ ] M4: minimal Planning UI and Coach build-proposal adapters; contract refresh.
 - [ ] M5: isolated browser acceptance, required checks, implementation review and human merge gate.
 
@@ -186,6 +187,27 @@ storage cost for reliable retry after a lost response.
 
 ## Outcomes & Retrospective
 
+
+M3 publishes the retained checkpoint bytes with the prepared demand/profile
+writes and a receipt in one SQLite transaction. It rejects stale/expired/unknown
+artifacts and the former raw HTTP save. Applied retries validate the receipt and
+checkpoint, then return the frozen response without recapture or reactivation.
+Same-preview concurrency yields first apply plus replay; competing previews share
+one winner. Synthetic trigger faults cover checkpoint, demand, profile, receipt
+and pre-commit failures for both initial INSERTs and later UPDATEs. A simulated
+lost commit response resolves through the durable receipt, including Backup API
+restore. None of these checks uses the athlete database or a provider.
+
+The initial full contributor-safe run at `0fc01c4` passed 3338 cases and exposed
+two old integration requests still using raw-save. Those tests were adapted to
+preview identity at `77b51b2`, preserving all original Planning/Today visibility
+assertions; their two-case rerun passed in 2.01s. Six additional first-insert
+rollback cases passed with the full transaction file (60 passed in 12.11s).
+Independent M3 round 1 accepted `0fc01c4` (177 passed in 28.05s); scoped round 2
+accepted the test-only delta `77b51b2` (62 passed in 12.39s), no open blocking
+findings. Final contributor-safe evidence will be recorded below. M4 UI and Coach
+binding remain unimplemented; current browser raw-save receives the deliberate
+409. This is backend draft readiness, not deployment or whole-S1 acceptance.
 
 The baseline defect and transaction primitive have been checked. M1 now supplies
 executable failing HTTP acceptance plus a pinned full-payload calculation oracle.
@@ -607,3 +629,26 @@ artifact; confirmation applies its exact JSON without scheduler calls. The store
 owns checkpoint/settings/receipt publication and replays without reactivation.
 Coach origin remains fail-closed pending the M4 proposal-binding adapter. M3
 initial RED/GREEN and contract harness evidence recorded; final checks/review pending.
+
+Revision note (2026-10-17, M3 review): independent review accepted product code
+`0fc01c4` and the protocol-test adaptation at `77b51b2`. Documented original RED,
+transaction/replay GREEN, unchanged calculation oracle and the two legacy caller
+test adaptations. Public UI and Coach are the next explicit M4 role handoff.
+
+Final M3 verification (2026-10-17, `77b51b2`, metadata-only follow-up):
+
+    ./ai_trainer_env/bin/python -m pytest -m "not live and not debug and not e2e" tests/ -q --tb=short
+    3346 passed, 14 skipped, 46 deselected, 7 warnings in 227.62s
+
+No file exclusions or new skip/xfail. The 14 skips are the environment's unavailable
+process/socket capabilities (2), explicit fixture regeneration (10) and optional
+garth dependency (2). Warnings are the pre-existing Starlette/httpx deprecation
+and six synthetic connection-proxy pandas warnings in fault/race probes. Web
+lint/build, full repository Ruff, whitespace, contract extraction/freshness,
+conformance/inventory and ExecPlan sections/links pass. Full local checks do not
+replace M4 browser/Coach integration or the M5 native/human merge gates.
+
+Next bounded milestone: M4 Domain/API adapter for Coach proposal binding and
+atomic approval/replay, then explicit UI/Design handoff for identity-only Planning
+confirmation, unresolved-response ownership and safe stale/retry UX. Use the
+accepted contracts; do not redesign step 4 or change training mathematics.
