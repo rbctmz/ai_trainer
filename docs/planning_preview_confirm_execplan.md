@@ -5,11 +5,13 @@ This is a living ExecPlan maintained under `.agent/PLANS.md`. Issue
 [#685](https://github.com/rbctmz/ai_trainer/issues/685) is the first bounded slice
 of [#677](https://github.com/rbctmz/ai_trainer/issues/677). The companion
 [slice specification](planning_preview_confirm_slice_spec.md) contains the exact
-API, storage and acceptance matrix. Status: M1–M4 implemented; M5 final acceptance
-in progress. The [final evidence bundle](planning_preview_confirm_acceptance.md)
+API, storage and acceptance matrix. Status: S1/M1–M5 complete and merged through
+[#691](https://github.com/rbctmz/ai_trainer/pull/691) as `93fa4f4` on 2026-10-17.
+The [final evidence bundle](planning_preview_confirm_acceptance.md)
 maps executed tests to AC1–AC8 and defines the final-PR merge/rollout handoff.
 On 2026-10-17 the human owner authorized implementation after the independent
-specification check, then explicitly authorized M5. No live product was deployed.
+specification check, then explicitly authorized M5 and later accepted review and
+authorized merge #691. No live product was deployed.
 
 ## Purpose / Big Picture
 
@@ -50,9 +52,10 @@ dates/events, training mathematics, or the whole confirmation-screen design.
 - [x] (2026-10-17) M5: freshly fetched main remains the candidate ancestor; read current checks for #686–#690. Intermediate M1/M2 contributor-safe RED is expected and must not be merged sequentially.
 - [x] (2026-10-17) M5: map executed evidence to AC1–AC8 in the final bundle; 203 focused tests pass in 58.33s; Ruff and contract freshness/inventory pass on unchanged M4 product/test code.
 - [x] (2026-10-17) M5: fresh full local browser suite 40 passed in 224.41s; contract suite 70 passed in 8.26s; synthetic servers cleaned up by fixture. Preserve inspected M4 screenshots on the identical UI tree.
-- [ ] M5: publish one final main-targeting candidate; preserve draft milestone PRs as evidence.
-- [ ] M5: final candidate current-head CI and bounded native implementation review, with every finding disposed.
-- [ ] Human merge/rollout gate: explicit owner decision after final review acceptance; not delegated by M5 authorization.
+- [x] (2026-10-17) M5: final main-targeting PR #691 published at `4201a95`; milestone commits preserved. #686 automatically marked merged with the final merge; #687–#690 closed as superseded without separate merges.
+- [x] (2026-10-17) M5: current-head CI 3342 contributor-safe + 40 browser cases pass; contracts/secret scan pass. Native round 1/2 clean on `4201a953f5`, zero review threads; no second round needed.
+- [x] (2026-10-17) Human merge gate: owner explicitly accepted review and authorized merge. Fresh Review gate and readiness passed; `CLEAN` verified, exact head guarded with `--match-head-commit`; merged as `93fa4f4` without bypass/waiver/exception.
+- [x] (2026-10-17) Post-merge: local main fast-forward synced; merged tree identical to reviewed head; 51 confirmation/replay cases pass in 5.42s. #685 closed; #677 remains open for S2–S4. No live rollout, DB or provider write.
 
 ## Surprises & Discoveries
 
@@ -205,7 +208,16 @@ storage cost for reliable retry after a lost response.
 ## Outcomes & Retrospective
 
 
-Current M5 outcome: all public build callers now use retained confirmation,
+Current outcome: #691 merged as `93fa4f4` at 2026-10-17 17:26:00 UTC after
+explicit owner acceptance, clean native round 1/2 and fresh green gates/CLEAN.
+The merged tree equals `4201a95`; 51 post-merge HTTP/replay cases pass on main.
+Issue #685 is closed and parent #677 remains open. Implementation delivery is
+complete; live deployment, S2 lifecycle, S3 mathematics and S4 redesign were not
+performed. Detailed process observations are appended to
+`docs/engineering_process_metrics.md`. The next paragraph is the M5 pre-native
+checkpoint, retained as historical evidence.
+
+M5 pre-native outcome: all public build callers now use retained confirmation,
 and the final [AC evidence bundle](planning_preview_confirm_acceptance.md)
 supersedes the initial NOT YET matrix with executed tests. A fresh 203-case
 focused run passes, as do 70 contract and all 40 local browser cases. Pinned M4
@@ -775,3 +787,12 @@ and 40 full local browser cases pass; final publication/CI/native review and
 human gate are tracked separately above. No product code or training math changed
 in M5. Generated rerun captures were discarded; inspected M4 images remain valid
 on identical UI code.
+
+Revision note (2026-10-17, post-merge): human explicitly accepted review and
+authorized #691. Authenticated native clean result named `4201a953f5`, 1/2 native
+rounds and no threads. Acceptance label triggered fresh green gates; CLEAN was
+verified before guarded merge `93fa4f4`. Local main synced without tree changes;
+51 regression/replay cases passed (5.42s). #685 closed, #677 open, #687–#690 closed
+as superseded; #686 automatically marked merged by GitHub with the same final
+merge. Post-merge status/metrics are a separate docs-only change; no reviewed
+implementation commit was amended and no deployment was performed.
