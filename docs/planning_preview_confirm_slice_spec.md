@@ -523,6 +523,24 @@ record review/publication status; no new full review was requested.
 
 ## Final Verdict
 
+### M1 implementation checkpoint (2026-10-17)
+
+Domain/API handoff accepted. Candidate `097cf99` adds test fixtures and progress
+only, with no production changes. Independent `m1_checker` reviewed
+`e0cd700..097cf99` and returned READY for M1 draft handoff, zero blocking P1/P2.
+Its permitted runtime check independently passed all 12 characterization cases
+in 4.33s. M1 review round 1 used; no native GitHub review acceptance is claimed.
+
+Author verification: 78 passed in 14.86s (12 characterization + 66 prior tests),
+repository Ruff and whitespace clean. HTTP acceptance remains intentionally RED:
+20 failed in 5.07s, consisting of four reproduced unsafe writes, four missing
+identity preconditions and twelve missing confirm-route cases. No skip/xfail is
+used. The draft milestone must not merge until future GREEN. Full S1 contributor,
+contract and browser acceptance remain NOT YET. Next: M2's coherent snapshot,
+frozen calculation and additive storage; M3 later turns confirmation RED green.
+
+### Specification handoff verdict (2026-10-17)
+
 **READY for specification handoff to Domain / API Implementer, M1.** Independent
 spec rounds 1 and 2 completed, with zero open blocking findings. Product
 implementation acceptance is NOT YET. The documents are suitable for a docs-only

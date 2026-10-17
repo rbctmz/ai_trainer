@@ -35,6 +35,7 @@ dates/events, training mathematics, or the whole confirmation-screen design.
 - [x] (2026-10-17) Independent spec round 1 completed; one blocking P2 identified in uncertain-state token ownership.
 - [x] (2026-10-17) Scoped spec round 2 verified the correction; READY for specification handoff, 2/2 rounds used.
 - [x] (2026-10-17) M1: 20 expected HTTP RED cases (4 reach unsafe writes; 16 preliminary protocol cases); 12 unchanged-build checks plus existing 66 tests pass, 78 total. Ruff passes.
+- [x] (2026-10-17) Independent M1 checker reviewed e0cd700..097cf99: no blocking P1/P2, 12 characterization cases independently pass. M1 draft handoff only; acceptance RED remains.
 - [ ] M2: coherent input capture, frozen artifact and additive preview storage.
 - [ ] M3: transactional confirmation, replay, failure and concurrency coverage.
 - [ ] M4: minimal Planning UI and Coach build-proposal adapters; contract refresh.
@@ -507,3 +508,9 @@ HTTP RED and full-payload characterization fixtures. Focused baseline plus
 characterization: 78 passed in 14.86s. HTTP acceptance: 20 failed in 5.07s as
 expected before the new protocol; no unrelated failures are hidden as expected.
 Repository Ruff and whitespace checks passed. M2–M5 remain pending.
+Independent M1 review of `097cf99` found no blocking P1/P2 and independently ran
+the 12 characterization cases (4.33s). A synthetic mutation probe changed one
+nested materialized-step duration by one second while leaving total TSS unchanged:
+checkpoint/session hashes changed and response hash did not. This checks that the
+calculation oracle protects prescriptions beyond totals. M1 is a non-merge-ready
+RED checkpoint; the next bounded implementation step is M2 preparation/storage.
