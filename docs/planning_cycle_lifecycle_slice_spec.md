@@ -10,7 +10,7 @@ live rollout. Baseline main: `93fa4f4d8d41c9e392093538900f471903b6c331`,
 
 Class A — Full. Persistent selection/identity, migration, transaction/retry,
 cross-module readers and writer compatibility trigger escalation. Manual review
-only: specification budget 1/2, implementation/native budgets separately recorded
+only: specification budget 2/2, implementation/native budgets separately recorded
 on their final candidate. This document proposes contracts; nothing here claims
 implemented behavior or authorizes merge/deployment.
 
@@ -36,7 +36,7 @@ calendar correctness. Closed historical prescriptions are read-only.
 - [x] Observable AC1–AC10 recorded in #693 and mapped below.
 - [x] Storage, migration, readers/writers, failure/reset and test boundaries named.
 - [x] Human merge/rollout owner; author owns synthetic surfaces and task cleanup.
-- [ ] Independent spec check, at most full round plus scoped correction.
+- [x] (2026-10-17) Independent full spec round plus scoped correction: READY at `a2f3848`, zero remaining blockers, budget 2/2.
 - [ ] Runtime implementation GREEN, contracts/browser evidence and native review.
 - [ ] Explicit human acceptance and merge; live rollout separately authorized.
 
@@ -396,21 +396,23 @@ or merge acceptance is claimed. Current branch contains documentation only.
 
 | Severity | Observed / inferred / verified | Disposition |
 | --- | --- | --- |
-| Blocking P2, AC3/AC6 | Observed: baseline session_identity.py hashes material/date, reuses previous IDs and can create replaces edges; builder always passes the prior plan, while ledger reads key by session ID. Inferred: an underspecified start_new could accidentally expose old-cycle evidence or lineage. Verified by: reviewer static payload/reuse/ledger inspection; author pure two-cycle synthetic probe returned the same ats_095fdf5c5cc311c9b2a29044. | Corrected by explicit modern namespace, isolated initial parent/continuity, legacy preservation, historical context and an overlapping-cycle test matrix above; scoped round 2 pending. |
+| Blocking P2, AC3/AC6 | Observed: baseline session_identity.py hashes material/date, reuses previous IDs and can create replaces edges; builder always passes the prior plan, while ledger reads key by session ID. Inferred: an underspecified start_new could accidentally expose old-cycle evidence or lineage. Verified by: reviewer static payload/reuse/ledger inspection; author pure two-cycle synthetic probe returned the same ats_095fdf5c5cc311c9b2a29044. | fixed-in a2f3848: modern namespace, isolated initial parent/continuity, legacy preservation, historical context and overlapping-cycle test matrix; independently verified closed in scoped round 2/2. |
 
 ## Review Rounds
 
 Specification round 1/2: independent read-only checker reviewed complete
 `93fa4f4..a4647fd`, returned BLOCK for the one P2 above, no other evidence-bound
 P1/blocking P2. Branch status clean before/after; independent baseline 89 passed.
-Round 2 is restricted to that correction and the added evidence/template record.
+Round 2 reviewed `a4647fd..a2f3848`, restricted to that correction and the added
+evidence/template record; READY for spec handoff with no remaining blockers.
+Status before/after remained clean; no extra runtime tests or external writes.
 Implementation/native rounds: none requested; they belong to later candidates,
 not this static specification check. No budget exception or waiver.
 
 ## Final Verdict
 
-Specification handoff remains BLOCK until the scoped correction is independently
-verified. Runtime S2 is unimplemented. Spec review budget used 1/2; human retains
+Specification handoff READY at `a2f3848`, zero remaining blocking findings after
+scoped verification. Runtime S2 is unimplemented. Spec review budget used 2/2; human retains
 merge/live rollout and implementing author owns branch/test-surface cleanup.
-The next role after READY is Domain / API Implementer for M1, with exact tests
+The next role is Domain / API Implementer for M1, with exact tests
 and invariant obligations in the ExecPlan. No CSS/layout role is assigned here.

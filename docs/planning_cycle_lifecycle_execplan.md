@@ -37,7 +37,7 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-17) Draft Class A slice spec: selected-cycle storage, conservative migration, protocol compatibility, commands/replay, calendar floor and reader/writer obligations.
 - [x] (2026-10-17) Independent spec round 1/2 reviewed `93fa4f4..a4647fd`; one blocking P2: missing new-cycle session namespace/lineage boundary. Independent baseline 89 passed in 8.17s.
 - [x] (2026-10-17) Pure synthetic identity probe confirms same content/date ignores differing cycle_id today; specified modern v2 namespace, no cross-cycle ID/lineage reuse and unchanged legacy IDs, with explicit historical context tests.
-- [ ] M0: scoped correction check round 2/2, then publish reviewed spec draft.
+- [x] (2026-10-17) M0: scoped round 2/2 reviewed `a4647fd..a2f3848`, verified the identity/lineage correction and returned READY for spec handoff, zero remaining blockers. Publish draft follows; no extra review round.
 - [ ] M1: executable lifecycle RED plus unchanged S1/history/ledger characterization and frozen caller inventory.
 - [ ] M2: additive cycle migration/store, explicit selection and pure state projection; reset/restart/restore probes.
 - [ ] M3: close/outcome/scope commands, S1 v2 start_new/edit_current and atomic replacement; every writer guards current cycle.
@@ -143,7 +143,8 @@ M0 has a tracked, reproduced issue and proposed complete integration boundary.
 No cycle table, API contract, reader behavior or UI implementation has changed.
 The 89 passing tests characterize the existing system; new lifecycle behavior
 remains unimplemented. Independent round 1 found a new-cycle identity omission;
-the spec correction is complete and scoped verification is pending. The personal database
+the correction at `a2f3848` was verified in scoped round 2/2: READY for specification
+handoff, no remaining blockers. The personal database
 and providers were not used. Merge and live rollout require separate approval.
 
 ## Context and Orientation
@@ -178,7 +179,16 @@ inferred, verified and disposition; no hypothetical blocker without an invariant
 
 ### M1 — reproduce before replacing selectors
 
-Domain / API role starts through an explicit task handoff after spec acceptance.
+Explicit M0→M1 task handoff: Spec / Architecture Owner has completed the reviewed
+contract. Next role is Domain / API Implementer, beginning with
+tests/smoke/test_planning_cycle_projection.py,
+tests/smoke/test_planning_cycle_build.py and
+tests/smoke/test_planning_cycle_identity.py plus an inventory fixture. The first
+bounded checkpoint contains behavioral/preliminary protocol RED and unchanged
+S1/history characterization, no schema/UI implementation. Required inputs are
+this plan, the accepted slice spec at `a2f3848`, baseline `93fa4f4` and #693 ACs.
+The completed independent review does not mean any lifecycle test is GREEN.
+
 Add pure projection/command/build/store tests named in the slice matrix and a
 fixture inventory of every current-plan read/write family. Record true behavioral
 RED for ended/current selection, old calendar carry-over, close/replacement/retry
@@ -377,3 +387,10 @@ current content-ID behavior with a pure synthetic probe, preserved that legacy
 contract and specified modern namespacing plus matching/history/retry tests.
 Completed explicit evidence/findings/verdict sections. Scoped check next;
 no runtime, provider or personal DB change and no extra full review requested.
+
+Revision note (2026-10-17, spec accepted): scoped round 2/2 checked only the
+`a4647fd..a2f3848` correction and returned READY, zero blockers, clean branch
+before/after. Spec review budget exhausted normally; no further full review.
+This final metadata update records that verdict and the exact Domain/API M1
+handoff, not a new implementation change. Draft publication and #693/#677 status
+links are recorded externally after push. Human merge/rollout remains separate.
