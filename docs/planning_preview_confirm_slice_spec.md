@@ -53,9 +53,10 @@ rewrite of Streamlit is required. The human owner retains those follow-ups.
 - [x] Human owner assigned merge/rollout; implementing agent owns test-surface and
   branch/worktree cleanup after the explicit handoff.
 - [x] (2026-10-17) Independent specification checker has no unresolved blocking findings.
-- [ ] All implementation GREEN, contract/UI evidence and review gates complete.
+- [x] (2026-10-17) All implementation GREEN, contract/UI evidence and review gates complete; owner accepted review and authorized merge #691 (`93fa4f4`). Live rollout remains separate.
 
-The last two items distinguish a complete specification from a completed fix.
+The final two items distinguish the original complete specification from the
+now completed S1 implementation. Parent #677 remains open for S2–S4.
 
 ## Public Contracts
 
@@ -516,7 +517,12 @@ name a violated AC/invariant and evidence; preferences remain non-blocking.
 
 ## Native Review Rounds
 
-M5 final native review has not yet been requested at candidate publication.
+The following paragraph describes candidate-publication state. Final outcome:
+one [authenticated native clean result](https://github.com/rbctmz/ai_trainer/pull/691#issuecomment-6237446682)
+on `4201a953f5`, 1/2 rounds, zero findings/threads. Human acceptance and fresh
+green review/readiness gates preceded guarded merge #691 as `93fa4f4`.
+
+M5 final native review had not yet been requested at candidate publication.
 Independent implementation checks for M1–M4 are recorded in their checkpoints;
 they do not count as authenticated native results. Final native review is one
 complete S1 diff against main, then at most one scoped correction round. The
@@ -535,6 +541,16 @@ This narrows unlock behavior under the same reviewed invariant. Final edits also
 record review/publication status; no new full review was requested.
 
 ## Final Verdict
+
+### Merged outcome (2026-10-17)
+
+S1 accepted by the human owner and merged through #691 as `93fa4f4`. The reviewed
+head `4201a95` and merged tree are identical. All AC1–AC8 are complete within
+the final bundle's synthetic test boundary, including native review, zero
+threads, explicit human acceptance, fresh green gates and CLEAN before merge.
+The local post-merge HTTP/replay subset passed 51 cases in 5.42s. #685 is closed;
+#677 remains open. Live deployment/DB migration and S2–S4 were not performed.
+The checkpoints below are the historical delivery record.
 
 ### M5 acceptance checkpoint (2026-10-17)
 
