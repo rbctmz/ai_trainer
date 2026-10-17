@@ -24,8 +24,9 @@ def clock(monkeypatch):
 
 
 def prepared(db):
-    shown = ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping(parameters()), origin="coach")
-    return shown
+    request = parameters()
+    request.pop("demand")  # current trusted Coach tool does not request a settings write
+    return ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping(request), origin="coach")
 
 
 def save(db, shown, **kwargs):
@@ -55,6 +56,8 @@ def test_approval_publishes_frozen_coach_result_and_replays(tmp_path, monkeypatc
     proposal = save(db, shown)
     row = get_preview(db, shown["confirmation"]["preview_id"], origin="coach")
     assert row["coach_proposal_id"] == proposal["id"]
+    # Force a distinct old timestamp: an unintended no-op write must be visible.
+    execute(db,"UPDATE user_settings SET updated_at='synthetic-old' WHERE key='planning_demand_level'")
     before = protected_state(db)
     monkeypatch.setattr(ps, "build_plan", lambda *a, **k: pytest.fail("Approval must never rebuild"))
     first = decisions.approve_proposal(proposal["id"], db=db)
@@ -192,3 +195,29 @@ def test_approve_reject_race_has_one_ordered_winner(tmp_path):
     count = len(protected_state(db)["checkpoints"])
     assert (final["status"], count) in {("approved", 1), ("rejected", 0)}
     assert outcomes.count("rejected-attempt") == 1
+
+
+@pytest.mark.parametrize("level",["moderate","aggressive"])
+def test_explicit_coach_demand_is_applied_once_without_profile_write(tmp_path,monkeypatch,level):
+    db = seeded_db(tmp_path)
+    execute(db,"UPDATE user_settings SET updated_at='synthetic-old' WHERE key='planning_demand_level'")
+    before = protected_state(db)
+    shown = ps.prepare_plan_build(db,parameters=BuildParameters.from_mapping({**parameters(),"demand":level}),origin="coach")
+    proposal = save(db,shown)
+    decisions.approve_proposal(proposal["id"],db=db)
+    settings = {row[0]:row for row in protected_state(db)["settings"]}
+    original = {row[0]:row for row in before["settings"]}
+    assert settings["planning_demand_level"][1] == level
+    assert settings["planning_demand_level"][2] != "synthetic-old"
+    assert settings["planning_profile"] == original["planning_profile"]
+    queries = []
+    connect = db._connect
+
+    def traced():
+        conn = connect()
+        conn.set_trace_callback(queries.append)
+        return conn
+
+    monkeypatch.setattr(db,"_connect",traced)
+    assert decisions.approve_proposal(proposal["id"],db=db)["result"]["confirmation"]["replayed"] is True
+    assert not any(sql.lstrip().upper().startswith(("INSERT","UPDATE","DELETE")) for sql in queries)
