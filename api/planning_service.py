@@ -76,7 +76,7 @@ from models.planning_targets import (
     normalize_demand_level,
     public_weekly_target_payload,
 )
-from models.signals_engine import assemble_signals
+from models.signals_engine import assemble_signals, training_load_metrics
 from models.tcx_activity_export import generate_tcx_activity
 from models.tcx_export import generate_tcx_workout
 from models.training_planner import (
@@ -1266,7 +1266,6 @@ def _capture_plan_build_inputs(
         "SELECT key, value FROM user_settings WHERE key IN (?, ?)",
         (PLANNING_DEMAND_SETTING_KEY, "planning_profile"),
     ).fetchall())
-    settings = {key: settings.get(key) for key in (PLANNING_DEMAND_SETTING_KEY, "planning_profile")}
     mode = str(raw.get("planning_mode") or "event_goal").strip().lower()
     intent = str(raw.get("intent") or "develop").strip().lower()
     if mode not in PLANNING_MODES or intent not in PLANNING_INTENTS:
@@ -1282,7 +1281,7 @@ def _capture_plan_build_inputs(
         "manual_phases": raw.get("manual_phases"), "events": raw.get("events"),
         "available_hours": float(raw.get("available_hours", 10.0)),
         "available_days": [list(DAY_MAP)[index] for index in _day_indices(raw.get("available_days"))],
-        "demand": normalize_demand_level(raw.get("demand") or settings[PLANNING_DEMAND_SETTING_KEY]),
+        "demand": normalize_demand_level(raw.get("demand") or settings.get(PLANNING_DEMAND_SETTING_KEY)),
         "base_checkpoint_id": latest_id,
     }
     events, _, _, weeks = _plan_build_calendar(values)
@@ -1433,9 +1432,12 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
     inputs = snapshot.sources()
     context = snapshot.context()
     activities_df = _build_activities_frame(inputs["activities"])
-    metrics = _metrics_from_signals(assemble_signals(
+    # The unified assembler also runs readiness, which has its own live-day
+    # fallback. This build consumes load only: use its existing canonical
+    # Banister/daily-series helper with the explicitly captured anchor.
+    metrics = _metrics_from_signals({"load": training_load_metrics(
         activities_df=activities_df, as_of=date.fromisoformat(context["athlete_day"]),
-    ))
+    )})
     banister = BanisterModel()
     goal_type = params["goal_type"]
     distance = params["distance"]

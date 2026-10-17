@@ -129,6 +129,8 @@ def test_read_snapshot_cannot_mix_a_concurrent_sync(tmp_path, monkeypatch):
 
 
 def test_frozen_calculation_never_reads_database_or_wall_clock(tmp_path, monkeypatch):
+    from models import readiness
+
     db = seeded_db(tmp_path, rested=True)
     raw = parameters()
     snapshot = ps._capture_plan_build_inputs(db, BuildParameters.from_mapping(raw))
@@ -151,11 +153,30 @@ def test_frozen_calculation_never_reads_database_or_wall_clock(tmp_path, monkeyp
     monkeypatch.setattr(db, "_connect", forbidden)
     monkeypatch.setattr(ps, "datetime", NoWallClock)
     monkeypatch.setattr(ps, "athlete_local_date", forbidden)
+    monkeypatch.setattr(readiness, "athlete_local_date", forbidden)
     result = ps._calculate_plan_build(snapshot)
     assert json.loads(result.checkpoint_json)["goal_plan_snapshot"]["events"]
     assert json.loads(result.response_json)["plan_id"] is None
     with pytest.raises(FrozenInstanceError):
         result.checkpoint_json = "changed"
+
+
+@pytest.mark.parametrize("direction", ["absent-to-null", "null-to-absent"])
+def test_setting_row_presence_is_a_dependency(tmp_path, direction):
+    db = seeded_db(tmp_path)
+    key = "planning_profile"
+    if direction == "absent-to-null":
+        db.delete_user_setting(key)
+    else:
+        db.set_user_setting(key, None)
+    before = ps._capture_plan_build_inputs(db, BuildParameters.from_mapping(parameters()))
+    if direction == "absent-to-null":
+        db.set_user_setting(key, None)
+    else:
+        db.delete_user_setting(key)
+    after = ps._capture_plan_build_inputs(db, before.parameters)
+    assert before.sources()["settings"] != after.sources()["settings"]
+    assert before.dependency_digest != after.dependency_digest
 
 
 @pytest.mark.parametrize("change", ["activity", "base", "day", "rule"])

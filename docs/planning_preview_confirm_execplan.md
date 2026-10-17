@@ -36,7 +36,7 @@ dates/events, training mathematics, or the whole confirmation-screen design.
 - [x] (2026-10-17) Scoped spec round 2 verified the correction; READY for specification handoff, 2/2 rounds used.
 - [x] (2026-10-17) M1: 20 expected HTTP RED cases (4 reach unsafe writes; 16 preliminary protocol cases); 12 unchanged-build checks plus existing 66 tests pass, 78 total. Ruff passes.
 - [x] (2026-10-17) Independent M1 checker reviewed e0cd700..097cf99: no blocking P1/P2, 12 characterization cases independently pass. M1 draft handoff only; acceptance RED remains.
-- [x] (2026-10-17) M2 implementation: coherent connection-bound read snapshot, immutable serialized inputs/result, prepare-time freshness recheck and additive preview store. 73 M2/characterization tests pass; 108 existing focused tests pass.
+- [x] (2026-10-17) M2 implementation: coherent connection-bound read snapshot, immutable serialized inputs/result, prepare-time freshness recheck and additive preview store. After review fixes, 75 M2/characterization tests pass; initial existing focused pass: 108 tests.
 - [ ] M2: finish broad compatibility pass and independent review; publish bounded draft handoff.
 - [ ] M3: transactional confirmation, replay, failure and concurrency coverage.
 - [ ] M4: minimal Planning UI and Coach build-proposal adapters; contract refresh.
@@ -44,6 +44,17 @@ dates/events, training mathematics, or the whole confirmation-screen design.
 
 ## Surprises & Discoveries
 
+
+**Observed:** M2 review found a hidden live-day read through the unused readiness
+branch of `assemble_signals`, and capture conflated a missing setting row with
+an existing SQL NULL row. **Inferred:** these violate the named pure-calculation
+and exact raw-setting dependency invariants; no plan-output drift was inferred
+from either observation. **Verified by:** three exact regression cases first
+failed (one transitive clock guard, both absent/NULL directions). The core now
+uses the existing canonical `training_load_metrics` helper directly with the
+captured day, and source settings preserve row presence. All 75 focused M2 and
+unchanged-calculation checks pass (15.71s), with no oracle regeneration. Scoped
+independent verification and final broad rerun are pending.
 
 **Observed:** extracting the builder into `_calculate_plan_build(snapshot)` and
 serializing its complete result preserves all six M1 full-checkpoint/response
@@ -550,3 +561,11 @@ bounded cleanup, reset/reopen and backup/restore. A local synthetic 16-week
 prepare took 0.308s (<10s reference target), with active state unchanged; this is
 an observation, not a deployment SLA. Full S1 confirmation and UI acceptance
 remain M3–M5; broad checks and independent M2 review are recorded when finished.
+
+M2 review round 1 on `24b0448` identified two blocking P2 invariants: a transitive
+readiness clock and absent/NULL setting conflation. Both were reproduced by the
+three-case RED above, then fixed without changing readiness behavior elsewhere.
+An initial broad run on the pre-correction tree passed 3234 tests (14 skipped,
+46 deselected), excluding only the separately rerun 20 known M1 HTTP RED cases.
+The post-correction broad run and scoped review are pending; the initial count
+is not presented as final-tree acceptance.

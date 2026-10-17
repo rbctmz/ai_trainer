@@ -523,6 +523,24 @@ record review/publication status; no new full review was requested.
 
 ## Final Verdict
 
+### M2 implementation checkpoint (2026-10-17)
+
+Candidate `24b0448` adds immutable prepared calculation, coherent read capture,
+dependency hashing and pending storage. Its initial M2 review found two blocking
+P2 violations: a transitive live readiness clock and conflated absent/NULL
+settings. Author reproduced three failing cases and corrected both: the core
+uses canonical load metrics directly with its explicit day; raw settings keep
+row presence. The corrected 75-case M2/characterization suite passes in 15.71s,
+without changing any M1 golden. Initial existing-focused pass: 108 tests.
+
+M2 review round 1 completed; scoped correction verification (round 2) and final
+broad rerun pending. The initial broad pass on `24b0448` was 3234 passed,
+14 skipped, 46 deselected in 220.61s, excluding only the separate known M1 HTTP
+RED file (20 expected failures). Do not claim that count as final-tree evidence.
+No API router, TS contract, Coach proposal adapter or UI was changed in M2;
+the old raw-save bypass and new confirmation endpoint remain M3–M4 work.
+This intermediate branch must not deploy or merge as completed S1.
+
 ### M1 implementation checkpoint (2026-10-17)
 
 Domain/API handoff accepted. Candidate `097cf99` adds test fixtures and progress
