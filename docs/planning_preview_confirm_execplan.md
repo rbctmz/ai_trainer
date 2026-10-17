@@ -652,3 +652,24 @@ Next bounded milestone: M4 Domain/API adapter for Coach proposal binding and
 atomic approval/replay, then explicit UI/Design handoff for identity-only Planning
 confirmation, unresolved-response ownership and safe stale/retry UX. Use the
 accepted contracts; do not redesign step 4 or change training mathematics.
+
+M4 Domain/API to UI handoff (2026-10-17): Coach tool now prepares origin=coach,
+proposal persistence binds the saved/deduplicated card in the same transaction,
+approval dispatches build before the generic claim, and the shared store publishes
+proposal approved/result with checkpoint/settings/receipt. Initial new Coach
+matrix: 16 failed, 2 passed; implementation: 18 passed. Coach/related regression
+subset after intentional protocol adaptations: 52 passed in 6.54s. Other actions
+retain the generic claim; their tests now use adjust_plan rather than the removed
+legacy build writer. Independent final M4 review remains pending.
+
+Explicit role handoff: Domain/API slice stops here; UI/Design Specialist continues
+with existing BuildPreviewResponse/BuildConfirmResponse and ApiError code/retryable.
+Files: web/components/planning/PlanBuilder.tsx, web/components/ui/ProposalCard.tsx,
+and minimal parent lock wiring in web/app/planning/page.tsx to prevent destroying
+an unresolved editor by switching tabs. UI brief: athlete previews a draft, explicitly
+confirms it, sees applied/current status or a safe conflict, and can retry an unknown
+outcome using only its original identity. Reuse current layout/tokens; no new math,
+information hierarchy or visual redesign. All edits invalidate before confirmation;
+confirming/uncertain lock edits, Cancel and another preview. Accessible status/error
+and explicit stale return action are required. Test on isolated synthetic stack,
+including keyboard, late responses and 390/1280px light/dark; no live localhost.

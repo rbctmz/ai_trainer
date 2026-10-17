@@ -214,24 +214,71 @@ def _read_receipt(conn: sqlite3.Connection, row: dict[str, Any]) -> dict[str, An
     return result
 
 
+def _coach_proposal(conn: sqlite3.Connection, proposal_id: int) -> dict[str, Any]:
+    cursor = conn.execute("SELECT action,status,params_json,result_json,applied_checkpoint_id FROM coach_proposals WHERE id=?", (proposal_id,))
+    values = cursor.fetchone()
+    if values is None or values[0] != "build_plan":
+        raise PlanningBuildPreviewError("preview_not_found", "Предпросмотр не найден.", status=404)
+    try:
+        params = json.loads(values[2])
+        if not isinstance(params, dict):
+            raise _corrupt()
+        canonical_json(params)
+    except (TypeError, ValueError) as exc:
+        if isinstance(exc, PlanningBuildPreviewError):
+            raise
+        raise _corrupt() from exc
+    if not params.get("preview_id"):
+        raise PlanningBuildPreviewError("preview_required", "Нужен новый предпросмотр плана в Коуче.")
+    return {"status": values[1], "preview_id": params["preview_id"],
+            "result_json": values[3], "applied_checkpoint_id": values[4]}
+
+
+def bind_coach_preview(conn: sqlite3.Connection, proposal: dict[str, Any], *, now: datetime) -> None:
+    """Bind only the persisted/deduplicated card, in its insertion transaction."""
+    saved = _coach_proposal(conn, proposal["id"])
+    row = read_preview(conn, saved["preview_id"], origin="coach")
+    if row["coach_proposal_id"] == proposal["id"]:
+        return  # dedup reuses the existing card/summary, never the new orphan
+    if row["coach_proposal_id"] is not None:
+        raise PlanningBuildPreviewError("preview_not_found", "Предпросмотр не найден.", status=404)
+    validate_pending(row, now=now)
+    if saved["status"] != "pending":
+        raise PlanningBuildPreviewError("proposal_not_pending", "Предложение уже закрыто; нужен новый предпросмотр.")
+    conn.execute("UPDATE planning_build_previews SET coach_proposal_id=? WHERE preview_id=?",
+                 (proposal["id"], saved["preview_id"]))
+
+
 def apply_preview(
     db: Database, preview_id: str, *, origin: str, now: Callable[[], datetime],
     recheck: Callable[[sqlite3.Connection, dict[str, Any]], bool],
-    validate_response: Callable[[dict[str, Any]], None],
+    validate_response: Callable[[dict[str, Any]], None], proposal_id: int | None = None,
 ) -> dict[str, Any]:
     """Publish frozen data and receipt in one transaction; replay never reactivates."""
     conn = db._connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
+        proposal = None
+        if origin == "coach":
+            if proposal_id is None:
+                raise PlanningBuildPreviewError("preview_not_found", "Предпросмотр не найден.", status=404)
+            proposal = _coach_proposal(conn, proposal_id)
+            if proposal["preview_id"] != preview_id:
+                raise PlanningBuildPreviewError("preview_not_found", "Предпросмотр не найден.", status=404)
         row = read_preview(conn, preview_id, origin=origin)
-        # Coach binding/approval is a separate M4 adapter, never an unbound bypass.
-        if origin != "planning_ui":
+        if origin not in {"planning_ui", "coach"} or (proposal is not None and row["coach_proposal_id"] != proposal_id):
             raise PlanningBuildPreviewError("preview_not_found", "Предпросмотр не найден.", status=404)
         if row["state"] == "applied":
+            if proposal is not None and (proposal["status"] != "approved"
+                    or proposal["applied_checkpoint_id"] != row["applied_checkpoint_id"]
+                    or proposal["result_json"] != row["applied_response_json"]):
+                raise _corrupt()
             result = _read_receipt(conn, row)
             validate_response(result)
             conn.rollback()  # read-only replay releases the writer lock
             return result
+        if proposal is not None and proposal["status"] != "pending":
+            raise PlanningBuildPreviewError("proposal_not_pending", "Предложение уже закрыто; нужен новый предпросмотр.")
         # Validate retained public/parameter shape before eligibility checks, so
         # malformed stored data cannot be mistaken for a changed dependency.
         validate_response(preview_response(row))
@@ -263,6 +310,12 @@ def apply_preview(
             "applied_response_json=?, receipt_digest=? WHERE preview_id=?",
             (row["applied_checkpoint_id"], row["applied_at"], row["applied_response_json"], _receipt_digest(row), preview_id),
         )
+        if proposal is not None:
+            conn.execute(
+                "UPDATE coach_proposals SET status='approved', result_json=?, error=NULL, resolved_at=?, "
+                "applied_checkpoint_id=? WHERE id=?",
+                (row["applied_response_json"], row["applied_at"], row["applied_checkpoint_id"], proposal_id),
+            )
         conn.commit()
         return result
     except Exception:

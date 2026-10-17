@@ -1586,14 +1586,13 @@ class AITools:
         days_list = [day.strip() for day in str(available_days or "").split(",") if day.strip()] or None
 
         try:
-            preview = planning_service.build_plan(
-                self.db,
-                goal_type=goal_type,
-                distance=distance,
-                event_date=str(event_date).strip(),
-                available_hours=float(available_hours),
-                available_days=days_list,
-                persist=False,
+            from models.planning_build_confirmation import BuildParameters
+            preview = planning_service.prepare_plan_build(
+                self.db, parameters=BuildParameters.from_mapping({
+                    "goal_type": goal_type, "distance": distance,
+                    "event_date": str(event_date).strip(), "available_hours": float(available_hours),
+                    "available_days": days_list,
+                }), origin="coach",
             )
         except Exception as exc:
             return {"success": False, "error": str(exc)}
@@ -1602,21 +1601,23 @@ class AITools:
             "is_proposal": True,
             "action": "build_plan",
             "params": {
+                "preview_id": preview["confirmation"]["preview_id"],
                 "goal_type": goal_type,
                 "distance": distance,
                 "event_date": str(event_date).strip(),
                 "available_hours": float(available_hours),
                 "available_days": days_list,
-                "base_checkpoint_id": preview.get("base_checkpoint_id"),
+                "base_checkpoint_id": preview["preview"]["base_checkpoint_id"],
             },
             "preview": {
+                "confirmation": preview["confirmation"],
                 "goal": preview.get("goal", {}),
                 "total_weeks": len(preview.get("weeks", []) or []),
                 "peak_tss": preview.get("totals", {}).get("peak_tss"),
                 "total_tss": preview.get("totals", {}).get("total_tss"),
                 "target_weekly_tss": preview.get("weekly_target", {}).get("target_weekly_tss"),
                 "forecast_message": preview.get("forecast", {}).get("message"),
-                "base_checkpoint_id": preview.get("base_checkpoint_id"),
+                "base_checkpoint_id": preview["preview"]["base_checkpoint_id"],
             },
         }
 

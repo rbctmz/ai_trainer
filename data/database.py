@@ -6,7 +6,7 @@ import sqlite3
 from typing import Any, Mapping
 
 import pandas as pd
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from data.athlete_profile_store import (
     AthleteProfileStore,
@@ -3430,6 +3430,29 @@ class Database:
             date = str(date)
 
         conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            saved = self._insert_coach_proposal(
+                conn, action=action, params=params, preview=preview, date=date,
+                chat_id=chat_id, message_id=message_id, source=source, source_key=source_key,
+                active_key=active_key, decision_event_id=decision_event_id,
+            )
+            if action == "build_plan" and params.get("preview_id"):
+                from data.planning_build_preview_store import bind_coach_preview
+                bind_coach_preview(conn, saved, now=datetime.now(timezone.utc))
+            conn.commit()
+            return saved
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def _insert_coach_proposal(
+        self, conn, *, action, params, preview, date, chat_id, message_id,
+        source, source_key, active_key, decision_event_id,
+    ):
+        """Existing insert/dedup semantics on the caller's transaction."""
         cursor = conn.cursor()
         base_checkpoint_id = self._optional_int(
             params.get("base_checkpoint_id", preview.get("base_checkpoint_id"))
@@ -3481,7 +3504,6 @@ class Database:
                 )
                 row = cursor.fetchone()
             if row is None:
-                conn.close()
                 raise RuntimeError("proposal insert was ignored without an idempotency match")
             proposal_id = row[0]
         else:
@@ -3507,8 +3529,6 @@ class Database:
             (proposal_id,),
         )
         row = cursor.fetchone()
-        conn.commit()
-        conn.close()
         return self._deserialize_coach_proposal_row(row)
 
     def update_coach_proposal_preview(self, proposal_id, preview):
@@ -3994,6 +4014,12 @@ class Database:
         if proposal_id is None:
             return None
         conn = self._connect()
+        try:
+            return self._get_coach_proposal(conn, proposal_id)
+        finally:
+            conn.close()
+
+    def _get_coach_proposal(self, conn, proposal_id):
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -4008,7 +4034,6 @@ class Database:
             (int(proposal_id),),
         )
         row = cursor.fetchone()
-        conn.close()
         return self._deserialize_coach_proposal_row(row)
 
     def get_coach_proposals(self, days=30, status=None, limit=100):

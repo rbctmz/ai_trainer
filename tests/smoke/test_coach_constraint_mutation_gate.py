@@ -265,7 +265,7 @@ def test_approval_claim_serializes_concurrent_double_apply(tmp_path, monkeypatch
     """RED: all mutation proposal actions need the atomic applying claim."""
     db = _db(tmp_path, "approval-concurrency.db")
     proposal = db.save_coach_proposal(
-        action="build_plan",
+        action="adjust_plan",
         params={"goal_type": "triathlon", "distance": "olympic"},
         preview={"status": "proposal"},
     )
@@ -411,7 +411,7 @@ def test_fingerprint_mismatch_fails_before_mutation(tmp_path) -> None:
 def test_reject_loses_race_after_approve_claim(tmp_path, monkeypatch) -> None:
     db = _db(tmp_path, "reject-race.db")
     proposal = db.save_coach_proposal(
-        action="build_plan",
+        action="adjust_plan",
         params={"goal_type": "triathlon", "distance": "olympic"},
         preview={"status": "proposal"},
     )

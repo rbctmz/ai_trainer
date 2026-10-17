@@ -1351,6 +1351,7 @@ def prepare_plan_build(
 
 def confirm_plan_build(
     db: Database, *, preview_id: str, origin: Literal["planning_ui", "coach"],
+    proposal_id: int | None = None,
 ) -> dict[str, Any]:
     """Apply the retained result once; retry returns its durable receipt."""
     from api.planning_build_contract import BuildConfirmResponse
@@ -1373,7 +1374,7 @@ def confirm_plan_build(
 
     try:
         return apply_preview(db, preview_id, origin=origin, now=lambda: datetime.now(timezone.utc),
-                             recheck=recheck, validate_response=validate_response)
+                             recheck=recheck, validate_response=validate_response, proposal_id=proposal_id)
     except sqlite3.Error as exc:
         busy = isinstance(exc, sqlite3.OperationalError) and any(word in str(exc).lower() for word in ("locked", "busy"))
         raise PlanningBuildPreviewError(

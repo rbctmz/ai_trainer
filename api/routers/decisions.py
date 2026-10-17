@@ -6,6 +6,9 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.routing import APIRoute
+from fastapi.responses import JSONResponse
+from models.planning_build_confirmation import PlanningBuildPreviewError
 
 from api import planning_service
 from api.deps import get_database
@@ -25,7 +28,23 @@ from services.agent_log import record_agent_decision
 from services.coach_drift import build_coach_drift_report
 from services.intervals_plan_delivery import safe_deliver_active_plan
 
-router = APIRouter(prefix="/api/decisions", tags=["decisions"])
+class BuildApprovalRoute(APIRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+        if not self.path.endswith("/approve"):
+            return handler
+
+        async def approval_handler(request):
+            try:
+                return await handler(request)
+            except PlanningBuildPreviewError as exc:
+                return JSONResponse(status_code=exc.status, content={
+                    "detail": str(exc), "code": exc.code, "retryable": exc.retryable,
+                })
+        return approval_handler
+
+
+router = APIRouter(prefix="/api/decisions", tags=["decisions"], route_class=BuildApprovalRoute)
 
 
 @router.get("")
@@ -304,6 +323,18 @@ def approve_proposal(
     variant_kind: str | None = None,
     db: Database = Depends(get_database),
 ) -> dict[str, Any]:
+    proposal = db.get_coach_proposal(proposal_id)
+    if proposal is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    if proposal.get("action") == "build_plan":
+        result = planning_service.confirm_plan_build(
+            db, preview_id=str((proposal.get("params") or {}).get("preview_id") or ""),
+            origin="coach", proposal_id=proposal_id,
+        )
+        updated = db.get_coach_proposal(proposal_id)
+        if not result["confirmation"]["replayed"]:
+            _record_proposal_approval_decision(db, updated, result)
+        return {"proposal": updated, "result": result}
     proposal = _pending_proposal_or_error(db, proposal_id)
     if proposal.get("action") == "recovery_replan":
         proposal_preview = proposal.get("preview")
@@ -593,22 +624,7 @@ def _apply_proposal(
         raise ValueError("proposal params are invalid")
 
     if action == "build_plan":
-        available_days = _normalize_available_days(params.get("available_days"))
-        return planning_service.build_plan(
-            db,
-            goal_type=str(params.get("goal_type") or ""),
-            distance=str(params.get("distance") or ""),
-            event_date=str(params.get("event_date") or ""),
-            available_hours=float(params.get("available_hours") or 10.0),
-            available_days=available_days,
-            demand=params.get("demand"),
-            expected_base_checkpoint_id=(
-                int(params["base_checkpoint_id"])
-                if params.get("base_checkpoint_id") is not None
-                else None
-            ),
-            persist=True,
-        )
+        raise PlanningBuildPreviewError("preview_required", "Нужен новый предпросмотр плана в Коуче.")
 
     if action == "adjust_plan":
         if params.get("preview_fingerprint") and params.get("base_checkpoint_id") is not None:
