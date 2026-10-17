@@ -533,10 +533,16 @@ uses canonical load metrics directly with its explicit day; raw settings keep
 row presence. The corrected 75-case M2/characterization suite passes in 15.71s,
 without changing any M1 golden. Initial existing-focused pass: 108 tests.
 
-M2 review round 1 completed; scoped correction verification (round 2) and final
-broad rerun pending. The initial broad pass on `24b0448` was 3234 passed,
-14 skipped, 46 deselected in 220.61s, excluding only the separate known M1 HTTP
-RED file (20 expected failures). Do not claim that count as final-tree evidence.
+M2 review rounds 1 and 2 completed: **READY for M2 draft handoff at `6516989`**,
+both P2 fixed in that commit and verified by the independent checker. Its own
+focused run passed 75 cases in 29.07s; no unresolved blocking findings remain.
+The final broad pass on `6516989` was **3236 passed, 14 skipped, 46 deselected in
+232.04s**, excluding only the separately rerun known M1 HTTP RED file (20 expected
+failures). Skips: process/socket capability limitations (2), explicit fixture
+regeneration (10), optional garth dependency (2). Repository Ruff/whitespace and
+ExecPlan link/structure checks passed. Final 16-week synthetic prepare: 0.339s;
+active plan/settings unchanged. Initial pre-fix broad count was 3234 and is not
+used as corrected-tree evidence.
 No API router, TS contract, Coach proposal adapter or UI was changed in M2;
 the old raw-save bypass and new confirmation endpoint remain M3–M4 work.
 This intermediate branch must not deploy or merge as completed S1.

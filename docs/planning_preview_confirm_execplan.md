@@ -37,7 +37,7 @@ dates/events, training mathematics, or the whole confirmation-screen design.
 - [x] (2026-10-17) M1: 20 expected HTTP RED cases (4 reach unsafe writes; 16 preliminary protocol cases); 12 unchanged-build checks plus existing 66 tests pass, 78 total. Ruff passes.
 - [x] (2026-10-17) Independent M1 checker reviewed e0cd700..097cf99: no blocking P1/P2, 12 characterization cases independently pass. M1 draft handoff only; acceptance RED remains.
 - [x] (2026-10-17) M2 implementation: coherent connection-bound read snapshot, immutable serialized inputs/result, prepare-time freshness recheck and additive preview store. After review fixes, 75 M2/characterization tests pass; initial existing focused pass: 108 tests.
-- [ ] M2: finish broad compatibility pass and independent review; publish bounded draft handoff.
+- [x] (2026-10-17) M2 verification: 3236 contributor-safe tests passed (14 skipped, 46 deselected; only the known M1 HTTP RED file excluded). Independent scoped round 2 accepted `6516989`, zero open blocking findings. Ready for bounded draft handoff only.
 - [ ] M3: transactional confirmation, replay, failure and concurrency coverage.
 - [ ] M4: minimal Planning UI and Coach build-proposal adapters; contract refresh.
 - [ ] M5: isolated browser acceptance, required checks, implementation review and human merge gate.
@@ -54,7 +54,9 @@ failed (one transitive clock guard, both absent/NULL directions). The core now
 uses the existing canonical `training_load_metrics` helper directly with the
 captured day, and source settings preserve row presence. All 75 focused M2 and
 unchanged-calculation checks pass (15.71s), with no oracle regeneration. Scoped
-independent verification and final broad rerun are pending.
+independent round 2 accepted both fixes at `6516989` and independently passed
+75 tests in 29.07s. The final broad rerun passed 3236 tests (14 skipped,
+46 deselected) in 232.04s, excluding only the known M1 HTTP RED file.
 
 **Observed:** extracting the builder into `_calculate_plan_build(snapshot)` and
 serializing its complete result preserves all six M1 full-checkpoint/response
@@ -62,7 +64,7 @@ oracles, including nested prescriptions and forecast. **Inferred:** the M2
 refactor can share one calculation core without changing training mathematics.
 **Verified by:** 73 M2/storage/characterization tests passed in 17.50s; 108
 focused existing planning/calendar/metrics/Coach/backup tests passed in 11.78s.
-Broader compatibility and independent M2 review are pending. Public HTTP build
+Final broader compatibility and independent M2 review are recorded above. Public HTTP build
 confirmation is deliberately unchanged until M3: its 20 known M1 RED cases still
 fail (5.07s), so M2 is not an S1 fix or a deployable checkpoint.
 
@@ -180,7 +182,10 @@ the frozen checkpoint/response/settings intention and dependency hashes. Existin
 trusted `build_plan` shares the pure core. Pending expiry/cleanup, reset, reopen,
 integrity failure and Backup API restore are tested; applied receipt fixtures
 exercise retention shape only, not future M3 replay. UI work starts only with
-the tested public API contract in later milestones.
+the tested public API contract in later milestones. M2 is ready for draft handoff
+at `6516989`, after two review rounds and no unresolved blocking findings. The
+final broad run explicitly excludes the 20 separately confirmed M1 HTTP REDs;
+the branch remains unsuitable for deployment/merge as a completed S1 fix.
 
 ## Context and Orientation
 
@@ -567,5 +572,11 @@ readiness clock and absent/NULL setting conflation. Both were reproduced by the
 three-case RED above, then fixed without changing readiness behavior elsewhere.
 An initial broad run on the pre-correction tree passed 3234 tests (14 skipped,
 46 deselected), excluding only the separately rerun 20 known M1 HTTP RED cases.
-The post-correction broad run and scoped review are pending; the initial count
-is not presented as final-tree acceptance.
+The post-correction broad run passed 3236 tests, 14 skipped and 46 deselected in
+232.04s. Independent scoped round 2 verified both fixes (`fixed-in 6516989`),
+passed 75 focused tests and returned READY for M2 draft handoff. Review budget
+2/2 is complete. Fourteen broad skips comprise unavailable process/socket
+capabilities (2), explicit fixture regeneration (10), and optional garth (2).
+Known M1 HTTP RED was tested separately (20 expected failures); no new failure
+was excluded as expected. A final corrected-tree 16-week prepare took 0.339s
+with active state unchanged. M3 remains the next explicit milestone.
