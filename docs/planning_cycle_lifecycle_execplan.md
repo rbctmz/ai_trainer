@@ -1,0 +1,340 @@
+# Planning S2: close the old cycle and start a new one (#693)
+
+This living ExecPlan follows `.agent/PLANS.md`. Issue
+[#693](https://github.com/rbctmz/ai_trainer/issues/693) is S2 of
+[#677](https://github.com/rbctmz/ai_trainer/issues/677), after merged S1
+[#691](https://github.com/rbctmz/ai_trainer/pull/691). The
+[slice specification](planning_cycle_lifecycle_slice_spec.md) defines exact
+state, storage, API, compatibility and acceptance obligations. Baseline main is
+`93fa4f4d8d41c9e392093538900f471903b6c331`. Current role is Spec / Architecture
+Owner; independent spec check and explicit role handoff precede implementation.
+Human user authorized beginning S2 on 2026-10-17; this is not merge/live approval.
+
+## Purpose / Big Picture
+
+After the date of an Olympic triathlon has passed, the athlete needs to see that
+the preparation period ended, decide whether to close it and optionally record
+that they did not participate. They should be able to start a new cycle without
+silently reusing last summer's start date or old races. Closing is not proof of
+execution, participation or finishing. A cycle is a saved preparation context;
+a checkpoint is one saved plan version within it.
+
+The decisive journey uses synthetic data only: an expired event cycle with
+unknown participation shows its ended period; closing without an answer keeps
+the outcome unknown and history readable; choosing did_not_participate records
+only that declaration; starting a fresh cycle offers today's actual start, no
+old events and no backdated executable sessions. Preview/cancel changes nothing.
+Confirm replaces selection atomically; retry after a lost response reuses the
+same result. Planning, Today and Coach report the same server-owned state.
+
+## Progress
+
+- [x] (2026-10-17) Fresh main/GitHub checked at `93fa4f4`; S1 is merged, post-merge documentation #692 remains a separate draft.
+- [x] (2026-10-17) Read #677 model v1 and #680 boundary; no existing S2 issue found, created #693 with AC1–AC10 and non-goals.
+- [x] (2026-10-17) Inventory current/latest checkpoint readers and writers, history/restore, constraint binding and provider delivery boundary.
+- [x] (2026-10-17) Synthetic falsifying probe confirms expired Race Week, inherited old calendar/events and two backdated executable days even with clean current-week inputs; protected active state unchanged.
+- [x] (2026-10-17) Existing planning/overview/S1 HTTP baseline: 89 passed, 1 warning in 7.66s; no new lifecycle GREEN claimed.
+- [x] (2026-10-17) Draft Class A slice spec: selected-cycle storage, conservative migration, protocol compatibility, commands/replay, calendar floor and reader/writer obligations.
+- [ ] M0: independent consolidated spec check, reproduce/resolve findings and at most one scoped correction; publish reviewed spec draft.
+- [ ] M1: executable lifecycle RED plus unchanged S1/history/ledger characterization and frozen caller inventory.
+- [ ] M2: additive cycle migration/store, explicit selection and pure state projection; reset/restart/restore probes.
+- [ ] M3: close/outcome/scope commands, S1 v2 start_new/edit_current and atomic replacement; every writer guards current cycle.
+- [ ] M4: explicit current-vs-history reader integration, then Domain→UI handoff for minimal actions/status and isolated web acceptance.
+- [ ] M5: final whole-S2 evidence, current-head CI/native review and explicit human merge decision.
+
+## Surprises & Discoveries
+
+**Observed:** on current main, status.has_plan is true for a synthetic
+2026-08-03…2026-10-04 plan on athlete day 2026-10-16. Overview progress is
+completed, yet current_week is Race Week/9 and event outcome is absent. The
+web overview calls that checkpoint active and that phase current.
+**Inferred:** existence of a checkpoint is being used as current-cycle selection;
+calendar passage, execution and outcome are conflated in presentation. A cheap
+falsifier is to read overview/edit context from an expired temporary checkpoint.
+**Verified by:** the probe below reproduces those exact states without writes
+from GET. There is no persisted selected-cycle record in current storage.
+
+**Observed:** preparing training_goal from that edit context retains
+start_week=2026-08-03 and event=2026-10-04. All 48 executable days fall before the
+pinned athlete day; zero are future. Cleaning start_week/events yields Monday
+2026-10-12 and no events, but two executable days still precede Friday 2026-10-16.
+**Inferred:** clearing the old form alone cannot guarantee a genuinely new start;
+the Monday week label must be separated from the actual first allowed date.
+**Verified by:** both real S1 preparations on the temporary DB, reading their
+retained checkpoints. Counts are diagnostic synthetic measurements, not golden
+assertions. The test must assert no newly executable date before start_date.
+
+**Observed:** current writers/consumers include demand/adjustment/near-term edits,
+repair/restore, Coach build, Today/recovery, reconciliation/session feedback and
+legacy Streamlit persistence. Constraint rows have plan_id/session_id and sport,
+but no cycle scope. Delivery can obtain a client before discovering no plan.
+**Inferred:** changing only overview or changing the raw latest-history helper
+would leave stale mutations or break historical facts. The cheapest falsifier
+is a frozen caller inventory plus a close/switch test for each writer family.
+**Verified by:** source inventory collected with rg, named in the slice spec.
+Runtime close/switch safety is NOT YET; M1 must establish executable RED.
+
+The first probe used a datetime subclass that defeated the overview's
+isinstance check, raising a type comparison error. This was a harness defect:
+the corrected probe keeps the real datetime type and pins athlete_local_date.
+No product datetime defect is claimed from that failed attempt.
+
+## Decision Log
+
+Decision (2026-10-17, Spec Owner): use a persisted singleton selection and
+immutable checkpoint-to-cycle associations. Keep get_latest_planning_checkpoint
+as raw history; add an explicit current selector and migrate its callers. This
+prevents closing a cycle from being undone by a later historical insert or a
+reader falling back to MAX(id).
+
+Decision (2026-10-17, Spec Owner): conservatively import only the latest legacy
+checkpoint into one selected legacy cycle. Older versions remain unassigned
+history, with no claim about historical cycle boundaries. Valid daily dates
+define period; unknown data is indeterminate. Explicit same-legacy-cycle restore
+is a separate guarded action; never rewrite old JSON/associations in migration.
+
+Decision (2026-10-17, Spec Owner): reuse S1 publication/receipt for new cycles,
+with a frozen v2 lifecycle context and selection revision. Close/outcome/scope
+commands use a small fixed-purpose receipt table. Pending old v1 artifacts fail
+closed; successful old receipts remain replayable without reselecting anything.
+No general workflow engine, task scheduler or event-sourcing framework.
+
+Decision (2026-10-17, Spec Owner): actual start_date is authoritative and cannot
+be in the past for start_new; week Monday is a label only. New form context is a
+separate action from editing. New events/intent are explicitly chosen; valid
+availability is only a labelled suggestion. Recompute affected projections from
+the exact clipped canonical prescriptions, retaining existing training formulas.
+
+Decision (2026-10-17, Spec Owner): retain athlete constraints and explicit cycle
+ownership. Unknown bindings cannot silently become global or disappear. Expose
+one explicit metadata-only scope resolution command. This is the required
+cross-cycle ownership repair, not medical/recovery policy implementation.
+
+Decision (2026-10-17, Spec Owner): period_ended offers close/new rather than
+silently extending an old calendar. Explicit same-cycle post-A continuation is
+#680; no recovery or participation is inferred. Closed-cycle reactivation is
+outside S2. Minimal UI integration follows approved API semantics, not a redesign.
+
+## Outcomes & Retrospective
+
+M0 has a tracked, reproduced issue and proposed complete integration boundary.
+No cycle table, API contract, reader behavior or UI implementation has changed.
+The 89 passing tests characterize the existing system; new lifecycle behavior
+remains unimplemented. Independent spec review is pending. The personal database
+and providers were not used. Merge and live rollout require separate approval.
+
+## Context and Orientation
+
+Shared Python in models/services/data owns domain meaning; FastAPI api/ and
+Next.js web/ are the primary product path under ADR-0001. Streamlit remains a
+supported fallback; its cached state cannot become the new lifecycle contract.
+The single-athlete SQLite cache contains append-only planning_checkpoints JSON,
+activities, matching/feedback and delivery records. Existing S1 captures coherent
+dependencies, retains exact prepared bytes and confirms them atomically through
+data/planning_build_preview_store.py. It currently determines currentness from
+the latest checkpoint, which S2 must replace with selected cycle/head semantics.
+
+Current public readers are api/planning_service.py current_status,
+active_plan_overview and planning_edit_context; web/components/planning/PlanBuilder.tsx
+hydrates its edit inputs. api/today_snapshot.py and models/ai_tools.py also choose
+latest directly. History operations, services/session_projection.py and
+api/session_feedback.py require explicit historical ID access even after closing
+a cycle. The spec's caller table assigns each path to current, historical or
+guarded writer semantics; implementers must freeze an exact inventory in M1.
+
+## Plan of Work
+
+### M0 — specify and check the boundary
+
+Publish this plan, the companion slice spec and the ASR catalog entry after a
+read-only independent spec check. Checker inspects the complete proposal against
+#693/#677, especially lifecycle-vs-participation, unknown legacy ownership,
+history, writer bypasses, S1 compatibility and reset/replay. One consolidated
+review and one scoped correction at most. Record every finding with observed,
+inferred, verified and disposition; no hypothetical blocker without an invariant.
+
+### M1 — reproduce before replacing selectors
+
+Domain / API role starts through an explicit task handoff after spec acceptance.
+Add pure projection/command/build/store tests named in the slice matrix and a
+fixture inventory of every current-plan read/write family. Record true behavioral
+RED for ended/current selection, old calendar carry-over, close/replacement/retry
+and unknown scope. Missing new interfaces are preliminary protocol RED, not
+evidence of transaction correctness. Characterize unchanged checkpoint JSON,
+activities, matches, feedback and delivery history; do not regenerate S1 oracles
+to accommodate unrelated changes. Commit/push a bounded RED checkpoint.
+
+### M2 — own cycle state and import legacy safely
+
+Create models/planning_cycle.py, data/planning_cycles.py and
+services/planning_cycles.py with additive tables/constraint columns initialized
+from data/database.py. Implement idempotent migration and the explicit selector
+on connection-bound reads. Prove no GET writes, empty/closed-null does not
+reimport, malformed latest does not fabricate dates, and backup/reset/restart
+preserve/remove precisely the intended new state. Keep raw history access and
+ledger bytes unchanged. This is storage/projection readiness, not final delivery.
+
+### M3 — commands and exact confirmed new cycle
+
+Define api/planning_cycle_contract.py and the cycle router before runtime
+adapters; add API/TS fixtures and regenerate contracts. Implement strict
+close/outcome/constraint-scope commands with retained same-ID results. Extend
+S1 with frozen v2 lifecycle ownership, start_date and explicit replacement.
+Keep v1 successful replay; reject v1 pending. Generate outside locks; commit old
+closure, new cycle/checkpoint/map/selection, settings, receipt and Coach status
+together. Test all fault points and real writer races. Adapt every mutation
+family to the selected-cycle CAS or explicit historical exception. No raw facade,
+legacy cache or provider sync can choose/reopen a cycle implicitly.
+
+### M4 — current/history integration and UI handoff
+
+Domain/API owner wires shared current context into Planning/Today/Coach and
+separates checkpoint/session-bound history consumers. Delivery exits without a
+provider call when no actionable cycle; no delivery algorithm is added. Legacy
+Streamlit changes are compatibility guards and clear read-only messages only.
+Close/switch cannot erase old activity or session-feedback access.
+
+Stop at an explicit Domain→UI handoff with schema, named fixtures and allowed
+actions. UI / Design role then adds minimal close/outcome/new-start operations,
+canonical build-context hydration and cycle-aware history controls. UI renders
+server state/reasons/period, retaining S1 uncertainty ownership; it does not
+calculate cycle status or migrate data. Use existing tokens/components and the
+spec's responsibility brief. Verify complete journeys, keyboard and narrow/
+intermediate/desktop widths in both themes using the temporary web fixture.
+
+### M5 — accept one complete delivery
+
+Run targeted lifecycle/S1/history/constraint tests, contributor-safe suite,
+Ruff, API/TS extractor/inventory, web lint/build and isolated full browser checks.
+All real data/providers remain disabled. Collect a complete AC1–AC10 bundle and
+one final candidate against current main. Do not merge intermediate RED branches.
+Independent implementation/native review observes its two-round stop rule;
+explicit human acceptance, fresh current-head gates and CLEAN precede merge.
+Record post-merge proof/metrics and clean only this task's safe artifacts. Parent
+#677 retains S3/S4; deploying to the athlete's running instance is not implied.
+
+## Concrete Steps
+
+Run from `/Users/gregkisel/Developer/ai_trainer`. Start with git status and fetch
+origin; do not mix uncommitted work. S1 post-merge docs #692 are independent and
+must not be silently amended/merged as part of S2. Use codex/ branches.
+
+Baseline already executed:
+
+    ./ai_trainer_env/bin/python -m pytest tests/smoke/test_api_planning.py tests/smoke/test_planning_active_plan_overview.py tests/smoke/test_planning_build_confirmation.py -q --tb=short
+
+Observed 89 passed, 1 existing Starlette/httpx warning in 7.66s.
+To repeat the falsifying probe, use the existing synthetic helpers and real
+planning functions; all persistence is under TemporaryDirectory:
+
+    from datetime import date, datetime
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+    import json
+    from pytest import MonkeyPatch
+    from api import planning_service as ps
+    from data.planning_build_preview_store import get_preview
+    from models.planning_build_confirmation import BuildParameters
+    from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+    from tests.smoke._planning_build_confirmation import pin_clock, protected_state, seeded_db
+
+    with TemporaryDirectory() as tmp, MonkeyPatch.context() as mp:
+        pin_clock(mp)
+        mp.setattr(ps, 'datetime', datetime)
+        mp.setattr(ps, 'athlete_local_date', lambda: date(2026, 10, 16))
+        db = seeded_db(Path(tmp))
+        ps.build_plan(db, goal_type='triathlon', distance='olympic',
+            event_date='2026-10-04', start_week=date(2026, 8, 3),
+            planning_mode='event_goal', available_hours=10, persist=True)
+        before = protected_state(db)
+        print(ps.current_status(db)['has_plan'], ps.active_plan_overview(db)['current_week'])
+        inherited = dict(ps.planning_edit_context(db)['inputs'],
+            planning_mode='training_goal', event_date=None, manual_phases=None)
+        for params in [inherited, dict(inherited, start_week=None, events=[])]:
+            built = ps.prepare_plan_build(db,
+                parameters=BuildParameters.from_mapping(params), origin='planning_ui')
+            row = get_preview(db, built['confirmation']['preview_id'], origin='planning_ui')
+            days = ps.plan_days(restore_goal_plan_from_checkpoint(json.loads(row['checkpoint_json'])))
+            print(built['parameters']['start_week'], built['parameters']['events'],
+                sum(day['date'] < '2026-10-16' and bool(day['sessions']) for day in days))
+        assert protected_state(db) == before
+
+Capture the final code inventory with:
+
+    rg -n 'get_latest_planning_checkpoint|save_planning_checkpoint|_insert_planning_checkpoint|commit_coach_plan_mutation' api models services data utils state ui --glob '*.py'
+
+Future final verification commands are the normal contributor-safe pytest mark
+expression, not bare pytest; use `npm --prefix web run contract:extract`,
+`npm --prefix web run contract:extract -- --check`, contract inventory and tests,
+`npm --prefix web run lint` / `build`, and `python -m pytest -m e2e tests/e2e -q`.
+Run only named new files after adding them; a planned command is not execution.
+
+## Validation and Acceptance
+
+AC1–AC10 are observable in the companion matrix. The main demo is expired unknown
+participation → close without declaring a result → history preserved → new
+start_date on Friday → no earlier executable assignments → preview Cancel
+leaves selection unchanged → confirm once → dropped response and same-ID retry
+return that cycle, with no duplicate/new closure. Also cover replacement without
+separate close, early close, future start/gap, no-event rolling plan, explicit DNS
+and correction, legacy unknown bounds, stale scope and preserved historical fact
+links. Three surfaces must agree on cycle identity and allowed actions.
+
+Migration twice, reset twice, reopen, Backup API restore, malformed records,
+v1 pending/applied receipts and all mutation-family guards must have runtime
+proof. Inject errors after each write and use two independent SQLite connections
+for race ordering. No test passes by skipping a known S2 failure or mutating a
+past payload just to satisfy the new selector. Report original S1 equivalence
+separately from intentionally changed new-start calendar behavior.
+
+## Idempotence and Recovery
+
+No personal SQLite is read or written in these commands. Use isolated test DBs,
+synthetic snapshots and disabled providers. Successful command receipts and S1
+build receipts own retries; unknown network result retains the same identity.
+Migration/init is transactional and once-only; reset removes all cycle/command/
+preview rows and prevents a reopened reader from importing old state again.
+
+Live operators must stop all writers and use scripts/sqlite_backup_restore.py
+before additive migration/restore. A pre-cycle binary is unsafe for downgrade:
+it may read raw MAX and write/deliver a closed plan. Disable writes/delivery and
+fix forward or deploy an explicitly compatible rejection bridge; preserve new
+rows/receipts. This is a handoff procedure, not a performed live operation.
+
+## Artifacts and Notes
+
+Synthetic baseline on 93fa4f4, athlete day 2026-10-16: expired progress 9/9,
+current phase Race Week; inherited training preview Aug 3–Sep 27 with old Oct 4
+event and 48 past/0 future executable days; clean preview Oct 12–Dec 6 with 2
+past executable days. No checkpoint/settings change during reads/previews.
+Issue #693 holds sanitized observed/inferred/verified evidence and the same
+89-test baseline. Counts are fixture measurements and must not become goldens.
+
+## Interfaces and Dependencies
+
+Introduce pure `project_cycle_context(record, *, athlete_day, timezone)` in
+models/planning_cycle.py; Database adds current/connection-bound selectors while
+raw latest/history access stays unchanged. Store helpers accept caller-owned
+connections for lifecycle-bound checkpoint commits. Services own build context,
+strict commands and allowed actions; api adapters validate/translate safe codes.
+No new provider/package is required.
+
+S1 schema/protocol v2 additions and v1 receipt read compatibility must be
+contract-first; client owns only received identities/CAS fields and explicit
+action choice. Selection revision guards close→new and other same-checkpoint ABA
+changes. Existing calendar/training calculation remains shared, with a canonical
+actual-start floor and exact affected projections. Historical ledgers keep their
+old identity keys and are not rebound to the new cycle by selection.
+
+## ASR / risk traceability
+
+ASR-REL-1/2, MOD-2/3 and DEP-2 are affected; ADR-0001 reused. Update the ASR
+catalog's planned S2 entry and retain this distinction from runtime GREEN.
+Principal risks: unguarded writer bypass, fabricated legacy grouping, history
+becoming current, missing athlete constraint ownership and new-start backdating.
+The prescribed mitigation is shared selection, conservative migration, atomic
+CAS/replay, explicit scope resolution and focused failure/boundary tests.
+
+Revision note (2026-10-17): created a separately tracked S2 after merged S1,
+verified the reported lifecycle/calendar gaps on temporary SQLite and recorded
+the full Class A implementation/review sequence. No product code changed.
