@@ -332,8 +332,8 @@ connection-bound private primitives instead.
 ## Failure, Reset, Rollback, Idempotency
 
 - [x] New state owner, TTL, bounded cleanup, receipt retention and full reset are
-  specified above; implementation proof is still pending.
-- [ ] Restart, reset, backup/restore and partial-failure tests pass.
+  specified above and verified by the synthetic implementation suites.
+- [x] (2026-10-17) Restart, reset, backup/restore and partial-failure tests pass on synthetic temporary databases; see the final acceptance bundle. Live rollout is separate.
 
 Before commit, any exception rolls back all plan/settings/proposal/receipt writes.
 After commit, a lost response is recovered through the same preview ID. Do not
@@ -413,8 +413,11 @@ information redesign remain out of scope.
 ## RED Matrix
 
 The table retains the initial planned matrix; executed M1–M4 evidence and actual
-commands are recorded in the implementation checkpoints below. Final whole-S1
-acceptance remains M5. Existing baseline is not new-behavior RED. Proposed names belong in
+commands are recorded in the implementation checkpoints below. M5's
+[final acceptance bundle](planning_preview_confirm_acceptance.md) maps each AC
+to executed test names and separates green functionality from pending native
+and human gates. NOT YET entries below are the historical initial plan, not
+current test status. Existing baseline is not new-behavior RED. Proposed names belong in
 `tests/smoke/test_planning_build_confirmation.py` (service/HTTP),
 `tests/smoke/test_planning_build_confirmation_storage.py` (real SQLite), and
 `tests/e2e/test_planning_build_confirmation.py` (isolated web). Split/parameterize
@@ -479,6 +482,11 @@ current Spec Owner assignment ends with reviewed documents, not with M1 coding.
 
 ## Evidence Bundle
 
+Current whole-S1 evidence: [final acceptance bundle](planning_preview_confirm_acceptance.md).
+It supersedes the following initial specification-stage snapshot. Native/current-head
+results are recorded on the final PR and #685 after publication; no human merge
+acceptance is inferred from implementation-stage test results.
+
 - Baseline source SHA: `f0f80d335e7f3973a80241a5127d88ba7eca52dc` (local and GitHub
   main checked 2026-10-16). Reviewed documents are published separately as a
   docs-only draft PR; its existence does not complete #685.
@@ -508,9 +516,13 @@ name a violated AC/invariant and evidence; preferences remain non-blocking.
 
 ## Native Review Rounds
 
-No implementation/native review requested. Specification review is tracked
-separately below and has the same two-round budget: consolidated review then
-scoped verification. No clean result is assumed from passing baseline tests.
+M5 final native review has not yet been requested at candidate publication.
+Independent implementation checks for M1–M4 are recorded in their checkpoints;
+they do not count as authenticated native results. Final native review is one
+complete S1 diff against main, then at most one scoped correction round. The
+current native head/result and finding dispositions are recorded on the final
+PR and #685 to avoid a documentation-only push after review. Specification review
+is tracked separately below. No clean result is assumed from passing tests.
 
 | Round | Reviewed artifact | Trigger | Findings disposition | Stop / exception |
 | --- | --- | --- | --- | --- |
@@ -523,6 +535,16 @@ This narrows unlock behavior under the same reviewed invariant. Final edits also
 record review/publication status; no new full review was requested.
 
 ## Final Verdict
+
+### M5 acceptance checkpoint (2026-10-17)
+
+Supervisor / Integrator prepared the [final evidence bundle](planning_preview_confirm_acceptance.md).
+The 203-case focused suite, 70 contract cases and all 40 browser cases pass on the
+unchanged M4 product/test tree. Current
+GitHub reads confirm intermediate M1/M2 checks intentionally fail, so final
+delivery is one main-targeting PR containing the complete S1 implementation.
+Native review/current-head CI and explicit human merge acceptance remain gates;
+no source code, live database, deployment or merge changed in this M5 step.
 
 ### M4 implementation checkpoint (2026-10-17)
 

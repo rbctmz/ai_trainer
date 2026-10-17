@@ -5,9 +5,11 @@ This is a living ExecPlan maintained under `.agent/PLANS.md`. Issue
 [#685](https://github.com/rbctmz/ai_trainer/issues/685) is the first bounded slice
 of [#677](https://github.com/rbctmz/ai_trainer/issues/677). The companion
 [slice specification](planning_preview_confirm_slice_spec.md) contains the exact
-API, storage and acceptance matrix. Status: implementation started. On 2026-10-17
-the human owner handed implementation to Domain / API Implementer after the
-independent specification check. No active product behavior has changed at M1.
+API, storage and acceptance matrix. Status: M1–M4 implemented; M5 final acceptance
+in progress. The [final evidence bundle](planning_preview_confirm_acceptance.md)
+maps executed tests to AC1–AC8 and defines the final-PR merge/rollout handoff.
+On 2026-10-17 the human owner authorized implementation after the independent
+specification check, then explicitly authorized M5. No live product was deployed.
 
 ## Purpose / Big Picture
 
@@ -45,7 +47,12 @@ dates/events, training mathematics, or the whole confirmation-screen design.
 - [x] (2026-10-17) M4 targeted UI: 18 isolated Chromium scenarios pass in 21.91s; 390/900/1280 light/dark, keyboard, both public callers. Synthetic screenshots inspected.
 - [x] (2026-10-17) M4 independent review: one P2 test-fixture mismatch reproduced and fixed at `495d589`; scoped review 20 passed, zero open blockers, budget 2/2.
 - [x] (2026-10-17) M4 final checks: 3366 passed, 14 skipped, 64 deselected in 170.80s, no file exclusions; UI 18 passed, web lint/build and contracts green. Draft publication follows.
-- [ ] M5: isolated browser acceptance, required checks, implementation review and human merge gate.
+- [x] (2026-10-17) M5: freshly fetched main remains the candidate ancestor; read current checks for #686–#690. Intermediate M1/M2 contributor-safe RED is expected and must not be merged sequentially.
+- [x] (2026-10-17) M5: map executed evidence to AC1–AC8 in the final bundle; 203 focused tests pass in 58.33s; Ruff and contract freshness/inventory pass on unchanged M4 product/test code.
+- [x] (2026-10-17) M5: fresh full local browser suite 40 passed in 224.41s; contract suite 70 passed in 8.26s; synthetic servers cleaned up by fixture. Preserve inspected M4 screenshots on the identical UI tree.
+- [ ] M5: publish one final main-targeting candidate; preserve draft milestone PRs as evidence.
+- [ ] M5: final candidate current-head CI and bounded native implementation review, with every finding disposed.
+- [ ] Human merge/rollout gate: explicit owner decision after final review acceptance; not delegated by M5 authorization.
 
 ## Surprises & Discoveries
 
@@ -151,6 +158,13 @@ these writes/computations cannot form the required all-or-nothing result.
 ## Decision Log
 
 
+Decision (2026-10-17, Supervisor / Integrator): publish the complete S1 candidate
+from M4 as one final PR targeting main, instead of merging the five stacked
+drafts in order. GitHub checks confirm M1/M2 are deliberate RED checkpoints;
+merging them would put incomplete code on main. The final branch preserves all
+milestone commits and adds the final acceptance bundle. No merge, issue closure
+or dependent branch cleanup is authorized by this publication.
+
 Decision (2026-10-16, Spec Owner): use one server-owned, persistent prepared
 artifact, addressed by a random UUID. It contains the full serialized checkpoint
 and response, not merely weekly totals. Confirmation never runs the planner,
@@ -190,6 +204,16 @@ storage cost for reliable retry after a lost response.
 
 ## Outcomes & Retrospective
 
+
+Current M5 outcome: all public build callers now use retained confirmation,
+and the final [AC evidence bundle](planning_preview_confirm_acceptance.md)
+supersedes the initial NOT YET matrix with executed tests. A fresh 203-case
+focused run passes, as do 70 contract and all 40 local browser cases. Pinned M4
+CI independently passed 3342 contributor-safe
+cases (38 environment/fixture skips) and all 40 browser cases; these are
+historical checks, not acceptance of a new final PR head. Native review and the
+human gate remain explicit. The following M1–M3 paragraphs are historical
+milestone outcomes, not a claim that their limitations persist after M4.
 
 M3 publishes the retained checkpoint bytes with the prepared demand/profile
 writes and a receipt in one SQLite transaction. It rejects stale/expired/unknown
@@ -404,7 +428,9 @@ Run focused tests, failure/restart/reset/concurrency probes, contract extraction
 and the contributor-safe suite. Use existing isolated web E2E fixtures, with a
 temporary synthetic DB and providers disabled, to exercise successful confirm,
 stale rejection, distance invalidation, late response, cancel, lost-response retry
-and historical replay. Add `tests/e2e/test_planning_build_confirmation.py` using
+and historical replay. The implemented file is
+`tests/e2e/test_planning_build_confirmation_ui.py` (distinct basename from the
+smoke module to preserve the existing pytest import policy), using
 the repository's web fixture rather than launching against the athlete's live
 localhost instance. Verify desktop and mobile controls with keyboard use; no
 CSS redesign is required. Record screenshot evidence from synthetic scenarios.
@@ -739,3 +765,13 @@ browser servers; author browser evidence is explicitly separate. M4 is complete
 for draft handoff. Next M5: final whole-S1 acceptance/current-head CI/native review
 and human merge/rollout decision. No merge, deployment, live data access or
 provider write occurred in M4.
+
+Revision note (2026-10-17, M5 in progress): owner authorized final acceptance.
+Supervisor / Integrator read current GitHub main/checks, confirmed the expected
+RED-only M1/M2 states and selected one final PR to main. Added the final evidence
+bundle with executed AC mapping, exact local/CI count boundaries, native review
+stop-rule and stopped-writer rollout/rollback handoff. 203 focused, 70 contract
+and 40 full local browser cases pass; final publication/CI/native review and
+human gate are tracked separately above. No product code or training math changed
+in M5. Generated rerun captures were discarded; inspected M4 images remain valid
+on identical UI code.
