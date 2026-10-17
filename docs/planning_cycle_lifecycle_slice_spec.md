@@ -2,7 +2,7 @@
 
 Issue [#693](https://github.com/rbctmz/ai_trainer/issues/693), parent
 [#677](https://github.com/rbctmz/ai_trainer/issues/677). Author: Codex, Spec /
-Architecture Owner. Independent spec checker: pending. Human owner: merge and
+Architecture Owner. Independent spec checker: `s2_spec_checker`. Human owner: merge and
 live rollout. Baseline main: `93fa4f4d8d41c9e392093538900f471903b6c331`,
 2026-10-17. [ExecPlan](planning_cycle_lifecycle_execplan.md).
 
@@ -10,7 +10,7 @@ live rollout. Baseline main: `93fa4f4d8d41c9e392093538900f471903b6c331`,
 
 Class A — Full. Persistent selection/identity, migration, transaction/retry,
 cross-module readers and writer compatibility trigger escalation. Manual review
-only: specification budget 0/2, implementation/native budgets separately recorded
+only: specification budget 1/2, implementation/native budgets separately recorded
 on their final candidate. This document proposes contracts; nothing here claims
 implemented behavior or authorizes merge/deployment.
 
@@ -65,6 +65,41 @@ or participation. Same-cycle extension after an ended period is deferred to the
 explicit #680 continuation contract; do not silently reopen it through edit.
 
 ## Storage and ownership
+
+### Session identity and continuity across cycles
+
+Modern cycles own an immutable identity_namespace equal to the server-reserved
+cycle UUID. Generate session material fingerprints/IDs with a versioned v2
+tuple of that namespace and the existing canonical date/prescription/occurrence
+material. Keep the ats_ hash-ID format; changed input domain, not readable UUID
+concatenation, separates cycles. Nested/multisport sessions use the same namespace;
+leg IDs derive from their namespaced parent under existing leg identity rules.
+Freeze namespace and IDs once in the retained preview, so retry/confirmation
+does not generate them again.
+
+start_new never supplies the preceding cycle as previous_goal_plan, honors its
+embedded session IDs or copies its replaces_session_id/leg continuity. Its first
+checkpoint has no prior-cycle plan-version parent; the old cycle/checkpoint is
+recorded separately in lifecycle source/closure context for audit and preview
+comparison, not as a replacement/donor chain. Same-cycle edit/restore preserves
+the namespace, unchanged IDs and existing material-change/survivor lineage rules.
+Require stored cycle ownership before following a donor/parent/replacement edge;
+an apparent ID/content match across different cycle UUIDs is not continuity.
+
+Legacy imported/previously stored sessions and legs keep their existing v1 IDs,
+fingerprints and ledgers byte-for-byte. Within an imported legacy cycle retain
+existing identity behavior; do not mass-salt historical data. Every genuinely
+new modern cycle gets v2 namespacing, including a new cycle with identical date
+and prescription. New matches, feedback and delivery keys therefore cannot reuse
+an earlier cycle's identity accidentally. Existing ambiguous legacy ownership is
+an explicit data gap, not a newly inferred cross-cycle match.
+
+Historical session projection accepts an explicit checkpoint_id when selection
+cannot determine ownership (notably legacy IDs). Verify the session belongs to
+that checkpoint; missing/ambiguous context yields a gap rather than falling back
+to latest/global date. Existing feedback/match keys are not rewritten; modern
+namespacing separates new facts while explicit historical context preserves old
+access. Test provider delivery keys locally without contacting a provider.
 
 Implement the single-purpose store in `data/planning_cycles.py`, pure projection
 in `models/planning_cycle.py`, orchestration in `services/planning_cycles.py`.
@@ -311,6 +346,7 @@ downgrade, preserve new rows, then fix forward. No live migration/rollback here.
 | AC4 same/different retained proposals; close/switch ABA | test_planning_cycle_build.py real connections/fault stages | Exact frozen publication; one winner; selection revision defeats same-head ABA; safe replay |
 | AC5 unknown/DNS/participated/correction; historical/new event identity | test_planning_cycle_commands.py | Explicit auditable declaration only, no reopen/recovery or activity rewrite |
 | AC6 latest-known / malformed / unassigned old versions | test_planning_cycle_storage.py plus unchanged S1 payload/ledger fixtures | Conservative once-only import, history preserved, unknown gap |
+| AC3/6 overlapping cycles with identical/changed sessions, multisport/legs | test_planning_cycle_identity.py | Distinct modern IDs/feedback/match/delivery keys across cycles; no inherited replacement edges; same-cycle identity stable; v1 untouched; preview/retry same frozen IDs |
 | AC7 each writer; same-cycle vs cross-cycle/legacy restore | test_planning_cycle_writer_guards.py | Current CAS or explicit safe rejection, never implicit reactivation |
 | AC8 athlete/cycle/unknown date/sport/binding constraint | test_planning_cycle_constraint_scope.py | Protection applied, old edits not global, unknown blocked and explicitly resolvable |
 | AC9 complete expired→close/outcome→new/cancel/confirm/retry | test_planning_cycle_lifecycle_ui.py with temp web fixture | Athlete can state selected period/consequence; shared readers agree; mobile/keyboard |
@@ -345,7 +381,36 @@ M3 commands/build/calendar/writer guards; M4 current/historical readers and UI
 through explicit Domain→UI handoff; M5 complete acceptance/native review/human
 merge. Intermediate REDs are not merge candidates.
 
-Review findings and budgets are recorded below. Current verdict: NOT YET
-reviewed, no runtime acceptance. No independent finding has been disposed yet;
-no native review requested. At most two spec rounds: one consolidated, one scoped
-correction. Implementation role begins only after a clean documented handoff.
+## Evidence Bundle
+
+Baseline main `93fa4f4`; spec round 1 candidate `a4647fd`. Author baseline 89
+passed in 7.66s; independent checker repeated 89 passed in 8.17s. Synthetic
+expired/inherited/mid-week probes are reproducible in the ExecPlan. Pure author
+probe also demonstrated identical current ats_ IDs for identical sessions with
+two different cycle_id values; that is existing content identity, not a claimed
+baseline bug. The missing future namespace rule was the spec blocker below.
+No implementation tests/contracts/browser/CI are GREEN for S2; no native result
+or merge acceptance is claimed. Current branch contains documentation only.
+
+## Review Findings
+
+| Severity | Observed / inferred / verified | Disposition |
+| --- | --- | --- |
+| Blocking P2, AC3/AC6 | Observed: baseline session_identity.py hashes material/date, reuses previous IDs and can create replaces edges; builder always passes the prior plan, while ledger reads key by session ID. Inferred: an underspecified start_new could accidentally expose old-cycle evidence or lineage. Verified by: reviewer static payload/reuse/ledger inspection; author pure two-cycle synthetic probe returned the same ats_095fdf5c5cc311c9b2a29044. | Corrected by explicit modern namespace, isolated initial parent/continuity, legacy preservation, historical context and an overlapping-cycle test matrix above; scoped round 2 pending. |
+
+## Review Rounds
+
+Specification round 1/2: independent read-only checker reviewed complete
+`93fa4f4..a4647fd`, returned BLOCK for the one P2 above, no other evidence-bound
+P1/blocking P2. Branch status clean before/after; independent baseline 89 passed.
+Round 2 is restricted to that correction and the added evidence/template record.
+Implementation/native rounds: none requested; they belong to later candidates,
+not this static specification check. No budget exception or waiver.
+
+## Final Verdict
+
+Specification handoff remains BLOCK until the scoped correction is independently
+verified. Runtime S2 is unimplemented. Spec review budget used 1/2; human retains
+merge/live rollout and implementing author owns branch/test-surface cleanup.
+The next role after READY is Domain / API Implementer for M1, with exact tests
+and invariant obligations in the ExecPlan. No CSS/layout role is assigned here.

@@ -35,7 +35,9 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-17) Synthetic falsifying probe confirms expired Race Week, inherited old calendar/events and two backdated executable days even with clean current-week inputs; protected active state unchanged.
 - [x] (2026-10-17) Existing planning/overview/S1 HTTP baseline: 89 passed, 1 warning in 7.66s; no new lifecycle GREEN claimed.
 - [x] (2026-10-17) Draft Class A slice spec: selected-cycle storage, conservative migration, protocol compatibility, commands/replay, calendar floor and reader/writer obligations.
-- [ ] M0: independent consolidated spec check, reproduce/resolve findings and at most one scoped correction; publish reviewed spec draft.
+- [x] (2026-10-17) Independent spec round 1/2 reviewed `93fa4f4..a4647fd`; one blocking P2: missing new-cycle session namespace/lineage boundary. Independent baseline 89 passed in 8.17s.
+- [x] (2026-10-17) Pure synthetic identity probe confirms same content/date ignores differing cycle_id today; specified modern v2 namespace, no cross-cycle ID/lineage reuse and unchanged legacy IDs, with explicit historical context tests.
+- [ ] M0: scoped correction check round 2/2, then publish reviewed spec draft.
 - [ ] M1: executable lifecycle RED plus unchanged S1/history/ledger characterization and frozen caller inventory.
 - [ ] M2: additive cycle migration/store, explicit selection and pure state projection; reset/restart/restore probes.
 - [ ] M3: close/outcome/scope commands, S1 v2 start_new/edit_current and atomic replacement; every writer guards current cycle.
@@ -79,6 +81,19 @@ isinstance check, raising a type comparison error. This was a harness defect:
 the corrected probe keeps the real datetime type and pins athlete_local_date.
 No product datetime defect is claimed from that failed attempt.
 
+**Observed:** identical synthetic sessions with two different cycle_id values
+produce the same current content-derived ats_ ID. The current builder also
+supplies the previous plan to identity generation; feedback/matches key by ID.
+**Inferred:** S2 needs an explicit new-cycle identity boundary so a fresh plan
+cannot inherit old evidence or replaces lineage. A pure two-cycle identity call
+is the cheap falsifier; this is not a defect in the existing v1 content contract.
+**Verified by:** author pure probe returned ats_095fdf5c5cc311c9b2a29044 twice;
+independent checker inspected both material/reuse branches and ledger readers,
+reported one blocking P2 in the proposed spec. Correction defines immutable
+modern cycle namespace, no prior-cycle donor/parent chain, within-cycle stable
+IDs, untouched legacy IDs and an overlapping-cycle test matrix. Runtime GREEN
+is NOT YET; scoped spec verification follows.
+
 ## Decision Log
 
 Decision (2026-10-17, Spec Owner): use a persisted singleton selection and
@@ -110,6 +125,13 @@ ownership. Unknown bindings cannot silently become global or disappear. Expose
 one explicit metadata-only scope resolution command. This is the required
 cross-cycle ownership repair, not medical/recovery policy implementation.
 
+Decision (2026-10-17, Spec Owner, spec P2 correction): modern session/leg identity
+uses an immutable cycle UUID namespace, frozen in preview; start_new cannot use
+the prior cycle's IDs or replacement/parent continuity. Legacy IDs/ledgers remain
+unchanged; within-cycle edits/restores retain existing identity rules. Historical
+projection accepts explicit checkpoint context instead of guessing an owner.
+This closes the clean-start/history evidence gap without a historical rekeying.
+
 Decision (2026-10-17, Spec Owner): period_ended offers close/new rather than
 silently extending an old calendar. Explicit same-cycle post-A continuation is
 #680; no recovery or participation is inferred. Closed-cycle reactivation is
@@ -120,7 +142,8 @@ outside S2. Minimal UI integration follows approved API semantics, not a redesig
 M0 has a tracked, reproduced issue and proposed complete integration boundary.
 No cycle table, API contract, reader behavior or UI implementation has changed.
 The 89 passing tests characterize the existing system; new lifecycle behavior
-remains unimplemented. Independent spec review is pending. The personal database
+remains unimplemented. Independent round 1 found a new-cycle identity omission;
+the spec correction is complete and scoped verification is pending. The personal database
 and providers were not used. Merge and live rollout require separate approval.
 
 ## Context and Orientation
@@ -163,6 +186,11 @@ and unknown scope. Missing new interfaces are preliminary protocol RED, not
 evidence of transaction correctness. Characterize unchanged checkpoint JSON,
 activities, matches, feedback and delivery history; do not regenerate S1 oracles
 to accommodate unrelated changes. Commit/push a bounded RED checkpoint.
+
+Add test_planning_cycle_identity.py for overlapping identical/changed modern
+cycles, legacy IDs, same-cycle edits/restores, multisport legs and historical
+feedback/match/delivery keys. start_new must never reuse a prior cycle donor or
+replacement chain; preview/retry must retain the same reserved namespace/IDs.
 
 ### M2 — own cycle state and import legacy safely
 
@@ -325,6 +353,10 @@ action choice. Selection revision guards close→new and other same-checkpoint A
 changes. Existing calendar/training calculation remains shared, with a canonical
 actual-start floor and exact affected projections. Historical ledgers keep their
 old identity keys and are not rebound to the new cycle by selection.
+Modern session identity is the versioned hash of cycle UUID plus canonical
+content/date/occurrence. Legacy import keeps v1 identities. New initial checkpoint
+parent is null; lifecycle source context separately records the replaced cycle.
+No continuity reader may traverse a parent/donor edge into another cycle.
 
 ## ASR / risk traceability
 
@@ -338,3 +370,10 @@ CAS/replay, explicit scope resolution and focused failure/boundary tests.
 Revision note (2026-10-17): created a separately tracked S2 after merged S1,
 verified the reported lifecycle/calendar gaps on temporary SQLite and recorded
 the full Class A implementation/review sequence. No product code changed.
+
+Revision note (2026-10-17, spec round 1 correction): one blocking P2 under AC3/6
+required explicit cross-cycle session/leg identity and lineage rules. Reproduced
+current content-ID behavior with a pure synthetic probe, preserved that legacy
+contract and specified modern namespacing plus matching/history/retry tests.
+Completed explicit evidence/findings/verdict sections. Scoped check next;
+no runtime, provider or personal DB change and no extra full review requested.

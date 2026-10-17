@@ -56,7 +56,8 @@ S1 #685/#691 уже слит как `93fa4f4`; S2 отдельно задаёт 
 [`planning_cycle_lifecycle_slice_spec.md`](../planning_cycle_lifecycle_slice_spec.md),
 план: [`planning_cycle_lifecycle_execplan.md`](../planning_cycle_lifecycle_execplan.md).
 
-ASR-REL-1/2: планируются сохранение истории/ledger IDs, честные indeterminate и
+ASR-REL-1/2: планируются сохранение legacy ledger IDs, cycle namespace для новых
+sessions/legs без cross-cycle lineage, честные indeterminate и
 unknown outcome, отсутствие backdated new assignments. ASR-MOD-2/3: единый Python
 selector вместо MAX(checkpoint), conservative legacy import и guards всех
 current writers без потери historical reads. ASR-DEP-2: аддитивная atomic
