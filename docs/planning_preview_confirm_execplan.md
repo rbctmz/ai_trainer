@@ -5,8 +5,9 @@ This is a living ExecPlan maintained under `.agent/PLANS.md`. Issue
 [#685](https://github.com/rbctmz/ai_trainer/issues/685) is the first bounded slice
 of [#677](https://github.com/rbctmz/ai_trainer/issues/677). The companion
 [slice specification](planning_preview_confirm_slice_spec.md) contains the exact
-API, storage and acceptance matrix. Status: specification; no product change has
-been implemented. The current assignment is Spec / Architecture Owner only.
+API, storage and acceptance matrix. Status: implementation started. On 2026-10-17
+the human owner handed implementation to Domain / API Implementer after the
+independent specification check. No active product behavior has changed at M1.
 
 ## Purpose / Big Picture
 
@@ -33,7 +34,7 @@ dates/events, training mathematics, or the whole confirmation-screen design.
 - [x] (2026-10-16) Draft ExecPlan, precise slice contract and acceptance matrix on `codex/issue-685-preview-confirm-spec`.
 - [x] (2026-10-17) Independent spec round 1 completed; one blocking P2 identified in uncertain-state token ownership.
 - [x] (2026-10-17) Scoped spec round 2 verified the correction; READY for specification handoff, 2/2 rounds used.
-- [ ] M1: failing confirmation regressions plus unchanged-build characterization.
+- [x] (2026-10-17) M1: 20 expected HTTP RED cases (4 reach unsafe writes; 16 preliminary protocol cases); 12 unchanged-build checks plus existing 66 tests pass, 78 total. Ruff passes.
 - [ ] M2: coherent input capture, frozen artifact and additive preview storage.
 - [ ] M3: transactional confirmation, replay, failure and concurrency coverage.
 - [ ] M4: minimal Planning UI and Coach build-proposal adapters; contract refresh.
@@ -41,6 +42,19 @@ dates/events, training mathematics, or the whole confirmation-screen design.
 
 ## Surprises & Discoveries
 
+
+**Observed:** M1's pinned HTTP regression reaches the existing handler and returns
+200 after a synthetic activity is added: preview 1531 TSS, saved 1759 TSS, one
+unexpected checkpoint for both first/existing-plan cases. An unbound raw retry
+returns 200 twice and appends two checkpoints. **Inferred:** base-only checking
+does not establish input freshness, and omitting the optional base permits
+duplicate raw application. **Verified by:**
+`test_planning_build_confirmation.py`, 2026-10-17: four behavior REDs; four more
+cases fail for missing preview identity and twelve for the missing confirm route.
+Those sixteen are preliminary protocol RED, not stale/replay implementation proof.
+No xfail/skip or production fallback is introduced. Fixture values differ from
+the earlier probe because inputs are now pinned and include events/zones/rest
+constraints; they are not training-model golden totals.
 
 **Observed:** `PlanBuilder.confirmPlan` repeats the build parameters, and
 `api/routers/planning.py::planning_build` calls `build_plan` again. The latter
@@ -119,12 +133,17 @@ storage cost for reliable retry after a lost response.
 ## Outcomes & Retrospective
 
 
-The baseline defect and transaction primitive have been checked. This deliverable
-defines the implementation boundary and tests; it does not repair the product.
-The 66 passing existing tests are baseline coverage, not GREEN evidence for S1.
+The baseline defect and transaction primitive have been checked. M1 now supplies
+executable failing HTTP acceptance plus a pinned full-payload calculation oracle.
+The 78 passing tests are 12 characterization checks plus 66 existing tests, not
+GREEN evidence for S1. The complete checkpoint JSON and public response are hashed
+with component digests for diagnosis, using six synthetic first/existing scenarios
+over three modes; only assigned response plan ID and external row metadata are
+excluded. Fixture hashes were generated from unchanged production code at the
+recorded baseline and are not regenerated automatically.
 Independent spec review completed on 2026-10-17: one P2 corrected and verified,
-READY for specification handoff. The next implementation handoff is M1 to
-Domain / API Implementer. UI work starts only with the tested API contract.
+READY for specification handoff. Domain / API Implementer continues with M2.
+UI work starts only with the tested API contract.
 
 ## Context and Orientation
 
@@ -482,3 +501,9 @@ now owns the unresolved ID, keeps those controls locked, and requires resolution
 through same-ID retry or diagnosis of an unreadable receipt. The companion test
 matrix covers lost response followed by attempted edit/cancel/new preview.
 Scoped round 2 verified this correction and returned READY for spec handoff.
+
+Revision note (2026-10-17, M1): owner authorized implementation. Added isolated
+HTTP RED and full-payload characterization fixtures. Focused baseline plus
+characterization: 78 passed in 14.86s. HTTP acceptance: 20 failed in 5.07s as
+expected before the new protocol; no unrelated failures are hidden as expected.
+Repository Ruff and whitespace checks passed. M2–M5 remain pending.

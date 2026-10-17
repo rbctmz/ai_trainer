@@ -9,8 +9,9 @@ Author: Codex, Spec / Architecture Owner. Checker: independent read-only agent
 revised: 2026-10-17.
 Candidate source baseline: `f0f80d335e7f3973a80241a5127d88ba7eca52dc`.
 Spec branch: `codex/issue-685-preview-confirm-spec`; this is not an implementation
-acceptance SHA. Product implementation and deployment are NOT YET authorized by
-this spec-authoring handoff.
+acceptance SHA. On 2026-10-17 the human owner authorized implementation, beginning
+with Domain / API M1 on `codex/issue-685-m1-regressions`. Deployment is a separate
+handoff. The reviewed acceptance and public contracts below are unchanged.
 
 ## Change Class
 
