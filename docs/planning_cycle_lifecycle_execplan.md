@@ -6,8 +6,8 @@ This living ExecPlan follows `.agent/PLANS.md`. Issue
 [#691](https://github.com/rbctmz/ai_trainer/pull/691). The
 [slice specification](planning_cycle_lifecycle_slice_spec.md) defines exact
 state, storage, API, compatibility and acceptance obligations. Baseline main is
-`93fa4f4d8d41c9e392093538900f471903b6c331`. Current role is Spec / Architecture
-Owner; independent spec check and explicit role handoff precede implementation.
+`93fa4f4d8d41c9e392093538900f471903b6c331`. M0 Spec / Architecture Owner handed
+the reviewed contract to Domain / API Implementer for M1 tests only.
 Human user authorized beginning S2 on 2026-10-17; this is not merge/live approval.
 
 ## Purpose / Big Picture
@@ -38,7 +38,8 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-17) Independent spec round 1/2 reviewed `93fa4f4..a4647fd`; one blocking P2: missing new-cycle session namespace/lineage boundary. Independent baseline 89 passed in 8.17s.
 - [x] (2026-10-17) Pure synthetic identity probe confirms same content/date ignores differing cycle_id today; specified modern v2 namespace, no cross-cycle ID/lineage reuse and unchanged legacy IDs, with explicit historical context tests.
 - [x] (2026-10-17) M0: scoped round 2/2 reviewed `a4647fd..a2f3848`, verified the identity/lineage correction and returned READY for spec handoff, zero remaining blockers. Publish draft follows; no extra review round.
-- [ ] M1: executable lifecycle RED plus unchanged S1/history/ledger characterization and frozen caller inventory.
+- [x] (2026-10-17) M1 author checkpoint: 14 behavioral RED, 26 preliminary protocol RED, 7 new GREEN characterization; 256 existing S1/planning/history regressions passed. Frozen inventory: 87 calls and 19 SQL sites. No product/schema/UI changes.
+- [ ] M1 independent test/inventory check and bounded RED draft publication; this is not a merge candidate.
 - [ ] M2: additive cycle migration/store, explicit selection and pure state projection; reset/restart/restore probes.
 - [ ] M3: close/outcome/scope commands, S1 v2 start_new/edit_current and atomic replacement; every writer guards current cycle.
 - [ ] M4: explicit current-vs-history reader integration, then Domain→UI handoff for minimal actions/status and isolated web acceptance.
@@ -96,6 +97,14 @@ is NOT YET; scoped spec verification follows.
 
 ## Decision Log
 
+Decision (2026-10-17, M1 Domain/API): keep runtime unchanged and separate tests
+by `test_behavior_`, `test_protocol_`, and `test_characterization_`. Missing
+routes/fields are preliminary RED. Exercise actual-start clipping at the existing
+pure calculator seam using the specified frozen lifecycle object; do not invent
+a public action-field spelling before the M3 request contract is frozen.
+Unknown legacy constraint scope is tested through migration/storage projection;
+prepare refusal and scope-command transaction/replay remain M3 obligations.
+
 Decision (2026-10-17, Spec Owner): use a persisted singleton selection and
 immutable checkpoint-to-cycle associations. Keep get_latest_planning_checkpoint
 as raw history; add an explicit current selector and migrate its callers. This
@@ -146,6 +155,74 @@ remains unimplemented. Independent round 1 found a new-cycle identity omission;
 the correction at `a2f3848` was verified in scoped round 2/2: READY for specification
 handoff, no remaining blockers. The personal database
 and providers were not used. Merge and live rollout require separate approval.
+
+M1 author checkpoint now adds runnable regression obligations and a green
+preservation boundary. The explicit selected-cycle API, storage migration,
+commands, writer guards and UI still do not exist. Tests are intentionally RED
+and must stay in an intermediate draft, stacked on M0 #694, until subsequent
+milestones make them GREEN. Existing S1 oracle JSON and production code remain
+unchanged. Independent M1 checking is pending; M0's exhausted spec review budget
+is not reused as a new full specification review.
+
+### M1 author evidence (2026-10-17)
+
+Observed: `tests/smoke/test_planning_cycle_projection.py`,
+`test_planning_cycle_build.py`, `test_planning_cycle_identity.py` and
+`test_planning_cycle_characterization.py` collect 47 cases. On unchanged runtime
+they yield 40 failed / 7 passed / 1 warning in 1.73s, with no collection errors,
+skips or xfails. Fourteen failures reach existing behavior: a past/future week
+claimed current (2), canonical assignments before actual start (1), overlapping
+cycle IDs/lineage/checkpoint namespace (6), old match/feedback lookup (2), and
+colliding provider external keys for singles/multisport/brick legs (3).
+Twenty-six failures identify missing lifecycle protocol/projection: selected
+state/boundaries/timezone/indeterminate/empty cache, actionable status, explicit
+constraint scope, clean form context, build-action guard, close/replay/strict
+confirmation and outcome correction. HTTP command tests currently stop at the
+first missing route, so their downstream assertions prove no transaction yet.
+
+Inferred: these are the bounded M2/M3 implementation targets, not evidence that
+the future commands or atomic replacement are already correct. Cheapest
+falsifiers are real existing calculator/identity calls, positive same-cycle and
+legacy controls, and re-running untouched S1/history tests.
+
+Verified by: the 14 behavioral cases all reach their asserted defect without
+missing imports/interfaces. The actual-start case supplies a valid no-current
+frozen lifecycle (base checkpoint 0) at the pure calculator seam and still gets
+October 12 prescriptions before October 16. This is a calculator test, not
+end-to-end proof of HTTP start_new. The 7 GREEN controls compare complete raw
+checkpoint JSON (including whitespace), activities, matches, feedback, delivery
+and settings across reads, abandoned S1 preview, restart and SQLite Backup API
+restore, and preserve legacy/same-cycle identities. Fixture activities are
+resolved through the existing TSS resolver before measurement: an initial
+unresolved 55-TSS fixture was legitimately normalized on reopen; that harness
+failure is not claimed as an S2 defect. An initial misspelled store import was
+also corrected before this final collection/run.
+
+Reproduce from the repository root, using the existing venv:
+
+    ai_trainer_env/bin/python -m pytest -q tests/smoke/test_planning_cycle_projection.py tests/smoke/test_planning_cycle_build.py tests/smoke/test_planning_cycle_identity.py tests/smoke/test_planning_cycle_characterization.py --tb=short
+    # Expected M1: 40 failed, 7 passed; exit 1, not a merge gate pass.
+    ai_trainer_env/bin/python -m pytest -q tests/smoke/test_planning_cycle_projection.py tests/smoke/test_planning_cycle_build.py tests/smoke/test_planning_cycle_identity.py tests/smoke/test_planning_cycle_characterization.py -k characterization
+    # Expected: 7 passed, 40 deselected.
+    ai_trainer_env/bin/python -m pytest -q -m "not live and not debug and not e2e" tests/smoke/test_api_planning.py tests/smoke/test_planning_active_plan_overview.py tests/smoke/test_planning_build_confirmation.py tests/smoke/test_planning_build_confirmation_storage.py tests/smoke/test_planning_build_coach_confirmation.py tests/smoke/test_planning_checkpoint_history.py tests/smoke/test_planning_build_commit.py tests/smoke/test_planning_build_preparation.py tests/smoke/test_planning_build_preview_store.py
+    # Author: 256 passed, 7 warnings in 30.36s.
+    ai_trainer_env/bin/python -m ruff check .
+    # All checks passed.
+
+The frozen inventory is `tests/fixtures/planning_cycle_callers.json`, referenced
+to baseline `93fa4f4`: 87 direct/dynamic accessor calls and 19 direct SQL sites
+across eight named responsibility families. It includes explicit history and
+mixed current/history callers, raw storage, compatibility and synthetic/admin
+paths; it does not instruct replacing every MAX/history reader. Tests/fixtures
+are explicitly excluded from that runtime inventory and must be adapted as
+synthetic initialization, never given an HTTP bypass. Source calls may move;
+the recorded line numbers are baseline evidence, not golden line-number tests.
+
+Remaining proofs are deliberately scheduled in M2/M3: actual migration/selection
+and reset, malformed data handling, real-command failure/race injection,
+unknown-scope prepare refusal, atomic replacement, old successful receipt replay
+after another selection, reserved namespace stability through preview/confirm,
+and every writer family after close/switch. M4 owns cross-surface/UI acceptance.
 
 ## Context and Orientation
 
