@@ -78,13 +78,8 @@ def test_m2_t7_t8_first_plan_vertical_is_persisted_and_visible(tmp_path, monkeyp
             assert db.get_latest_planning_checkpoint() is None
 
             confirmed = client.post(
-                "/api/planning/build",
-                json={
-                    **build_payload,
-                    "persist": True,
-                    "confirm": True,
-                    "base_checkpoint_id": preview.json()["preview"]["base_checkpoint_id"],
-                },
+                "/api/planning/build/confirm",
+                json={"preview_id": preview.json()["confirmation"]["preview_id"], "confirm": True},
             )
             assert confirmed.status_code == 200
             assert confirmed.json()["plan_id"]

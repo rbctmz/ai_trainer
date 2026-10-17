@@ -160,9 +160,13 @@ class ConnectionProxy:
         return self.conn.commit()
 
 
+@pytest.mark.parametrize("existing", [False, True], ids=["first-insert", "existing-update"])
 @pytest.mark.parametrize("stage", ["checkpoint", "demand", "profile", "receipt", "commit", "invalidation"])
-def test_each_write_failure_rolls_back(tmp_path, monkeypatch, stage):
-    db = seeded_db(tmp_path, existing=True)
+def test_each_write_failure_rolls_back(tmp_path, monkeypatch, stage, existing):
+    db = seeded_db(tmp_path, existing=existing)
+    if not existing:
+        db.delete_user_setting("planning_demand_level")
+        db.delete_user_setting("planning_profile")
     shown = prepare(db)
     if stage == "invalidation":
         add_late_activity(db)
@@ -171,7 +175,7 @@ def test_each_write_failure_rolls_back(tmp_path, monkeypatch, stage):
     elif stage == "checkpoint":
         table, event, condition = "planning_checkpoints", "INSERT", "1"
     else:
-        table, event = "user_settings", "UPDATE"
+        table, event = "user_settings", "UPDATE" if existing else "INSERT"
         condition = f"NEW.key = '{'planning_profile' if stage == 'profile' else 'planning_demand_level'}'"
     if stage != "commit":
         execute(db, f"CREATE TRIGGER fail_write AFTER {event} ON {table} WHEN {condition} "
