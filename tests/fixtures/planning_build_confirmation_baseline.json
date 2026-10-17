@@ -1,0 +1,61 @@
+{
+  "cases": {
+    "event_goal:existing": {
+      "checkpoint": "626a4c0b066436a15ffcd0274f565d1183f6a9fc5a5bd96567aa46af94769e2b",
+      "daily_plan": "b825f6882f57905ba7e2193013d39a17ba09f0c4023c4dd0d5f0b3f20502044d",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "9fbe4bb2a57dd42a330d7a907c8d08ee9ad40f4039e2b43593d0e834261a6c10",
+      "response": "0be912dd53fe4d3672ea109106a2219a18113f5fedad53bd465330fb70331ce6",
+      "science_audit": "962bf4944effa2b428588896ddc8ec48bad8a20b9357df2aaf64311df6ea09a1",
+      "session_templates": "fc2813283a2b6fe4995aca99d2f12ee72eb2cbed950a2e85283076f2d2a7ffe3"
+    },
+    "event_goal:first": {
+      "checkpoint": "55ac71d991466bf8e6993c45b00ee132481d85b7c557142f0afa951cf9a086e1",
+      "daily_plan": "b825f6882f57905ba7e2193013d39a17ba09f0c4023c4dd0d5f0b3f20502044d",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "9fbe4bb2a57dd42a330d7a907c8d08ee9ad40f4039e2b43593d0e834261a6c10",
+      "response": "1ee664ff7f033642703a9e736c442abe382d467e1e0837a97416aaba099a5b13",
+      "science_audit": "962bf4944effa2b428588896ddc8ec48bad8a20b9357df2aaf64311df6ea09a1",
+      "session_templates": "6a52241d408451a3617683c73f4b6a5ad3386ebc67e0c91e45fc47eb5e6e87c1"
+    },
+    "manual:existing": {
+      "checkpoint": "b0e76c0b85eacbb48e2d628336594ef07ef58cc8a9ccce8ba4af9552743a9317",
+      "daily_plan": "d378baf9e5d97e01e71df7114e04ae78159776bad02522d49bf787f05fe90bc0",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "a28b2c1168f2cbb456ee14e87125f5ae287224544c31d46ff01e9a6847a80b77",
+      "response": "0de2ff2c1e3c87fb3941e1e168f9eefa5cb594e233164ac18e30b14d9b50cbf7",
+      "science_audit": "fb8a4f0f753c44cad3e7af41bf67d81e4afdb2161a1870df371457f261e291fa",
+      "session_templates": "ffa48e7836de4476fa457e0339ad809371e1d1eba2a0744a8f62981d00d3664a"
+    },
+    "manual:first": {
+      "checkpoint": "e9446fe5fab6d6053c801dd00a27899ff9ff88af9da40fc6c439133216d85bf0",
+      "daily_plan": "d378baf9e5d97e01e71df7114e04ae78159776bad02522d49bf787f05fe90bc0",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "a28b2c1168f2cbb456ee14e87125f5ae287224544c31d46ff01e9a6847a80b77",
+      "response": "ed5fbf8919b990a1b3d0334efc9fb7d6c04c8ecf0f5761d4efefc0b356d9555c",
+      "science_audit": "fb8a4f0f753c44cad3e7af41bf67d81e4afdb2161a1870df371457f261e291fa",
+      "session_templates": "658cae744e02fb2abfa627a9df5fb7d45a54a7f35201d76ed1871438526541eb"
+    },
+    "training_goal:existing": {
+      "checkpoint": "32c98452e0d7476caed9c0bdbc2ac83b4542bee8839f9a5ae76224de35d2c991",
+      "daily_plan": "346488d8455a3f8f7ae0215bd88f8be2d2b24a55961a7296ffa20e176d646c8e",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "04dd8640cb946bafb0939378e9286caef4222cacf939b3c3d0f7d73e4906e537",
+      "response": "47b13801256358f8dbe058cca8df4a831126b5fb189e05f0c2979f99fbc83632",
+      "science_audit": "98629bc933e86d579da742e11d12ccd3c56fefac72b14b78e34b9036f0484317",
+      "session_templates": "929f6adc52a173c9f41487a7b4abfdfa6a37cc9d710510bc7d439f591b7c6698"
+    },
+    "training_goal:first": {
+      "checkpoint": "3b96a3887c56707c613d7a6974c7d6f036b5247e0bbc47af424d00a7f26902b1",
+      "daily_plan": "346488d8455a3f8f7ae0215bd88f8be2d2b24a55961a7296ffa20e176d646c8e",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "04dd8640cb946bafb0939378e9286caef4222cacf939b3c3d0f7d73e4906e537",
+      "response": "7801e51abfee5d5c6a41885e59639ee87e14e759853b6890a93d704e3ace93a6",
+      "science_audit": "98629bc933e86d579da742e11d12ccd3c56fefac72b14b78e34b9036f0484317",
+      "session_templates": "929f6adc52a173c9f41487a7b4abfdfa6a37cc9d710510bc7d439f591b7c6698"
+    }
+  },
+  "clock": "2026-10-16T12:00:00+03:00",
+  "policy": "SHA-256 canonical JSON of complete checkpoint_data and response without assigned plan_id; component hashes aid diagnosis. Synthetic fixtures only; never regenerate automatically.",
+  "source_sha": "f0f80d335e7f3973a80241a5127d88ba7eca52dc"
+}

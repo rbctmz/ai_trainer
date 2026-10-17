@@ -6,7 +6,7 @@ import sqlite3
 from typing import Any, Mapping
 
 import pandas as pd
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from data.athlete_profile_store import (
     AthleteProfileStore,
@@ -27,6 +27,7 @@ from data.subjective_wellness_store import (
 )
 from models.subjective_wellness import utc_timestamp
 from data.data_coverage_store import DataCoverageStore
+from data.planning_build_preview_store import create_planning_build_previews_table
 from config.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -956,6 +957,7 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_recovery_episode_projection
             ON recovery_episodes(capture_mode, status, session_date)
         ''')
+        create_planning_build_previews_table(conn)
         conn.commit()
         conn.close()
 
@@ -1461,33 +1463,32 @@ class Database:
         if not checkpoint_data or not isinstance(checkpoint_data, dict):
             raise ValueError("checkpoint_data must be a non-empty dict")
 
-        payload = json.dumps(checkpoint_data, ensure_ascii=False)
         conn = self._connect()
-        cursor = conn.cursor()
-        cursor.execute(
-            '''
-            INSERT INTO planning_checkpoints (goal_type, distance, weeks_to_race, checkpoint_data)
-            VALUES (?, ?, ?, ?)
-            ''',
-            (
-                self.clean_value(checkpoint_data.get('goal_type')),
-                self.clean_value(checkpoint_data.get('distance')),
-                self.clean_value(checkpoint_data.get('weeks_to_race')),
-                payload,
-            ),
+        try:
+            saved = self._insert_planning_checkpoint(conn, checkpoint_data)
+            conn.commit()
+            return saved
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def _insert_planning_checkpoint(self, conn, checkpoint_data, *, payload=None):
+        """Insert on the caller's transaction; never commit or open a connection."""
+        if payload is None:
+            payload = json.dumps(checkpoint_data, ensure_ascii=False)
+        cursor = conn.execute(
+            "INSERT INTO planning_checkpoints (goal_type, distance, weeks_to_race, checkpoint_data) "
+            "VALUES (?, ?, ?, ?)",
+            (self.clean_value(checkpoint_data.get('goal_type')),
+             self.clean_value(checkpoint_data.get('distance')),
+             self.clean_value(checkpoint_data.get('weeks_to_race')), payload),
         )
-        checkpoint_id = cursor.lastrowid
-        cursor.execute(
-            '''
-            SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at
-            FROM planning_checkpoints
-            WHERE id = ?
-            ''',
-            (checkpoint_id,),
-        )
-        row = cursor.fetchone()
-        conn.commit()
-        conn.close()
+        row = conn.execute(
+            "SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at "
+            "FROM planning_checkpoints WHERE id = ?", (cursor.lastrowid,),
+        ).fetchone()
         return self._deserialize_planning_checkpoint_row(row)
 
     def commit_coach_plan_mutation(
@@ -1664,6 +1665,13 @@ class Database:
     def get_latest_planning_checkpoint(self):
         """Возвращает последний planning checkpoint или None."""
         conn = self._connect()
+        try:
+            return self._get_latest_planning_checkpoint(conn)
+        finally:
+            conn.close()
+
+    def _get_latest_planning_checkpoint(self, conn):
+        """Read on the caller's transaction without opening or closing it."""
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -1674,7 +1682,6 @@ class Database:
             '''
         )
         row = cursor.fetchone()
-        conn.close()
         return self._deserialize_planning_checkpoint_row(row)
 
     def get_planning_checkpoint(self, checkpoint_id):
@@ -3423,6 +3430,29 @@ class Database:
             date = str(date)
 
         conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            saved = self._insert_coach_proposal(
+                conn, action=action, params=params, preview=preview, date=date,
+                chat_id=chat_id, message_id=message_id, source=source, source_key=source_key,
+                active_key=active_key, decision_event_id=decision_event_id,
+            )
+            if action == "build_plan" and params.get("preview_id"):
+                from data.planning_build_preview_store import bind_coach_preview
+                bind_coach_preview(conn, saved, now=datetime.now(timezone.utc))
+            conn.commit()
+            return saved
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def _insert_coach_proposal(
+        self, conn, *, action, params, preview, date, chat_id, message_id,
+        source, source_key, active_key, decision_event_id,
+    ):
+        """Existing insert/dedup semantics on the caller's transaction."""
         cursor = conn.cursor()
         base_checkpoint_id = self._optional_int(
             params.get("base_checkpoint_id", preview.get("base_checkpoint_id"))
@@ -3474,7 +3504,6 @@ class Database:
                 )
                 row = cursor.fetchone()
             if row is None:
-                conn.close()
                 raise RuntimeError("proposal insert was ignored without an idempotency match")
             proposal_id = row[0]
         else:
@@ -3500,8 +3529,6 @@ class Database:
             (proposal_id,),
         )
         row = cursor.fetchone()
-        conn.commit()
-        conn.close()
         return self._deserialize_coach_proposal_row(row)
 
     def update_coach_proposal_preview(self, proposal_id, preview):
@@ -3987,6 +4014,12 @@ class Database:
         if proposal_id is None:
             return None
         conn = self._connect()
+        try:
+            return self._get_coach_proposal(conn, proposal_id)
+        finally:
+            conn.close()
+
+    def _get_coach_proposal(self, conn, proposal_id):
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -4001,7 +4034,6 @@ class Database:
             (int(proposal_id),),
         )
         row = cursor.fetchone()
-        conn.close()
         return self._deserialize_coach_proposal_row(row)
 
     def get_coach_proposals(self, days=30, status=None, limit=100):
@@ -4489,6 +4521,16 @@ class Database:
         limit=100,
     ):
         """Возвращает durable-ограничения за окно дат, новые первыми внутри даты."""
+        conn = self._connect()
+        try:
+            return self._get_coach_constraints(conn, start_date, end_date, active_only, limit)
+        finally:
+            conn.close()
+
+    def _get_coach_constraints(
+        self, conn, start_date=None, end_date=None, active_only=True, limit=100,
+    ):
+        """Read the same bounded constraint view on a caller-owned connection."""
         clauses = []
         params = []
         if start_date:
@@ -4501,7 +4543,6 @@ class Database:
             clauses.append("status = 'active'")
 
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             f'''
@@ -4515,7 +4556,6 @@ class Database:
             (*params, max(1, int(limit or 1))),
         )
         rows = cursor.fetchall()
-        conn.close()
         return [self._deserialize_coach_constraint_row(row) for row in rows]
 
     def deactivate_coach_constraint(self, constraint_id):
@@ -4573,10 +4613,13 @@ class Database:
     def get_activities(self, days=30):
         """Получение активностей из БД"""
         conn = self._connect()
-        
-        # Если данные есть, получаем их с фильтрацией
-        cutoff_date = self._cutoff_date(days)
-        
+        try:
+            return self._get_activities(conn, self._cutoff_date(days))
+        finally:
+            conn.close()
+
+    def _get_activities(self, conn, cutoff_date):
+        """Read the established activity view in the caller's read transaction."""
         query = '''
             SELECT a.*,
                    (
@@ -4593,7 +4636,6 @@ class Database:
             ORDER BY a.date DESC
         '''
         df = pd.read_sql_query(query, conn, params=(cutoff_date,))
-        conn.close()
         
         # Преобразование даты в datetime если она есть  
         if not df.empty and 'date' in df.columns:
@@ -5572,6 +5614,8 @@ class Database:
         """Очистка всех данных из базы"""
         conn = self._connect()
         cursor = conn.cursor()
+
+        cursor.execute('DELETE FROM planning_build_previews')
         
         # Очищаем все таблицы
         cursor.execute('DELETE FROM activities')
@@ -5702,9 +5746,13 @@ class Database:
         """Возвращает самый свежий снэпшот athlete profile, или None если ещё ничего не синкалось."""
         conn = self._connect()
         try:
-            return AthleteProfileStore(conn, self.clean_value).get()
+            return self._get_athlete_profile(conn)
         finally:
             conn.close()
+
+    def _get_athlete_profile(self, conn):
+        """Read profile on an existing transaction, preserving public semantics."""
+        return AthleteProfileStore(conn, self.clean_value).get()
 
     def get_athlete_pace_threshold_history(self, sport):
         """Return append-only pace-threshold snapshots for run or swim."""

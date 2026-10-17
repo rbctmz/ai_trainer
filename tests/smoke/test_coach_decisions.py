@@ -422,17 +422,13 @@ def test_approve_build_plan_proposal_persists_checkpoint(tmp_path):
 
     db = _seeded_db(tmp_path, "approve_build.db")
     event_date = _future_event_date()
-    proposal = db.save_coach_proposal(
-        action="build_plan",
-        params={
-            "goal_type": "Триатлон",
-            "distance": "Olympic",
-            "event_date": event_date,
-            "available_hours": 10,
-            "available_days": ["mon", "wed", "sat", "sun"],
-        },
-        preview={"total_weeks": 8},
+    from models.ai_tools import AITools
+    raw = AITools(db).propose_plan_build(
+        goal_type="Триатлон", distance="Olympic", event_date=event_date,
+        available_hours=10, available_days="mon,wed,sat,sun",
     )
+    proposal = db.save_coach_proposal(action=raw["action"], params=raw["params"], preview=raw["preview"])
+
 
     payload = approve_proposal(proposal["id"], db=db)
 
@@ -450,7 +446,7 @@ def test_approve_build_plan_proposal_persists_checkpoint(tmp_path):
 
 
 def test_coach_build_proposal_records_and_guards_its_preview_base(tmp_path):
-    from fastapi import HTTPException
+    from models.planning_build_confirmation import PlanningBuildPreviewError
 
     from api import planning_service
     from api.routers.decisions import approve_proposal
@@ -494,11 +490,11 @@ def test_coach_build_proposal_records_and_guards_its_preview_base(tmp_path):
         persist=True,
     )
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(PlanningBuildPreviewError) as exc_info:
         approve_proposal(proposal["id"], db=db)
 
-    assert exc_info.value.status_code == 409
-    assert db.get_coach_proposal(proposal["id"])["status"] == "failed"
+    assert exc_info.value.status == 409
+    assert db.get_coach_proposal(proposal["id"])["status"] == "pending"
 
 
 def test_reject_plan_proposal_does_not_mutate_active_plan(tmp_path):

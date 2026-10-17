@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
-import { ApiError, fetcher, postJSON, putJSON } from "@/lib/api";
+import { ApiError, fetcher, postJSON } from "@/lib/api";
 import {
   BuiltPlan,
+  BuildPreviewResponse,
+  BuildConfirmResponse,
   ForecastPoint,
   PlanningDemand,
   PlanningEditContext,
@@ -103,14 +105,16 @@ function microcycleStateLabel(state: { role: string; sport: string; tss: number 
  * Serves both the first-plan path (hydrates once from onboarding suggestions)
  * and the "Изменить план" path (hydrates once from the active checkpoint via
  * /api/planning/edit-context). Preview is explicit on step 3; confirmation is
- * an explicit action on step 4 and writes through the existing /build flow.
+ * an explicit identity-only action on step 4.
  */
 export function PlanBuilder({
   status,
   onSaved,
+  onConfirmationLockChange,
 }: {
   status?: PlanningStatus;
   onSaved?: () => void;
+  onConfirmationLockChange?: (locked: boolean) => void;
 }) {
   const { mutate } = useSWRConfig();
   const [step, setStep] = useState(1);
@@ -130,10 +134,15 @@ export function PlanBuilder({
   const [demand, setDemand] = useState("moderate");
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [profileWarning, setProfileWarning] = useState<string | null>(null);
-  const [plan, setPlan] = useState<BuiltPlan | null>(null);
+  const [plan, setPlan] = useState<BuildPreviewResponse | BuildConfirmResponse | null>(null);
   const [selectedEvents, setSelectedEvents] = useState<RaceEvent[]>([]);
-  const [lastRequest, setLastRequest] = useState<Record<string, unknown> | null>(null);
+  const [flow, setFlow] = useState<"editing" | "previewing" | "ready" | "confirming" | "uncertain" | "applied" | "needs_preview">("editing");
+  const [canRetry, setCanRetry] = useState(true);
+  const generation = useRef(0);
+  const attempt = useRef<string | null>(null);
+  const confirming = useRef(false);
+  const confirmationLocked = flow === "confirming" || flow === "uncertain";
+  useEffect(() => { onConfirmationLockChange?.(confirmationLocked); }, [confirmationLocked, onConfirmationLockChange]);
   // Сохранённая неделя старта активного плана: при редактировании пересборка
   // идёт с того же календаря, а не «с сегодня» (#337, фикс после ручной приёмки).
   const [startWeek, setStartWeek] = useState<string | null>(null);
@@ -196,7 +205,7 @@ export function PlanBuilder({
   }, [onboarding, editContext, status?.has_plan]);
 
   useEffect(() => {
-    if (status?.demand?.level) {
+    if (status?.demand?.level && !attempt.current && generation.current === 0) {
       setDemand(status.demand.level);
     }
   }, [status?.demand?.level]);
@@ -221,8 +230,12 @@ export function PlanBuilder({
   );
 
   function invalidatePlan() {
+    if (attempt.current) return;
+    generation.current += 1;
     setPlan(null);
-    setLastRequest(null);
+    setFlow("editing");
+    setBuilding(false);
+    setError(null);
   }
   function onGoalChange(v: string) {
     setGoalType(v);
@@ -274,58 +287,71 @@ export function PlanBuilder({
     };
   }
   async function build() {
+    if (attempt.current) return;
+    const current = ++generation.current;
+    setFlow("previewing");
+    setPlan(null);
     setBuilding(true);
     setError(null);
     try {
-      const request = requestPayload();
-      setLastRequest(request);
-      setPlan(await postJSON<BuiltPlan>("/api/planning/build", { ...request, persist: false, confirm: false }));
+      const prepared = await postJSON<BuildPreviewResponse>("/api/planning/build", requestPayload());
+      if (current !== generation.current) return;
+      setPlan(prepared);
+      setFlow("ready");
     } catch (e) {
+      if (current !== generation.current) return;
+      setFlow("editing");
       setError(e instanceof ApiError ? e.message : "Не удалось собрать план");
     } finally {
-      setBuilding(false);
+      if (current === generation.current) setBuilding(false);
     }
   }
   async function confirmPlan() {
-    if (!lastRequest) return;
+    if (confirming.current) return;
+    const token = attempt.current ?? plan?.confirmation.preview_id;
+    if (!token) return;
+    attempt.current = token;
+    confirming.current = true;
+    setFlow("confirming");
     setBuilding(true);
     setError(null);
-    setProfileWarning(null);
     try {
-      const confirmed = await postJSON<BuiltPlan>("/api/planning/build", {
-        ...lastRequest,
-        persist: true,
-        confirm: true,
-        base_checkpoint_id: plan?.preview.base_checkpoint_id ?? 0,
+      const confirmed = await postJSON<BuildConfirmResponse>("/api/planning/build/confirm", {
+        preview_id: token, confirm: true,
       });
       setPlan(confirmed);
-      // Параметры, которыми план собран, становятся сохранённым профилем: следующий
-      // вход начинается с них, а не с констант (#271 §3). Неудача записи профиля не
-      // отменяет уже сохранённый план — это разные решения.
-      try {
-        await putJSON("/api/onboarding/planning", {
-          planning_mode: planningMode,
-          intent,
-          goal_type: goalType,
-          distance,
-          available_hours: hours,
-          available_days: days,
-          horizon_weeks: planningMode === "event_goal" ? 8 : horizonWeeks,
-          source: "planning_form",
-        });
-      } catch {
-        setProfileWarning(
-          "План сохранён, но параметры профиля записать не удалось. Сам план не потерян.",
-        );
-      }
-      await Promise.all([
-        mutate("/api/planning/status"),
-        mutate("/api/planning/history?limit=8"),
-        mutate("/api/onboarding/planning"),
+      attempt.current = null;
+      setFlow("applied");
+      // Profile and demand were committed with this plan; refresh cannot undo it.
+      const source = confirmed.parameters;
+      setPlanningMode(source.planning_mode);
+      setIntent(source.intent as "maintain" | "develop");
+      setGoalType(source.goal_type);
+      setDistance(source.distance);
+      setHours(source.available_hours);
+      setDays(source.available_days);
+      setDemand(source.demand);
+      setHorizonWeeks(source.horizon_weeks);
+      await Promise.allSettled([
+        mutate("/api/planning/status"), mutate("/api/planning/overview"),
+        mutate("/api/planning/history?limit=8"), mutate("/api/onboarding/planning"),
+        mutate("/api/planning/edit-context"),
       ]);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Не удалось подтвердить план");
+      const terminal = e instanceof ApiError && ["preview_stale", "preview_invalidated", "preview_expired", "preview_required", "proposal_not_pending"].includes(e.code ?? "");
+      if (terminal) {
+        attempt.current = null;
+        generation.current += 1;
+        setPlan(null);
+        setFlow("needs_preview");
+        setError(e instanceof ApiError ? e.message : "Нужен новый предпросмотр");
+      } else {
+        setFlow("uncertain");
+        setCanRetry(!(e instanceof ApiError) || e.retryable === true || e.status === 422 || (!e.code && e.status >= 500));
+        setError(e instanceof ApiError ? e.message : null);
+      }
     } finally {
+      confirming.current = false;
       setBuilding(false);
     }
   }
@@ -338,14 +364,13 @@ export function PlanBuilder({
     step === 4;
 
   function goToStep(next: number) {
+    if (attempt.current) return;
     setStep(next);
     requestAnimationFrame(() => stepHeadingRef.current?.focus());
   }
   function resetBuilder() {
-    setPlan(null);
-    setLastRequest(null);
-    setError(null);
-    setProfileWarning(null);
+    if (attempt.current) return;
+    invalidatePlan();
     goToStep(1);
   }
 
@@ -378,7 +403,7 @@ export function PlanBuilder({
                     type="button"
                     onClick={() => isReached && goToStep(n)}
                     aria-current={isCurrent ? "step" : undefined}
-                    disabled={!isReached && !isCurrent}
+                    disabled={confirmationLocked || (!isReached && !isCurrent)}
                     className={`w-full rounded-lg border px-2 py-2 text-left text-xs font-medium transition disabled:opacity-50 ${
                       isCurrent
                         ? "border-accent bg-accent/10 text-ink"
@@ -396,6 +421,7 @@ export function PlanBuilder({
           </ol>
         </nav>
 
+        <fieldset disabled={confirmationLocked}>
         {step === 1 ? (
           <>
             <Field label="Подход к планированию">
@@ -426,7 +452,7 @@ export function PlanBuilder({
                 <Select value={goalType} onChange={onGoalChange} options={GOAL_TYPES} />
               </Field>
               <Field label="Дистанция">
-                <Select value={distance} onChange={setDistance} options={DISTANCES[goalType]} />
+                <Select value={distance} onChange={(value) => { setDistance(value); invalidatePlan(); }} options={DISTANCES[goalType]} />
               </Field>
               {planningMode === "event_goal" ? (
                 <Field label="Дата A-старта">
@@ -615,22 +641,28 @@ export function PlanBuilder({
           </>
         ) : null}
 
+        </fieldset>
+        {confirmationLocked ? (
+          <div role="status" aria-live="polite" className="mt-3 rounded-lg border border-surface-border p-3 text-sm text-ink">
+            {flow === "confirming" ? "Сохраняю план. Дождитесь результата." : "Статус сохранения неизвестен. Повторите проверку"}
+            <p className="mt-1 text-xs text-ink-soft">Изменение параметров и отмена недоступны до выяснения результата сохранения.</p>
+            {flow === "uncertain" && canRetry ? <button type="button" onClick={confirmPlan} className="mt-2 rounded-lg bg-accent px-4 py-2 text-accent-foreground">Повторить проверку</button> : null}
+            {flow === "uncertain" && !canRetry ? <p className="mt-2">Нужна проверка сохранения. Не создавайте новый вариант плана.</p> : null}
+          </div>
+        ) : null}
+        {flow === "needs_preview" ? <button type="button" onClick={() => { setError(null); goToStep(3); }} className="mt-3 rounded-lg border border-surface-border px-4 py-2 text-sm">Вернуться к предпросмотру</button> : null}
         {error ? (
-          <div className="mt-3 rounded-lg bg-tone-danger/10 px-3 py-2 text-sm text-tone-danger">
+          <div role="alert" className="mt-3 rounded-lg bg-tone-danger/10 px-3 py-2 text-sm text-tone-danger">
             {error}
           </div>
         ) : null}
-        {profileWarning ? (
-          <div className="mt-3 rounded-lg bg-tone-warning/10 px-3 py-2 text-sm text-tone-warning">
-            {profileWarning}
-          </div>
-        ) : null}
+
 
         <div className="mt-5 flex items-center justify-between gap-3">
           <button
             type="button"
             onClick={() => goToStep(step - 1)}
-            disabled={step === 1 || building}
+            disabled={step === 1 || confirmationLocked}
             className="rounded-lg border border-surface-border px-4 py-2 text-sm font-medium text-ink-soft transition hover:bg-surface-muted disabled:opacity-40"
           >
             Назад
@@ -639,7 +671,7 @@ export function PlanBuilder({
             <button
               type="button"
               onClick={() => goToStep(step + 1)}
-              disabled={!canProceedFromStep || building}
+              disabled={!canProceedFromStep || building || confirmationLocked}
               className="rounded-lg bg-accent px-6 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40"
             >
               Далее
@@ -660,7 +692,7 @@ export function PlanBuilder({
                   >
                     ✓
                   </span>
-                  План сохранён и стал активным
+                  {plan.confirmation.is_current === false ? "Этот вариант уже сохранялся; сейчас действует другой план" : "План сохранён и стал активным"}
                 </div>
                 <p className="mt-1 text-xs">
                   Новая версия сохранена как checkpoint #{plan.plan_id}. Общая нагрузка
@@ -693,7 +725,7 @@ export function PlanBuilder({
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-                    Предпросмотр · SQLite не изменён
+                    {confirmationLocked ? "Сохранение требует проверки" : "Предпросмотр · План ещё не сохранён"}
                   </div>
                   <div className="mt-1 text-sm text-ink-soft">
                     Изменение нагрузки: {plan.preview.weekly_tss_delta >= 0 ? "+" : ""}{plan.preview.weekly_tss_delta} TSS · {plan.event_overlay.rule_version}
@@ -703,6 +735,7 @@ export function PlanBuilder({
                   <button
                     type="button"
                     onClick={resetBuilder}
+                    disabled={confirmationLocked}
                     className="rounded-lg border border-surface-border px-3 py-2 text-sm text-ink-soft"
                   >
                     Отменить
@@ -710,7 +743,7 @@ export function PlanBuilder({
                   <button
                     type="button"
                     onClick={confirmPlan}
-                    disabled={building}
+                    disabled={building || confirmationLocked || flow !== "ready"}
                     className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground disabled:opacity-40"
                   >
                     Подтвердить и сохранить

@@ -31,9 +31,10 @@ def test_m2_t6_event_goal_requires_confirmed_a_race_or_manual_date():
     assert 'planningMode === "event_goal" && !hasSelectedARace ? eventDate : null' in source
 
 
-def test_m2_t5_confirm_persists_profile_without_hiding_partial_failure():
-    source = PAGE.read_text(encoding="utf-8") + BUILDER.read_text(encoding="utf-8")
+def test_m2_t5_confirm_uses_atomic_server_profile_without_followup_put():
+    source = BUILDER.read_text(encoding="utf-8")
 
-    assert 'putJSON("/api/onboarding/planning"' in source
-    assert "setProfileWarning(" in source
-    assert "План сохранён, но параметры профиля записать не удалось" in source
+    assert '"/api/planning/build/confirm"' in source
+    assert 'putJSON("/api/onboarding/planning"' not in source
+    assert "setProfileWarning(" not in source
+    assert "confirmed.parameters" in source

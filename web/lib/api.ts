@@ -3,9 +3,13 @@
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  code?: string;
+  retryable?: boolean;
+  constructor(status: number, message: string, code?: string, retryable?: boolean) {
     super(message);
     this.status = status;
+    this.code = code;
+    this.retryable = retryable;
     this.name = "ApiError";
   }
 }
@@ -45,13 +49,17 @@ export async function postJSON<T>(path: string, body: unknown): Promise<T> {
   });
   if (!res.ok) {
     let detail = `Request failed: ${res.status}`;
+    let code: string | undefined;
+    let retryable: boolean | undefined;
     try {
       const j = await res.json();
       if (j?.detail) detail = j.detail;
+      if (typeof j?.code === "string") code = j.code;
+      if (typeof j?.retryable === "boolean") retryable = j.retryable;
     } catch {
       /* ignore */
     }
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, detail, code, retryable);
   }
   return (await res.json()) as T;
 }

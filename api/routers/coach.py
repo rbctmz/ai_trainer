@@ -308,10 +308,10 @@ def coach_chat(
                         {
                             "type": "proposal",
                             "proposal_id": saved_proposal.get("id"),
-                            "action": raw_result.get("action"),
+                            "action": saved_proposal.get("action"),
                             "status": saved_proposal.get("status"),
-                            "params": raw_result.get("params", {}),
-                            "preview": raw_result.get("preview", {}),
+                            "params": saved_proposal.get("params", {}),
+                            "preview": saved_proposal.get("preview", {}),
                         }
                     )
 

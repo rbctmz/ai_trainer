@@ -8,15 +8,24 @@ math is reimplemented here — only orchestration + JSON shaping.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from dataclasses import replace
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+import sqlite3
+from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence
 
 import pandas as pd
 
 from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
+from data.planning_build_preview_store import apply_preview, preview_response, store_pending
+from config.settings import Settings
+from models import planning_build_confirmation as build_protocol
+from models.planning_build_confirmation import (
+    BuildInputSnapshot, BuildParameters, PreparedPlanBuild, PlanningBuildPreviewError, canonical_json,
+    dependency_components,
+)
 from models.banister import BanisterModel, tsb_zone
 from models.coach_constraints import apply_constraints_to_goal_plan, normalize_constraint_sport, recalc_goal_plan_weekly_totals
 from models.fit_export import build_steps_for_sport, generate_fit_csv
@@ -26,7 +35,7 @@ from models.plan_events import (
     normalized_events,
     synchronize_goal_plan_events,
 )
-from models.plan_science_audit import audit_training_plan
+from models.plan_science_audit import SCIENCE_POLICY_VERSION, audit_training_plan
 from models.planning_checkpoints import (
     build_planning_checkpoint,
     restore_goal_plan_from_checkpoint,
@@ -67,7 +76,7 @@ from models.planning_targets import (
     normalize_demand_level,
     public_weekly_target_payload,
 )
-from models.signals_engine import assemble_signals
+from models.signals_engine import assemble_signals, training_load_metrics
 from models.tcx_activity_export import generate_tcx_activity
 from models.tcx_export import generate_tcx_workout
 from models.training_planner import (
@@ -85,6 +94,7 @@ from models.training_planner import (
     synchronize_microcycle_changes,
     WEEKDAY_LABELS_RU,
     weeks_until,
+    RACE_OVERLAY_RULE_VERSION,
 )
 from models.workout_catalog import (
     CATALOG_VERSION,
@@ -1222,6 +1232,167 @@ def target_preview(
     }
 
 
+def _build_activities_frame(payload: Mapping[str, Any]) -> pd.DataFrame:
+    frame = pd.DataFrame(payload["data"], columns=payload["columns"])
+    if not frame.empty:
+        frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
+    return frame
+
+
+def _capture_plan_build_inputs(
+    db: Database, parameters: BuildParameters, *, conn: sqlite3.Connection | None = None,
+    checkpoint_source: str = "initial_plan",
+) -> BuildInputSnapshot:
+    """Capture all calculation dependencies on exactly one explicit read transaction."""
+    if conn is None:
+        own = db._connect()
+        try:
+            own.execute("BEGIN")
+            return _capture_plan_build_inputs(db, parameters, conn=own, checkpoint_source=checkpoint_source)
+        finally:
+            own.rollback()
+            own.close()
+
+    as_of = athlete_local_date()
+    cutoff = db._cutoff_date(90)
+    revision_time = datetime.now().isoformat()
+    latest = db._get_latest_planning_checkpoint(conn)
+    latest_id = int((latest or {}).get("id") or 0)
+    raw = parameters.as_dict()
+    expected = raw.get("base_checkpoint_id")
+    if expected is not None and int(expected) != latest_id:
+        raise StalePlanningCheckpointError("Активный план изменился — пересоберите предпросмотр.")
+    settings = dict(conn.execute(
+        "SELECT key, value FROM user_settings WHERE key IN (?, ?)",
+        (PLANNING_DEMAND_SETTING_KEY, "planning_profile"),
+    ).fetchall())
+    mode = str(raw.get("planning_mode") or "event_goal").strip().lower()
+    intent = str(raw.get("intent") or "develop").strip().lower()
+    if mode not in PLANNING_MODES or intent not in PLANNING_INTENTS:
+        raise ValueError("invalid planning_mode or intent")
+    values = {
+        "goal_type": _reverse_goal_type(_internal_goal_type(raw["goal_type"])),
+        "distance": _reverse_distance(_internal_distance(raw["distance"])),
+        "event_date": raw.get("event_date"),
+        "start_week": raw.get("start_week") or _start_week(as_of).isoformat(),
+        "planning_mode": mode, "intent": intent,
+        "focus": str(raw.get("focus") or "balanced_triathlon"),
+        "horizon_weeks": int(raw.get("horizon_weeks") or 8),
+        "manual_phases": raw.get("manual_phases"), "events": raw.get("events"),
+        "available_hours": float(raw.get("available_hours", 10.0)),
+        "available_days": [list(DAY_MAP)[index] for index in _day_indices(raw.get("available_days"))],
+        "demand": normalize_demand_level(raw.get("demand") or settings.get(PLANNING_DEMAND_SETTING_KEY)),
+        "base_checkpoint_id": latest_id,
+    }
+    events, _, _, weeks = _plan_build_calendar(values)
+    values["events"] = events
+    start = date.fromisoformat(values["start_week"])
+    end = start + timedelta(days=weeks * 7 - 1)
+    activities = db._get_activities(conn, cutoff)
+    # SQL/pandas missing values are absent evidence. Infinity is not missing
+    # and canonical serialization rejects it instead of publishing a bad plan.
+    frame = activities.astype(object).where(pd.notna(activities), None)
+    sources = {
+        "activities": {"columns": list(frame.columns), "data": frame.values.tolist()},
+        "latest_checkpoint": latest,
+        "athlete_profile": db._get_athlete_profile(conn) or {},
+        "constraints": db._get_coach_constraints(conn, start.isoformat(), end.isoformat(), True, 500),
+        "settings": settings,
+    }
+    sources_json = canonical_json(sources)
+    context = {
+        "athlete_day": as_of.isoformat(), "athlete_timezone": Settings.ATHLETE_TIMEZONE,
+        "activity_cutoff": cutoff, "constraint_start": start.isoformat(), "constraint_end": end.isoformat(),
+        "effective_horizon_weeks": weeks,
+        "components": dependency_components(sources_json),
+        "versions": {
+            "protocol": build_protocol.PROTOCOL_VERSION, "canonical": build_protocol.CANONICAL_VERSION,
+            "build": build_protocol.PLANNING_BUILD_RULE_VERSION, "catalog": CATALOG_VERSION,
+            "selector": SELECTOR_RULE_VERSION, "materializer": MATERIALIZER_RULE_VERSION,
+            "overlay": RACE_OVERLAY_RULE_VERSION, "science": SCIENCE_POLICY_VERSION,
+        },
+    }
+    return BuildInputSnapshot(BuildParameters.from_mapping(values), sources_json,
+                              canonical_json(context), revision_time, checkpoint_source)
+
+
+def prepare_plan_build(
+    db: Database, *, parameters: BuildParameters, origin: Literal["planning_ui", "coach"],
+) -> dict[str, Any]:
+    """Retain a complete, current preview without changing the active plan/settings."""
+    if origin not in {"planning_ui", "coach"}:
+        raise ValueError("unsupported planning preview origin")
+    try:
+        snapshot = _capture_plan_build_inputs(db, parameters)
+        prepared = _calculate_plan_build(snapshot)
+        values = snapshot.parameters.as_dict()
+        writes = {}
+        if origin == "planning_ui":
+            from services.planning_profile import normalize_profile
+            writes["planning_profile"] = normalize_profile({**values, "source": "planning_form"})
+        if origin == "planning_ui" or parameters.as_dict().get("demand") is not None:
+            writes[PLANNING_DEMAND_SETTING_KEY] = values["demand"]
+        prepared = replace(prepared, settings_write_json=canonical_json(writes))
+        row = store_pending(
+            db, prepared, origin=origin, now=datetime.now(timezone.utc),
+            recheck=lambda conn: _capture_plan_build_inputs(db, snapshot.parameters, conn=conn).dependency_digest,
+        )
+    except StalePlanningCheckpointError as exc:
+        raise PlanningBuildPreviewError("preview_stale", "Данные изменились — пересоберите предпросмотр.") from exc
+    except sqlite3.Error as exc:
+        busy = isinstance(exc, sqlite3.OperationalError) and any(word in str(exc).lower() for word in ("locked", "busy"))
+        raise PlanningBuildPreviewError(
+            "planning_busy" if busy else "planning_storage_error",
+            "Хранилище занято; повторите запрос." if busy else "Не удалось сохранить предпросмотр; повторите запрос.",
+            status=503 if busy else 500, retryable=True,
+        ) from exc
+    return preview_response(row)
+
+
+def confirm_plan_build(
+    db: Database, *, preview_id: str, origin: Literal["planning_ui", "coach"],
+    proposal_id: int | None = None,
+) -> dict[str, Any]:
+    """Apply the retained result once; retry returns its durable receipt."""
+    from api.planning_build_contract import BuildConfirmResponse
+    from pydantic import ValidationError
+
+    def recheck(conn: sqlite3.Connection, row: dict[str, Any]) -> bool:
+        try:
+            captured = _capture_plan_build_inputs(db, BuildParameters(row["parameters_json"]), conn=conn)
+            return captured.dependency_digest == row["dependency_digest"]
+        except (ValueError, TypeError, KeyError):
+            # Current dependencies may have become unusable since preparation.
+            return False
+
+    def validate_response(result: dict[str, Any]) -> None:
+        try:
+            BuildConfirmResponse.model_validate(result)
+            canonical_json(result)
+        except (ValidationError, ValueError, TypeError) as exc:
+            raise PlanningBuildPreviewError("preview_corrupt", "Предпросмотр повреждён; требуется проверка.", status=500) from exc
+
+    try:
+        return apply_preview(db, preview_id, origin=origin, now=lambda: datetime.now(timezone.utc),
+                             recheck=recheck, validate_response=validate_response, proposal_id=proposal_id)
+    except sqlite3.Error as exc:
+        busy = isinstance(exc, sqlite3.OperationalError) and any(word in str(exc).lower() for word in ("locked", "busy"))
+        raise PlanningBuildPreviewError(
+            "planning_busy" if busy else "planning_storage_error",
+            "Хранилище занято; повторите запрос." if busy else "Не удалось подтвердить план; повторите запрос с тем же предпросмотром.",
+            status=503 if busy else 500, retryable=True,
+        ) from exc
+    except PlanningBuildPreviewError:
+        raise
+    except Exception as exc:
+        # The transaction owner has rolled back (or committed before an unknown
+        # response failure). Preserve identity so retry can resolve either case.
+        raise PlanningBuildPreviewError(
+            "planning_storage_error", "Не удалось подтвердить план; повторите запрос с тем же предпросмотром.",
+            status=500, retryable=True,
+        ) from exc
+
+
 def build_plan(
     db: Database,
     *,
@@ -1242,31 +1413,36 @@ def build_plan(
     start_week: Optional[date] = None,
     checkpoint_source: str = "initial_plan",
 ) -> Dict[str, Any]:
-    metrics, banister, activities_df = _current_metrics(db)
-    gt = _internal_goal_type(goal_type)
-    dist = _internal_distance(distance)
-    day_indices = _day_indices(available_days)
+    """Trusted/internal facade. Public confirmation moves to the new protocol in M3."""
+    parameters = BuildParameters.from_mapping({
+        "goal_type": goal_type, "distance": distance, "event_date": event_date,
+        "available_hours": available_hours, "available_days": available_days,
+        "demand": demand, "planning_mode": planning_mode, "intent": intent,
+        "focus": focus, "horizon_weeks": horizon_weeks, "manual_phases": manual_phases,
+        "events": events, "start_week": start_week,
+        "base_checkpoint_id": expected_base_checkpoint_id,
+    })
+    snapshot = _capture_plan_build_inputs(db, parameters, checkpoint_source=checkpoint_source)
+    prepared = _calculate_plan_build(snapshot)
+    response = json.loads(prepared.response_json)
+    if persist:
+        if demand is not None:
+            db.set_user_setting(PLANNING_DEMAND_SETTING_KEY, snapshot.parameters.as_dict()["demand"])
+        saved = db.save_planning_checkpoint(json.loads(prepared.checkpoint_json))
+        response["plan_id"] = str((saved or {}).get("id") or (saved or {}).get("checkpoint_id") or "")
+        response["confirmation_required"] = False
+    return response
 
-    start_week = start_week or _start_week()
-    mode = str(planning_mode or "event_goal").strip().lower()
-    normalized_intent = str(intent or "develop").strip().lower()
-    if mode not in PLANNING_MODES:
-        raise ValueError("planning_mode must be event_goal, training_goal, or manual")
-    if normalized_intent not in PLANNING_INTENTS:
-        raise ValueError("intent must be maintain or develop")
 
-    latest_checkpoint = db.get_latest_planning_checkpoint()
-    latest_checkpoint_id = (
-        int(latest_checkpoint.get("id"))
-        if isinstance(latest_checkpoint, dict) and latest_checkpoint.get("id") is not None
-        else 0
-    )
-    if expected_base_checkpoint_id is not None and latest_checkpoint_id != int(expected_base_checkpoint_id):
-        raise StalePlanningCheckpointError(
-            f"active checkpoint #{latest_checkpoint_id or 'none'} no longer matches preview base "
-            f"#{int(expected_base_checkpoint_id) or 'none'}"
-        )
-
+def _plan_build_calendar(parameters: Mapping[str, Any]):
+    """Resolve effective event horizon once through the established formulas."""
+    gt = _internal_goal_type(parameters["goal_type"])
+    dist = _internal_distance(parameters["distance"])
+    events = parameters.get("events")
+    event_date = parameters.get("event_date")
+    start_week = date.fromisoformat(parameters["start_week"])
+    mode = parameters["planning_mode"]
+    horizon_weeks = parameters["horizon_weeks"]
     plan_events = normalized_events(events)
     if not plan_events and event_date:
         legacy_explicit = build_primary_event(event_date, f"{gt} {dist}")
@@ -1288,10 +1464,61 @@ def build_plan(
     weeks_to_race = max(1, weeks_until(goal_dt, from_date=start_week)) if goal_dt else None
     weeks_total = int(weeks_to_race or max(4, min(8, int(horizon_weeks or 8))))
 
+    return plan_events, goal_dt, weeks_to_race, weeks_total
+
+
+def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
+    """Calculate only from immutable inputs: no SQLite, provider or wall-clock reads."""
+    params = snapshot.parameters.as_dict()
+    inputs = snapshot.sources()
+    context = snapshot.context()
+    activities_df = _build_activities_frame(inputs["activities"])
+    # The unified assembler also runs readiness, which has its own live-day
+    # fallback. This build consumes load only: use its existing canonical
+    # Banister/daily-series helper with the explicitly captured anchor.
+    metrics = _metrics_from_signals({"load": training_load_metrics(
+        activities_df=activities_df, as_of=date.fromisoformat(context["athlete_day"]),
+    )})
+    banister = BanisterModel()
+    goal_type = params["goal_type"]
+    distance = params["distance"]
+    available_days = params["available_days"]
+    available_hours = params["available_hours"]
+    planning_mode = params["planning_mode"]
+    intent = params["intent"]
+    focus = params["focus"]
+    manual_phases = params["manual_phases"]
+    demand = params["demand"]
+    expected_base_checkpoint_id = params["base_checkpoint_id"]
+    checkpoint_source = snapshot.checkpoint_source
+    gt = _internal_goal_type(goal_type)
+    dist = _internal_distance(distance)
+    day_indices = _day_indices(available_days)
+
+    start_week = date.fromisoformat(params["start_week"])
+    mode = str(planning_mode or "event_goal").strip().lower()
+    normalized_intent = str(intent or "develop").strip().lower()
+    if mode not in PLANNING_MODES:
+        raise ValueError("planning_mode must be event_goal, training_goal, or manual")
+    if normalized_intent not in PLANNING_INTENTS:
+        raise ValueError("intent must be maintain or develop")
+
+    latest_checkpoint = inputs["latest_checkpoint"]
+    latest_checkpoint_id = (
+        int(latest_checkpoint.get("id"))
+        if isinstance(latest_checkpoint, dict) and latest_checkpoint.get("id") is not None
+        else 0
+    )
+    if expected_base_checkpoint_id is not None and latest_checkpoint_id != int(expected_base_checkpoint_id):
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_checkpoint_id or 'none'} no longer matches preview base "
+            f"#{int(expected_base_checkpoint_id) or 'none'}"
+        )
+
+    plan_events, goal_dt, weeks_to_race, weeks_total = _plan_build_calendar(params)
+
     start_weekly_tss_guess = int(float(metrics.get("ctl", 50) or 50) * 7)
-    demand_level = normalize_demand_level(demand or _persisted_demand_level(db))
-    if demand is not None and persist:
-        db.set_user_setting(PLANNING_DEMAND_SETTING_KEY, demand_level)
+    demand_level = normalize_demand_level(demand)
     target_breakdown = build_weekly_target_breakdown(
         goal_type=gt,
         distance=dist,
@@ -1334,7 +1561,7 @@ def build_plan(
         current_atl=float(metrics.get("atl") or 0.0),
     )
 
-    athlete_profile = db.get_athlete_profile() or {}
+    athlete_profile = inputs["athlete_profile"]
     # Issue #554 regression: the scheduler's hours ceiling is enforced on the
     # week the builder persists, so the projection has to materialize with the
     # same athlete zones the builder receives below. A blind projection counted
@@ -1372,7 +1599,7 @@ def build_plan(
         load_state=str(constraint_summary.get("load_state", "balanced")),
         # days_until до старта считает атлетский день: иначе тейпер и
         # гоночная неделя встают не на те даты (issue #601).
-        as_of=athlete_local_date(),
+        as_of=date.fromisoformat(context["athlete_day"]),
     )
     weekly_tss_plan = [int(row.get("weekly_tss") or 0) for row in weekly_summary]
 
@@ -1489,11 +1716,11 @@ def build_plan(
         "weekly_target_breakdown": target_breakdown,
         "planner_mix": mix_overrides,
         "planner_weights": None,
-        "plan_revision": datetime.now().isoformat(),
+        "plan_revision": snapshot.revision_time,
         "near_term_edit_version": 0,
         "near_term_edit_rollback_target_checkpoint_id": None,
     })
-    goal_plan, constraint_application = _apply_active_coach_constraints(db, goal_plan)
+    goal_plan, constraint_application = apply_constraints_to_goal_plan(goal_plan, inputs["constraints"])
     goal_plan["microcycle_changes"] = synchronize_microcycle_changes(
         list(goal_plan.get("microcycle_changes") or []),
         list(goal_plan.get("daily_plan") or []),
@@ -1523,10 +1750,6 @@ def build_plan(
     preview = _build_plan_preview(existing_plan, goal_plan)
     preview["base_checkpoint_id"] = latest_checkpoint_id
 
-    plan_id: Optional[str] = None
-    if persist:
-        saved = db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
-        plan_id = str((saved or {}).get("id") or (saved or {}).get("checkpoint_id") or "")
 
     forecast = _forecast(
         banister,
@@ -1543,11 +1766,11 @@ def build_plan(
     total_tss = int(sum(int(w or 0) for w in adjusted_weekly_tss_plan))
     peak_tss = int(max(adjusted_weekly_tss_plan) if adjusted_weekly_tss_plan else 0)
 
-    return {
-        "plan_id": plan_id,
+    response = {
+        "plan_id": None,
         "base_checkpoint_id": latest_checkpoint_id,
         "planning_mode": mode,
-        "confirmation_required": not persist,
+        "confirmation_required": True,
         "preview": preview,
         "goal": {
             "goal_type": gt,
@@ -1567,6 +1790,12 @@ def build_plan(
         "weeks": weeks,
         "forecast": forecast,
     }
+
+    return PreparedPlanBuild(
+        snapshot=snapshot,
+        checkpoint_json=canonical_json(build_planning_checkpoint(goal_plan)),
+        response_json=canonical_json(response),
+    )
 
 
 def _build_plan_preview(

@@ -138,13 +138,8 @@ def test_m3_intervals_only_handoff_reaches_visible_plan(
             assert preview.status_code == 200
 
             confirmed = client.post(
-                "/api/planning/build",
-                json={
-                    **build_payload,
-                    "persist": True,
-                    "confirm": True,
-                    "base_checkpoint_id": preview.json()["preview"]["base_checkpoint_id"],
-                },
+                "/api/planning/build/confirm",
+                json={"preview_id": preview.json()["confirmation"]["preview_id"], "confirm": True},
             )
             assert confirmed.status_code == 200
             assert confirmed.json()["plan_id"]

@@ -23,6 +23,31 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | ASR-DEP-1 | `docker compose up` поднимает весь стек | High | compose + `/api/health` + healthcheck (уже реализованы) | самопроверка compose | ✅ |
 | ASR-DEP-2 | Обновление без потери данных | High | SQLite в named volume; append-only чекпойнты; stopped-service Backup API snapshot, integrity check, atomic restore и pre-restore rollback (#293) | `test_sqlite_backup_restore.py`: clean-volume domain drill + rollback/failure gates | ✅ |
 
+## Planning preview → confirm (planned; #685, parent #677)
+
+Статус на 2026-10-16: **спецификация, реализация и GREEN — NOT YET**.
+Этот подраздел не меняет статусы ранее реализованных механизмов в таблице выше.
+Контракт: [`planning_preview_confirm_slice_spec.md`](../planning_preview_confirm_slice_spec.md).
+Порядок реализации: [`planning_preview_confirm_execplan.md`](../planning_preview_confirm_execplan.md).
+
+- **ASR-REL-1/2**: планируется сохранять замороженный результат preview после
+  проверки актуальности входов; checkpoint, настройки и receipt подтверждения
+  записываются одной SQLite-транзакцией. Повтор возвращает исходный результат,
+  не активируя исторический план; stale/corrupt требуют явного безопасного исхода.
+- **ASR-MOD-2/3**: сервер владеет семантикой, web передаёт идентификатор preview.
+  Хранилище аддитивно, legacy checkpoint читается без миграции JSON; старый
+  неподтверждённый raw-build write намеренно отклоняется. Только build-предложения
+  Коуча включены в адаптацию, остальные типы не мигрируют.
+- **ASR-PERF-4**: расчёт вне writer lock, подтверждение без пересборки и provider
+  I/O; при реализации проверить reference-preview 16 недель <10 с.
+
+Проверки запланированы в `test_planning_build_confirmation.py`,
+`test_planning_build_confirmation_storage.py` и изолированном web E2E, включая
+dependency freshness, реальную конкуренцию, rollback, lost-response replay,
+reset/retention и API↔TS. Сейчас проверены только исходное расхождение на
+синтетической БД и блокировка второго writer при `BEGIN IMMEDIATE`; это не
+доказательство готовности будущего механизма. ADR-0001 переиспользуется.
+
 ## Comparable-session engine (ASR-REL-1/2, ASR-PERF-2, ASR-MOD-2/3; #500)
 
 The post-workout surface and AI coach share one server-owned, read-only

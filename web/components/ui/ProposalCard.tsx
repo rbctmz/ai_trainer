@@ -1,9 +1,10 @@
 "use client";
 
 import { TodayProposalPreview } from "@/components/today/TodayProposalPreview";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useSWRConfig } from "swr";
 import { ApiError, postJSON } from "@/lib/api";
-import type { AdjustResult, BuiltPlan, CoachProposalAction, RebalanceConfirmResult } from "@/lib/types";
+import type { AdjustResult, BuildConfirmResponse, CoachProposalAction, RebalanceConfirmResult } from "@/lib/types";
 
 const DAY_LABELS: Record<string, string> = {
   mon: "Пн",
@@ -40,11 +41,12 @@ interface ProposalCardProps {
   preview: Record<string, unknown>;
   onConfirmed: (message: string) => void;
   onCancelled: (message?: string) => void;
+  onResolutionLockChange?: (locked: boolean) => void;
 }
 
 interface ProposalApprovalResponse {
   proposal: { id: number; status: string };
-  result: BuiltPlan | AdjustResult | RebalanceConfirmResult | RecoveryReplanResult | CoachMutationResult;
+  result: BuildConfirmResponse | AdjustResult | RebalanceConfirmResult | RecoveryReplanResult | CoachMutationResult;
 }
 
 interface CoachMutationResult {
@@ -161,7 +163,8 @@ function formatAvailableDays(days: string[] | null | undefined): string {
   return days.map((day) => DAY_LABELS[day] ?? day).join(", ");
 }
 
-function buildConfirmedMessage(result: BuiltPlan): string {
+function buildConfirmedMessage(result: BuildConfirmResponse): string {
+  if (result.confirmation.is_current === false) return "Этот вариант уже сохранялся; сейчас действует другой план.";
   return [
     "✅ План сохранён.",
     `${result.goal.goal_type} • ${result.goal.distance}`,
@@ -462,7 +465,13 @@ export function ProposalCard({
   preview,
   onConfirmed,
   onCancelled,
+  onResolutionLockChange,
 }: ProposalCardProps) {
+  const { mutate } = useSWRConfig();
+  const [buildResolution, setBuildResolution] = useState<"ready" | "confirming" | "uncertain" | "needs_preview">("ready");
+  const [canRetryBuild, setCanRetryBuild] = useState(true);
+  const unresolvedBuild = useRef<number | null>(null);
+  const inFlight = useRef(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showEvidence, setShowEvidence] = useState(false);
@@ -519,16 +528,30 @@ export function ProposalCard({
   const dayChanges = variantDayChanges(selectedVariant);
 
   async function handleConfirm() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    if (action === "build_plan") {
+      unresolvedBuild.current = unresolvedBuild.current ?? proposalId;
+      setBuildResolution("confirming");
+      onResolutionLockChange?.(true);
+    }
     setLoading(true);
     setError(null);
 
     try {
       if (action === "build_plan") {
         const response = await postJSON<ProposalApprovalResponse>(
-          `/api/decisions/proposals/${proposalId}/approve`,
+          `/api/decisions/proposals/${unresolvedBuild.current}/approve`,
           {},
         );
-        onConfirmed(buildConfirmedMessage(response.result as BuiltPlan));
+        const result = response.result as BuildConfirmResponse;
+        unresolvedBuild.current = null;
+        onResolutionLockChange?.(false);
+        await Promise.allSettled([
+          mutate("/api/planning/status"), mutate("/api/planning/overview"),
+          mutate("/api/planning/history?limit=8"), mutate("/api/onboarding/planning"),
+        ]);
+        onConfirmed(buildConfirmedMessage(result));
         return;
       }
 
@@ -575,13 +598,26 @@ export function ProposalCard({
       );
       onConfirmed(adjustConfirmedMessage(response.result as AdjustResult | RebalanceConfirmResult));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Не удалось применить изменение");
+      if (action === "build_plan") {
+        const terminal = err instanceof ApiError && ["preview_stale", "preview_invalidated", "preview_expired", "preview_required", "proposal_not_pending"].includes(err.code ?? "");
+        if (terminal) {
+          unresolvedBuild.current = null;
+          setBuildResolution("needs_preview");
+          onResolutionLockChange?.(false);
+        } else {
+          setBuildResolution("uncertain");
+          setCanRetryBuild(!(err instanceof ApiError) || err.retryable === true || err.status === 422 || (!err.code && err.status >= 500));
+        }
+      }
+      setError(action === "build_plan" && !(err instanceof ApiError) ? null : err instanceof ApiError ? err.message : "Не удалось применить изменение");
     } finally {
+      inFlight.current = false;
       setLoading(false);
     }
   }
 
   async function handleReject() {
+    if (unresolvedBuild.current || inFlight.current) return;
     setLoading(true);
     setError(null);
 
@@ -616,7 +652,7 @@ export function ProposalCard({
           </p>
         </div>
         <span className="rounded-full bg-surface/80 px-2 py-1 text-[11px] font-medium text-tone-neutral">
-          {status === "pending" ? (presentation === "today" ? "На подтверждение" : "Нужен confirm") : status}
+          {action === "build_plan" && buildResolution === "uncertain" ? "Проверка сохранения" : action === "build_plan" && buildResolution === "confirming" ? "Сохраняется" : status === "pending" ? (presentation === "today" ? "На подтверждение" : "Нужен confirm") : status}
         </span>
       </div>
 
@@ -881,8 +917,16 @@ export function ProposalCard({
         </>
       )}
 
+      {action === "build_plan" && buildResolution === "uncertain" ? (
+        <div role="status" aria-live="polite" className="mt-3 text-sm text-ink">
+          Статус сохранения неизвестен. Повторите проверку
+          <p className="mt-1 text-xs text-ink-soft">Отмена и новое предложение недоступны до выяснения результата сохранения.</p>
+          {!canRetryBuild ? <p>Нужна проверка сохранения. Не создавайте новый вариант плана.</p> : null}
+        </div>
+      ) : null}
+      {action === "build_plan" && buildResolution === "needs_preview" ? <p role="status" className="mt-3 text-sm text-ink">Предложение устарело. Запросите новый предпросмотр в Коуче.</p> : null}
       {error ? (
-        <div className="mt-3 rounded-lg border border-tone-danger/30 bg-tone-danger/10 px-3 py-2 text-sm text-tone-danger">
+        <div role="alert" className="mt-3 rounded-lg border border-tone-danger/30 bg-tone-danger/10 px-3 py-2 text-sm text-tone-danger">
           {error}
         </div>
       ) : null}
@@ -891,11 +935,13 @@ export function ProposalCard({
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={loading}
+          disabled={loading || (action === "build_plan" && (buildResolution === "needs_preview" || (buildResolution === "uncertain" && !canRetryBuild)))}
           className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40"
         >
           {loading
             ? "Сохраняю…"
+            : action === "build_plan" && buildResolution === "uncertain"
+              ? "Повторить проверку"
             : action === "recovery_replan"
               ? confirmLabel(effectiveSelectedVariantKind)
               : "Подтвердить"}
@@ -903,7 +949,7 @@ export function ProposalCard({
         <button
           type="button"
           onClick={handleReject}
-          disabled={loading}
+          disabled={loading || (action === "build_plan" && (buildResolution === "confirming" || buildResolution === "uncertain"))}
           className="rounded-lg border border-surface-border bg-surface px-4 py-2 text-sm font-medium text-ink-soft transition hover:bg-surface-muted disabled:opacity-40"
         >
           Отменить

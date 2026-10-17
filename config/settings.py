@@ -10,6 +10,13 @@ def _env_flag(name: str, default: str = "0") -> bool:
     return str(raw_value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    value = int(os.getenv(name, str(default)))
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
 def _primary_activity_source() -> str:
     """ADR-0008: which provider is authoritative for canonical fields and the
     legacy `source_tss` projection. Default 'garmin' (backward compatibility);
@@ -43,6 +50,9 @@ def _primary_wellness_source() -> str:
 
 class Settings:
     """Настройки приложения"""
+
+    PLANNING_BUILD_PREVIEW_TTL_SECONDS = _positive_int_env("PLANNING_BUILD_PREVIEW_TTL_SECONDS", 1800)
+    PLANNING_BUILD_PREVIEW_RETENTION_DAYS = _positive_int_env("PLANNING_BUILD_PREVIEW_RETENTION_DAYS", 7)
     
     # AI Провайдеры
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
