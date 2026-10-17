@@ -222,6 +222,7 @@ export default function PlanningPage() {
     fetcher,
   );
   const [tab, setTab] = useState<Tab | null>(null);
+  const [buildLocked, setBuildLocked] = useState(false);
   const [targetSessionId, setTargetSessionId] = useState<string | null>(null);
   const resolvedDefault = useRef(false);
   const hasAdjustmentDeepLink = useRef(false);
@@ -279,6 +280,7 @@ export default function PlanningPage() {
               <button
                 key={readerTab}
                 type="button"
+                disabled={buildLocked}
                 onClick={() => setTab(readerTab)}
                 aria-current={tab === readerTab ? "page" : undefined}
                 className={`min-w-fit flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
@@ -292,6 +294,7 @@ export default function PlanningPage() {
           <div className="flex flex-wrap gap-2" aria-label="Действия с планом">
             <button
               type="button"
+              disabled={buildLocked}
               onClick={() => setTab("build")}
               className="rounded-lg border border-surface-border px-3 py-2 text-sm font-medium text-ink transition hover:bg-surface-muted"
             >
@@ -299,6 +302,7 @@ export default function PlanningPage() {
             </button>
             <button
               type="button"
+              disabled={buildLocked}
               onClick={() => setTab("adjust")}
               className="rounded-lg border border-surface-border px-3 py-2 text-sm font-medium text-ink transition hover:bg-surface-muted"
             >
@@ -306,6 +310,7 @@ export default function PlanningPage() {
             </button>
             <button
               type="button"
+              disabled={buildLocked}
               onClick={() => setTab("export")}
               className="rounded-lg border border-surface-border px-3 py-2 text-sm font-medium text-ink transition hover:bg-surface-muted"
             >
@@ -316,7 +321,7 @@ export default function PlanningPage() {
       ) : null}
 
       {!hasPlan || tab === "build" ? (
-        <PlanBuilder status={status} onSaved={() => setTab("overview")} />
+        <PlanBuilder status={status} onSaved={() => setTab("overview")} onConfirmationLockChange={setBuildLocked} />
       ) : null}
       {hasPlan && tab === "overview" ? <ActivePlanOverview overview={overview} error={overviewError} /> : null}
       {hasPlan && tab === "weeks" ? <PlanWeeks onResolveAmbiguous={() => setTab("adjust")} /> : null}

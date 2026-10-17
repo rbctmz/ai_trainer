@@ -57,6 +57,12 @@ function CoachContent() {
     params: Record<string, unknown>;
     preview: Record<string, unknown>;
   } | null>(null);
+  const [proposalLocked, setProposalLocked] = useState(false);
+  const proposalLock = useRef(false);
+  function lockProposal(locked: boolean) {
+    proposalLock.current = locked;
+    setProposalLocked(locked);
+  }
   const scroller = useRef<HTMLDivElement>(null);
   const restoredChat = useRef(false);
 
@@ -81,6 +87,7 @@ function CoachContent() {
   }
 
   async function send(text: string) {
+    if (proposalLock.current) return;
     const message = text.trim();
     if (!message || streaming) return;
 
@@ -102,7 +109,7 @@ function CoachContent() {
           }
           else if (e.type === "tool_call")
             setTools((t) => [...t, { name: e.name }]);
-          else if (e.type === "proposal") {
+          else if (e.type === "proposal" && !proposalLock.current) {
             setProposal({
               proposal_id: e.proposal_id,
               action: e.action,
@@ -141,6 +148,7 @@ function CoachContent() {
   }
 
   function newChat() {
+    if (proposalLock.current) return;
     router.replace("/coach");
     setActiveChatId(null);
     setLoadError(null);
@@ -151,7 +159,7 @@ function CoachContent() {
   }
 
   async function loadChat(id: string) {
-    if (streaming) return;
+    if (streaming || proposalLock.current) return;
     try {
       const detail = await fetcher<ChatDetail>(`/api/coach/history/${id}`);
       setActiveChatId(detail.id);
@@ -171,6 +179,7 @@ function CoachContent() {
   }
 
   function selectChat(id: string) {
+    if (proposalLock.current) return;
     router.replace(`/coach?chat=${id}`);
     loadChat(id);
   }
@@ -186,6 +195,7 @@ function CoachContent() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
+      <fieldset disabled={proposalLocked} className="min-w-0">
       <ContextSidebar
         today={today}
         history={history?.chats ?? []}
@@ -197,6 +207,7 @@ function CoachContent() {
         onDeleted={handleDeleted}
         mutateHistory={mutateHistory}
       />
+      </fieldset>
 
       <section className="flex h-[calc(100vh-180px)] min-h-[420px] min-w-0 flex-col rounded-card border border-surface-border bg-surface shadow-card">
         <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto p-4">
@@ -228,11 +239,13 @@ function CoachContent() {
 
           {proposal ? (
             <ProposalCard
+              key={proposal.proposal_id}
               proposalId={proposal.proposal_id}
               action={proposal.action}
               status={proposal.status}
               params={proposal.params}
               preview={proposal.preview}
+              onResolutionLockChange={lockProposal}
               onConfirmed={(message) => {
                 setMessages((m) => [...m, { role: "assistant", content: message }]);
                 setProposal(null);
@@ -285,7 +298,7 @@ function CoachContent() {
 
         <InputBar
           value={draft}
-          disabled={streaming}
+          disabled={streaming || proposalLocked}
           onChange={setDraft}
           onSend={() => send(draft)}
         />

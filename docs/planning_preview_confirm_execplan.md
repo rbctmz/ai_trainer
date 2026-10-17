@@ -41,7 +41,9 @@ dates/events, training mathematics, or the whole confirmation-screen design.
 - [x] (2026-10-17) M3 implementation: frozen publication, same-connection freshness/receipt/settings transaction, replay, strict HTTP protocol and typed API/TS responses. Original 20 HTTP RED cases are GREEN.
 - [x] (2026-10-17) M3 independent review: full round at `0fc01c4` and test-only delta at `77b51b2`, no blocking P1/P2; independent runs 177 passed and 62 passed.
 - [x] (2026-10-17) M3 final verification: 3346 passed, 14 skipped, 46 deselected in 227.62s; no file exclusions. Ruff, whitespace, web lint/build, contract freshness/conformance/inventory and ExecPlan structure/links pass. Draft publication follows; M4 callers remain unchanged.
-- [ ] M4: minimal Planning UI and Coach build-proposal adapters; contract refresh.
+- [x] (2026-10-17) M4 implementation: bound Coach prepare/approve/replay and identity-only Planning UI; generation invalidation, locked uncertainty, historical result, no separate profile PUT.
+- [x] (2026-10-17) M4 targeted UI: 18 isolated Chromium scenarios pass in 21.91s; 390/900/1280 light/dark, keyboard, both public callers. Synthetic screenshots inspected.
+- [ ] M4 independent review, final checks and draft publication.
 - [ ] M5: isolated browser acceptance, required checks, implementation review and human merge gate.
 
 ## Surprises & Discoveries
@@ -673,3 +675,30 @@ information hierarchy or visual redesign. All edits invalidate before confirmati
 confirming/uncertain lock edits, Cancel and another preview. Accessible status/error
 and explicit stale return action are required. Test on isolated synthetic stack,
 including keyboard, late responses and 390/1280px light/dark; no live localhost.
+
+M4 UI to Integrator handoff (2026-10-17): existing API/TS contracts are consumed
+without new domain calculations. PlanBuilder confirms only preview_id/true,
+discards late generations on every pre-confirm edit/cancel (including distance),
+locks unresolved confirmation and refreshes saved server projections without a
+profile PUT. Minimal Planning parent lock prevents tab/reset destruction. Coach
+card uses the same safe terminal/uncertain distinction and locks its parent's
+new-chat/send controls until resolution; other proposal action flows are unchanged.
+
+Initial browser RED with the previous builder never called the identity confirm
+route (36.56s timeout). Harness corrections then removed ambiguous labels,
+waited for intended heading focus and Coach client hydration, and held a route
+without blocking fetch completion. These were test-harness failures, not evidence
+of additional product defects. A stopped noisy browser attempt left no running
+owned test servers after explicit process-group cleanup. Screenshot self-review
+also caught misleading unknown-outcome copy; the final UI says preservation
+requires checking, not that application failed or the plan remains unsaved.
+
+Final targeted browser command uses the unique basename
+`tests/e2e/test_planning_build_confirmation_ui.py`: the initially proposed basename
+collided with the smoke module during contributor-safe collection. Renaming the
+new E2E file fixed that collector error without exclusions or import-mode changes.
+All 18 browser scenarios pass in 21.91s. All six synthetic images in
+`docs/design/evidence/issue-685/` were inspected (including unknown result on mobile
+and Coach). Author contributor-safe run: 3364 passed, 14 skipped, 63 deselected in
+186.75s (before the additional excluded cancel browser case). Final review/checks
+are pending; no merge or deployment is authorized by this handoff.
