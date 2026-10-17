@@ -27,6 +27,7 @@ from data.subjective_wellness_store import (
 )
 from models.subjective_wellness import utc_timestamp
 from data.data_coverage_store import DataCoverageStore
+from data.planning_build_preview_store import create_planning_build_previews_table
 from config.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -956,6 +957,7 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_recovery_episode_projection
             ON recovery_episodes(capture_mode, status, session_date)
         ''')
+        create_planning_build_previews_table(conn)
         conn.commit()
         conn.close()
 
@@ -1664,6 +1666,13 @@ class Database:
     def get_latest_planning_checkpoint(self):
         """Возвращает последний planning checkpoint или None."""
         conn = self._connect()
+        try:
+            return self._get_latest_planning_checkpoint(conn)
+        finally:
+            conn.close()
+
+    def _get_latest_planning_checkpoint(self, conn):
+        """Read on the caller's transaction without opening or closing it."""
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -1674,7 +1683,6 @@ class Database:
             '''
         )
         row = cursor.fetchone()
-        conn.close()
         return self._deserialize_planning_checkpoint_row(row)
 
     def get_planning_checkpoint(self, checkpoint_id):
@@ -4489,6 +4497,16 @@ class Database:
         limit=100,
     ):
         """Возвращает durable-ограничения за окно дат, новые первыми внутри даты."""
+        conn = self._connect()
+        try:
+            return self._get_coach_constraints(conn, start_date, end_date, active_only, limit)
+        finally:
+            conn.close()
+
+    def _get_coach_constraints(
+        self, conn, start_date=None, end_date=None, active_only=True, limit=100,
+    ):
+        """Read the same bounded constraint view on a caller-owned connection."""
         clauses = []
         params = []
         if start_date:
@@ -4501,7 +4519,6 @@ class Database:
             clauses.append("status = 'active'")
 
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             f'''
@@ -4515,7 +4532,6 @@ class Database:
             (*params, max(1, int(limit or 1))),
         )
         rows = cursor.fetchall()
-        conn.close()
         return [self._deserialize_coach_constraint_row(row) for row in rows]
 
     def deactivate_coach_constraint(self, constraint_id):
@@ -4573,10 +4589,13 @@ class Database:
     def get_activities(self, days=30):
         """Получение активностей из БД"""
         conn = self._connect()
-        
-        # Если данные есть, получаем их с фильтрацией
-        cutoff_date = self._cutoff_date(days)
-        
+        try:
+            return self._get_activities(conn, self._cutoff_date(days))
+        finally:
+            conn.close()
+
+    def _get_activities(self, conn, cutoff_date):
+        """Read the established activity view in the caller's read transaction."""
         query = '''
             SELECT a.*,
                    (
@@ -4593,7 +4612,6 @@ class Database:
             ORDER BY a.date DESC
         '''
         df = pd.read_sql_query(query, conn, params=(cutoff_date,))
-        conn.close()
         
         # Преобразование даты в datetime если она есть  
         if not df.empty and 'date' in df.columns:
@@ -5572,6 +5590,8 @@ class Database:
         """Очистка всех данных из базы"""
         conn = self._connect()
         cursor = conn.cursor()
+
+        cursor.execute('DELETE FROM planning_build_previews')
         
         # Очищаем все таблицы
         cursor.execute('DELETE FROM activities')
@@ -5702,9 +5722,13 @@ class Database:
         """Возвращает самый свежий снэпшот athlete profile, или None если ещё ничего не синкалось."""
         conn = self._connect()
         try:
-            return AthleteProfileStore(conn, self.clean_value).get()
+            return self._get_athlete_profile(conn)
         finally:
             conn.close()
+
+    def _get_athlete_profile(self, conn):
+        """Read profile on an existing transaction, preserving public semantics."""
+        return AthleteProfileStore(conn, self.clean_value).get()
 
     def get_athlete_pace_threshold_history(self, sport):
         """Return append-only pace-threshold snapshots for run or swim."""

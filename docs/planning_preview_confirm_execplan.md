@@ -36,13 +36,32 @@ dates/events, training mathematics, or the whole confirmation-screen design.
 - [x] (2026-10-17) Scoped spec round 2 verified the correction; READY for specification handoff, 2/2 rounds used.
 - [x] (2026-10-17) M1: 20 expected HTTP RED cases (4 reach unsafe writes; 16 preliminary protocol cases); 12 unchanged-build checks plus existing 66 tests pass, 78 total. Ruff passes.
 - [x] (2026-10-17) Independent M1 checker reviewed e0cd700..097cf99: no blocking P1/P2, 12 characterization cases independently pass. M1 draft handoff only; acceptance RED remains.
-- [ ] M2: coherent input capture, frozen artifact and additive preview storage.
+- [x] (2026-10-17) M2 implementation: coherent connection-bound read snapshot, immutable serialized inputs/result, prepare-time freshness recheck and additive preview store. 73 M2/characterization tests pass; 108 existing focused tests pass.
+- [ ] M2: finish broad compatibility pass and independent review; publish bounded draft handoff.
 - [ ] M3: transactional confirmation, replay, failure and concurrency coverage.
 - [ ] M4: minimal Planning UI and Coach build-proposal adapters; contract refresh.
 - [ ] M5: isolated browser acceptance, required checks, implementation review and human merge gate.
 
 ## Surprises & Discoveries
 
+
+**Observed:** extracting the builder into `_calculate_plan_build(snapshot)` and
+serializing its complete result preserves all six M1 full-checkpoint/response
+oracles, including nested prescriptions and forecast. **Inferred:** the M2
+refactor can share one calculation core without changing training mathematics.
+**Verified by:** 73 M2/storage/characterization tests passed in 17.50s; 108
+focused existing planning/calendar/metrics/Coach/backup tests passed in 11.78s.
+Broader compatibility and independent M2 review are pending. Public HTTP build
+confirmation is deliberately unchanged until M3: its 20 known M1 RED cases still
+fail (5.07s), so M2 is not an S1 fix or a deployable checkpoint.
+
+**Observed:** a real second SQLite connection commits an activity/profile update
+while the capture transaction is open. The captured activity count and FTP both
+remain old; a new capture sees both new values. **Inferred:** the explicit read
+transaction prevents mixed inputs across helpers. **Verified by:**
+`test_read_snapshot_cannot_mix_a_concurrent_sync`, plus trace checks proving one
+read connection and one `BEGIN IMMEDIATE` recheck/store connection for prepare.
+Race tests reject activity/base/day/rule changes before retaining any token.
 
 **Observed:** M1's pinned HTTP regression reaches the existing handler and returns
 200 after a synthetic activity is added: preview 1531 TSS, saved 1759 TSS, one
@@ -143,8 +162,14 @@ over three modes; only assigned response plan ID and external row metadata are
 excluded. Fixture hashes were generated from unchanged production code at the
 recorded baseline and are not regenerated automatically.
 Independent spec review completed on 2026-10-17: one P2 corrected and verified,
-READY for specification handoff. Domain / API Implementer continues with M2.
-UI work starts only with the tested API contract.
+READY for specification handoff. M2 now provides internal `prepare_plan_build`,
+not a new HTTP endpoint: it captures all dependencies, calculates outside the
+writer lock, rechecks the same inputs under `BEGIN IMMEDIATE`, and retains only
+the frozen checkpoint/response/settings intention and dependency hashes. Existing
+trusted `build_plan` shares the pure core. Pending expiry/cleanup, reset, reopen,
+integrity failure and Backup API restore are tested; applied receipt fixtures
+exercise retention shape only, not future M3 replay. UI work starts only with
+the tested public API contract in later milestones.
 
 ## Context and Orientation
 
@@ -514,3 +539,14 @@ nested materialized-step duration by one second while leaving total TSS unchange
 checkpoint/session hashes changed and response hash did not. This checks that the
 calculation oracle protects prescriptions beyond totals. M1 is a non-merge-ready
 RED checkpoint; the next bounded implementation step is M2 preparation/storage.
+
+Revision note (2026-10-17, M2): implementation added on
+`codex/issue-685-m2-prepared-preview`, based on M1 `93d3bb0`. The first six new
+preparation tests were preliminary RED for the missing model/service, then GREEN
+against the unchanged M1 full-payload oracle. No M1 hash fixture was regenerated.
+The 73-case M2 suite covers immutable ownership, pure calculation, coherent
+concurrent reads, dependency boundaries, prepare-time races, corruption, TTL,
+bounded cleanup, reset/reopen and backup/restore. A local synthetic 16-week
+prepare took 0.308s (<10s reference target), with active state unchanged; this is
+an observation, not a deployment SLA. Full S1 confirmation and UI acceptance
+remain M3–M5; broad checks and independent M2 review are recorded when finished.
