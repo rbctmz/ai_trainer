@@ -7,7 +7,9 @@ This living ExecPlan follows `.agent/PLANS.md`. Issue
 [slice specification](planning_cycle_lifecycle_slice_spec.md) defines exact
 state, storage, API, compatibility and acceptance obligations. Baseline main is
 `93fa4f4d8d41c9e392093538900f471903b6c331`. M0 Spec / Architecture Owner handed
-the reviewed contract to Domain / API Implementer for M1 tests only.
+the reviewed contract to Domain / API Implementer for M1 tests; the user then
+authorized continuing to M2 storage/projection on 2026-10-18. No API/UI role
+expansion is implied by this milestone.
 Human user authorized beginning S2 on 2026-10-17; this is not merge/live approval.
 
 ## Purpose / Big Picture
@@ -42,6 +44,7 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-18) Partial independent M1 check reproduced 40 failed/7 passed, 7 GREEN characterization and Ruff. Found omitted historical accessor/callback references; author fixed inventory to 91 references / 19 SQL sites. Checker stopped on account usage limit before final verdict; no READY inferred.
 - [x] (2026-10-18) M1 complete: independent round 2/2 reviewed `f857f58..82a430f`, reproduced 40 RED/7 GREEN and verified 91 references/19 SQL sites; READY for intermediate checkpoint, zero P1/P2. Draft #695 published/attached, stacked on #694; not a merge candidate.
 - [ ] M2: additive cycle migration/store, explicit selection and pure state projection; reset/restart/restore probes.
+- [x] (2026-10-18) M2 RED checkpoint: 29 storage/projection cases failed before implementation (missing interfaces/tables), no collection errors. This preliminary RED is not migration/transaction proof.
 - [ ] M3: close/outcome/scope commands, S1 v2 start_new/edit_current and atomic replacement; every writer guards current cycle.
 - [ ] M4: explicit current-vs-history reader integration, then Domain→UI handoff for minimal actions/status and isolated web acceptance.
 - [ ] M5: final whole-S2 evidence, current-head CI/native review and explicit human merge decision.
