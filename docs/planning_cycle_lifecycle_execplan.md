@@ -38,7 +38,8 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-17) Independent spec round 1/2 reviewed `93fa4f4..a4647fd`; one blocking P2: missing new-cycle session namespace/lineage boundary. Independent baseline 89 passed in 8.17s.
 - [x] (2026-10-17) Pure synthetic identity probe confirms same content/date ignores differing cycle_id today; specified modern v2 namespace, no cross-cycle ID/lineage reuse and unchanged legacy IDs, with explicit historical context tests.
 - [x] (2026-10-17) M0: scoped round 2/2 reviewed `a4647fd..a2f3848`, verified the identity/lineage correction and returned READY for spec handoff, zero remaining blockers. Publish draft follows; no extra review round.
-- [x] (2026-10-17) M1 author checkpoint: 14 behavioral RED, 26 preliminary protocol RED, 7 new GREEN characterization; 256 existing S1/planning/history regressions passed. Frozen inventory: 87 calls and 19 SQL sites. No product/schema/UI changes.
+- [x] (2026-10-17) M1 author checkpoint: 14 behavioral RED, 26 preliminary protocol RED, 7 new GREEN characterization; 256 existing S1/planning/history regressions passed. Initial inventory: 87 calls and 19 SQL sites. No product/schema/UI changes.
+- [x] (2026-10-18) Partial independent M1 check reproduced 40 failed/7 passed, 7 GREEN characterization and Ruff. Found omitted historical accessor/callback references; author fixed inventory to 91 references / 19 SQL sites. Checker stopped on account usage limit before final verdict; no READY inferred.
 - [ ] M1 independent test/inventory check and bounded RED draft publication; this is not a merge candidate.
 - [ ] M2: additive cycle migration/store, explicit selection and pure state projection; reset/restart/restore probes.
 - [ ] M3: close/outcome/scope commands, S1 v2 start_new/edit_current and atomic replacement; every writer guards current cycle.
@@ -210,13 +211,26 @@ Reproduce from the repository root, using the existing venv:
     # All checks passed.
 
 The frozen inventory is `tests/fixtures/planning_cycle_callers.json`, referenced
-to baseline `93fa4f4`: 87 direct/dynamic accessor calls and 19 direct SQL sites
+to baseline `93fa4f4`: 91 direct/dynamic/callback accessor references and 19 direct SQL sites
 across eight named responsibility families. It includes explicit history and
 mixed current/history callers, raw storage, compatibility and synthetic/admin
 paths; it does not instruct replacing every MAX/history reader. Tests/fixtures
 are explicitly excluded from that runtime inventory and must be adapted as
 synthetic initialization, never given an HTTP bypass. Source calls may move;
 the recorded line numbers are baseline evidence, not golden line-number tests.
+
+M1 review round 1 (partial, 2026-10-18): the fresh read-only checker independently
+reproduced 40 failed/7 passed in 1.59s, 7 GREEN characterization and Ruff, and
+verified all original 87 call entries/19 SQL sites. It identified omitted
+`api/routers/activities.py:312 get_checkpoint_data` and the historical callback
+`api/routers/decisions.py:151 db.get_planning_checkpoint`. Author falsification
+with source search/AST confirmed both; expanding the scan also adds the two
+private read-only adapter calls in `scripts/repair_planning_materialization.py`.
+The updated 91-reference fixture labels call/dynamic/callback forms and keeps
+historical exceptions explicit. The checker hit its account usage limit before
+a final verdict; its partial result is not a completed independent acceptance.
+Its baseline command was still running at the last message, so no independent
+256-case result is claimed. The author baseline remains verified.
 
 Remaining proofs are deliberately scheduled in M2/M3: actual migration/selection
 and reset, malformed data handling, real-command failure/race injection,

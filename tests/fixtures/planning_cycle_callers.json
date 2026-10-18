@@ -40,6 +40,7 @@
       "function": "demand_preview",
       "line": 205,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -48,6 +49,7 @@
       "function": "planning_edit_context",
       "line": 298,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -56,6 +58,7 @@
       "function": "confirm_demand_change",
       "line": 370,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -64,6 +67,7 @@
       "function": "current_status",
       "line": 507,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -72,6 +76,7 @@
       "function": "active_plan_overview",
       "line": 1042,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -80,6 +85,7 @@
       "function": "_capture_plan_build_inputs",
       "line": 1259,
       "callee": "_get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -88,6 +94,7 @@
       "function": "build_plan",
       "line": 1431,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "guarded_writer"
     },
@@ -96,6 +103,7 @@
       "function": "get_active_plan",
       "line": 1914,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -104,6 +112,7 @@
       "function": "_recovery_replan_session_ids_from_history",
       "line": 1975,
       "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "explicit_history"
     },
@@ -112,6 +121,7 @@
       "function": "repair_active_plan_materialization",
       "line": 1986,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -120,6 +130,7 @@
       "function": "repair_active_plan_materialization",
       "line": 2014,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "guarded_writer"
     },
@@ -128,6 +139,7 @@
       "function": "preview_weekly_rebalance",
       "line": 2583,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -136,6 +148,7 @@
       "function": "confirm_weekly_rebalance",
       "line": 2605,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -144,6 +157,7 @@
       "function": "confirm_weekly_rebalance",
       "line": 2630,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "guarded_writer"
     },
@@ -152,6 +166,7 @@
       "function": "preview_bike_tss_rebalance",
       "line": 2646,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -160,6 +175,7 @@
       "function": "confirm_bike_tss_rebalance",
       "line": 2669,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -168,6 +184,7 @@
       "function": "confirm_bike_tss_rebalance",
       "line": 2689,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "guarded_writer"
     },
@@ -176,6 +193,7 @@
       "function": "record_plan_actual_match",
       "line": 2762,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -184,6 +202,7 @@
       "function": "apply_adjustment",
       "line": 3014,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "guarded_writer"
     },
@@ -192,6 +211,7 @@
       "function": "apply_recovery_replan",
       "line": 3064,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -200,6 +220,7 @@
       "function": "apply_recovery_replan",
       "line": 3145,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "guarded_writer"
     },
@@ -208,6 +229,7 @@
       "function": "apply_recovery_replan_transfer",
       "line": 3203,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -216,6 +238,7 @@
       "function": "apply_recovery_replan_transfer",
       "line": 3248,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "guarded_writer"
     },
@@ -224,6 +247,7 @@
       "function": "rollback_recovery_replan",
       "line": 3281,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -232,6 +256,7 @@
       "function": "rollback_recovery_replan",
       "line": 3288,
       "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "explicit_history"
     },
@@ -240,6 +265,7 @@
       "function": "rollback_recovery_replan",
       "line": 3302,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "guarded_writer"
     },
@@ -248,6 +274,7 @@
       "function": "planning_history",
       "line": 3331,
       "callee": "get_recent_planning_checkpoints",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "explicit_history"
     },
@@ -256,6 +283,7 @@
       "function": "restore_history_version",
       "line": 3390,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -264,6 +292,7 @@
       "function": "restore_history_version",
       "line": 3400,
       "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "explicit_history"
     },
@@ -272,6 +301,7 @@
       "function": "restore_history_version",
       "line": 3412,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "guarded_writer"
     },
@@ -280,6 +310,7 @@
       "function": "recover_day_after_constraint_retraction",
       "line": 3534,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -288,6 +319,7 @@
       "function": "recover_day_after_constraint_retraction",
       "line": 3540,
       "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "explicit_history"
     },
@@ -296,6 +328,7 @@
       "function": "recover_day_after_constraint_retraction",
       "line": 3632,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "guarded_writer"
     },
@@ -304,6 +337,7 @@
       "function": "recover_day_after_constraint_retraction",
       "line": 3638,
       "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "explicit_history"
     },
@@ -312,6 +346,7 @@
       "function": "preview_coach_constraint_mutation",
       "line": 3728,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -320,6 +355,7 @@
       "function": "confirm_coach_constraint_mutation",
       "line": 3900,
       "callee": "commit_coach_plan_mutation",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "guarded_writer"
     },
@@ -328,6 +364,7 @@
       "function": "_find_day_donor",
       "line": 4028,
       "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "explicit_history"
     },
@@ -336,15 +373,35 @@
       "function": "run_recovery_replan_loop",
       "line": 346,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "today_and_recovery",
       "semantics": "current_or_history_split_required"
     },
     {
       "path": "api/routers/activities.py",
       "function": "get_activity_card",
+      "line": 312,
+      "callee": "get_checkpoint_data",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/routers/activities.py",
+      "function": "get_activity_card",
       "line": 366,
       "callee": "get_planning_checkpoint",
-      "family": "planning",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/routers/decisions.py",
+      "function": "list_decisions",
+      "line": 151,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "callback_or_bound_reference",
+      "family": "coach",
       "semantics": "explicit_history"
     },
     {
@@ -352,6 +409,7 @@
       "function": "_active_checkpoint_id",
       "line": 288,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "planning",
       "semantics": "current_or_history_split_required"
     },
@@ -360,6 +418,7 @@
       "function": "_evidence_from_saved_feedback",
       "line": 344,
       "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
       "family": "current_and_historical_facts",
       "semantics": "explicit_history"
     },
@@ -368,6 +427,7 @@
       "function": "_evidence_from_saved_feedback",
       "line": 356,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "current_and_historical_facts",
       "semantics": "current_or_history_split_required"
     },
@@ -376,6 +436,7 @@
       "function": "_evidence_from_saved_feedback",
       "line": 359,
       "callee": "get_planning_checkpoints_for_session",
+      "reference_kind": "dynamic_lookup",
       "family": "current_and_historical_facts",
       "semantics": "explicit_history"
     },
@@ -384,6 +445,7 @@
       "function": "_match_revision_id_for_prompt",
       "line": 595,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "current_and_historical_facts",
       "semantics": "current_or_history_split_required"
     },
@@ -392,6 +454,7 @@
       "function": "_feedback_evidence_for_session",
       "line": 674,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "current_and_historical_facts",
       "semantics": "current_or_history_split_required"
     },
@@ -400,6 +463,7 @@
       "function": "_session_id_for_prediction",
       "line": 1048,
       "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
       "family": "current_and_historical_facts",
       "semantics": "explicit_history"
     },
@@ -408,6 +472,7 @@
       "function": "_admin_match_evidence",
       "line": 1235,
       "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
       "family": "current_and_historical_facts",
       "semantics": "explicit_history"
     },
@@ -416,6 +481,7 @@
       "function": "list_feedback_prompts",
       "line": 1333,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "current_and_historical_facts",
       "semantics": "current_or_history_split_required"
     },
@@ -424,6 +490,7 @@
       "function": "record_shadow_session_quality_forecast",
       "line": 245,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "today_and_recovery",
       "semantics": "current_or_history_split_required"
     },
@@ -432,6 +499,7 @@
       "function": "_build_parent_story_from_sources",
       "line": 404,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "today_and_recovery",
       "semantics": "current_or_history_split_required"
     },
@@ -440,6 +508,7 @@
       "function": "_latest_checkpoint",
       "line": 422,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "today_and_recovery",
       "semantics": "current_or_history_split_required"
     },
@@ -448,6 +517,7 @@
       "function": "_resolve_forecast.lifecycle_reason",
       "line": 676,
       "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
       "family": "today_and_recovery",
       "semantics": "explicit_history"
     },
@@ -456,6 +526,7 @@
       "function": "Database.save_planning_checkpoint",
       "line": 1468,
       "callee": "_insert_planning_checkpoint",
+      "reference_kind": "call",
       "family": "storage_and_confirmation",
       "semantics": "guarded_writer"
     },
@@ -464,6 +535,7 @@
       "function": "Database.get_latest_planning_checkpoint",
       "line": 1669,
       "callee": "_get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "storage_and_confirmation",
       "semantics": "current_or_history_split_required"
     },
@@ -472,6 +544,7 @@
       "function": "apply_preview",
       "line": 295,
       "callee": "_insert_planning_checkpoint",
+      "reference_kind": "call",
       "family": "storage_and_confirmation",
       "semantics": "guarded_writer"
     },
@@ -480,6 +553,7 @@
       "function": "AITools._active_checkpoint_id_or_zero",
       "line": 1823,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "coach",
       "semantics": "current_or_history_split_required"
     },
@@ -488,6 +562,7 @@
       "function": "AITools.get_active_plan",
       "line": 2255,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "coach",
       "semantics": "current_or_history_split_required"
     },
@@ -496,6 +571,7 @@
       "function": "AITools.get_upcoming_workouts",
       "line": 2377,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "coach",
       "semantics": "current_or_history_split_required"
     },
@@ -504,6 +580,7 @@
       "function": "AITools.get_workout_structure",
       "line": 2539,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "coach",
       "semantics": "current_or_history_split_required"
     },
@@ -512,14 +589,34 @@
       "function": "_seed",
       "line": 106,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "admin_and_synthetic",
       "semantics": "guarded_writer"
+    },
+    {
+      "path": "scripts/repair_planning_materialization.py",
+      "function": "_ReadOnlyPlanningStore.get_latest_planning_checkpoint",
+      "line": 72,
+      "callee": "_get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "admin_and_synthetic",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "scripts/repair_planning_materialization.py",
+      "function": "_ReadOnlyPlanningStore.get_planning_checkpoint",
+      "line": 78,
+      "callee": "_get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "admin_and_synthetic",
+      "semantics": "current_or_history_split_required"
     },
     {
       "path": "services/acceptance_mode.py",
       "function": "_has_existing_isolated_data",
       "line": 69,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "admin_and_synthetic",
       "semantics": "current_or_history_split_required"
     },
@@ -528,6 +625,7 @@
       "function": "run_trial",
       "line": 276,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "admin_and_synthetic",
       "semantics": "current_or_history_split_required"
     },
@@ -536,6 +634,7 @@
       "function": "build_synthetic_coach_database",
       "line": 218,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "admin_and_synthetic",
       "semantics": "guarded_writer"
     },
@@ -544,6 +643,7 @@
       "function": "_stimulus_for_match",
       "line": 234,
       "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
       "family": "current_and_historical_facts",
       "semantics": "explicit_history"
     },
@@ -552,6 +652,7 @@
       "function": "_auto_matches_by_activity",
       "line": 351,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "dynamic_lookup",
       "family": "current_and_historical_facts",
       "semantics": "current_or_history_split_required"
     },
@@ -560,6 +661,7 @@
       "function": "_historical_auto_matches_by_activity",
       "line": 449,
       "callee": "get_latest_planning_checkpoints_for_dates",
+      "reference_kind": "dynamic_lookup",
       "family": "current_and_historical_facts",
       "semantics": "explicit_history"
     },
@@ -568,6 +670,7 @@
       "function": "_auto_reconciled_stimulus",
       "line": 581,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "dynamic_lookup",
       "family": "current_and_historical_facts",
       "semantics": "current_or_history_split_required"
     },
@@ -576,6 +679,7 @@
       "function": "_auto_reconciled_stimulus",
       "line": 619,
       "callee": "get_planning_checkpoints_for_session",
+      "reference_kind": "dynamic_lookup",
       "family": "current_and_historical_facts",
       "semantics": "explicit_history"
     },
@@ -584,6 +688,7 @@
       "function": "_preload_historical_checkpoints",
       "line": 661,
       "callee": "get_planning_checkpoints_for_sessions",
+      "reference_kind": "dynamic_lookup",
       "family": "current_and_historical_facts",
       "semantics": "explicit_history"
     },
@@ -592,6 +697,7 @@
       "function": "deliver_active_plan",
       "line": 89,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "provider_delivery",
       "semantics": "current_or_history_split_required"
     },
@@ -600,6 +706,7 @@
       "function": "safe_deliver_active_plan",
       "line": 239,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "provider_delivery",
       "semantics": "current_or_history_split_required"
     },
@@ -608,6 +715,7 @@
       "function": "reconciliation_at",
       "line": 70,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "current_and_historical_facts",
       "semantics": "current_or_history_split_required"
     },
@@ -616,6 +724,7 @@
       "function": "_refresh_bounded_sync_episodes",
       "line": 466,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "current_and_historical_facts",
       "semantics": "current_or_history_split_required"
     },
@@ -624,6 +733,7 @@
       "function": "_refresh_targeted_episodes",
       "line": 811,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "current_and_historical_facts",
       "semantics": "current_or_history_split_required"
     },
@@ -632,6 +742,7 @@
       "function": "_planned_session_date",
       "line": 29,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "current_and_historical_facts",
       "semantics": "current_or_history_split_required"
     },
@@ -640,6 +751,7 @@
       "function": "_effective_match_revision",
       "line": 130,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "current_and_historical_facts",
       "semantics": "current_or_history_split_required"
     },
@@ -648,6 +760,7 @@
       "function": "_render_execution_feedback_loop",
       "line": 579,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "legacy_compatibility",
       "semantics": "guarded_writer"
     },
@@ -656,6 +769,7 @@
       "function": "_render_execution_feedback_loop",
       "line": 583,
       "callee": "get_recent_planning_checkpoints",
+      "reference_kind": "call",
       "family": "legacy_compatibility",
       "semantics": "explicit_history"
     },
@@ -664,6 +778,7 @@
       "function": "render_planning_page",
       "line": 2632,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "legacy_compatibility",
       "semantics": "guarded_writer"
     },
@@ -672,6 +787,7 @@
       "function": "render_planning_page",
       "line": 2636,
       "callee": "get_recent_planning_checkpoints",
+      "reference_kind": "call",
       "family": "legacy_compatibility",
       "semantics": "explicit_history"
     },
@@ -680,6 +796,7 @@
       "function": "render_planning_page",
       "line": 2757,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "legacy_compatibility",
       "semantics": "guarded_writer"
     },
@@ -688,6 +805,7 @@
       "function": "render_planning_page",
       "line": 2761,
       "callee": "get_recent_planning_checkpoints",
+      "reference_kind": "call",
       "family": "legacy_compatibility",
       "semantics": "explicit_history"
     },
@@ -696,6 +814,7 @@
       "function": "render_planning_page",
       "line": 2830,
       "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
       "family": "legacy_compatibility",
       "semantics": "explicit_history"
     },
@@ -704,6 +823,7 @@
       "function": "render_planning_page",
       "line": 2884,
       "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
       "family": "legacy_compatibility",
       "semantics": "guarded_writer"
     },
@@ -712,6 +832,7 @@
       "function": "render_planning_page",
       "line": 2888,
       "callee": "get_recent_planning_checkpoints",
+      "reference_kind": "call",
       "family": "legacy_compatibility",
       "semantics": "explicit_history"
     },
@@ -720,6 +841,7 @@
       "function": "HeadlessState.refresh_planning_checkpoint_cache",
       "line": 395,
       "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
       "family": "legacy_compatibility",
       "semantics": "current_or_history_split_required"
     },
@@ -728,6 +850,7 @@
       "function": "HeadlessState.refresh_planning_checkpoint_cache",
       "line": 396,
       "callee": "get_recent_planning_checkpoints",
+      "reference_kind": "call",
       "family": "legacy_compatibility",
       "semantics": "explicit_history"
     }
