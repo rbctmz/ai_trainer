@@ -47,7 +47,7 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-18) M2 complete: independent round 1 found one P2 (association DELETE); reproduced and fixed-in `69a2623`, scoped round 2/2 CLOSED/READY. Final 58 storage / 77 focused GREEN; contributor-safe contour excluding intentional M1 RED: 3427 passed, 14 skipped, 64 deselected. Draft #696 stacked on #695; no standalone merge/live migration.
 - [x] (2026-10-18) M2 RED checkpoint: 29 storage/projection cases failed before implementation (missing interfaces/tables), no collection errors. This preliminary RED is not migration/transaction proof.
 - [x] (2026-10-18) M3a complete: read/command API/TS contracts, retained close/outcome/scope commands, CAS/replay/rollback/retention probes. Independent scoped review READY at `b5807ad`, 222 focused GREEN; contributor contour with explicit M1 RED exclusions: 3502 passed / 14 skipped / 64 deselected. Publication remains intermediate draft only.
-- [ ] M3b: S1 v2 start_new/edit_current, calendar/identity boundary and atomic replacement (author implementation complete; final verification and independent review pending). Preserve applied-v1 replay and reject pending-v1.
+- [x] (2026-10-18) M3b: S1 v2 start_new/edit_current, calendar/identity boundary and atomic replacement; applied-v1 replay retained, pending-v1 rejected. Independent round 1/2 READY at `5f5d2dd`, 473 focused GREEN; contributor-safe 3591 passed / 14 skipped / 68 deselected with only four known M4 assertions excluded beyond standard markers. Intermediate draft only.
 - [ ] M3c: every planning/Coach/legacy writer guards selected cycle/head under the writer lock; explicit restore ownership.
 - [ ] M4: explicit current-vs-history reader integration, then Domain→UI handoff for minimal actions/status and isolated web acceptance.
 - [ ] M5: final whole-S2 evidence, current-head CI/native review and explicit human merge decision.
@@ -579,6 +579,49 @@ The latter excludes only the four known M4 reader assertions above, in addition
 to the standard live/debug/e2e marker exclusions. Full-repository Ruff,
 git diff --check, web lint/build and generated contract freshness passed.
 Independent review and publication follow below; this is not whole-S2 acceptance.
+
+### M3b independent review and handoff (2026-10-18)
+
+OpenCode 1.1.30 plan agent, fresh MODEL_OK from deepseek/deepseek-flash,
+session `ses_eaf50776cffev2WRTi64jAlQH0`, reviewed exact
+`aedba207c77b4d49cbdc025e95be3809988e50fd..5f5d2ddc8fe7d319266deb090ce4d0699bf5e627`.
+It inspected every changed runtime/transport path, changed S1 and new lifecycle
+tests, approved spec and relevant ASR/ExecPlan; generated TS artifact inspected
+selectively for the new schemas. Verdict READY for M3b handoff, zero P1/blocking
+P2. Independent allowed focused command returned 473 passed / 7 warnings in
+66.34s; broad/web checks were author-only, not independently repeated. Suspected
+legacy-edit undercount was falsified: checkpoint restoration normalizes nested
+sessions before calendar regrouping. No blocking correction or second full
+review requested. Before/after git status clean; no remaining reviewer process.
+The reviewer performed no edits, issues/comments, approvals or merge.
+
+All four suggestions are `follow-up #693`, not open-branch merge gates:
+add edit_current build-context registry coverage (Observed: current registry
+lists only start_new); add explicit legacy-edit weekly accounting assertions
+(Observed: current edit test verifies exact past daily/template preservation);
+preserve constraint_ids in Coach tool errors (Observed: HTTP preserves context,
+AITools returns only code/error; M3c handoff); check displayed event dates and
+weeks_to_race when an edit shortens its period (Inferred metadata risk, no
+reproduced M3b invariant violation; diagnose before M4 display). These are
+separate from the four known M1 RED reader assertions assigned to M4.
+
+Reproducible final commands:
+
+    ai_trainer_env/bin/python -m pytest -q tests/smoke/test_planning_cycle_build_v2.py tests/smoke/test_planning_cycle_identity.py tests/smoke/test_planning_cycle_commands.py tests/smoke/test_planning_cycle_storage.py tests/smoke/test_planning_cycle_characterization.py tests/smoke/test_planning_build_confirmation.py tests/smoke/test_planning_build_confirmation_storage.py tests/smoke/test_planning_build_preparation.py tests/smoke/test_planning_build_preview_store.py tests/smoke/test_planning_build_commit.py tests/smoke/test_planning_build_coach_confirmation.py tests/smoke/test_web_contract_drift.py tests/smoke/test_contract_extractor.py tests/smoke/test_api_call_inventory.py --tb=short
+    ai_trainer_env/bin/python -m pytest -q -m 'not live and not debug and not e2e' tests/ --deselect=tests/smoke/test_planning_cycle_projection.py::test_behavior_phase_is_not_current_outside_period --deselect=tests/smoke/test_planning_cycle_projection.py::test_protocol_status_has_readable_but_not_actionable_ended_plan --deselect=tests/smoke/test_planning_cycle_build.py::test_protocol_close_retry_keeps_history_and_null_selection_after_restart --tb=short
+    ai_trainer_env/bin/python -m ruff check .
+    npm --prefix web run lint
+    npm --prefix web run build
+    npm --prefix web run contract:extract -- --check
+    git diff --check
+
+Next role remains Domain / API Implementer for M3c. Start from the immutable M1
+caller/SQL inventory and guard shared persistence plus demand, adjustment,
+recovery, constraint/repair, restore and Coach/legacy writers under the selected
+cycle/head CAS; keep explicit historical exceptions and provider calls outside
+the transaction. Do not make raw history or a cached plan select/reopen a cycle.
+Then hand shared readers/transport semantics to M4 before any screen work.
+This evidence-only documentation update does not change reviewed runtime.
 
 ## Context and Orientation
 
