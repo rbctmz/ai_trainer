@@ -40,7 +40,7 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-17) M0: scoped round 2/2 reviewed `a4647fd..a2f3848`, verified the identity/lineage correction and returned READY for spec handoff, zero remaining blockers. Publish draft follows; no extra review round.
 - [x] (2026-10-17) M1 author checkpoint: 14 behavioral RED, 26 preliminary protocol RED, 7 new GREEN characterization; 256 existing S1/planning/history regressions passed. Initial inventory: 87 calls and 19 SQL sites. No product/schema/UI changes.
 - [x] (2026-10-18) Partial independent M1 check reproduced 40 failed/7 passed, 7 GREEN characterization and Ruff. Found omitted historical accessor/callback references; author fixed inventory to 91 references / 19 SQL sites. Checker stopped on account usage limit before final verdict; no READY inferred.
-- [ ] M1 independent test/inventory check and bounded RED draft publication; this is not a merge candidate.
+- [x] (2026-10-18) M1 complete: independent round 2/2 reviewed `f857f58..82a430f`, reproduced 40 RED/7 GREEN and verified 91 references/19 SQL sites; READY for intermediate checkpoint, zero P1/P2. Draft #695 published/attached, stacked on #694; not a merge candidate.
 - [ ] M2: additive cycle migration/store, explicit selection and pure state projection; reset/restart/restore probes.
 - [ ] M3: close/outcome/scope commands, S1 v2 start_new/edit_current and atomic replacement; every writer guards current cycle.
 - [ ] M4: explicit current-vs-history reader integration, then Domain→UI handoff for minimal actions/status and isolated web acceptance.
@@ -162,8 +162,10 @@ preservation boundary. The explicit selected-cycle API, storage migration,
 commands, writer guards and UI still do not exist. Tests are intentionally RED
 and must stay in an intermediate draft, stacked on M0 #694, until subsequent
 milestones make them GREEN. Existing S1 oracle JSON and production code remain
-unchanged. Independent M1 checking is pending; M0's exhausted spec review budget
-is not reused as a new full specification review.
+unchanged. Independent M1 round 2/2 completed on `82a430f` with READY for this
+intermediate checkpoint, zero P1/P2. M0's exhausted spec review budget was not
+reused as a new full specification review. M1 remains intentionally RED, not
+runtime acceptance.
 
 ### M1 author evidence (2026-10-17)
 
@@ -231,6 +233,39 @@ historical exceptions explicit. The checker hit its account usage limit before
 a final verdict; its partial result is not a completed independent acceptance.
 Its baseline command was still running at the last message, so no independent
 256-case result is claimed. The author baseline remains verified.
+
+M1 review round 2/2 (completed, 2026-10-18): followed
+`docs/opencode_external_reviewer_runbook.md` after the first checker stopped.
+OpenCode 1.1.30 plan agent had edit denied; configured
+`deepseek/deepseek-flash` returned MODEL_OK before assignment. Session
+`ses_eb1863f31ffeuBGZApqpN1VwFl` reviewed exact `f857f58..82a430f`, only the seven
+M1 files, with the approved spec as reference. Its sole allowed pytest command
+was the four-module M1 command above: 40 failed, 7 passed, 1 warning in 1.51s.
+It verified the 14/26/7 split, real behavior seams, complete six-table row
+comparisons and 91 inventory references (84 calls, 6 dynamic lookups, 1 callback)
+plus 19 SQL sites. Verdict READY for the intermediate RED checkpoint only;
+P1 none, P2 none. Supervisor checked its source/count evidence against the
+fixture and existing captured runs. No tracked/untracked file changes by the
+reviewer; postflight clean, no remaining audit process. Author push updated
+remote tracking during the run without changing reviewed file content. Ruff
+and the 256-case baseline remain author/prior-checker evidence, not round-2 runs.
+
+Non-blocking suggestions are explicitly triaged as follow-up #693 within the
+already approved milestones: M2 adds explicit end_date and historical-week
+assertions when the projection exists; M4 expands the cached-state consumer
+checklist for dashboard_summary, legacy Planning/dashboard and ai_coach_entry
+behind app_state. Dynamic inventory lines intentionally anchor the `getattr(`
+call expression rather than the following string literal; the new
+reference_kind makes that convention explicit. None is an M1 merge gate or an
+authorization to implement UI now. The round-1 historical-reference omission is
+fixed-in `82a430f`; no unresolved blocking finding remains.
+
+Publication: draft [#695](https://github.com/rbctmz/ai_trainer/pull/695), stacked
+on M0 [#694](https://github.com/rbctmz/ai_trainer/pull/694), contains author RED
+`b72f556` and inventory correction `82a430f`. This final metadata revision only
+records the completed review and handoff. No additional full review requested.
+Next role remains Domain / API Implementer, scoped to M2 storage/migration and
+selected-cycle projection; HTTP commands/atomic replacement stay M3, UI M4.
 
 Remaining proofs are deliberately scheduled in M2/M3: actual migration/selection
 and reset, malformed data handling, real-command failure/race injection,
