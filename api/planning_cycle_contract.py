@@ -76,7 +76,7 @@ class EventDeclaration(BaseModel):
 class CloseCycleRequest(CycleCommandRequest):
     expected_selection_revision: int = Field(ge=0, strict=True)
     expected_cycle_revision: int = Field(ge=1, strict=True)
-    expected_checkpoint_id: int = Field(ge=1, strict=True)
+    expected_checkpoint_id: int | None = Field(ge=1, strict=True)
     event_outcomes: list[EventDeclaration] = Field(default_factory=list, max_length=100)
 
     @field_validator("event_outcomes")

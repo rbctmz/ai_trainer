@@ -799,7 +799,7 @@ export interface CloseCycleRequest {
   confirm: true;
   expected_selection_revision: number;
   expected_cycle_revision: number;
-  expected_checkpoint_id: number;
+  expected_checkpoint_id: number | null;
   event_outcomes?: EventDeclaration[];
 }
 

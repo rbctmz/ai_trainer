@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "bd884d8f071e420085d3131ee84de3a5d032ca389195a35da5c439bf919ca8bc",
+    "source_sha256": "ac7a84277631645d94028c84d10a4214e920bd9e4634b267f6d747df25cdebaf",
     "registry": "tests/contracts/registry.json",
     "registry_sha256": "d6e5ca454ab462aca62622b4a87e13ef37534ed3f14f7f79cb3cd125f1de0893"
   },

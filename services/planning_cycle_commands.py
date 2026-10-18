@@ -69,8 +69,9 @@ def _close(store: PlanningCycleStore, request: dict, day) -> dict:
         request["expected_selection_revision"], request["expected_cycle_revision"], request["expected_checkpoint_id"],
     ):
         raise CycleCommandError("cycle_stale", "Цикл изменился — обновите данные.")
-    if store.version_cycle(cycle["current_checkpoint_id"]) != cycle["id"]:
-        raise CycleCommandError("cycle_indeterminate", "Не удалось подтвердить принадлежность версии циклу.")
+    # Closing changes lifecycle metadata only: a missing/foreign checkpoint
+    # must not prevent exiting an indeterminate selected cycle. Any optional
+    # declarations still require their own verified cycle-owned snapshots.
     changes = _outcome_changes(store, cycle, request["event_outcomes"], day)
     # Closing an indeterminate cycle without declarations must not repair or
     # reinterpret corrupt historical outcome bytes.

@@ -538,3 +538,52 @@ def test_nonfinite_response_fails_before_commit(tmp_path, monkeypatch):
         response = post(client, context, "event-outcome", command(context, "event-outcome"))
     assert response.status_code == 500 and response.json()["code"] == "cycle_corrupt"
     assert cycle_rows(db) == before
+
+
+@pytest.mark.parametrize("damage", ["null-head", "missing-mapping", "different-owner", "missing-checkpoint"])
+def test_advertised_indeterminate_close_does_not_need_checkpoint_ownership(tmp_path, monkeypatch, damage):
+    db = legacy_db(tmp_path, monkeypatch)
+    conn = db._connect()
+    with conn:
+        if damage == "null-head":
+            conn.execute("UPDATE planning_cycles SET current_checkpoint_id=NULL")
+        elif damage == "missing-mapping":
+            conn.execute("DROP TRIGGER planning_cycle_versions_no_delete")
+            conn.execute("DELETE FROM planning_cycle_versions")
+        elif damage == "different-owner":
+            conn.execute("DROP TRIGGER planning_cycle_versions_immutable")
+            conn.execute("UPDATE planning_cycle_versions SET cycle_id=?", (str(uuid4()),))
+        else:
+            conn.execute("DELETE FROM planning_checkpoints")
+    conn.close()
+    before = evidence_bytes(db), rows(db, "planning_cycle_versions")
+    with client_for(db) as client:
+        context = current(client)
+        assert context["state"] == "indeterminate" and "close" in context["allowed_actions"]
+        body = command(context, "close")
+        response = post(client, context, "close", body)
+        assert response.status_code == 200, response.text
+        assert response.json()["current_context"]["state"] == "no_current"
+        assert response.json()["result"]["checkpoint_id"] == context["checkpoint_id"]
+        replay = post(client, context, "close", body)
+        assert replay.status_code == 200 and replay.json()["replayed"] is True
+    assert (evidence_bytes(db), rows(db, "planning_cycle_versions")) == before
+
+
+def test_indeterminate_close_does_not_accept_an_unowned_event(tmp_path, monkeypatch):
+    db = legacy_db(tmp_path, monkeypatch)
+    with client_for(db) as client:
+        old = current(client)
+        conn = db._connect()
+        with conn:
+            conn.execute("DROP TRIGGER planning_cycle_versions_no_delete")
+            conn.execute("DELETE FROM planning_cycle_versions")
+        conn.close()
+        before = cycle_rows(db)
+        context = current(client)
+        body = {**command(context, "close"), "event_outcomes": [
+            {"event_key": old["events"][0]["event_key"], "outcome": "did_not_participate"},
+        ]}
+        response = post(client, context, "close", body)
+        assert response.status_code == 404 and response.json()["code"] == "event_not_found"
+    assert cycle_rows(db) == before
