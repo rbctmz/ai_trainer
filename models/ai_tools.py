@@ -1617,7 +1617,8 @@ class AITools:
                 }), origin="coach",
             )
         except Exception as exc:
-            return {"success": False, "error": str(exc), "code": getattr(exc, "code", None)}
+            return {"success": False, "error": str(exc), "code": getattr(exc, "code", None),
+                    **getattr(exc, "context", {})}
 
         return {
             "is_proposal": True,

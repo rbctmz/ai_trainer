@@ -66,8 +66,9 @@ def reconciliation_at(
     weeks: int = 1,
     as_of: date | str | None = None,
     include_provider: bool = True,
+    checkpoint: dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
-    latest = db.get_latest_planning_checkpoint()
+    latest = checkpoint if checkpoint is not None else db.get_latest_planning_checkpoint()
     goal_plan = restore_goal_plan_from_checkpoint(latest)
     if not goal_plan or not goal_plan.get("daily_plan"):
         return {"has_plan": False, "rows": [], "unplanned_activities": []}

@@ -5,7 +5,8 @@
 """
 from __future__ import annotations
 
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional, Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
@@ -14,8 +15,9 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from api.planning_build_contract import BuildConfirmRequest, BuildConfirmResponseVersioned, BuildPreviewResponseV2
-from api.planning_cycle_contract import CycleBuildRequest
+from api.planning_cycle_contract import CycleBuildRequest, CycleRestoreRequest, CycleExpectedRequest
 from models.planning_build_confirmation import BuildParameters, PlanningBuildPreviewError
+from utils.athlete_time import athlete_local_date
 
 from api import planning_service
 from api.deps import get_database
@@ -28,13 +30,13 @@ class PlanningRoute(APIRoute):
 
     def get_route_handler(self):
         handler = super().get_route_handler()
-        if self.path not in {"/api/planning/build", "/api/planning/build/confirm"}:
-            return handler
 
         async def protocol_handler(request):
             try:
                 return await handler(request)
             except RequestValidationError:
+                if self.path not in {"/api/planning/build", "/api/planning/build/confirm"}:
+                    raise
                 is_confirm = self.path.endswith("/confirm")
                 return JSONResponse(status_code=422, content={
                     "detail": "Проверьте подтверждение." if is_confirm else "Проверьте параметры плана.",
@@ -71,7 +73,10 @@ class BuildRequest(CycleBuildRequest):
     base_checkpoint_id: Optional[int] = Field(default=None, ge=0, strict=True)
 
 
-class AdjustRequest(BaseModel):
+class AdjustRequest(CycleExpectedRequest):
+    expected_cycle_id: UUID
+    expected_cycle_revision: int = Field(ge=1, strict=True)
+    base_checkpoint_id: int = Field(ge=1, strict=True)
     rows: List[Dict[str, Any]]
     weeks: int = 1
     persist: bool = True
@@ -103,29 +108,31 @@ class DemandConfirmRequest(BaseModel):
     preview_fingerprint: str
 
 
-class HistoryRestoreRequest(BaseModel):
+class HistoryRestoreRequest(CycleRestoreRequest):
     checkpoint_id: int
     base_checkpoint_id: int
 
 
-class RepairDayRequest(BaseModel):
+class RepairDayRequest(CycleExpectedRequest):
     date: str
     exclude_sports: Optional[List[str]] = None
-    base_checkpoint_id: Optional[int] = None
+    base_checkpoint_id: int = Field(ge=1, strict=True)
 
 
 class IntervalsDeliveryRequest(BaseModel):
     days: int = Field(7, ge=7, le=14)
 
 
-class ConstraintRequest(BaseModel):
+class ConstraintRequest(CycleExpectedRequest):
     date: str
     kind: str
     source: str = "coach"
     note: Optional[str] = None
     plan_id: Optional[str] = None
     session_id: Optional[str] = None
-    base_checkpoint_id: Optional[int] = None
+    base_checkpoint_id: int = Field(ge=0, strict=True)
+    cycle_scope: Literal["athlete", "cycle"] | None = None
+    cycle_id: UUID | None = None
     metadata: Optional[Dict[str, Any]] = None
     sport: Optional[str] = Field(
         default=None,
@@ -213,6 +220,9 @@ def create_constraint(req: ConstraintRequest, db: Database = Depends(get_databas
                 "note": req.note,
                 "sport": req.sport,
                 "metadata": req.metadata or {},
+                "cycle_scope": req.cycle_scope,
+                "cycle_id": str(req.cycle_id) if req.cycle_id else None,
+                "cycle_context": _request_cycle_context(req),
             },
             plan_id=req.plan_id,
             session_id=req.session_id,
@@ -220,6 +230,8 @@ def create_constraint(req: ConstraintRequest, db: Database = Depends(get_databas
         )
     except planning_service.StalePlanningCheckpointError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except PlanningBuildPreviewError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -257,6 +269,8 @@ def retract_constraint(constraint_id: int, db: Database = Depends(get_database))
         raise HTTPException(status_code=409, detail=str(exc))
     except planning_service.NoDonorCheckpointError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except PlanningBuildPreviewError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return {"constraint": result.get("constraint"), "recover": result}
@@ -271,6 +285,7 @@ def repair_day(req: RepairDayRequest, db: Database = Depends(get_database)) -> d
             action="repair_plan_day",
             params={
                 "base_checkpoint_id": _active_checkpoint_id(db, required=req.base_checkpoint_id),
+                "cycle_context": _request_cycle_context(req),
                 "date": req.date,
                 "exclude_sports": list(req.exclude_sports or []),
             },
@@ -285,13 +300,21 @@ def repair_day(req: RepairDayRequest, db: Database = Depends(get_database)) -> d
         raise HTTPException(status_code=409, detail=str(exc))
     except planning_service.NoDonorCheckpointError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except PlanningBuildPreviewError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
 
+def _request_cycle_context(req) -> dict:
+    return {"cycle_id": str(req.expected_cycle_id) if req.expected_cycle_id else None,
+            "cycle_revision": req.expected_cycle_revision, "selection_revision": req.expected_selection_revision,
+            "checkpoint_id": req.base_checkpoint_id or None, "athlete_day": athlete_local_date().isoformat()}
+
+
 def _active_checkpoint_id(db: Database, *, required: Optional[int] = None) -> int:
     """Active checkpoint id, or fail fast when the caller pinned a stale base (#473)."""
-    latest = db.get_latest_planning_checkpoint()
+    latest = db.get_current_planning_checkpoint()
     latest_raw_id = latest.get("id") if isinstance(latest, dict) else None
     latest_id = int(latest_raw_id) if latest_raw_id is not None else None
     if required is not None and latest_id != int(required):
@@ -358,6 +381,8 @@ def planning_demand_confirm(
         )
     except planning_service.StalePlanningCheckpointError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except PlanningBuildPreviewError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -465,6 +490,8 @@ def planning_export_workout(
             leg=leg,
             session_id=session_id,
         )
+    except PlanningBuildPreviewError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return Response(
@@ -492,6 +519,8 @@ def planning_session_projection(
         )
     except SessionProjectionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="planned session not found") from exc
+    except PlanningBuildPreviewError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -531,6 +560,8 @@ def planning_reconciliation(
                     str(row.get("session_id") or "")
                 )
         return result
+    except PlanningBuildPreviewError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -552,6 +583,8 @@ def planning_record_match(
         )
     except planning_service.StalePlanningCheckpointError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except PlanningBuildPreviewError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -567,6 +600,8 @@ def planning_rebalance_preview(
             weeks=req.weeks,
             as_of=req.as_of,
         )
+    except PlanningBuildPreviewError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -588,6 +623,8 @@ def planning_rebalance_confirm(
         )
     except planning_service.StalePlanningCheckpointError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except PlanningBuildPreviewError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -599,6 +636,8 @@ def planning_bike_tss_preview(
 ) -> dict[str, Any]:
     try:
         return planning_service.preview_bike_tss_rebalance(db, as_of=req.as_of)
+    except PlanningBuildPreviewError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -619,6 +658,8 @@ def planning_bike_tss_confirm(
         )
     except planning_service.StalePlanningCheckpointError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except PlanningBuildPreviewError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -627,8 +668,13 @@ def planning_bike_tss_confirm(
 def planning_adjust(req: AdjustRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
     try:
         return planning_service.apply_adjustment(
-            db, rows=req.rows, weeks=req.weeks, persist=req.persist
+            db, rows=req.rows, weeks=req.weeks, persist=req.persist,
+            cycle_context={"cycle_id": str(req.expected_cycle_id), "cycle_revision": req.expected_cycle_revision,
+                           "selection_revision": req.expected_selection_revision, "checkpoint_id": req.base_checkpoint_id,
+                           "athlete_day": athlete_local_date().isoformat()},
         )
+    except PlanningBuildPreviewError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -649,8 +695,14 @@ def planning_history_restore(
             db,
             checkpoint_id=req.checkpoint_id,
             base_checkpoint_id=req.base_checkpoint_id,
+            expected_cycle_id=str(req.expected_cycle_id),
+            expected_cycle_revision=req.expected_cycle_revision,
+            expected_selection_revision=req.expected_selection_revision,
+            action=req.action,
         )
     except planning_service.StalePlanningCheckpointError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except PlanningBuildPreviewError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))

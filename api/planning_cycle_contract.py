@@ -10,6 +10,19 @@ EventOutcome = Literal["unspecified", "did_not_participate", "participated"]
 CycleScope = Literal["athlete", "cycle"]
 
 
+class CycleExpectedRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_cycle_id: UUID | None
+    expected_cycle_revision: int | None = Field(ge=1, strict=True)
+    expected_selection_revision: int = Field(ge=0, strict=True)
+
+
+class CycleRestoreRequest(CycleExpectedRequest):
+    expected_cycle_id: UUID
+    expected_cycle_revision: int = Field(ge=1, strict=True)
+    action: Literal["restore_version", "restore_legacy_version"] = "restore_version"
+
+
 class CycleEvent(BaseModel):
     model_config = ConfigDict(extra="allow")
     event_key: str

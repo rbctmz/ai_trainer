@@ -1,5 +1,6 @@
 """BDD/TDD contract for Issue #175 post-workout feedback."""
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -691,7 +692,7 @@ def test_admin_resolve_bridges_match_feedback_and_evaluation_without_mutating_fo
 
     db = Database(str(tmp_path / "admin-bridge.db"))
     plan = _one_session_plan()
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(plan))
     session_id = checkpoint["goal_plan_snapshot"]["session_templates"][0]["session_id"]
     prediction = db.save_session_quality_prediction(
         fingerprint="admin-forecast",

@@ -1,5 +1,6 @@
 """Regression coverage for issue #531 explicit unplanned activity correction."""
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -24,7 +25,7 @@ from tests.smoke.test_issue_529_match_handoff import (
 def _current_db(tmp_path, *sessions: dict) -> tuple[Database, dict, int]:
     db = Database(str(tmp_path / "issue-531.db"))
     plan = _plan(*(sessions or (_session("bike", "quality", 60.0),)))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(plan))
     return db, plan, int(checkpoint["id"])
 
 

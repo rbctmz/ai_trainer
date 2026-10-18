@@ -6,6 +6,8 @@ legacy-снапшотах. Вторая группа — это ASR-REL-2: от�
 а не падение.
 """
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
+from tests.planning_fixtures import seed_checkpoint
 
 import copy
 
@@ -22,7 +24,7 @@ def _persisted_plan(tmp_path) -> tuple[Database, dict]:
     """Активный план в temp-БД: тот же вход, которым пользуется роутер."""
     db = Database(str(tmp_path / "planning_gaps.db"))
     db.save_athlete_profile({"ftp": 200, "lthr": 165, "weight_kg": 80, "source": "test"})
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -99,7 +101,7 @@ def _mutate_checkpoint(db: Database, plan: dict, mutate) -> None:
     """Сохранить снапшот с намеренно битой формой (legacy-совместимость)."""
     checkpoint = build_planning_checkpoint(plan)
     mutate(checkpoint["goal_plan_snapshot"])
-    db.save_planning_checkpoint(checkpoint)
+    seed_checkpoint(db, checkpoint)
 
 
 def test_week_by_week_reports_data_gap_without_daily_plan(tmp_path) -> None:

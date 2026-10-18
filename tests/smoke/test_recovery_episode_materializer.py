@@ -1,5 +1,6 @@
 """End-to-end local materialization for prospective recovery episodes."""
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from datetime import date, datetime, timezone
 
@@ -93,7 +94,7 @@ def test_materializer_builds_one_idempotent_episode_without_feedback(tmp_path) -
             "near_term_edit_version": 0,
         }
     )
-    saved_checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    saved_checkpoint = seed_checkpoint(db, build_planning_checkpoint(plan))
     session = plan["session_templates"][0]
     session_id = session["session_id"]
     db.save_activities(
@@ -183,7 +184,7 @@ def test_materializer_revises_maturing_episode_after_d3_without_new_snapshots(
             "near_term_edit_version": 0,
         }
     )
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(plan))
     session_id = plan["session_templates"][0]["session_id"]
     db.save_activities(
         [

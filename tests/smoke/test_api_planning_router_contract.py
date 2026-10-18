@@ -18,6 +18,7 @@ ge=1, le=365)` — это просто дефолт-значение, грани
 и `except … → HTTPException`. Полный HTTP round-trip остаётся отдельной темой.
 """
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 import pytest
 from fastapi import HTTPException
@@ -61,7 +62,7 @@ def _active_plan_db(tmp_path) -> Database:
 
     db = _seeded_db(tmp_path)
     event = (datetime.now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -157,7 +158,8 @@ def test_export_and_plan_routes_expose_active_plan_contract(tmp_path):
 
     # /adjust with real reconciliation rows exercises the router's happy path.
     rows = ps.reconciliation(db, weeks=1)["rows"]
-    adjusted = planning_adjust(AdjustRequest(rows=rows, weeks=1, persist=False), db=db)
+    from tests.planning_fixtures import restore_fields
+    adjusted = planning_adjust(AdjustRequest(**restore_fields(db), base_checkpoint_id=db.get_current_planning_checkpoint()["id"], rows=rows, weeks=1, persist=False), db=db)
     assert "status" in adjusted["adjustment"]
     assert adjusted["weeks"]
 
@@ -197,6 +199,9 @@ def test_reconciliation_route_returns_rows_with_provider_offline(tmp_path, monke
 
 
 def test_rebalance_preview_route_returns_proposal_with_provider_offline(tmp_path, monkeypatch):
+    from datetime import date
+    from tests.planning_fixtures import pin_day
+    pin_day(monkeypatch, date(2026, 7, 13))
     _force_provider_unavailable(monkeypatch)
     db, _plan = _reconciliation_db(tmp_path)
     out = planning_rebalance_preview(
@@ -332,7 +337,7 @@ def test_adjust_route_translates_value_error_to_422(tmp_path, monkeypatch):
         lambda *_a, **_k: (_ for _ in ()).throw(ValueError("bad rows")),
     )
     with pytest.raises(HTTPException) as exc:
-        planning_adjust(AdjustRequest(rows=[], weeks=1, persist=False), db=_empty_db(tmp_path))
+        planning_adjust(AdjustRequest(expected_cycle_id="00000000-0000-4000-8000-000000000001", expected_cycle_revision=1, expected_selection_revision=0, base_checkpoint_id=1, rows=[], weeks=1, persist=False), db=_empty_db(tmp_path))
     assert exc.value.status_code == 422
 
 

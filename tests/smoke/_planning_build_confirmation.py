@@ -1,5 +1,6 @@
 """Synthetic, pinned inputs shared by the #685 confirmation regressions."""
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 import hashlib
 import json
@@ -10,7 +11,6 @@ from api import planning_service as ps
 from config.settings import Settings
 from data import database as database_module
 from data.database import Database
-from data.planning_cycles import initialize_cycle_store
 from tests import athlete_clock
 from tests.smoke.test_api_planning import _seeded_db
 from utils import athlete_time
@@ -66,7 +66,7 @@ def parameters(mode: str = "training_goal") -> dict[str, Any]:
 
 def internal_build(db: Database, request: dict[str, Any], *, persist: bool = True):
     """Trusted legacy facade remains the characterization target during extraction."""
-    return ps.build_plan(
+    return fixture_build_plan(
         db,
         **{**request, "start_week": date.fromisoformat(request["start_week"])},
         persist=persist,
@@ -118,15 +118,8 @@ def seeded_db(tmp_path, *, existing: bool = False, rested: bool = False) -> Data
         original = parameters()
         original["available_hours"] = 8.0
         internal_build(db, original)
-        # This fixture depicts a pre-S2 plan. Import it explicitly during fixture
-        # setup; a raw post-migration checkpoint never selects itself in runtime.
-        conn = db._connect()
-        try:
-            with conn:
-                conn.execute("DELETE FROM planning_cycle_state")
-                initialize_cycle_store(conn)
-        finally:
-            conn.close()
+        # Explicit test-side synthetic initialization owns this legacy cycle;
+        # production raw saves never select/reimport it.
     # The known synthetic forced-rest row is an explicit athlete restriction.
     # Production unresolved rows still fail prepare with constraint_scope_required.
     conn = db._connect()

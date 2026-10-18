@@ -14,6 +14,7 @@ Targetless event не эмитируется. Это regression-lock: если g
 снимут/обойдут, тест поймёт, что появилась доставка fallback HR-zone токенов.
 """
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from datetime import datetime
 from typing import Any
@@ -94,7 +95,7 @@ def test_recovery_stub_delivery_fails_closed_no_targetless_event(tmp_path) -> No
     from services.intervals_plan_delivery import safe_deliver_active_plan
 
     db = Database(str(tmp_path / "stub_delivery.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_stub_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_stub_plan()))
     client = _FakeClient()
 
     result = safe_deliver_active_plan(

@@ -1,4 +1,5 @@
 """S2: exact retained lifecycle publication, using synthetic SQLite only."""
+from tests.planning_fixtures import append_history
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
@@ -271,7 +272,7 @@ def seed_v1_receipt(db, origin, applied):
                      "base_checkpoint_id", "parameters_json", "dependency_context_json", "dependency_digest",
                      "checkpoint_json", "response_json", "settings_write_json")
     assert row["payload_digest"] == fingerprint({key: row[key] for key in legacy_fields})
-    checkpoint = db.save_planning_checkpoint(json.loads(row["checkpoint_json"])) if applied else None
+    checkpoint = append_history(db, json.loads(row["checkpoint_json"])) if applied else None
     conn = db._connect()
     try:
         with conn:
@@ -395,7 +396,7 @@ def test_successful_replay_after_close_never_reselects_old_cycle(tmp_path, monke
 def test_raw_history_append_is_not_a_new_selected_cycle_dependency(tmp_path, monkeypatch):
     db = legacy_db(tmp_path, monkeypatch)
     shown = prepare(db)
-    db.save_planning_checkpoint({"goal_type": "synthetic unassigned history"})
+    append_history(db, {"goal_type": "synthetic unassigned history"})
     applied = confirm(db, shown)
     assert applied["lifecycle"] == shown["lifecycle"]
 

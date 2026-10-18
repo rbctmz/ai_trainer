@@ -3,6 +3,7 @@
 ExecPlan: docs/readiness_conflict_gate_execplan.md.
 """
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from datetime import date, datetime, timedelta, timezone
 
@@ -670,7 +671,7 @@ def _seed_plan_with_quality_tomorrow(db) -> None:
         ],
         "constraint_summary": {},
     }
-    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    seed_checkpoint(db, build_planning_checkpoint(goal_plan))
 
 
 def test_build_report_from_db_detects_quality_conflict(tmp_path) -> None:

@@ -1,5 +1,8 @@
 """P1 gates: plan mutations must preserve executable workout truth."""
 from __future__ import annotations
+from tests.planning_fixtures import write_context
+from tests.planning_fixtures import build_plan as fixture_build_plan
+from tests.planning_fixtures import seed_checkpoint
 
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -22,7 +25,7 @@ from tests.smoke.test_api_planning import _seeded_db
 def _build_active_plan(db: Database) -> dict:
     from api import planning_service as ps
 
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -66,7 +69,7 @@ def _apply_confirmed_downgrade(db: Database, plan: dict, row: dict) -> dict:
     assert latest is not None
     ps.apply_recovery_replan(
         db,
-        {
+        {"cycle_context": write_context(db),
             "base_checkpoint_id": latest["id"],
             "draft_rows": [row],
             "horizon_days": 7,
@@ -262,7 +265,7 @@ def test_recovery_preview_drift_is_rejected_before_checkpoint_save(
     variant = build_recovery_replan_variant(plan, report, today=today)
     assert variant is not None
     assert variant.get("safety_guard")
-    base = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    base = seed_checkpoint(db, build_planning_checkpoint(plan))
     real_apply = ps.apply_near_term_day_edits
 
     def drift_after_preview(*args, **kwargs):
@@ -280,7 +283,7 @@ def test_recovery_preview_drift_is_rejected_before_checkpoint_save(
     ):
         ps.apply_recovery_replan(
             db,
-            {
+            {"cycle_context": write_context(db),
                 "base_checkpoint_id": base["id"],
                 "draft_rows": variant["draft_rows"],
                 "horizon_days": variant["horizon_days"],
@@ -685,13 +688,16 @@ def test_modern_manual_placeholder_fails_closed_before_export_or_delivery() -> N
         build_delivery_events(plan, ["2026-08-01"])
 
 
-def test_repair_is_dry_run_first_append_only_and_idempotent(tmp_path) -> None:
+def test_repair_is_dry_run_first_append_only_and_idempotent(tmp_path, monkeypatch) -> None:
+    from datetime import date
+    from tests.planning_fixtures import pin_day
+    pin_day(monkeypatch, date(2026, 8, 1))
     from api import planning_service as ps
     from models.planning_checkpoints import build_planning_checkpoint
 
     db = Database(str(tmp_path / "repair.db"))
     broken = _broken_manual_plan()
-    base = db.save_planning_checkpoint(build_planning_checkpoint(broken))
+    base = seed_checkpoint(db, build_planning_checkpoint(broken))
     parent_before = deepcopy(db.get_planning_checkpoint(base["id"]))
 
     preview = ps.repair_active_plan_materialization(db, persist=False)
@@ -765,7 +771,11 @@ def test_repair_uses_recovery_lineage_only_on_explicitly_edited_dates() -> None:
 
 def test_repair_derives_each_recovery_session_from_checkpoint_history(
     tmp_path,
+    monkeypatch,
 ) -> None:
+    from datetime import date
+    from tests.planning_fixtures import pin_day
+    pin_day(monkeypatch, date(2026, 8, 1))
     from api import planning_service as ps
     from models.planning_checkpoints import (
         build_planning_checkpoint,
@@ -802,7 +812,7 @@ def test_repair_derives_each_recovery_session_from_checkpoint_history(
         }
     )
     first = with_checkpoint_provenance(first, source="recovery_replan")
-    first_saved = db.save_planning_checkpoint(build_planning_checkpoint(first))
+    first_saved = seed_checkpoint(db, build_planning_checkpoint(first))
 
     second = deepcopy(first)
     second_recovery = {
@@ -839,7 +849,7 @@ def test_repair_derives_each_recovery_session_from_checkpoint_history(
         source="recovery_replan",
         parent_checkpoint_id=first_saved["id"],
     )
-    db.save_planning_checkpoint(build_planning_checkpoint(second))
+    seed_checkpoint(db, build_planning_checkpoint(second))
 
     applied = ps.repair_active_plan_materialization(db, persist=True)
     repaired = ps.get_active_plan(db)
@@ -858,13 +868,16 @@ def test_repair_derives_each_recovery_session_from_checkpoint_history(
     assert sessions_by_date["2026-08-03"][0]["session_role"] == "quality"
 
 
-def test_repair_cli_boundary_is_dry_run_by_default(tmp_path) -> None:
+def test_repair_cli_boundary_is_dry_run_by_default(tmp_path, monkeypatch) -> None:
+    from datetime import date
+    from tests.planning_fixtures import pin_day
+    pin_day(monkeypatch, date(2026, 8, 1))
     from models.planning_checkpoints import build_planning_checkpoint
     from scripts.repair_planning_materialization import repair_database
 
     path = tmp_path / "repair-cli.db"
     db = Database(str(path))
-    base = db.save_planning_checkpoint(
+    base = seed_checkpoint(db,
         build_planning_checkpoint(_broken_manual_plan())
     )
 
@@ -881,7 +894,10 @@ def test_repair_cli_boundary_is_dry_run_by_default(tmp_path) -> None:
     )
 
 
-def test_repair_cli_dry_run_does_not_migrate_the_supplied_database(tmp_path) -> None:
+def test_repair_cli_dry_run_does_not_migrate_the_supplied_database(tmp_path, monkeypatch) -> None:
+    from datetime import date
+    from tests.planning_fixtures import pin_day
+    pin_day(monkeypatch, date(2026, 8, 1))
     from models.planning_checkpoints import build_planning_checkpoint
     from scripts.repair_planning_materialization import repair_database
 

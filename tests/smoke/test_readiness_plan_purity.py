@@ -7,6 +7,7 @@ completed activities — never on future planned sessions. ExecPlan:
 docs/readiness_plan_purity_execplan.md.
 """
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from datetime import date, datetime, timedelta
 
@@ -110,7 +111,7 @@ def test_planning_checkpoint_with_future_sessions_does_not_change_snapshot(tmp_p
     assert before["score"] is not None
 
     future_date = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
-    db.save_planning_checkpoint(
+    seed_checkpoint(db,
         {
             "goal_type": "cycling",
             "distance": "100 km",

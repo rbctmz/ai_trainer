@@ -6,6 +6,7 @@ Issue #362 adds the swimming threshold pace (CSS) in explicit seconds-per-100m
 units with the same provenance contract.
 """
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from copy import deepcopy
 import json
@@ -433,7 +434,7 @@ def test_sync_athlete_profile_partial_response_preserves_last_valid_pace_and_che
             "source": "intervals_icu",
         }
     )
-    checkpoint_before = db.save_planning_checkpoint(
+    checkpoint_before = seed_checkpoint(db,
         {
             "goal_type": "run",
             "distance": "10k",

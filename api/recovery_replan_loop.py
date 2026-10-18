@@ -9,7 +9,6 @@ from typing import Any
 from api.readiness_conflicts import build_readiness_conflict_report
 from api.session_quality_forecast import record_shadow_session_quality_forecast
 from data.database import Database
-from utils.athlete_time import athlete_local_date
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.recovery_replan import build_recovery_replan_variant
 from models.readiness_conflicts import (
@@ -333,17 +332,20 @@ def run_recovery_replan_loop(
     decision_event_id: str | None = None,
 ) -> dict[str, Any]:
     """Evaluate, audit, and optionally create one idempotent recovery proposal."""
-    today = today or athlete_local_date()
-    try:
-        report = build_readiness_conflict_report(db, today=today)
-    except TypeError as exc:
-        # Compatibility for narrow test/adaptor callables that predate the
-        # additive athlete-local date argument. Do not mask real TypeErrors.
-        if "unexpected keyword argument 'today'" not in str(exc):
-            raise
-        report = build_readiness_conflict_report(db)
+    write_context = db.planning_write_context(allow_inactive=True)
+    selected_checkpoint = write_context.pop("_checkpoint")
+    current_day = date.fromisoformat(write_context["athlete_day"])
+    today = today or current_day
+    checkpoint = selected_checkpoint if write_context["state"] in {"scheduled", "in_progress"} and today == current_day else None
+    # Older narrow adapters may predate the optional captured checkpoint/day.
+    # Inspect their signature instead of catching a TypeError from inside logic.
+    import inspect
+    signature = inspect.signature(build_readiness_conflict_report)
+    accepts_kwargs = any(value.kind == inspect.Parameter.VAR_KEYWORD for value in signature.parameters.values())
+    arguments = {key: value for key, value in {"today": today, "checkpoint": checkpoint}.items()
+                 if accepts_kwargs or key in signature.parameters}
+    report = build_readiness_conflict_report(db, **arguments)
     outcome = _outcome(report)
-    checkpoint = db.get_latest_planning_checkpoint()
     checkpoint_id = checkpoint.get("id") if isinstance(checkpoint, dict) else None
     fingerprint = _fingerprint(report, checkpoint_id)
     standalone_scheduled_check = decision_event_id is None
@@ -410,6 +412,8 @@ def run_recovery_replan_loop(
                 transfer_variant=transfer_variant,
                 transfer_candidates=transfer_candidates,
             )
+            from data.planning_cycle_writes import write_token
+            params["cycle_context"] = write_token(write_context)
             publication = db.publish_current_recovery_proposal(
                 params=params,
                 preview=preview,

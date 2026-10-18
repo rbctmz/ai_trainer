@@ -8,6 +8,7 @@ Contributor-safe:
 нужен управляемый исход (тот же паттерн, что tests/smoke/test_recovery_replan_loop.py).
 """
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 import sqlite3
 from datetime import date, datetime, timedelta
@@ -269,7 +270,7 @@ def test_today_projects_freshness_and_intervention_fields(tmp_path, monkeypatch)
 
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "readiness_channel.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     _patch_report(monkeypatch, _report(today))
     _patch_snapshot(monkeypatch, _snapshot())
 
@@ -317,7 +318,7 @@ def test_today_readiness_keeps_the_data_gap_freshness_verdict(tmp_path, monkeypa
 
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "readiness_data_gap.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     _patch_report(monkeypatch, _report(today))
     _patch_snapshot(
         monkeypatch,
@@ -348,7 +349,7 @@ def test_today_data_gap_names_reason_without_proposal(tmp_path, monkeypatch) -> 
 
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "gap.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     _patch_report(monkeypatch, _report(today, data_gap=True))
     _patch_snapshot(monkeypatch, _snapshot(score=None))
 
@@ -371,7 +372,7 @@ def test_today_silence_projects_day_session_and_canonical_readiness(
 
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "silence.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today, target_role="easy")))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today, target_role="easy")))
     day_session = _session(today, days_until=0, role="easy")
     _patch_report(monkeypatch, _report(today, sessions=[day_session]))
     _patch_snapshot(monkeypatch, _snapshot(score=72.0))
@@ -396,7 +397,7 @@ def test_today_does_not_project_empty_activation_day_as_a_session(
     today = date(2026, 10, 2)
     goal_plan = _empty_activation_plan(today)
     db = Database(str(tmp_path / "empty-activation.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    seed_checkpoint(db, build_planning_checkpoint(goal_plan))
     _patch_report(monkeypatch, _report(today))
     _patch_snapshot(monkeypatch, _snapshot())
 
@@ -418,7 +419,7 @@ def test_today_evaluated_report_does_not_restore_empty_day_session(
     evaluated = _session(today, days_until=0, role="activation", tss=0.0)
     evaluated["sport_label"] = "отдых"
     db = Database(str(tmp_path / "empty-activation-report.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    seed_checkpoint(db, build_planning_checkpoint(goal_plan))
     _patch_report(monkeypatch, _report(today, sessions=[evaluated]))
     _patch_snapshot(monkeypatch, _snapshot())
 
@@ -439,7 +440,7 @@ def test_today_keeps_evaluated_session_when_it_contradicts_empty_plan(
     goal_plan = _empty_activation_plan(today)
     evaluated = _session(today, days_until=0, role="activation", tss=10.0)
     db = Database(str(tmp_path / "contradictory-empty-activation.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    seed_checkpoint(db, build_planning_checkpoint(goal_plan))
     _patch_report(monkeypatch, _report(today, sessions=[evaluated]))
     _patch_snapshot(monkeypatch, _snapshot())
 
@@ -473,7 +474,7 @@ def test_today_keeps_card_when_empty_day_evidence_is_incomplete_or_contradictory
             sessions = [evaluated]
 
         db = Database(str(tmp_path / f"incomplete-empty-{case}.db"))
-        db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+        seed_checkpoint(db, build_planning_checkpoint(goal_plan))
         _patch_report(monkeypatch, _report(today, sessions=sessions))
 
         payload = today_view(db=db)
@@ -507,7 +508,7 @@ def test_today_keeps_card_when_optional_template_load_contradicts_empty_day(
             db = Database(
                 str(tmp_path / f"template-tss-{branch}-{template_tss!s}.db")
             )
-            db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+            seed_checkpoint(db, build_planning_checkpoint(goal_plan))
             _patch_report(monkeypatch, _report(today, sessions=sessions))
 
             payload = today_view(db=db)
@@ -564,7 +565,7 @@ def test_today_does_not_confirm_rest_with_executable_or_oversized_metadata(
     # checkpoint JSON save/restore and Today projection path.
     template[field] = value
     db = Database(str(tmp_path / f"ambiguous-{field}-{branch}.db"))
-    db.save_planning_checkpoint(checkpoint)
+    seed_checkpoint(db, checkpoint)
     restored = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
     persisted = next(
         item
@@ -624,7 +625,7 @@ def test_today_projects_persisted_catalog_prescription(tmp_path, monkeypatch) ->
             ],
         }
     )
-    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    seed_checkpoint(db, build_planning_checkpoint(goal_plan))
     session = _session(today, days_until=0, role="quality", tss=60.0)
     _patch_report(monkeypatch, _report(today, sessions=[session]))
     _patch_snapshot(monkeypatch, _snapshot(score=72.0))
@@ -648,11 +649,14 @@ def test_today_projects_persisted_catalog_prescription(tmp_path, monkeypatch) ->
 
 
 def test_today_conflict_exposes_pending_proposal_idempotently(tmp_path, monkeypatch) -> None:
+    from tests.planning_fixtures import pin_day
+    from datetime import date
+    pin_day(monkeypatch, date(2026, 7, 10))
     from api.routers.today import today_view
 
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "conflict.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     day_session = _session(today, days_until=0, role="quality", tss=60.0)
     report = _report(
         today,
@@ -687,7 +691,7 @@ def test_today_conflict_without_safe_proposal_is_explicitly_unactionable(
 
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "unactionable.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     day_session = _session(today, days_until=0, role="quality", tss=60.0)
     report = _report(
         today,
@@ -725,11 +729,14 @@ def test_today_conflict_without_safe_proposal_is_explicitly_unactionable(
 def test_today_supersedes_current_pending_proposal_when_latest_loop_is_silent(
     tmp_path, monkeypatch
 ) -> None:
+    from tests.planning_fixtures import pin_day
+    from datetime import date
+    pin_day(monkeypatch, date(2026, 7, 10))
     from api.routers.today import today_view
 
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "pending-survives.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     day_session = _session(today, days_until=0, role="quality", tss=60.0)
     conflict = _report(
         today,
@@ -762,7 +769,7 @@ def test_today_stale_pending_proposal_is_evidence_without_controls(
 
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "stale-proposal.db"))
-    old_checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    old_checkpoint = seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     stale = db.save_coach_proposal(
         action="recovery_replan",
         params={"base_checkpoint_id": old_checkpoint["id"]},
@@ -771,7 +778,7 @@ def test_today_stale_pending_proposal_is_evidence_without_controls(
         source_key="stale-conflict",
         active_key="stale-session",
     )
-    current_checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    current_checkpoint = seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     day_session = _session(today, days_until=0, role="quality", tss=60.0)
     report = _report(today, sessions=[day_session], conflicts=[_conflict_for(day_session)])
     monkeypatch.setattr(
@@ -802,7 +809,7 @@ def test_today_failed_proposal_remains_unactionable(tmp_path, monkeypatch) -> No
 
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "failed.db"))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     day_session = _session(today, days_until=0, role="quality", tss=60.0)
     report = _report(today, sessions=[day_session], conflicts=[_conflict_for(day_session)])
     failed = {
@@ -834,11 +841,14 @@ def test_today_failed_proposal_remains_unactionable(tmp_path, monkeypatch) -> No
 
 def test_today_resolved_conflict_returns_to_silence(tmp_path, monkeypatch) -> None:
     """Решение принято сегодня → экран не возвращает пользователя в тревогу."""
+    from tests.planning_fixtures import pin_day
+    from datetime import date
+    pin_day(monkeypatch, date(2026, 7, 10))
     from api.routers.today import today_view
 
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "resolved.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     day_session = _session(today, days_until=0, role="quality", tss=60.0)
     report = _report(
         today,
@@ -869,7 +879,7 @@ def test_today_summarizes_yesterday_fact(tmp_path, monkeypatch) -> None:
     today = datetime.now().date()
     yesterday = (today - timedelta(days=1)).isoformat()
     db = Database(str(tmp_path / "yesterday.db"))
-    db.save_planning_checkpoint(
+    seed_checkpoint(db,
         build_planning_checkpoint(_goal_plan(today - timedelta(days=1), target_role="easy"))
     )
     db.save_activities(
@@ -916,7 +926,7 @@ def test_today_selects_latest_shadow_revision_without_changing_decision(
 
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "forecast.db"))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     plan = checkpoint["goal_plan_snapshot"]
     session_index = next(
         index
@@ -973,7 +983,7 @@ def test_today_skips_evaluated_pending_history_and_selects_next_forecast(tmp_pat
 
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "forecast-projection.db"))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     plan = checkpoint["goal_plan_snapshot"]
     session_index = next(
         index
@@ -1066,7 +1076,7 @@ def test_repeated_today_reads_do_not_append_timestamp_only_forecasts(
 
     today = athlete_local_date()
     db = Database(str(tmp_path / "today-forecast-idempotency.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     day_session = _session(today, days_until=0, role="quality")
     _patch_report(monkeypatch, _report(today, sessions=[day_session]))
     _patch_snapshot(monkeypatch, _snapshot())
@@ -1108,7 +1118,7 @@ def test_today_survives_reconciliation_failure(tmp_path, monkeypatch) -> None:
 
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "reconciliation-failure.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today, target_role="easy")))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today, target_role="easy")))
     _patch_report(monkeypatch, _report(today))
     _patch_snapshot(monkeypatch, _snapshot())
     monkeypatch.setattr(
@@ -1134,7 +1144,7 @@ def test_today_composes_feedback_from_existing_yesterday_without_second_reconcil
     today = date(2026, 7, 14)
     yesterday = today - timedelta(days=1)
     db = Database(str(tmp_path / "today-feedback.db"))
-    checkpoint = db.save_planning_checkpoint(
+    checkpoint = seed_checkpoint(db,
         build_planning_checkpoint(_goal_plan(yesterday, target_role="quality"))
     )
     from models.session_identity import ensure_session_identities
@@ -1246,7 +1256,7 @@ def test_today_feedback_failure_is_fail_open(tmp_path, monkeypatch) -> None:
 
     today = date(2026, 7, 13)
     db = Database(str(tmp_path / "feedback-fail-open.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today, target_role="easy")))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today, target_role="easy")))
     _patch_report(monkeypatch, _report(today))
     _patch_snapshot(monkeypatch, _snapshot())
     monkeypatch.setattr(
@@ -1444,7 +1454,7 @@ def test_today_snapshot_carries_device_sync_hint_for_recovery_replan(tmp_path) -
     goal_plan = _goal_plan(today)
     goal_plan["checkpoint_source"] = "recovery_replan"
     db = Database(str(tmp_path / "sync-hint.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    seed_checkpoint(db, build_planning_checkpoint(goal_plan))
     # Успешная доставка этого же дня из чекпоинта 1 (первый сохранённый).
     today_iso = today.isoformat()
     # Пиним created_at на 09:00 UTC дня: дефолт CURRENT_TIMESTAMP брал реальный

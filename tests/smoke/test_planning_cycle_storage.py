@@ -1,5 +1,6 @@
 """M2 storage/projection acceptance; commands and HTTP remain M3 obligations."""
 from __future__ import annotations
+from tests.planning_fixtures import append_history
 
 from datetime import date, datetime, timezone
 import json
@@ -148,7 +149,7 @@ def test_null_selection_never_imports_later_raw_history(tmp_path, monkeypatch):
     before = cycle_rows(db)
     assert current(db)["state"] == "no_current"
     assert current(db)["has_history"] is False
-    saved = db.save_planning_checkpoint(build_planning_checkpoint(plan()))
+    saved = append_history(db, build_planning_checkpoint(plan()))
     reopened = Database(db.db_path)
     assert current(reopened)["state"] == "no_current"
     assert current(reopened)["has_history"] is True
@@ -160,7 +161,7 @@ def test_null_selection_never_imports_later_raw_history(tmp_path, monkeypatch):
 def test_higher_history_id_does_not_replace_selected_checkpoint(tmp_path, monkeypatch):
     db = legacy_db(tmp_path, monkeypatch)
     selected = current(db)
-    db.save_planning_checkpoint(build_planning_checkpoint(plan(date(2026, 11, 2))))
+    append_history(db, build_planning_checkpoint(plan(date(2026, 11, 2))))
     assert db.get_latest_planning_checkpoint()["id"] == 2
     assert db.get_current_planning_checkpoint()["id"] == 1
     assert current(db) == selected
@@ -507,7 +508,7 @@ def test_history_identifies_current_selection_without_reselecting_old_cycle(tmp_
 
     db = legacy_db(tmp_path, monkeypatch)
     old = current(db)
-    saved = db.save_planning_checkpoint(build_planning_checkpoint(plan(date(2026, 11, 2))))
+    saved = append_history(db, build_planning_checkpoint(plan(date(2026, 11, 2))))
     simulate_stored_close(db, old["cycle_id"])
     conn = db._connect()
     try:

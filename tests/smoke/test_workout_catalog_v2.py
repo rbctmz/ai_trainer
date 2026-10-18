@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from dataclasses import replace
 import json
@@ -407,7 +408,7 @@ def test_restoring_explicit_v1_checkpoint_does_not_upgrade_prescription(tmp_path
         "constraint_summary": {},
     }
     db = Database(str(tmp_path / "v1-checkpoint.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    seed_checkpoint(db, build_planning_checkpoint(plan))
     checkpoint = db.get_latest_planning_checkpoint()
 
     restored = restore_goal_plan_from_checkpoint(checkpoint)

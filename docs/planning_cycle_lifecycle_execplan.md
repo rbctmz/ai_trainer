@@ -49,6 +49,7 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-18) M3a complete: read/command API/TS contracts, retained close/outcome/scope commands, CAS/replay/rollback/retention probes. Independent scoped review READY at `b5807ad`, 222 focused GREEN; contributor contour with explicit M1 RED exclusions: 3502 passed / 14 skipped / 64 deselected. Publication remains intermediate draft only.
 - [x] (2026-10-18) M3b: S1 v2 start_new/edit_current, calendar/identity boundary and atomic replacement; applied-v1 replay retained, pending-v1 rejected. Independent round 1/2 READY at `5f5d2dd`, 473 focused GREEN; contributor-safe 3591 passed / 14 skipped / 68 deselected with only four known M4 assertions excluded beyond standard markers. Intermediate draft only.
 - [ ] M3c: every planning/Coach/legacy writer guards selected cycle/head under the writer lock; explicit restore ownership.
+- [ ] (2026-10-18) M3c implementation started on codex/issue-693-m3c-writer-guards, stacked on M3b #698: shared coherent write context and transactional child commit first, then all mutation families/restore/Coach/legacy adapters, synthetic fixture adaptation, regressions and independent review. Class A; approved scope unchanged.
 - [ ] M4: explicit current-vs-history reader integration, then Domain→UI handoff for minimal actions/status and isolated web acceptance.
 - [ ] M5: final whole-S2 evidence, current-head CI/native review and explicit human merge decision.
 
@@ -632,7 +633,86 @@ Observed review-gate refusal at the published documentation head: no submitted
 native review for the current head (run 39164275124). No acceptance label or
 waiver is added; final native review remains M5.
 
+### M3c — author checkpoint (2026-10-19)
+
+Role Domain / API Implementer, Class A, branch codex/issue-693-m3c-writer-guards
+stacked on M3b #698 (`5bd782e`). Approved spec/AC and the frozen M1 inventory are
+unchanged. New data/planning_cycle_writes.py captures selected cycle/head,
+selection and cycle revisions, athlete day and a constraint-row digest in one
+read transaction; guard_write compares them under BEGIN IMMEDIATE. Child
+checkpoint, immutable ownership mapping, cycle head/revision and demand settings
+commit or roll back together. Namespace, version parent, restore source ownership
+and actual bounds are checked before publication. Raw public save without
+context and the unbound legacy build facade refuse without settings/plan writes.
+
+All prescription-writer families now use that boundary: demand rebuild,
+execution adjustment, weekly/bike rebalance, recovery downgrade/transfer/
+rollback, materialization/day repair, history restore and Coach constraint
+create/retract. Their calculation reads use the selected immutable checkpoint,
+not MAX(history.id). Existing preview fingerprints include the captured cycle
+token; pending recovery/constraint proposals retain it. Recovery publication
+rechecks it under its own writer lock, and the report accepts an explicit
+captured checkpoint so report generation cannot silently choose another cycle.
+All provider/model computation remains outside the writer transaction.
+
+Restore retains its existing confirm protocol and now requires explicit expected
+cycle/selection revisions. Known same-cycle versions are permitted; unassigned
+legacy history additionally requires restore_legacy_version in the selected open
+legacy-import cycle, with no modern-cycle record. The old source stays
+unassigned; the restored child is mapped. Donor/repair ancestry stops at a
+missing or different immutable owner. Cycle-scoped constraints cannot be
+applied/retracted as another cycle's prescription. Athlete-wide conditions may
+be recorded without an actionable cycle, with no historical reactivation.
+
+API/TS requests for adjust/constraint/repair/restore carry the expected selected
+context; missing old-tab fields require refresh. These DTOs are the M4 handoff,
+not screen wiring. Legacy cached saves fail with an explicit web-plan message.
+The system demo seeds through retained v2. Empty synthetic evaluation/parity
+databases use private one-time legacy initialization; production has no trusted
+HTTP flag. The repair CLI uses a read-only adapter for diagnostics; a genuine
+pre-migration file may be inspected as explicitly historical, without importing
+or following unknown ancestry. Applying a repair always uses the selected guard.
+
+Test adaptation is explicit: tests/planning_fixtures.py seeds deliberate
+synthetic cycles/versions or unassigned history instead of weakening runtime
+save guards. Pure v1 calculation goldens are unchanged, not regenerated.
+Historical July/August mutation fixtures pin their athlete day; no production
+clock/as_of escape is introduced. Existing actor/rollback/identity and full-JSON
+assertions remain. The M3b Coach error-context suggestion is implemented by
+preserving safe exception.context, including constraint_ids.
+
+Observed / Verified by: the initial six writer regressions failed on the old
+raw-save/closed-cycle paths and are GREEN with the shared guard. An additional
+modern partial-week adjustment reproduced cycle_not_current because the old
+rebuild expanded the date range to Monday. Reusing the S2 calendar boundary,
+namespace/donor rules and forecast input fixes that case without new training
+formulas. The expanded writer contour is 54 GREEN, including all twelve
+families after close, calendar end and replacement; same-head outcome/scope
+changes, real two-connection close-vs-child, mapping rollback, legacy/same-cycle/
+cross-cycle restore, HTTP CAS and athlete-only ledger behavior. Intermediate
+focused contour before the expanded switch/fault cases: 629 passed / 7 warnings
+in 79.25s. Web lint/build, contract freshness, Ruff and diff check passed.
+The original M1 projection/build/identity contour remains exactly four M4
+reader RED / 41 GREEN. The contributor-safe run before those final thirteen
+cases passed 3632 / skipped 14 / deselected 68 in 269.75s, with only the four
+known M4 assertions excluded beyond standard markers. Final rerun on the pinned
+review commit and independent review follow;
+no whole-S2, native-review, merge or live-rollout readiness is claimed.
+
 ## Context and Orientation
+
+M3c implementation boundary: capture selected cycle ID, cycle revision,
+selection revision and head in one read transaction before calculation. The
+shared child commit rechecks all four under BEGIN IMMEDIATE, checks immutable
+ownership/namespace/parent and appends mapping/head atomically. No raw public
+save or legacy build may create/select a cycle. Existing proposal fingerprints
+include captured cycle revisions; close/switch/outcome invalidates old proposals
+even when raw latest ID is unchanged. New constraints explicitly retain athlete
+or selected-cycle scope. Restore keeps its existing confirm protocol, extended
+with expected cycle/selection revisions and explicit restore_legacy_version
+acknowledgement; unassigned legacy source rows stay unassigned. Test fixtures
+use explicit synthetic initialization rather than weakening production guards.
+M4 reader/UI and provider-delivery adaptation remain a later clean handoff.
 
 Shared Python in models/services/data owns domain meaning; FastAPI api/ and
 Next.js web/ are the primary product path under ADR-0001. Streamlit remains a

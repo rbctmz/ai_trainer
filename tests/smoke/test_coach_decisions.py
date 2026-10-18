@@ -1,5 +1,6 @@
 """Smoke coverage for the coach decision audit trail."""
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan, write_context
 
 import asyncio
 import json
@@ -519,7 +520,7 @@ def test_approve_adjust_plan_proposal_persists_adjusted_checkpoint(tmp_path):
     from api.routers.decisions import approve_proposal
 
     db = _seeded_db(tmp_path, "approve_adjust.db")
-    initial = planning_service.build_plan(
+    initial = fixture_build_plan(
         db,
         goal_type="Триатлон",
         distance="Olympic",
@@ -531,7 +532,7 @@ def test_approve_adjust_plan_proposal_persists_adjusted_checkpoint(tmp_path):
     rows = planning_service.reconciliation(db, weeks=1)["rows"]
     proposal = db.save_coach_proposal(
         action="adjust_plan",
-        params={"rows": rows, "weeks": 1},
+        params={"rows": rows, "weeks": 1, "cycle_context": write_context(db)},
         preview={"adjustment_status": "preview"},
     )
 

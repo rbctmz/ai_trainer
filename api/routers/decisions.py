@@ -376,6 +376,9 @@ def approve_proposal(
     except planning_service.StalePlanningCheckpointError as exc:
         db.update_coach_proposal_status(proposal_id, "failed", error=str(exc))
         raise HTTPException(status_code=409, detail=str(exc))
+    except PlanningBuildPreviewError as exc:
+        db.update_coach_proposal_status(proposal_id, "failed", error=str(exc))
+        raise HTTPException(status_code=exc.status, detail=str(exc))
     except ValueError as exc:
         db.update_coach_proposal_status(proposal_id, "failed", error=str(exc))
         raise HTTPException(status_code=422, detail=str(exc))
@@ -470,6 +473,9 @@ def rollback_proposal(
     except planning_service.StalePlanningCheckpointError as exc:
         db.transition_coach_proposal_status(proposal_id, "rolling_back", "approved")
         raise HTTPException(status_code=409, detail=str(exc))
+    except PlanningBuildPreviewError as exc:
+        db.transition_coach_proposal_status(proposal_id, "rolling_back", "approved")
+        raise HTTPException(status_code=exc.status, detail=str(exc))
     except ValueError as exc:
         db.transition_coach_proposal_status(proposal_id, "rolling_back", "approved")
         raise HTTPException(status_code=422, detail=str(exc))
@@ -607,6 +613,7 @@ def _apply_recovery_replan_proposal(
         base_checkpoint_id=int(params.get("base_checkpoint_id")),
         session_id=str(transfer_preview.get("replaced_session_id") or ""),
         target_date=str(transfer_preview.get("target_date") or ""),
+        cycle_context=params.get("cycle_context"),
         persist=True,
     )
     return {**result, "selected_kind": "transfer_1_3d"}
@@ -643,6 +650,7 @@ def _apply_proposal(
             rows=rows,
             weeks=int(params.get("weeks") or 1),
             persist=True,
+            cycle_context=params.get("cycle_context"),
         )
 
     if action == "recovery_replan":

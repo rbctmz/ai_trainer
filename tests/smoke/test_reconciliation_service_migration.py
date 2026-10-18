@@ -25,6 +25,8 @@ only ever a local sqlite tmp file, and every case here either omits the
 provider entirely or injects a fake client.
 """
 from __future__ import annotations
+from tests.planning_fixtures import write_context
+from tests.planning_fixtures import seed_checkpoint
 
 import hashlib
 import json
@@ -209,13 +211,17 @@ def test_byte_equivalent_provider_unavailable_data_gap(tmp_path, monkeypatch):
     _assert_pre_refactor_payload(result, "provider_unavailable")
 
 
-def test_byte_equivalent_ledger_confirmed_nested_multi_session_identity(tmp_path):
+def test_byte_equivalent_ledger_confirmed_nested_multi_session_identity(tmp_path, monkeypatch):
     """Reuses the transfer + ledger-confirm fixtures from
     `tests/smoke/test_recovery_transfer_identity_handoff.py`'s M5 contract:
     a confirmed `transfer_1_3d` lands a session on an already-occupied day,
     the moved session's NEW id is then user-confirmed in the plan/actual
     ledger, and both parents (moved + untouched sibling) must reconcile
     independently under their own ids."""
+    from tests.planning_fixtures import pin_day
+    pin_day(monkeypatch, _TODAY)
+    from tests.planning_fixtures import pin_day
+    pin_day(monkeypatch, _TODAY)
     from api.planning_service import (
         apply_recovery_replan_transfer,
         record_plan_actual_match,
@@ -228,14 +234,14 @@ def test_byte_equivalent_ledger_confirmed_nested_multi_session_identity(tmp_path
     target_date = (_TODAY + timedelta(days=2)).isoformat()
 
     db = Database(str(tmp_path / "nested-ledger.db"))
-    base = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    base = seed_checkpoint(db, build_planning_checkpoint(plan))
 
     applied = apply_recovery_replan_transfer(
         db,
         base_checkpoint_id=base["id"],
         session_id=old_id,
         target_date=target_date,
-    )
+    cycle_context=write_context(db))
     new_id = applied["new_session_id"]
     new_checkpoint_id = applied["applied_checkpoint_id"]
 
@@ -315,7 +321,7 @@ def test_reconciliation_honors_the_sixteen_week_reader_window(tmp_path, monkeypa
     from services import reconciliation as service
 
     db = Database(str(tmp_path / "sixteen-week-window.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_week()))
+    seed_checkpoint(db, build_planning_checkpoint(_week()))
     captured: dict[str, object] = {}
 
     def _capture(*_args, **kwargs):

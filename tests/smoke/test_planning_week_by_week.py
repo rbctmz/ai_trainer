@@ -1,5 +1,7 @@
 """BDD gates for Planning M3 week-by-week reader (#303)."""
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
+from tests.planning_fixtures import seed_checkpoint
 
 import copy
 from datetime import date, datetime, timedelta
@@ -27,7 +29,7 @@ def _shift_active_plan_into_past_and_future(db: Database) -> dict:
     least one of the seven offsets is guaranteed to work.
     """
     db.save_athlete_profile({"ftp": 200, "lthr": 165, "weight_kg": 80, "source": "test"})
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -63,7 +65,7 @@ def _shift_active_plan_into_past_and_future(db: Database) -> dict:
         return candidate
 
     def includes_today(candidate: dict) -> bool:
-        db.save_planning_checkpoint(build_planning_checkpoint(candidate))
+        seed_checkpoint(db, build_planning_checkpoint(candidate))
         restored = ps.get_active_plan(db) or {}
         return any(
             date.fromisoformat(str(day.get("date"))[:10]) == today
@@ -83,7 +85,7 @@ def _shift_active_plan_into_past_and_future(db: Database) -> dict:
         {"date": (today + timedelta(days=3)).isoformat(), "priority": "C", "label": "Club race", "confirmed": True},
         {"date": (today + timedelta(days=10)).isoformat(), "priority": "A", "label": "Main race", "confirmed": True},
     ]
-    db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    seed_checkpoint(db, build_planning_checkpoint(plan))
     return ps.get_active_plan(db) or {}
 
 

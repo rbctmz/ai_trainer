@@ -1,4 +1,5 @@
 """#673: real saved evidence, parent identity and canonical freshness."""
+from tests.planning_fixtures import seed_checkpoint
 from copy import deepcopy
 from datetime import timedelta
 
@@ -22,7 +23,7 @@ pytestmark = pytest.mark.smoke
 def _database(tmp_path, *, actual=True):
     db = Database(str(tmp_path / "daily.db"))
     plan = _plan(_session("bike", "easy", 60), _session("run", "easy", 30))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(plan))
     _seed_dated_night(db, DAY_ISO)
     if actual:
         db.save_activities([_activity()])

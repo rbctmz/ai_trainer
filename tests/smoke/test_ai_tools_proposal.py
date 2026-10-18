@@ -1,5 +1,6 @@
 """Smoke coverage for proposal tools (propose_plan_build, propose_plan_adjustment)."""
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 from datetime import timedelta
 
@@ -34,7 +35,7 @@ def _seeded_db(tmp_path) -> Database:
 
 def _build_active_triathlon_plan(db: Database) -> None:
     event_date = (athlete_now() + timedelta(weeks=8)).strftime("%Y-%m-%d")
-    planning_service.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",

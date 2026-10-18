@@ -1105,6 +1105,50 @@ export interface DemandConfirmResult {
   weekly_target?: PlanningWeeklyTarget;
 }
 
+/** Expected selected-cycle CAS for non-build mutations (S2 M3c). */
+export interface CycleExpectedRequest {
+  expected_cycle_id: string | null;
+  expected_cycle_revision: number | null;
+  expected_selection_revision: number;
+}
+
+export interface CycleRestoreRequest extends CycleExpectedRequest {
+  expected_cycle_id: string;
+  expected_cycle_revision: number;
+  checkpoint_id: number;
+  base_checkpoint_id: number;
+  action?: "restore_version" | "restore_legacy_version";
+}
+
+export interface CycleAdjustmentRequest extends CycleExpectedRequest {
+  expected_cycle_id: string;
+  expected_cycle_revision: number;
+  base_checkpoint_id: number;
+  rows: Record<string, unknown>[];
+  weeks?: number;
+  persist?: boolean;
+}
+
+export interface CycleConstraintRequest extends CycleExpectedRequest {
+  date: string;
+  kind: string;
+  base_checkpoint_id: number;
+  source?: string;
+  note?: string | null;
+  plan_id?: string | null;
+  session_id?: string | null;
+  cycle_scope?: "athlete" | "cycle" | null;
+  cycle_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+  sport?: string | null;
+}
+
+export interface CycleRepairDayRequest extends CycleExpectedRequest {
+  date: string;
+  base_checkpoint_id: number;
+  exclude_sports?: string[] | null;
+}
+
 /** Result of restoring a saved plan version from history (M4d). */
 export interface RestoreHistoryResult {
   plan_id: string;

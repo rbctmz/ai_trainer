@@ -1469,14 +1469,41 @@ class Database:
             value[target] = self._json_load(value.pop(source, None), fallback)
         return value
 
-    def save_planning_checkpoint(self, checkpoint_data):
+    def planning_write_context(self, *, allow_inactive: bool = False) -> dict[str, Any]:
+        """Capture selected cycle and head once before calculating a mutation."""
+        from data.planning_cycle_writes import read_write_context
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN")
+            context = read_write_context(conn, allow_inactive=allow_inactive)
+            context["_checkpoint"] = self._get_current_planning_checkpoint(conn)
+            return context
+        finally:
+            conn.rollback()
+            conn.close()
+
+    def save_planning_checkpoint(self, checkpoint_data, *, cycle_context=None, cycle_action="adjustment",
+                                 restore_legacy=False, settings_write=None):
         """Сохраняет компактный planning checkpoint для dashboard/AI handoff."""
         if not checkpoint_data or not isinstance(checkpoint_data, dict):
             raise ValueError("checkpoint_data must be a non-empty dict")
 
+        if cycle_context is None:
+            from models.planning_build_confirmation import PlanningBuildPreviewError
+            raise PlanningBuildPreviewError("cycle_context_required", "Сохранение требует контекста цикла. Откройте план в web-интерфейсе и подтвердите изменения.")
+
+        from models.planning_build_confirmation import canonical_json
+        payload = canonical_json(checkpoint_data)
+
         conn = self._connect()
         try:
-            saved = self._insert_planning_checkpoint(conn, checkpoint_data)
+            from data.planning_cycle_writes import guard_write, append_cycle_child
+            conn.execute("BEGIN IMMEDIATE")
+            current = guard_write(conn, cycle_context)
+            saved = self._insert_planning_checkpoint(conn, checkpoint_data, payload=payload)
+            append_cycle_child(conn, current, checkpoint_data, saved["id"], action=cycle_action, restore_legacy=restore_legacy)
+            for key, value in (settings_write or {}).items():
+                conn.execute("INSERT INTO user_settings(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP", (key, value))
             conn.commit()
             return saved
         except Exception:
@@ -1510,6 +1537,7 @@ class Database:
         checkpoint_data=None,
         constraint_payload=None,
         constraint_id=None,
+        cycle_context=None,
     ):
         """Commit one confirmed coach mutation without a partial-write window.
 
@@ -1535,15 +1563,12 @@ class Database:
         conn.row_factory = sqlite3.Row
         try:
             conn.execute("BEGIN IMMEDIATE")
-            latest = conn.execute(
-                "SELECT id FROM planning_checkpoints ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            latest_id = int(latest["id"]) if latest is not None else 0
-            if latest_id != expected_base:
-                raise ValueError(
-                    f"active checkpoint #{latest_id or 'none'} no longer matches "
-                    f"request base #{expected_base or 'none'}"
-                )
+            from data.planning_cycle_writes import guard_write, append_cycle_child
+            ledger_only = checkpoint_data is None and action != "repair_plan_day"
+            current = guard_write(conn, cycle_context, allow_inactive=ledger_only)
+            if int(current["checkpoint_id"] or 0) != expected_base:
+                from models.planning_build_confirmation import PlanningBuildPreviewError
+                raise PlanningBuildPreviewError("cycle_stale", "Версия плана изменилась.")
 
             constraint_row = None
             if action == "create_plan_constraint":
@@ -1555,6 +1580,13 @@ class Database:
                     "manual_delete",
                     "disabled_plan_day",
                 }
+                scope = payload.get("cycle_scope")
+                if scope not in {"athlete", "cycle"} or (scope == "cycle" and payload.get("cycle_id") != current["cycle_id"]):
+                    from models.planning_build_confirmation import PlanningBuildPreviewError
+                    raise PlanningBuildPreviewError("constraint_scope_required", "Укажите принадлежность ограничения.")
+                if scope == "cycle":
+                    from data.planning_cycle_writes import require_actionable
+                    require_actionable(current)
                 kind = str(payload.get("kind") or "").strip()
                 if kind not in allowed_kinds:
                     raise ValueError(f"kind must be one of {sorted(allowed_kinds)}")
@@ -1571,8 +1603,8 @@ class Database:
                     '''
                     INSERT INTO coach_constraints
                         (date, kind, status, source, note, plan_id, session_id,
-                         metadata_json, sport)
-                    VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?)
+                         metadata_json, sport, cycle_scope, cycle_id)
+                    VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)
                     ''',
                     (
                         self.clean_value(date_value),
@@ -1583,13 +1615,14 @@ class Database:
                         self.clean_value(payload.get("session_id")),
                         json.dumps(metadata, ensure_ascii=False, default=str),
                         self.clean_value(sport),
+                        payload["cycle_scope"], payload.get("cycle_id"),
                     ),
                 )
                 created_id = int(cursor.lastrowid)
                 constraint_row = conn.execute(
                     '''
                     SELECT id, date, kind, status, source, note, plan_id, session_id,
-                           metadata_json, resolved_at, created_at, sport
+                           metadata_json, resolved_at, created_at, sport, cycle_scope, cycle_id
                     FROM coach_constraints WHERE id = ?
                     ''',
                     (created_id,),
@@ -1607,13 +1640,16 @@ class Database:
                 existing = conn.execute(
                     '''
                     SELECT id, date, kind, status, source, note, plan_id, session_id,
-                           metadata_json, resolved_at, created_at, sport
+                           metadata_json, resolved_at, created_at, sport, cycle_scope, cycle_id
                     FROM coach_constraints WHERE id = ? AND status = 'active'
                     ''',
                     (int(constraint_id),),
                 ).fetchone()
                 if existing is None:
                     raise ValueError("active constraint not found")
+                if existing["cycle_scope"] != "athlete" and (existing["cycle_scope"] != "cycle" or existing["cycle_id"] != current["cycle_id"]):
+                    from models.planning_build_confirmation import PlanningBuildPreviewError
+                    raise PlanningBuildPreviewError("cycle_not_current", "Ограничение относится к другому или неизвестному циклу.")
                 resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
                 conn.execute(
                     "UPDATE coach_constraints SET status = 'inactive', resolved_at = ? "
@@ -1623,7 +1659,7 @@ class Database:
                 constraint_row = conn.execute(
                     '''
                     SELECT id, date, kind, status, source, note, plan_id, session_id,
-                           metadata_json, resolved_at, created_at, sport
+                           metadata_json, resolved_at, created_at, sport, cycle_scope, cycle_id
                     FROM coach_constraints WHERE id = ?
                     ''',
                     (int(constraint_id),),
@@ -1631,27 +1667,11 @@ class Database:
 
             saved_checkpoint = None
             if checkpoint_data is not None:
-                payload_json = json.dumps(checkpoint_data, ensure_ascii=False)
-                cursor = conn.execute(
-                    '''
-                    INSERT INTO planning_checkpoints
-                        (goal_type, distance, weeks_to_race, checkpoint_data)
-                    VALUES (?, ?, ?, ?)
-                    ''',
-                    (
-                        self.clean_value(checkpoint_data.get("goal_type")),
-                        self.clean_value(checkpoint_data.get("distance")),
-                        self.clean_value(checkpoint_data.get("weeks_to_race")),
-                        payload_json,
-                    ),
-                )
+                saved = self._insert_planning_checkpoint(conn, checkpoint_data)
+                append_cycle_child(conn, current, checkpoint_data, saved["id"])
                 saved_checkpoint = conn.execute(
-                    '''
-                    SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at
-                    FROM planning_checkpoints WHERE id = ?
-                    ''',
-                    (int(cursor.lastrowid),),
-                ).fetchone()
+                    "SELECT id,goal_type,distance,weeks_to_race,checkpoint_data,created_at FROM planning_checkpoints WHERE id=?",
+                    (saved["id"],)).fetchone()
 
             conn.commit()
             return {
@@ -3702,6 +3722,14 @@ class Database:
         conn = self._connect()
         cursor = conn.cursor()
         cursor.execute("BEGIN IMMEDIATE")
+        from data.planning_cycle_writes import guard_write
+        from models.planning_build_confirmation import PlanningBuildPreviewError
+        try:
+            guard_write(conn, params.get("cycle_context"))
+        except PlanningBuildPreviewError:
+            conn.rollback()
+            conn.close()
+            return {"state": "stale_evidence", "proposal": None}
         cursor.execute(
             '''
             SELECT revision, fingerprint, outcome
@@ -4474,6 +4502,8 @@ class Database:
         session_id=None,
         metadata=None,
         sport=None,
+        cycle_scope=None,
+        cycle_id=None,
     ):
         """Сохраняет durable-ограничение, которое должен учитывать replan.
 
@@ -4511,13 +4541,30 @@ class Database:
         if not isinstance(metadata, dict):
             raise ValueError("metadata must be a dict")
 
+        scope = cycle_scope or ("athlete" if kind in {"sick", "unavailable", "forced_rest"} and not plan_id and not session_id else "unknown")
+        if scope not in {"athlete", "cycle", "unknown"} or (scope != "cycle" and cycle_id is not None):
+            raise ValueError("invalid constraint ownership")
+        expected = self.planning_write_context() if scope == "cycle" else None
         conn = self._connect()
+        if expected is not None:
+            from data.planning_cycle_writes import guard_write
+            from models.planning_build_confirmation import PlanningBuildPreviewError
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                current = guard_write(conn, expected)
+                if cycle_id is not None and cycle_id != current["cycle_id"]:
+                    raise PlanningBuildPreviewError("cycle_not_current", "Ограничение относится к другому циклу.")
+                cycle_id = current["cycle_id"]
+            except Exception:
+                conn.rollback()
+                conn.close()
+                raise
         cursor = conn.cursor()
         cursor.execute(
             '''
             INSERT INTO coach_constraints
-                (date, kind, status, source, note, plan_id, session_id, metadata_json, sport)
-            VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?)
+                (date, kind, status, source, note, plan_id, session_id, metadata_json, sport, cycle_scope, cycle_id)
+            VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
                 self.clean_value(date_value),
@@ -4528,6 +4575,7 @@ class Database:
                 self.clean_value(session_id),
                 json.dumps(metadata, ensure_ascii=False, default=str),
                 self.clean_value(normalized_sport),
+                scope, cycle_id,
             ),
         )
         constraint_id = cursor.lastrowid
@@ -4610,32 +4658,27 @@ class Database:
         rows = cursor.fetchall()
         return [self._deserialize_coach_constraint_row(row) for row in rows]
 
-    def deactivate_coach_constraint(self, constraint_id):
-        """Деактивирует constraint, сохраняя строку как audit trail."""
-        resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    def deactivate_coach_constraint(self, constraint_id, *, cycle_context=None):
+        """Deactivate an owned constraint under the same selected-context lock."""
+        from data.planning_cycle_writes import guard_write
+        from models.planning_build_confirmation import PlanningBuildPreviewError
+        expected = cycle_context or self.planning_write_context(allow_inactive=True)
         conn = self._connect()
-        cursor = conn.cursor()
-        cursor.execute(
-            '''
-            UPDATE coach_constraints
-            SET status = 'inactive', resolved_at = ?
-            WHERE id = ?
-            ''',
-            (self.clean_value(resolved_at), int(constraint_id)),
-        )
-        cursor.execute(
-            '''
-            SELECT id, date, kind, status, source, note, plan_id, session_id,
-                   metadata_json, resolved_at, created_at, sport
-            FROM coach_constraints
-            WHERE id = ?
-            ''',
-            (int(constraint_id),),
-        )
-        row = cursor.fetchone()
-        conn.commit()
-        conn.close()
-        return self._deserialize_coach_constraint_row(row)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            current = guard_write(conn, expected, allow_inactive=True)
+            row = conn.execute("SELECT cycle_scope,cycle_id FROM coach_constraints WHERE id=?", (int(constraint_id),)).fetchone()
+            if row is None:
+                return None
+            if row[0] != "athlete" and (row[0] != "cycle" or row[1] != current["cycle_id"]):
+                raise PlanningBuildPreviewError("constraint_scope_required", "Уточните принадлежность ограничения.")
+            resolved = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+            conn.execute("UPDATE coach_constraints SET status='inactive',resolved_at=? WHERE id=?", (resolved, int(constraint_id)))
+            row = conn.execute("SELECT id,date,kind,status,source,note,plan_id,session_id,metadata_json,resolved_at,created_at,sport,cycle_scope,cycle_id FROM coach_constraints WHERE id=?", (int(constraint_id),)).fetchone()
+            conn.commit()
+            return self._deserialize_coach_constraint_row(row)
+        finally:
+            conn.close()
 
     def _deserialize_coach_constraint_row(self, row):
         if not row:

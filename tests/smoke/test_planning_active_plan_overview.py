@@ -5,6 +5,8 @@ temporary SQLite only: displaying the reader default must not contact a provider
 or mutate a planning checkpoint.
 """
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
+from tests.planning_fixtures import seed_checkpoint
 
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -26,7 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 def _event_plan_db(tmp_path) -> tuple[Database, str]:
     db = _seeded_db(tmp_path)
     event_date = (datetime.now().date() + timedelta(weeks=9)).isoformat()
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -154,7 +156,7 @@ def test_legacy_plan_gets_current_policy_audit_without_checkpoint_write(tmp_path
     goal_plan.pop("science_audit", None)
     legacy_checkpoint = build_planning_checkpoint(goal_plan)
     legacy_checkpoint["goal_plan_snapshot"].pop("science_audit", None)
-    db.save_planning_checkpoint(legacy_checkpoint)
+    seed_checkpoint(db, legacy_checkpoint)
     checkpoint_before = db.get_latest_planning_checkpoint()
 
     overview = planning_overview(db=db)
@@ -170,7 +172,7 @@ def test_active_plan_overview_marks_missing_saved_reader_context_as_data_gap(tmp
     assert goal_plan is not None
     goal_plan["constraint_summary"] = {}
     goal_plan.pop("weekly_target_breakdown", None)
-    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    seed_checkpoint(db, build_planning_checkpoint(goal_plan))
 
     overview = planning_overview(db=db)
 
@@ -206,7 +208,7 @@ def test_active_plan_overview_marks_missing_saved_reader_context_as_data_gap(tmp
 
 def test_training_goal_overview_uses_rolling_horizon_without_race_countdown(tmp_path):
     db = _seeded_db(tmp_path)
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="run",
         distance="10k",

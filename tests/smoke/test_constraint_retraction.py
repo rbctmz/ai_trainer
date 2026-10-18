@@ -1,5 +1,6 @@
 """Smoke tests for day recovery after constraint retraction (issue #473, M3)."""
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from copy import deepcopy
 
@@ -17,6 +18,13 @@ from models.planning_checkpoints import (
 pytestmark = pytest.mark.smoke
 
 TARGET = "2026-08-18"
+
+
+@pytest.fixture(autouse=True)
+def active_cycle_day(monkeypatch):
+    from datetime import date
+    from tests.planning_fixtures import pin_day
+    pin_day(monkeypatch, date.fromisoformat(TARGET))
 
 
 def _goal_plan() -> dict:
@@ -151,13 +159,13 @@ def db(tmp_path):
 @pytest.fixture()
 def chained(db):
     """A: исходный план; B: потомок, где день схлопнут ограничением."""
-    a_saved = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
+    a_saved = seed_checkpoint(db, build_planning_checkpoint(_goal_plan()))
     b_plan = with_checkpoint_provenance(
         _collapsed_plan(),
         source="coach_constraint",
         parent_checkpoint_id=a_saved["id"],
     )
-    b_saved = db.save_planning_checkpoint(build_planning_checkpoint(b_plan))
+    b_saved = seed_checkpoint(db, build_planning_checkpoint(b_plan))
     return a_saved, b_saved
 
 
@@ -319,9 +327,11 @@ def test_repair_day_route_rejects_stale_base(db, chained):
     from fastapi import HTTPException
 
     from api.routers import planning as planning_router
+    from tests.planning_fixtures import restore_fields
 
     _a_saved, b_saved = chained
     req = planning_router.RepairDayRequest(
+        **restore_fields(db),
         date=TARGET,
         exclude_sports=["swim"],
         base_checkpoint_id=b_saved["id"] + 999,
@@ -338,8 +348,8 @@ def test_recover_raises_when_no_executable_ancestor_exists(db):
 
     # Корень и потомок несут день уже в офф-состоянии: исполняемой версии ни у кого нет.
     root = _collapsed_plan()
-    root_saved = db.save_planning_checkpoint(build_planning_checkpoint(root))
-    child_saved = db.save_planning_checkpoint(
+    root_saved = seed_checkpoint(db, build_planning_checkpoint(root))
+    child_saved = seed_checkpoint(db,
         build_planning_checkpoint(
             with_checkpoint_provenance(
                 deepcopy(root),

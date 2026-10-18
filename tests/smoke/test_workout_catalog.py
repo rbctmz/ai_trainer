@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from copy import deepcopy
 from dataclasses import FrozenInstanceError, replace
@@ -664,7 +665,7 @@ def test_checkpoint_roundtrip_keeps_immutable_prescription_snapshot(tmp_path, mo
         }
     )
     db = Database(str(tmp_path / "catalog-checkpoint.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    seed_checkpoint(db, build_planning_checkpoint(plan))
     checkpoint = db.get_latest_planning_checkpoint()
     expected = json.dumps(
         {

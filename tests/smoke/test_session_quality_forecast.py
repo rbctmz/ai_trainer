@@ -1,5 +1,6 @@
 """Behavior contract for Issue D: pre-registered session-quality shadow forecasts."""
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from concurrent.futures import ThreadPoolExecutor
 import csv
@@ -111,7 +112,7 @@ def _save_prediction(
 ) -> dict:
     checkpoint = db.get_latest_planning_checkpoint()
     if checkpoint is None:
-        checkpoint = db.save_planning_checkpoint(
+        checkpoint = seed_checkpoint(db,
             build_planning_checkpoint(_goal_plan(date(2026, 7, 12)))
         )
     plan = checkpoint["goal_plan_snapshot"]
@@ -242,7 +243,7 @@ def test_database_forecast_fingerprint_is_idempotent_and_snapshots_are_immutable
 
 def test_database_serializes_concurrent_revisions(tmp_path) -> None:
     db = Database(str(tmp_path / "concurrent-revisions.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(date(2026, 7, 12))))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan(date(2026, 7, 12))))
     barrier = Barrier(2)
 
     def save(sequence: int) -> dict:
@@ -512,7 +513,7 @@ def test_shadow_recording_appends_changed_readiness_without_product_mutation(
 
     today = date(2026, 7, 12)
     db = Database(str(tmp_path / "shadow.db"))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     before_checkpoint = db.get_latest_planning_checkpoint()["id"]
 
     first = record_shadow_session_quality_forecast(
@@ -549,7 +550,7 @@ def test_shadow_recording_reuses_semantic_forecast_when_only_provenance_timestam
 
     today = date(2026, 7, 12)
     db = Database(str(tmp_path / "timestamp-replay.db"))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     results = []
     for minute in range(10):
         observed_at = f"2026-07-12T06:{minute:02d}:00Z"
@@ -594,7 +595,7 @@ def test_shadow_recording_concurrent_semantic_replays_converge(tmp_path) -> None
 
     today = date(2026, 7, 12)
     db = Database(str(tmp_path / "concurrent-semantic-replay.db"))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     barrier = Barrier(2)
 
     def record(minute: int) -> dict:
@@ -627,7 +628,7 @@ def test_shadow_recording_stops_after_confirmed_actual_start(tmp_path) -> None:
 
     today = date(2026, 7, 12)
     db = Database(str(tmp_path / "started-session.db"))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     plan = checkpoint["goal_plan_snapshot"]
     target_index = next(
         index
@@ -696,7 +697,7 @@ def test_shadow_recording_continues_for_unconfirmed_ambiguous_match(tmp_path) ->
 
     today = date(2026, 7, 12)
     db = Database(str(tmp_path / "ambiguous-brick.db"))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     plan = checkpoint["goal_plan_snapshot"]
     target_index = next(
         index
@@ -769,7 +770,7 @@ def test_shadow_recording_stops_after_active_terminal_feedback(tmp_path) -> None
 
     today = date(2026, 7, 12)
     db = Database(str(tmp_path / "terminal-feedback.db"))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     plan = checkpoint["goal_plan_snapshot"]
     target_index = next(
         index

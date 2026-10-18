@@ -10,6 +10,7 @@ exactly **one** audit decision row (the recovery journal is the record of that
 evaluation, not a plan mutation).
 """
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 import sqlite3
 from datetime import date, datetime, timedelta
@@ -151,7 +152,7 @@ def test_get_api_today_reports_data_gap_with_zero_plan_mutations(tmp_path, monke
     # scenario has to be built around it (mirrors the real morning screen).
     today = athlete_local_date()
     db = Database(str(tmp_path / "acceptance.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     _seed_stale_night(db, today)
 
     # Any provider access during the evaluation fails loudly.
@@ -229,7 +230,7 @@ def test_get_api_today_confirms_a_freshly_dated_measurement(tmp_path):
     """
     today = athlete_local_date()
     db = Database(str(tmp_path / "fresh.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))
     _seed_stale_night(db, today)
     # Learn the RHR observation date: the same value becomes eligible.
     db.sync_daily_health(

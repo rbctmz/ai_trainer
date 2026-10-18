@@ -6,6 +6,7 @@ start editing an active plan from the checkpoint's saved inputs. The server
 owns the input mapping through a read-only edit-context contract.
 """
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 import importlib
 from datetime import datetime, timedelta
@@ -27,7 +28,7 @@ PAGE = REPO_ROOT / "web/app/planning/page.tsx"
 def _event_plan_db(tmp_path):
     db = _seeded_db(tmp_path)
     event_date = (datetime.now().date() + timedelta(weeks=9)).isoformat()
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -73,7 +74,7 @@ def test_build_plan_respects_explicit_start_week(tmp_path):
     event_date = (datetime.now().date() + timedelta(weeks=9)).isoformat()
     original_start = datetime.now().date() - timedelta(days=21)
 
-    built = ps.build_plan(
+    built = fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
