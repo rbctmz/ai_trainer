@@ -12,6 +12,19 @@ _VERSION_DELETE_GUARD = """CREATE TRIGGER IF NOT EXISTS planning_cycle_versions_
     BEFORE DELETE ON planning_cycle_versions
     BEGIN SELECT RAISE(ABORT, 'Cycle version associations are immutable'); END"""
 
+_COMMAND_GUARDS = (
+    """CREATE TRIGGER IF NOT EXISTS planning_cycle_commands_no_update
+       BEFORE UPDATE ON planning_cycle_commands
+       BEGIN SELECT RAISE(ABORT, 'Cycle command receipts are immutable'); END""",
+    """CREATE TRIGGER IF NOT EXISTS planning_cycle_commands_no_delete
+       BEFORE DELETE ON planning_cycle_commands
+       BEGIN SELECT RAISE(ABORT, 'Cycle command receipts are immutable'); END""",
+    """CREATE TRIGGER IF NOT EXISTS planning_cycle_commands_no_replace
+       BEFORE INSERT ON planning_cycle_commands
+       WHEN EXISTS(SELECT 1 FROM planning_cycle_commands WHERE command_id=NEW.command_id)
+       BEGIN SELECT RAISE(ABORT, 'Cycle command receipts are immutable'); END""",
+)
+
 
 class PlanningCycleStore:
     """Use the caller's transaction; ordinary reads never initialize or commit."""
@@ -99,6 +112,7 @@ def initialize_cycle_store(conn: sqlite3.Connection) -> None:
             WHEN EXISTS(SELECT 1 FROM planning_cycle_versions WHERE checkpoint_id=NEW.checkpoint_id)
             BEGIN SELECT RAISE(ABORT, 'Cycle version associations are immutable'); END""",
         _VERSION_DELETE_GUARD,
+        *_COMMAND_GUARDS,
     ):
         conn.execute(statement)
     columns = {row[1] for row in conn.execute("PRAGMA table_info(coach_constraints)")}
@@ -207,9 +221,12 @@ def reset_cycle_store(conn: sqlite3.Connection) -> None:
     # Full reset is the only lifecycle deletion operation. Transactional DDL
     # restores the guard and old rows together if any later reset step fails.
     conn.execute("DROP TRIGGER IF EXISTS planning_cycle_versions_no_delete")
+    conn.execute("DROP TRIGGER IF EXISTS planning_cycle_commands_no_delete")
     conn.execute("DELETE FROM planning_cycle_commands")
     conn.execute("DELETE FROM planning_cycle_versions")
     conn.execute("DELETE FROM planning_cycle_state")
     conn.execute("DELETE FROM planning_cycles")
     conn.execute("INSERT INTO planning_cycle_state VALUES (1,?,NULL,0,1)", (str(uuid4()),))
     conn.execute(_VERSION_DELETE_GUARD)
+    for statement in _COMMAND_GUARDS:
+        conn.execute(statement)

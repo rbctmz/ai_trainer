@@ -18,6 +18,23 @@ class CycleNotFound(ValueError):
     """The explicitly requested historical cycle does not exist."""
 
 
+class CycleCommandError(ValueError):
+    """Safe, structured refusal; no private stored payload in the message."""
+
+    def __init__(self, code: str, detail: str, *, status: int = 409, retryable: bool = False) -> None:
+        super().__init__(detail)
+        self.code, self.status, self.retryable = code, status, retryable
+
+
+def constraint_fingerprint(row: Mapping[str, Any]) -> str:
+    """CAS over the existing public constraint fields, including scope metadata."""
+    fields = ("id", "date", "kind", "status", "source", "note", "plan_id", "session_id",
+              "metadata", "resolved_at", "created_at", "sport", "cycle_scope", "cycle_id")
+    encoded = json.dumps({key: row.get(key) for key in fields}, sort_keys=True,
+                         ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
 @dataclass(frozen=True)
 class CyclePeriod:
     start: date | None = None

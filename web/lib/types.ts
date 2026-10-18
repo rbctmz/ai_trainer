@@ -745,6 +745,111 @@ export interface SyncJobResponse {
 }
 
 // --- Planning ---
+export type EventOutcome = "unspecified" | "did_not_participate" | "participated";
+
+export interface CycleEvent {
+  event_key: string;
+  outcome: EventOutcome;
+  is_ambiguous: boolean;
+  date: string | null;
+  label: string | null;
+  priority: string | null;
+}
+
+export interface CycleWeek {
+  number: number;
+  phase: string | null;
+  week_start: string | null;
+  weekly_tss: number | null;
+  is_historical: boolean;
+}
+
+export interface CycleContext {
+  state: "no_current" | "scheduled" | "in_progress" | "period_ended" | "closed" | "indeterminate";
+  cycle_id: string | null;
+  is_selected: boolean;
+  current_cycle_id: string | null;
+  selection_revision: number;
+  cycle_revision: number | null;
+  checkpoint_id: number | null;
+  start_date: string | null;
+  end_date: string | null;
+  athlete_day: string;
+  athlete_timezone: string;
+  is_legacy: boolean;
+  has_history: boolean;
+  reason_code: string | null;
+  allowed_actions: Array<"start_new" | "browse_history" | "close" | "edit_current" | "inspect" | "set_event_outcome">;
+  events: CycleEvent[];
+  current_week: CycleWeek | null;
+  last_week: CycleWeek | null;
+}
+
+export interface CycleHistoryResponse {
+  cycles: CycleContext[];
+}
+
+export interface EventDeclaration {
+  event_key: string;
+  outcome: EventOutcome;
+}
+
+export interface CloseCycleRequest {
+  command_id: string;
+  confirm: true;
+  expected_selection_revision: number;
+  expected_cycle_revision: number;
+  expected_checkpoint_id: number;
+  event_outcomes?: EventDeclaration[];
+}
+
+export interface SetEventOutcomeRequest extends EventDeclaration {
+  command_id: string;
+  confirm: true;
+  expected_cycle_revision: number;
+}
+
+export type ResolveConstraintScopeRequest = {
+  command_id: string;
+  confirm: true;
+  constraint_id: number;
+  expected_constraint_fingerprint: string;
+} & ({ scope: "athlete"; cycle_id?: null } | { scope: "cycle"; cycle_id: string });
+
+export interface OutcomeChange {
+  event_key: string;
+  checkpoint_id: number;
+  event_snapshot: Record<string, unknown>;
+  before: EventOutcome;
+  after: EventOutcome;
+}
+
+export interface ConstraintScopeChange {
+  constraint_id: number;
+  before_fingerprint: string;
+  after_fingerprint: string;
+  scope: "athlete" | "cycle";
+  cycle_id: string | null;
+}
+
+export interface CycleCommandResult {
+  effect: "closed" | "event_outcome_set" | "constraint_scope_resolved";
+  cycle_id: string | null;
+  cycle_revision: number | null;
+  checkpoint_id: number | null;
+  selection_revision: number;
+  event_outcomes: OutcomeChange[];
+  constraint_scope: ConstraintScopeChange | null;
+}
+
+export interface CycleCommandResponse {
+  command_id: string;
+  kind: "close" | "set_event_outcome" | "resolve_constraint_scope";
+  replayed: boolean;
+  result: CycleCommandResult;
+  current_context: CycleContext;
+}
+
 export type CoachConstraintKind =
   | "sick"
   | "unavailable"
@@ -754,6 +859,9 @@ export type CoachConstraintKind =
   | string;
 
 export interface CoachConstraint {
+  cycle_scope?: "athlete" | "cycle" | "unknown" | null;
+  cycle_id?: string | null;
+  constraint_fingerprint?: string;
   id: number;
   date: string;
   kind: CoachConstraintKind;

@@ -102,6 +102,47 @@
         }
       ]
     },
+    "/api/planning/cycles/current": {
+      "interface": "CycleContext",
+      "scenarios": [
+        {"state": "empty", "expect": 200},
+        {"state": "cycle", "expect": 200}
+      ]
+    },
+    "/api/planning/cycles": {
+      "interface": "CycleHistoryResponse",
+      "scenarios": [
+        {"state": "empty", "expect": 200},
+        {"state": "cycle", "expect": 200}
+      ]
+    },
+    "/api/planning/cycles/{cycle_id}": {
+      "interface": "CycleContext",
+      "scenarios": [
+        {"state": "cycle", "expect": 200, "path_params": {"cycle_id": "current_cycle_id"}}
+      ]
+    },
+    "/api/planning/cycles/{cycle_id}/close": {
+      "interface": "CycleCommandResponse",
+      "method": "POST",
+      "scenarios": [
+        {"state": "cycle", "expect": 200, "prepare_cycle_command": "close", "path_params": {"cycle_id": "current_cycle_id"}}
+      ]
+    },
+    "/api/planning/cycles/{cycle_id}/event-outcome": {
+      "interface": "CycleCommandResponse",
+      "method": "POST",
+      "scenarios": [
+        {"state": "cycle", "expect": 200, "prepare_cycle_command": "event-outcome", "path_params": {"cycle_id": "current_cycle_id"}}
+      ]
+    },
+    "/api/planning/cycles/constraint-scope": {
+      "interface": "CycleCommandResponse",
+      "method": "POST",
+      "scenarios": [
+        {"state": "cycle", "expect": 200, "prepare_cycle_command": "constraint-scope"}
+      ]
+    },
     "/api/planning/status": {
       "interface": "PlanningStatus",
       "scenarios": [

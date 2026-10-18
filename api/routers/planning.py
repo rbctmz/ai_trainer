@@ -178,16 +178,20 @@ def planning_week_by_week(db: Database = Depends(get_database)) -> dict[str, Any
 
 @router.get("/constraints")
 def list_constraints(days: int = 30, db: Database = Depends(get_database)) -> dict[str, Any]:
-    from datetime import datetime, timedelta
+    from datetime import timedelta
+    from models.planning_cycle import constraint_fingerprint
+    from utils.athlete_time import athlete_local_date
 
-    today = datetime.now().date()
+    today = athlete_local_date()
     rows = db.get_coach_constraints(
         start_date=today.isoformat(),
         end_date=(today + timedelta(days=max(1, int(days or 1)))).isoformat(),
         active_only=True,
         limit=200,
     )
-    return {"count": len(rows), "constraints": rows}
+    return {"count": len(rows), "constraints": [
+        {**row, "constraint_fingerprint": constraint_fingerprint(row)} for row in rows
+    ]}
 
 
 @router.post("/constraints")

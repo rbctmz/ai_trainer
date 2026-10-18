@@ -46,7 +46,9 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-18) M2 author implementation: additive store/migration, selected read and pure projection; initial 56 new storage cases GREEN, 75 with existing characterization/backup tests. Raw history/S1 oracles unchanged.
 - [x] (2026-10-18) M2 complete: independent round 1 found one P2 (association DELETE); reproduced and fixed-in `69a2623`, scoped round 2/2 CLOSED/READY. Final 58 storage / 77 focused GREEN; contributor-safe contour excluding intentional M1 RED: 3427 passed, 14 skipped, 64 deselected. Draft #696 stacked on #695; no standalone merge/live migration.
 - [x] (2026-10-18) M2 RED checkpoint: 29 storage/projection cases failed before implementation (missing interfaces/tables), no collection errors. This preliminary RED is not migration/transaction proof.
-- [ ] M3: close/outcome/scope commands, S1 v2 start_new/edit_current and atomic replacement; every writer guards current cycle.
+- [ ] M3a: cycle read/command contracts, retained close/outcome/scope commands and transaction/retry proofs (author implementation complete; independent review and final checks pending).
+- [ ] M3b: S1 v2 start_new/edit_current, calendar/identity boundary and atomic replacement; preserve applied-v1 replay and reject pending-v1.
+- [ ] M3c: every planning/Coach/legacy writer guards selected cycle/head under the writer lock; explicit restore ownership.
 - [ ] M4: explicit current-vs-history reader integration, then Domain→UI handoff for minimal actions/status and isolated web acceptance.
 - [ ] M5: final whole-S2 evidence, current-head CI/native review and explicit human merge decision.
 
@@ -101,6 +103,23 @@ IDs, untouched legacy IDs and an overlapping-cycle test matrix. Runtime GREEN
 is NOT YET; scoped spec verification follows.
 
 ## Decision Log
+
+Decision (2026-10-18, M3 Domain/API): keep M3a commands/contracts separate from
+M3b retained build publication/identity and M3c writer guards. This is a
+review/commit boundary, not permission to merge an incomplete lifecycle. The
+typed web/lib/planningCycles.ts transport contains no screen, styling or client
+state decisions; M4 remains the UI handoff. API inventory now scans lib/ as well
+as app/components so typed transports remain covered by the same contract gate.
+
+Decision (2026-10-18, M3a Domain/API): hash the canonical request (including kind,
+target UUID and sorted close declarations) and retain an internal result/digest
+envelope in result_json. Public result stays immutable; replay reads that receipt
+before CAS and computes only replayed/current_context afresh. SQL triggers block
+update, replacement and deletion of successful receipts; full reset temporarily
+drops only the deletion guard inside its existing transaction. Constraint CAS
+fingerprints cover all existing constraint fields plus ownership, returned by the
+existing constraints listing using the athlete's local day. Scope resolution
+updates only cycle_scope/cycle_id.
 
 Decision (2026-10-18, M2 Domain/API): initialize all cycle DDL, constraint scope
 columns, conservative import and migration flag in one BEGIN IMMEDIATE after
@@ -394,6 +413,43 @@ M1 build/identity and new-command HTTP RED must become GREEN in M3;
 cross-surface overview/status RED remains M4 reader integration. No UI
 composition/styling decision is part of this Domain/API handoff.
 
+### M3a — author command/contract checkpoint (2026-10-18)
+
+Role: Domain / API Implementer, Class A. Added api/planning_cycle_contract.py,
+api/routers/planning_cycles.py and services/planning_cycle_commands.py. Cycle
+current/history reads expose the M2 selector in one read transaction. Strict
+UUID command IDs, confirm=true and typed revision CAS protect close, event
+declaration and scope resolution. Close works early or with an indeterminate
+checkpoint and needs no participation declaration. It changes cycle/selection
+and receipt only. Event declaration can target a stored version from the same
+cycle, rejects ambiguous events/future participation, and never selects/reopens
+a cycle. Scope resolution changes only ownership metadata. Response schema and
+finite JSON validation precede commit. Busy/storage failures retain retry with
+the same identity; corrupted receipts fail closed without private error text.
+
+Observed: the first command probe returned two missing-current-route 404s; the
+scope probe initially hit a wall-clock fixture mismatch before reaching the
+missing fingerprint. The existing constraints route used machine date while the
+new cycle service uses athlete day. Verified by the synthetic pinned-date test;
+the adapter now uses athlete_local_date and exposes the metadata fingerprint.
+This is not recorded as three independently reproduced command bugs.
+
+Verified by: focused command/storage/characterization/backup and API↔TS conformance,
+extractor/inventory contour: 217 passed, 1 warning in 13.20s. New probes cover
+every command's state/receipt/pre-commit/serialization rollback, close selection
+write failure, same-ID replay after backup/restore, changed-ID payload conflict,
+historical events, unknown ownership, future outcomes and real two-connection
+close races. All fact/prescription/settings rows remain unchanged by commands.
+Ruff/diff check and web lint/build passed; final broad run/review are pending.
+
+Observed remaining M1 contour: 19 failed / 25 passed. Twelve formerly missing
+cycle-read HTTP assertions now pass; close/retry/restart itself passes, but the
+old test's final /status assertion still fails because M4 has not switched its
+reader. No M1 assertion was removed, skipped or weakened. Build context/calendar,
+v2 namespace/donor boundary and new-cycle publication are M3b, writer guards M3c;
+overview/status and other current-reader integration are M4. Intermediate S2
+drafts are not merge candidates and this branch is not a live rollout.
+
 ## Context and Orientation
 
 Shared Python in models/services/data owns domain meaning; FastAPI api/ and
@@ -460,6 +516,11 @@ preserve/remove precisely the intended new state. Keep raw history access and
 ledger bytes unchanged. This is storage/projection readiness, not final delivery.
 
 ### M3 — commands and exact confirmed new cycle
+
+Implement three reviewable parts in order: M3a commands/contracts, M3b retained
+build publication and identity, then M3c writer-family adaptation. These divide
+implementation evidence without changing approved scope or allowing an
+intermediate draft to merge. M4 still owns current-reader/UI integration.
 
 Define api/planning_cycle_contract.py and the cycle router before runtime
 adapters; add API/TS fixtures and regenerate contracts. Implement strict

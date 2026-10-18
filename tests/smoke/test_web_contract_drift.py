@@ -17,9 +17,11 @@ Intervals/Garmin закрывается guard'ом (NetworkAccessBlocked) — н
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from fastapi import Query
@@ -39,7 +41,7 @@ CONTRACTS_DIR = REPO_ROOT / "tests" / "contracts"
 REGISTRY = json.loads((CONTRACTS_DIR / "registry.json").read_text(encoding="utf-8"))
 ARTIFACT = json.loads((CONTRACTS_DIR / "ts_contract.json").read_text(encoding="utf-8"))
 
-KNOWN_STATES = {"empty", "demo", "edge_no_plan", "edge_sparse"}
+KNOWN_STATES = {"empty", "demo", "edge_no_plan", "edge_sparse", "cycle"}
 
 
 class NetworkAccessBlocked(RuntimeError):
@@ -124,7 +126,25 @@ def test_artifact_is_fresh() -> None:
 
 
 def _build_state(state_name: str, *, suffix: str = "") -> Database:
-    db = Database(str(_TEMP_DIR / f"{state_name}{suffix}.db"))
+    path = _TEMP_DIR / f"{state_name}{suffix}.db"
+    if state_name == "cycle":
+        # Import a real old checkpoint BEFORE cycle migration; never fabricate
+        # an active selection via a raw post-migration checkpoint write.
+        from models.planning_checkpoints import build_planning_checkpoint
+        from tests.athlete_clock import athlete_today
+        from tests.smoke._planning_cycle_regressions import plan
+
+        with sqlite3.connect(path) as conn:
+            conn.execute("""CREATE TABLE planning_checkpoints (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, goal_type TEXT, distance TEXT,
+                weeks_to_race INTEGER, checkpoint_data TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+            conn.execute("INSERT INTO planning_checkpoints(checkpoint_data) VALUES(?)",
+                         (json.dumps(build_planning_checkpoint(plan(athlete_today() - timedelta(days=14)))),))
+    db = Database(str(path))
+    if state_name == "cycle":
+        from tests.athlete_clock import athlete_today
+        db.save_coach_constraint(date=athlete_today().isoformat(), kind="manual_delete")
     if state_name in {"demo", "edge_no_plan"}:
         activate_demo_mode(make_headless_state(db))
     if state_name == "demo":
@@ -158,6 +178,10 @@ def _state(state_name: str) -> tuple[Database, TestClient]:
 
 def _resolve_param(db: Database, client: TestClient, source: str) -> str:
     """Декларативные источники параметров пути из реестра."""
+    if source == "current_cycle_id":
+        response = client.get("/api/planning/cycles/current")
+        assert response.status_code == 200, response.text
+        return response.json()["cycle_id"]
     if source == "first_activity_id":
         rows = db.get_activities(days=90)
         assert rows, "first_activity_id: в состоянии нет активностей"
@@ -194,7 +218,7 @@ def test_endpoint_scenario(path: str, interface: str, scenario: dict, network_gu
     method = REGISTRY["endpoints"][path].get("method", "GET")
     if method != "GET":
         # A contract write must not turn the cached "empty" read fixture into a plan.
-        db = _build_state(scenario["state"], suffix=f"-{interface}")
+        db = _build_state(scenario["state"], suffix=f"-{interface}-{uuid4()}")
         client = TestClient(app)
     else:
         db, client = _state(scenario["state"])
@@ -205,6 +229,20 @@ def test_endpoint_scenario(path: str, interface: str, scenario: dict, network_gu
         url = url.replace(f"{{{name}}}", _resolve_param(db, client, source))
 
     body = scenario.get("json")
+    if scenario.get("prepare_cycle_command"):
+        context = client.get("/api/planning/cycles/current").json()
+        body = {"command_id": str(uuid4()), "confirm": True}
+        if scenario["prepare_cycle_command"] == "close":
+            body.update(expected_selection_revision=context["selection_revision"],
+                        expected_cycle_revision=context["cycle_revision"],
+                        expected_checkpoint_id=context["checkpoint_id"])
+        elif scenario["prepare_cycle_command"] == "event-outcome":
+            body.update(expected_cycle_revision=context["cycle_revision"],
+                        event_key=context["events"][0]["event_key"], outcome="did_not_participate")
+        else:
+            constraint = client.get("/api/planning/constraints").json()["constraints"][0]
+            body.update(constraint_id=constraint["id"],
+                        expected_constraint_fingerprint=constraint["constraint_fingerprint"], scope="athlete")
     if scenario.get("prepare_preview"):
         prepared = client.post("/api/planning/build", json=scenario["prepare_preview"])
         assert prepared.status_code == 200, prepared.text

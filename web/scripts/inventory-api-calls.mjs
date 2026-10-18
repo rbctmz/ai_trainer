@@ -24,7 +24,7 @@ import ts from "typescript";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.resolve(SCRIPT_DIR, "..");
-const SCAN_ROOTS = [path.join(WEB_DIR, "app"), path.join(WEB_DIR, "components")];
+const SCAN_ROOTS = ["app", "components", "lib"].map((dir) => path.join(WEB_DIR, dir));
 const CALL_METHOD = {
   useSWR: "GET",
   fetcher: "GET",

@@ -26,7 +26,7 @@ CONTRACTS_DIR = REPO_ROOT / "tests" / "contracts"
 REGISTRY_PATH = CONTRACTS_DIR / "registry.json"
 INVENTORY_SCRIPT = WEB_DIR / "scripts" / "inventory-api-calls.mjs"
 
-KNOWN_STATES = {"empty", "demo", "edge_no_plan", "edge_sparse"}
+KNOWN_STATES = {"empty", "demo", "edge_no_plan", "edge_sparse", "cycle"}
 
 
 def _load_registry() -> dict:
@@ -138,3 +138,10 @@ def test_inventory_captures_mutations() -> None:
     inventory = _run_inventory()
     methods = {c["method"] for c in inventory["calls"]}
     assert "POST" in methods, "инвентаризация не нашла POST-мутаций — сломан обход"
+
+
+def test_inventory_includes_typed_transport_modules() -> None:
+    calls = [call for call in _run_inventory()["calls"] if call["file"] == "web/lib/planningCycles.ts"]
+    assert len(calls) == 6
+    assert all(call["type_source"] == "lib/types" for call in calls)
+    assert {call["method"] for call in calls} == {"GET", "POST"}
