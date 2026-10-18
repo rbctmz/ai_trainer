@@ -220,8 +220,6 @@ def test_byte_equivalent_ledger_confirmed_nested_multi_session_identity(tmp_path
     independently under their own ids."""
     from tests.planning_fixtures import pin_day
     pin_day(monkeypatch, _TODAY)
-    from tests.planning_fixtures import pin_day
-    pin_day(monkeypatch, _TODAY)
     from api.planning_service import (
         apply_recovery_replan_transfer,
         record_plan_actual_match,
