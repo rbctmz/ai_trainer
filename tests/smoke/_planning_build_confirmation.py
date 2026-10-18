@@ -10,6 +10,7 @@ from api import planning_service as ps
 from config.settings import Settings
 from data import database as database_module
 from data.database import Database
+from data.planning_cycles import initialize_cycle_store
 from tests import athlete_clock
 from tests.smoke.test_api_planning import _seeded_db
 from utils import athlete_time
@@ -72,6 +73,18 @@ def internal_build(db: Database, request: dict[str, Any], *, persist: bool = Tru
     )
 
 
+def cycle_fields(db: Database) -> dict[str, Any]:
+    """Explicit current context for v2 fixtures; never inferred in the public API."""
+    from services.planning_cycles import current_cycle_context
+    context = current_cycle_context(db)
+    return {"action": "start_new", "base_cycle_id": context["cycle_id"],
+            "base_cycle_revision": context["cycle_revision"],
+            "base_selection_revision": context["selection_revision"],
+            "base_checkpoint_id": context["checkpoint_id"] or 0,
+            "replace_current_cycle": context["cycle_id"] is not None,
+            "start_date": athlete_time.athlete_local_date().isoformat()}
+
+
 def seeded_db(tmp_path, *, existing: bool = False, rested: bool = False) -> Database:
     db = _seeded_db(tmp_path)
     if rested:
@@ -105,6 +118,23 @@ def seeded_db(tmp_path, *, existing: bool = False, rested: bool = False) -> Data
         original = parameters()
         original["available_hours"] = 8.0
         internal_build(db, original)
+        # This fixture depicts a pre-S2 plan. Import it explicitly during fixture
+        # setup; a raw post-migration checkpoint never selects itself in runtime.
+        conn = db._connect()
+        try:
+            with conn:
+                conn.execute("DELETE FROM planning_cycle_state")
+                initialize_cycle_store(conn)
+        finally:
+            conn.close()
+    # The known synthetic forced-rest row is an explicit athlete restriction.
+    # Production unresolved rows still fail prepare with constraint_scope_required.
+    conn = db._connect()
+    try:
+        with conn:
+            conn.execute("UPDATE coach_constraints SET cycle_scope='athlete',cycle_id=NULL")
+    finally:
+        conn.close()
     return db
 
 

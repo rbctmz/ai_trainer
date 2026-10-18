@@ -1310,12 +1310,74 @@ export interface BuildConfirmation {
   is_current: boolean | null;
 }
 
-export interface BuildPreviewResponse extends BuiltPlan {
+export interface LegacyBuildPreviewResponse extends BuiltPlan {
   parameters: BuildParameters;
   confirmation: BuildConfirmation;
 }
 
-export interface BuildConfirmResponse extends BuildPreviewResponse {}
+export interface BuildLifecycle {
+  action: "start_new" | "edit_current";
+  source_cycle_id: string | null;
+  target_cycle_id: string;
+  base_cycle_revision: number | null;
+  base_selection_revision: number;
+  base_checkpoint_id: number;
+  start_date: string;
+  end_date: string;
+  closes_cycle_id: string | null;
+}
+
+export interface CycleBuildPreviewResponse extends BuiltPlan {
+  parameters: BuildParameters;
+  confirmation: BuildConfirmationV2;
+  lifecycle: BuildLifecycle;
+}
+
+export interface BuildConfirmationV2 {
+  protocol_version: 2;
+  preview_id: string;
+  expires_at: string;
+  status: "pending" | "applied";
+  replayed: boolean;
+  is_current: boolean | null;
+}
+
+export type BuildPreviewResponse = LegacyBuildPreviewResponse | CycleBuildPreviewResponse;
+export type BuildConfirmResponse = BuildPreviewResponse;
+
+export interface CycleBuildInputs {
+  start_date: string;
+  calendar_week_start: string;
+  goal_type: string | null;
+  distance: string | null;
+  intent: string | null;
+  planning_mode: string | null;
+  focus: string | null;
+  horizon_weeks: number | null;
+  event_date: string | null;
+  events: RaceEvent[];
+  manual_phases: string[] | null;
+  available_hours: number | null;
+  available_days: string[];
+  demand: string | null;
+}
+
+export interface CycleBuildContext {
+  action: "start_new" | "edit_current";
+  inputs: CycleBuildInputs;
+  input_sources: Record<string, string>;
+  cycle_context: CycleContext;
+}
+
+export interface CycleBuildLifecycleRequest {
+  action: "start_new" | "edit_current";
+  base_cycle_id: string | null;
+  base_cycle_revision: number | null;
+  base_selection_revision: number;
+  base_checkpoint_id: number;
+  replace_current_cycle: boolean;
+  start_date: string;
+}
 
 // --- Planning: export ---
 export interface WorkoutTarget {

@@ -142,6 +142,6 @@ def test_inventory_captures_mutations() -> None:
 
 def test_inventory_includes_typed_transport_modules() -> None:
     calls = [call for call in _run_inventory()["calls"] if call["file"] == "web/lib/planningCycles.ts"]
-    assert len(calls) == 6
+    assert len(calls) == 7
     assert all(call["type_source"] == "lib/types" for call in calls)
     assert {call["method"] for call in calls} == {"GET", "POST"}

@@ -12,11 +12,13 @@ from pydantic import ValidationError
 
 from api.deps import get_database
 from api.planning_cycle_contract import (
-    CloseCycleRequest, CycleCommandResponse, CycleContext, CycleHistoryResponse,
+    CloseCycleRequest, CycleBuildContext, CycleCommandResponse, CycleContext, CycleHistoryResponse,
     ResolveConstraintScopeRequest, SetEventOutcomeRequest,
 )
 from data.database import Database
 from models.planning_build_confirmation import canonical_json
+from models.planning_build_confirmation import PlanningBuildPreviewError
+from services.planning_cycle_build import cycle_build_context
 from models.planning_cycle import CycleCommandError, CycleNotFound, CycleStateCorrupt
 from services.planning_cycle_commands import execute_cycle_command
 from services.planning_cycles import current_cycle_context, cycle_history, historical_cycle_context
@@ -37,6 +39,8 @@ class CycleRoute(APIRoute):
                 return _error(422, "invalid_cycle_request", "Проверьте параметры команды или цикла.")
             except CycleCommandError as exc:
                 return _error(exc.status, exc.code, str(exc), exc.retryable)
+            except PlanningBuildPreviewError as exc:
+                return _error(exc.status, exc.code, str(exc), exc.retryable)
             except CycleNotFound:
                 return _error(404, "cycle_not_found", "Цикл не найден.")
             except (CycleStateCorrupt, ValidationError, ResponseValidationError, ValueError, TypeError):
@@ -51,6 +55,12 @@ class CycleRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/planning/cycles", tags=["planning"], route_class=CycleRoute)
+build_context_router = APIRouter(prefix="/api/planning", tags=["planning"], route_class=CycleRoute)
+
+
+@build_context_router.get("/build-context", response_model=CycleBuildContext)
+def build_context(action: str = Query(..., pattern="^(start_new|edit_current)$"), db: Database = Depends(get_database)):
+    return cycle_build_context(db, action)
 
 
 def _validate_command_response(payload: dict) -> None:

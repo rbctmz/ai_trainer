@@ -6,9 +6,17 @@ from datetime import date, datetime
 import hashlib
 import json
 from typing import Any, Mapping
+from uuid import UUID
 
 
 SESSION_ID_RULE_VERSION = "session_identity_v1"
+SESSION_ID_RULE_VERSION_V2 = "session_identity_v2"
+
+
+def _identity_material(payload: dict[str, Any], namespace: str | None) -> dict[str, Any]:
+    if namespace:
+        return {**payload, "rule_version": SESSION_ID_RULE_VERSION_V2, "identity_namespace": namespace}
+    return payload
 
 
 def _date_text(value: Any) -> str:
@@ -47,14 +55,14 @@ def _prescription_payload(template: Mapping[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _material_payload(daily_item: Any, template: Mapping[str, Any]) -> dict[str, Any]:
+def _material_payload(daily_item: Any, template: Mapping[str, Any], namespace: str | None = None) -> dict[str, Any]:
     dt, total, parts = daily_item
     normalized_parts = {
         str(key): _number(value)
         for key, value in sorted(dict(parts or {}).items())
         if _number(value) != 0.0
     }
-    return {
+    return _identity_material({
         "rule_version": SESSION_ID_RULE_VERSION,
         "date": _date_text(dt),
         "total_tss": _number(total),
@@ -66,7 +74,7 @@ def _material_payload(daily_item: Any, template: Mapping[str, Any]) -> dict[str,
         "duration_minutes": int(round(_number(template.get("duration_minutes")))),
         "template_key": str(template.get("template_key") or "").strip(),
         "prescription": _prescription_payload(template),
-    }
+    }, namespace)
 
 
 def _fingerprint(payload: Mapping[str, Any]) -> str:
@@ -74,14 +82,14 @@ def _fingerprint(payload: Mapping[str, Any]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _session_material_payload(date_text: str, session: Mapping[str, Any]) -> dict[str, Any]:
+def _session_material_payload(date_text: str, session: Mapping[str, Any], namespace: str | None = None) -> dict[str, Any]:
     """Identity material for one session inside a day (Issue #205).
 
     Derived from the session's content only — date, discipline, role, focus,
     load, and prescription — never from its position in the ``sessions`` array,
     so reordering the array cannot change identities.
     """
-    return {
+    return _identity_material({
         "rule_version": SESSION_ID_RULE_VERSION,
         "date": date_text,
         "sport": str(session.get("sport") or "").strip().lower(),
@@ -91,7 +99,7 @@ def _session_material_payload(date_text: str, session: Mapping[str, Any]) -> dic
         "duration_minutes": int(round(_number(session.get("duration_minutes")))),
         "template_key": str(session.get("template_key") or "").strip(),
         "prescription": _prescription_payload(session),
-    }
+    }, namespace)
 
 
 def _session_sort_key(session: Mapping[str, Any]) -> tuple[str, str, float, str, str]:
@@ -104,7 +112,7 @@ def _session_sort_key(session: Mapping[str, Any]) -> tuple[str, str, float, str,
     )
 
 
-def _session_content_order(date_text: str, sessions: list) -> list[tuple[int, str, str]]:
+def _session_content_order(date_text: str, sessions: list, namespace: str | None = None) -> list[tuple[int, str, str]]:
     """Canonical (position, fingerprint, base fingerprint) for a day's sessions.
 
     Identical same-day sessions are separated by an occurrence ordinal assigned
@@ -122,7 +130,7 @@ def _session_content_order(date_text: str, sessions: list) -> list[tuple[int, st
     )
     result: list[tuple[int, str, str]] = []
     for position in ordered:
-        payload = _session_material_payload(date_text, dict(sessions[position] or {}))
+        payload = _session_material_payload(date_text, dict(sessions[position] or {}), namespace)
         base_fingerprint = _fingerprint(payload)
         ordinal = occurrence_counts.get(base_fingerprint, 0)
         occurrence_counts[base_fingerprint] = ordinal + 1
@@ -155,8 +163,24 @@ def ensure_session_identities(
 ) -> dict[str, Any]:
     """Return a copy whose non-rest templates have deterministic stable IDs."""
     result = deepcopy(dict(goal_plan))
+    namespace = result.get("identity_namespace")
+    if namespace is not None:
+        namespace = str(UUID(str(namespace)))
+        result["identity_namespace"] = namespace
+    rule_version = SESSION_ID_RULE_VERSION_V2 if namespace else SESSION_ID_RULE_VERSION
+    if (previous_goal_plan or {}).get("identity_namespace") != namespace:
+        previous_goal_plan = None  # a different cycle is never an identity donor
     daily_plan = list(result.get("daily_plan") or [])
     templates = [dict(item or {}) for item in list(result.get("session_templates") or [])]
+    for template in templates:
+        nodes = [template, *list(template.get("sessions") or [])]
+        for node in nodes:
+            if namespace and node.get("session_identity_namespace") != namespace:
+                for key in ("session_id", "session_material_fingerprint", "replaces_session_id",
+                            "parent_session_id", "session_identity_rule_version"):
+                    node.pop(key, None)
+            if namespace:
+                node["session_identity_namespace"] = namespace
 
     # Ids already claimed as lineage by some session in THIS plan may not be
     # reused for a survivor match (Issue #209): the moved session's
@@ -206,7 +230,7 @@ def ensure_session_identities(
             template.pop("replaces_session_id", None)
             continue
 
-        material = _material_payload(item, template)
+        material = _material_payload(item, template, namespace)
         material_fingerprint = _fingerprint(material)
         generated_id = f"ats_{material_fingerprint[:24]}"
         embedded_id = str(template.get("session_id") or "").strip() or None
@@ -221,7 +245,7 @@ def ensure_session_identities(
             previous_id = str(previous_template.get("session_id") or "").strip() or None
             previous_material_fingerprint = str(
                 previous_template.get("session_material_fingerprint") or ""
-            ).strip() or _fingerprint(_material_payload(previous_item, previous_template))
+            ).strip() or _fingerprint(_material_payload(previous_item, previous_template, namespace))
 
         # Issue #209: cross-cardinality survivor matching. When the day
         # fingerprint changed because a sibling session arrived or left, an
@@ -229,7 +253,7 @@ def ensure_session_identities(
         # against the previous plan's SAME-DATE sessions (whatever their count
         # was) instead of minting a fresh identity with false lineage.
         sessions_now = list(template.get("sessions") or [])
-        content_order = _session_content_order(material["date"], sessions_now)
+        content_order = _session_content_order(material["date"], sessions_now, namespace)
         prev_ids_by_fp: dict[str, list[str]] = {}
         if previous is not None:
             previous_sessions = list(previous_template.get("sessions") or [])
@@ -239,7 +263,7 @@ def ensure_session_identities(
             # nested session content happens to be untouched.
             if len(previous_sessions) != len(sessions_now):
                 for prev_position, _prev_fingerprint, prev_base in _session_content_order(
-                    material["date"], previous_sessions
+                    material["date"], previous_sessions, namespace
                 ):
                     prev_sid = str(
                         (previous_sessions[prev_position] or {}).get("session_id") or ""
@@ -262,7 +286,7 @@ def ensure_session_identities(
             session_id = generated_id
 
         template["session_id"] = session_id
-        template["session_identity_rule_version"] = SESSION_ID_RULE_VERSION
+        template["session_identity_rule_version"] = rule_version
         template["session_material_fingerprint"] = material_fingerprint
         if reused_content_id:
             # The survivor is the same session, not a replacement: no new
@@ -315,7 +339,7 @@ def ensure_session_identities(
                 primary["session_material_fingerprint"] = own_fingerprint
             else:
                 primary["session_material_fingerprint"] = template["session_material_fingerprint"]
-            primary["session_identity_rule_version"] = SESSION_ID_RULE_VERSION
+            primary["session_identity_rule_version"] = rule_version
             if template.get("replaces_session_id"):
                 primary["replaces_session_id"] = template["replaces_session_id"]
             else:
@@ -367,12 +391,20 @@ def ensure_session_identities(
                 session = dict(sessions[position] or {})
                 session["session_id"] = resolutions[position]
                 session["session_material_fingerprint"] = session_fingerprint
-                session["session_identity_rule_version"] = SESSION_ID_RULE_VERSION
+                session["session_identity_rule_version"] = rule_version
+                if namespace and str(session.get("kind") or "") == "composite":
+                    legs = []
+                    for leg_index, raw_leg in enumerate(session.get("legs") or [], 1):
+                        leg = dict(raw_leg)
+                        leg["leg_index"] = int(leg.get("leg_index") or leg_index)
+                        leg["leg_id"] = f"{session['session_id']}:{leg['leg_index']}"
+                        legs.append(leg)
+                    session["legs"] = legs
                 sessions[position] = session
             template["sessions"] = sessions
 
     result["session_templates"] = templates
-    result["session_identity_rule_version"] = SESSION_ID_RULE_VERSION
+    result["session_identity_rule_version"] = rule_version
     return result
 
 

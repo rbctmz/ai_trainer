@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from models.planning_cycle import CycleStateCorrupt, checkpoint_period
+from models.planning_build_confirmation import PlanningBuildPreviewError
 
 _VERSION_DELETE_GUARD = """CREATE TRIGGER IF NOT EXISTS planning_cycle_versions_no_delete
     BEFORE DELETE ON planning_cycle_versions
@@ -74,6 +75,53 @@ class PlanningCycleStore:
             "SELECT id FROM planning_cycles ORDER BY created_at DESC, id DESC LIMIT ?",
             (max(1, min(int(limit), 50)),),
         )]
+
+
+def publish_cycle_checkpoint(conn: sqlite3.Connection, lifecycle: dict, checkpoint: dict,
+                             checkpoint_id: int, instant: str) -> None:
+    """Called only under the retained-preview writer lock, never commit here."""
+    if not conn.in_transaction:
+        raise RuntimeError("Cycle publication requires a writer transaction")
+    store = PlanningCycleStore(conn)
+    selection = store.state()
+    source = store.cycle(lifecycle["source_cycle_id"]) if lifecycle["source_cycle_id"] else None
+    actual = (selection["current_cycle_id"], selection["revision"], (source or {}).get("revision"),
+              (source or {}).get("current_checkpoint_id") or 0)
+    expected = (lifecycle["source_cycle_id"], lifecycle["base_selection_revision"],
+                lifecycle["base_cycle_revision"], lifecycle["base_checkpoint_id"])
+    if actual != expected or (source and source["status"] != "open"):
+        raise PlanningBuildPreviewError("cycle_stale", "Цикл изменился — пересоберите предпросмотр.")
+    period = checkpoint_period(checkpoint)
+    if (period.reason_code or period.start.isoformat() != lifecycle["start_date"]
+            or period.end.isoformat() != lifecycle["end_date"]):
+        raise PlanningBuildPreviewError("preview_corrupt", "Предпросмотр не соответствует периоду цикла.", status=500)
+    target = str(UUID(lifecycle["target_cycle_id"]))
+    if lifecycle["action"] == "start_new":
+        if (lifecycle["closes_cycle_id"] != selection["current_cycle_id"]
+                or checkpoint["goal_plan_snapshot"].get("identity_namespace") != target
+                or checkpoint["goal_plan_snapshot"].get("checkpoint_parent_id") is not None):
+            raise PlanningBuildPreviewError("preview_corrupt", "Принадлежность предпросмотра повреждена.", status=500)
+        if source:
+            conn.execute("UPDATE planning_cycles SET status='closed',closed_at=?,revision=revision+1 WHERE id=?",
+                         (instant, source["id"]))
+        conn.execute("""INSERT INTO planning_cycles
+            (id,current_checkpoint_id,revision,status,start_date,end_date,origin)
+            VALUES(?,?,1,'open',?,?,'explicit')""", (target, checkpoint_id, lifecycle["start_date"], lifecycle["end_date"]))
+        conn.execute("INSERT INTO planning_cycle_versions VALUES(?,?,'initial')", (checkpoint_id, target))
+        conn.execute("UPDATE planning_cycle_state SET current_cycle_id=?,revision=revision+1 WHERE id=1", (target,))
+    elif lifecycle["action"] == "edit_current" and source and target == source["id"]:
+        previous = store.checkpoint(source["current_checkpoint_id"])
+        if (lifecycle["closes_cycle_id"] is not None or lifecycle["start_date"] != source["start_date"]
+                or lifecycle["end_date"] > source["end_date"]
+                or checkpoint["goal_plan_snapshot"].get("identity_namespace")
+                != previous["goal_plan_snapshot"].get("identity_namespace")
+                or checkpoint["goal_plan_snapshot"].get("checkpoint_parent_id") != source["current_checkpoint_id"]):
+            raise PlanningBuildPreviewError("preview_corrupt", "Изменение нарушает принадлежность или период цикла.", status=500)
+        conn.execute("INSERT INTO planning_cycle_versions VALUES(?,?,'edit')", (checkpoint_id, target))
+        conn.execute("""UPDATE planning_cycles SET current_checkpoint_id=?,revision=revision+1,end_date=? WHERE id=?""",
+                     (checkpoint_id, lifecycle["end_date"], target))
+    else:
+        raise PlanningBuildPreviewError("preview_corrupt", "Принадлежность предпросмотра повреждена.", status=500)
 
 
 def initialize_cycle_store(conn: sqlite3.Connection) -> None:

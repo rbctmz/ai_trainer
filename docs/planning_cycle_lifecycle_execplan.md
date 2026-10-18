@@ -47,7 +47,7 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-18) M2 complete: independent round 1 found one P2 (association DELETE); reproduced and fixed-in `69a2623`, scoped round 2/2 CLOSED/READY. Final 58 storage / 77 focused GREEN; contributor-safe contour excluding intentional M1 RED: 3427 passed, 14 skipped, 64 deselected. Draft #696 stacked on #695; no standalone merge/live migration.
 - [x] (2026-10-18) M2 RED checkpoint: 29 storage/projection cases failed before implementation (missing interfaces/tables), no collection errors. This preliminary RED is not migration/transaction proof.
 - [x] (2026-10-18) M3a complete: read/command API/TS contracts, retained close/outcome/scope commands, CAS/replay/rollback/retention probes. Independent scoped review READY at `b5807ad`, 222 focused GREEN; contributor contour with explicit M1 RED exclusions: 3502 passed / 14 skipped / 64 deselected. Publication remains intermediate draft only.
-- [ ] M3b: S1 v2 start_new/edit_current, calendar/identity boundary and atomic replacement; preserve applied-v1 replay and reject pending-v1.
+- [ ] M3b: S1 v2 start_new/edit_current, calendar/identity boundary and atomic replacement (author implementation complete; final verification and independent review pending). Preserve applied-v1 replay and reject pending-v1.
 - [ ] M3c: every planning/Coach/legacy writer guards selected cycle/head under the writer lock; explicit restore ownership.
 - [ ] M4: explicit current-vs-history reader integration, then Domain→UI handoff for minimal actions/status and isolated web acceptance.
 - [ ] M5: final whole-S2 evidence, current-head CI/native review and explicit human merge decision.
@@ -103,6 +103,34 @@ IDs, untouched legacy IDs and an overlapping-cycle test matrix. Runtime GREEN
 is NOT YET; scoped spec verification follows.
 
 ## Decision Log
+
+Decision (2026-10-18, M3b Domain/API): public lifecycle action is spelled `action`.
+All context fields are explicitly supplied; missing action gives
+cycle_context_required, never an inferred new cycle/edit. Keep original resolved
+parameters shape; reserve lifecycle UUID once outside publication and freeze it
+in dependency_context_json, cycle_context_json and response.lifecycle. Recheck
+reuses that same UUID. S1 canonical/payload/receipt algorithms for v1 remain
+unchanged; v2 adds cycle_context_json to payload hashing. Pending v1 is readable
+but not eligible for apply/bind; applied v1 validates/replays in its own schema.
+The old raw build facade and pure v1 calculator stay temporary internal paths
+until M3c, with no HTTP escape flag.
+
+Decision (2026-10-18, M3b Domain/API): remove canonical day/template pairs before
+actual start, regroup partial weeks by actual calendar dates, and derive affected
+totals/audit/forecast from that result. The existing position-based weekly helper
+is called on each calendar bucket; a shortened first week is never treated as
+seven days. Forecast starts at captured athlete day with zero-load gap to a
+scheduled start; it does not resimulate immutable past prescriptions. Edit
+preserves cycle start and copies saved past prescriptions/IDs, limiting new
+assignments to the remaining stored period. No post-A extension/recovery.
+
+Decision (2026-10-18, M3b Domain/API): v2 material fingerprints include the
+canonical UUID namespace; embedded IDs carry session_identity_namespace. A
+different/missing stamp cannot donate IDs or replaces/parent lineage to a new
+namespace. Day, nested session and composite-leg keys are separated; legacy v1
+material tuples/IDs remain exact. Checkpoint snapshots retain identity_namespace
+through restore. start_new has no checkpoint parent; source/closure IDs remain
+only lifecycle audit/comparison context. Same-cycle edit retains donor identity.
 
 Decision (2026-10-18, M3 Domain/API): keep M3a commands/contracts separate from
 M3b retained build publication/identity and M3c writer guards. This is a
@@ -507,6 +535,50 @@ applied v1 unchanged, reserve target UUID/namespace once, clip new prescriptions
 at actual start, and atomically publish checkpoint/map/cycles/selection/settings/
 receipt/Coach approval. Then M3c must cover every writer family before M4 UI
 acceptance. No new full-diff review of M3a and no standalone merge are needed.
+
+### M3b — author checkpoint (2026-10-18)
+
+Role Domain / API Implementer, Class A; branch codex/issue-693-m3b-cycle-build
+stacks on M3a #697 (`aedba20`). Approved specification unchanged. Added
+services/planning_cycle_build.py for coherent build form context, expected
+selection/cycle CAS, known constraint ownership and actual calendar bounds.
+Public build/confirm use v2 lifecycle with v1 successful replay retained;
+planning_build_previews gains nullable cycle_context_json, leaving every v1
+payload/receipt byte and digest definition intact. Under the S1 writer lock,
+checkpoint/map, old closure/new cycle or same-cycle edit, selection, settings,
+receipt and Coach approval commit together. No provider/live cache calls.
+
+Observed / Verified by: original M1 identity contour was 11 failed / 4 passed;
+after namespace/checkpoint support it became GREEN, including historical
+feedback/match separation and local delivery external keys. Four existing M1
+build/calendar/context RED are now GREEN. A new nested composite-leg control
+also checks a stale foreign-cycle template cannot donate leg IDs.
+
+S1 test adaptation is explicit: public preview fixtures supply full v2 context;
+legacy first/existing calculation golden fixtures call the pure v1 capture /
+calculator and low-level retained storage, without a public trusted flag. The
+original complete M1 calculation JSON oracle is unchanged. Existing raw history
+appends no longer represent a selected-state change: stale-writer fixtures now
+advance the selection revision or confirm a real competing cycle. Future
+constraint deactivation is tested in-range; an elapsed constraint is deliberately
+not a new prescription dependency. Actor/fault/replay assertions remain intact.
+Coach schemas and marker fixtures pass explicit lifecycle fields; the marker
+parser understands literal true/false/null for those existing typed inputs.
+An unbound tool call is refused, never silently assigned replacement consent.
+
+Intermediate checks: 203 prior S1 tests GREEN (7 existing warnings); 94
+Coach/v2/log/native tests GREEN before final additions; 37 Planning/onboarding/
+mocked-Intervals/history tests GREEN. Current frozen M1 contour is **4 failed /
+41 passed**: only overview current-phase/status and close test's final /status
+reader assertion remain M4. No M1 assertion is weakened/skipped. All other
+writer-family guards remain M3c; these are not whole-S2/CI/merge results.
+
+Final author verification: 473 focused tests passed (7 warnings) in 67.86s;
+contributor-safe contour passed 3591 / skipped 14 / deselected 68 in 306.98s.
+The latter excludes only the four known M4 reader assertions above, in addition
+to the standard live/debug/e2e marker exclusions. Full-repository Ruff,
+git diff --check, web lint/build and generated contract freshness passed.
+Independent review and publication follow below; this is not whole-S2 acceptance.
 
 ## Context and Orientation
 

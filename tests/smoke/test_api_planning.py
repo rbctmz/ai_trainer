@@ -321,6 +321,7 @@ def test_b_overlay_persists_protected_days_and_resumes(tmp_path):
 def test_api_build_requires_preview_before_confirm(tmp_path):
     from api.routers.planning import BuildRequest, planning_build, planning_build_confirm
     from api.planning_build_contract import BuildConfirmRequest
+    from tests.smoke._planning_build_confirmation import cycle_fields
 
     db = _seeded_db(tmp_path)
     request = BuildRequest(
@@ -332,6 +333,7 @@ def test_api_build_requires_preview_before_confirm(tmp_path):
         horizon_weeks=4,
         available_hours=10,
         persist=False,
+        **cycle_fields(db),
     )
     preview = planning_build(request, db=db)
     assert preview["plan_id"] is None
@@ -349,9 +351,10 @@ def test_api_build_requires_preview_before_confirm(tmp_path):
 def test_preview_is_read_only_and_stale_confirmation_is_rejected(tmp_path):
     from models.planning_build_confirmation import PlanningBuildPreviewError
 
-    from api.planning_service import PLANNING_DEMAND_SETTING_KEY, build_plan
+    from api.planning_service import PLANNING_DEMAND_SETTING_KEY
     from api.routers.planning import BuildRequest, planning_build, planning_build_confirm
     from api.planning_build_contract import BuildConfirmRequest
+    from tests.smoke._planning_build_confirmation import cycle_fields
 
     db = _seeded_db(tmp_path)
     request = BuildRequest(
@@ -363,6 +366,7 @@ def test_preview_is_read_only_and_stale_confirmation_is_rejected(tmp_path):
         available_hours=10,
         demand="aggressive",
         persist=False,
+        **cycle_fields(db),
     )
 
     preview = planning_build(request, db=db)
@@ -370,18 +374,11 @@ def test_preview_is_read_only_and_stale_confirmation_is_rejected(tmp_path):
     assert db.get_user_setting(PLANNING_DEMAND_SETTING_KEY, None) is None
     assert db.get_latest_planning_checkpoint() is None
 
-    # Another actor appends a checkpoint after the preview was shown.
-    build_plan(
-        db,
-        goal_type="triathlon",
-        distance="olympic",
-        event_date=None,
-        planning_mode="training_goal",
-        intent="maintain",
-        horizon_weeks=4,
-        available_hours=8,
-        persist=True,
-    )
+    # Another actor confirms a competing cycle; a raw history append no longer
+    # selects/reopens a cycle and is deliberately not a current-state change.
+    competing = planning_build(BuildRequest(**{**request.model_dump(mode="json"),
+        "intent": "maintain", "available_hours": 8, "demand": "moderate"}), db=db)
+    planning_build_confirm(BuildConfirmRequest(preview_id=competing["confirmation"]["preview_id"], confirm=True), db=db)
 
     with pytest.raises(PlanningBuildPreviewError) as exc_info:
         planning_build_confirm(BuildConfirmRequest(

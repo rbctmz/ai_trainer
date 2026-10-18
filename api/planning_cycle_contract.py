@@ -54,6 +54,63 @@ class CycleHistoryResponse(BaseModel):
     cycles: list[CycleContext]
 
 
+class BuildLifecycle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["start_new", "edit_current"]
+    source_cycle_id: UUID | None
+    target_cycle_id: UUID
+    base_cycle_revision: int | None
+    base_selection_revision: int
+    base_checkpoint_id: int
+    start_date: str
+    end_date: str
+    closes_cycle_id: UUID | None
+
+
+class CycleBuildInputs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    start_date: str
+    calendar_week_start: str
+    goal_type: str | None
+    distance: str | None
+    intent: str | None
+    planning_mode: str | None
+    focus: str | None
+    horizon_weeks: int | None
+    event_date: str | None
+    events: list[dict[str, Any]]
+    manual_phases: list[str] | None
+    available_hours: float | None
+    available_days: list[str]
+    demand: str | None
+
+
+class CycleBuildContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["start_new", "edit_current"]
+    inputs: CycleBuildInputs
+    input_sources: dict[str, str]
+    cycle_context: CycleContext
+
+
+class CycleBuildRequest(BaseModel):
+    action: Literal["start_new", "edit_current"] | None = None
+    base_cycle_id: UUID | None = None
+    base_cycle_revision: int | None = Field(default=None, ge=1, strict=True)
+    base_selection_revision: int | None = Field(default=None, ge=0, strict=True)
+    replace_current_cycle: StrictBool | None = None
+    start_date: str | None = None
+
+    @model_validator(mode="after")
+    def explicit_context(self) -> CycleBuildRequest:
+        if self.action is not None and not {
+            "base_cycle_id", "base_cycle_revision", "base_selection_revision",
+            "base_checkpoint_id", "replace_current_cycle", "start_date",
+        }.issubset(self.model_fields_set):
+            raise ValueError("Complete lifecycle context required")
+        return self
+
+
 class CycleCommandRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     command_id: UUID

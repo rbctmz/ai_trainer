@@ -2,6 +2,7 @@
 import { fetcher, postJSON } from "./api";
 import type {
   CloseCycleRequest,
+  CycleBuildContext,
   CycleCommandResponse,
   CycleContext,
   CycleHistoryResponse,
@@ -11,6 +12,10 @@ import type {
 
 export function readCurrentCycle(): Promise<CycleContext> {
   return fetcher<CycleContext>("/api/planning/cycles/current");
+}
+
+export function readCycleBuildContext(action: "start_new" | "edit_current"): Promise<CycleBuildContext> {
+  return fetcher<CycleBuildContext>(`/api/planning/build-context?action=${action}`);
 }
 
 export function readCycleHistory(): Promise<CycleHistoryResponse> {

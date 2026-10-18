@@ -72,6 +72,7 @@
         {
           "state": "empty",
           "expect": 200,
+          "prepare_cycle_build": true,
           "json": {
             "goal_type": "triathlon",
             "distance": "olympic",
@@ -107,6 +108,13 @@
       "scenarios": [
         {"state": "empty", "expect": 200},
         {"state": "cycle", "expect": 200}
+      ]
+    },
+    "/api/planning/build-context": {
+      "interface": "CycleBuildContext",
+      "scenarios": [
+        {"state": "empty", "expect": 200, "query_params": {"action": "start_new"}},
+        {"state": "cycle", "expect": 200, "query_params": {"action": "start_new"}}
       ]
     },
     "/api/planning/cycles": {

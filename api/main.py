@@ -77,6 +77,7 @@ app.include_router(athlete_profile.router)
 app.include_router(onboarding.router)
 app.include_router(planning.router)
 app.include_router(planning_cycles.router)
+app.include_router(planning_cycles.build_context_router)
 # FastAPI 0.138 represents included routers lazily.  Register these two
 # contract-critical read routes directly so route introspection (and tooling)
 # sees their stable paths without forcing app startup.

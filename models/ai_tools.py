@@ -618,6 +618,8 @@ class AITools:
                     "Предложить собрать новый план подготовки. Параметры: goal_type (Триатлон/Бег/Вело/Плавание), "
                     "distance (Sprint/Olympic/Half/Full или 5K/10K/21K/42K), event_date (YYYY-MM-DD), "
                     "available_hours (часов в неделю), available_days (необязательно, через запятую: mon,tue,...)."
+                    " Нужны явное действие action, start_date и актуальные base_* цикла; "
+                    "replace_current_cycle=true разрешено только для явно подтверждённой замены."
                 ),
                 "parameters": _params(
                     {
@@ -641,8 +643,17 @@ class AITools:
                             "type": "string",
                             "description": "Необязательно: дни недели через запятую (mon,tue,...)",
                         },
+                        "action": {"type": "string", "enum": ["start_new", "edit_current"]},
+                        "base_cycle_id": {"type": ["string", "null"]},
+                        "base_cycle_revision": {"type": ["integer", "null"]},
+                        "base_selection_revision": {"type": "integer"},
+                        "base_checkpoint_id": {"type": "integer"},
+                        "replace_current_cycle": {"type": "boolean"},
+                        "start_date": {"type": "string", "description": "Фактическое начало цикла, YYYY-MM-DD"},
                     },
-                    required=["goal_type", "distance", "event_date", "available_hours"],
+                    required=["goal_type", "distance", "event_date", "available_hours", "action", "start_date",
+                              "base_cycle_id", "base_cycle_revision", "base_selection_revision",
+                              "base_checkpoint_id", "replace_current_cycle"],
                 ),
             },
             {
@@ -1575,6 +1586,13 @@ class AITools:
         event_date: str = "",
         available_hours: float = 10.0,
         available_days: str = "",
+        action: str | None = None,
+        base_cycle_id: str | None = None,
+        base_cycle_revision: int | None = None,
+        base_selection_revision: int | None = None,
+        base_checkpoint_id: int | None = None,
+        replace_current_cycle: bool | None = None,
+        start_date: str | None = None,
     ) -> Dict[str, Any]:
         """Построить preview нового плана без сохранения в БД."""
         if not str(event_date or "").strip():
@@ -1592,10 +1610,14 @@ class AITools:
                     "goal_type": goal_type, "distance": distance,
                     "event_date": str(event_date).strip(), "available_hours": float(available_hours),
                     "available_days": days_list,
+                    "action": action, "base_cycle_id": base_cycle_id,
+                    "base_cycle_revision": base_cycle_revision, "base_selection_revision": base_selection_revision,
+                    "base_checkpoint_id": base_checkpoint_id, "replace_current_cycle": replace_current_cycle,
+                    "start_date": start_date,
                 }), origin="coach",
             )
         except Exception as exc:
-            return {"success": False, "error": str(exc)}
+            return {"success": False, "error": str(exc), "code": getattr(exc, "code", None)}
 
         return {
             "is_proposal": True,
@@ -1610,6 +1632,7 @@ class AITools:
                 "base_checkpoint_id": preview["preview"]["base_checkpoint_id"],
             },
             "preview": {
+                "lifecycle": preview["lifecycle"],
                 "confirmation": preview["confirmation"],
                 "goal": preview.get("goal", {}),
                 "total_weeks": len(preview.get("weeks", []) or []),
@@ -1878,7 +1901,7 @@ class AITools:
 - [TOOL: get_upcoming_workouts, days=7] - тренировки на ближайшие 7 дней из плана
 - [TOOL: get_workout_structure, date=2026-09-26] - структура плановой тренировки: шаги, длительность, целевые зоны (date или session_id)
 - [TOOL: get_activity_structure, date=2026-09-24] - структура выполненной активности: отрезки, длительность, дистанция, мощность, ЧСС (date или activity_id; sport — если активностей несколько)
-- [TOOL: propose_plan_build, goal_type=Триатлон, distance=Half, event_date=2026-10-01, available_hours=10] - предложить новый план
+- propose_plan_build требует актуальный контекст цикла: action, start_date, base_cycle_id, base_cycle_revision, base_selection_revision, base_checkpoint_id, replace_current_cycle; неизвестные значения нельзя угадывать.
 - [TOOL: propose_plan_adjustment, weeks=1] - предложить корректировку активного плана
 - [TOOL: create_plan_constraint, date=tomorrow, kind=sick, sport=swim, note=Бассейн закрыт] - убрать только плавание из дня; остальные ноги сохранятся
 - [TOOL: get_coach_constraints] - список активных ограничений с их id

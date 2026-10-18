@@ -19,6 +19,8 @@ import pandas as pd
 
 from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
+from data.planning_cycles import PlanningCycleStore
+from services.planning_cycle_build import capture_lifecycle, scoped_constraints, bound_prescriptions
 from data.planning_build_preview_store import apply_preview, preview_response, store_pending
 from config.settings import Settings
 from models import planning_build_confirmation as build_protocol
@@ -26,6 +28,7 @@ from models.planning_build_confirmation import (
     BuildInputSnapshot, BuildParameters, PreparedPlanBuild, PlanningBuildPreviewError, canonical_json,
     dependency_components,
 )
+from models.planning_cycle import CycleStateCorrupt
 from models.banister import BanisterModel, tsb_zone
 from models.coach_constraints import apply_constraints_to_goal_plan, normalize_constraint_sport, recalc_goal_plan_weekly_totals
 from models.fit_export import build_steps_for_sport, generate_fit_csv
@@ -1242,13 +1245,15 @@ def _build_activities_frame(payload: Mapping[str, Any]) -> pd.DataFrame:
 def _capture_plan_build_inputs(
     db: Database, parameters: BuildParameters, *, conn: sqlite3.Connection | None = None,
     checkpoint_source: str = "initial_plan",
+    lifecycle_context: dict[str, Any] | None = None,
 ) -> BuildInputSnapshot:
     """Capture all calculation dependencies on exactly one explicit read transaction."""
     if conn is None:
         own = db._connect()
         try:
             own.execute("BEGIN")
-            return _capture_plan_build_inputs(db, parameters, conn=own, checkpoint_source=checkpoint_source)
+            return _capture_plan_build_inputs(db, parameters, conn=own, checkpoint_source=checkpoint_source,
+                                              lifecycle_context=lifecycle_context)
         finally:
             own.rollback()
             own.close()
@@ -1256,9 +1261,16 @@ def _capture_plan_build_inputs(
     as_of = athlete_local_date()
     cutoff = db._cutoff_date(90)
     revision_time = datetime.now().isoformat()
-    latest = db._get_latest_planning_checkpoint(conn)
-    latest_id = int((latest or {}).get("id") or 0)
     raw = parameters.as_dict()
+    lifecycle, ownership = None, None
+    if raw.get("action") or lifecycle_context is not None:
+        lifecycle, ownership = capture_lifecycle(PlanningCycleStore(conn), raw, as_of, frozen=lifecycle_context)
+        raw["start_week"] = ownership["calendar_week_start"]
+        latest = db._get_current_planning_checkpoint(conn)
+        latest_id = lifecycle["base_checkpoint_id"]
+    else:
+        latest = db._get_latest_planning_checkpoint(conn)
+        latest_id = int((latest or {}).get("id") or 0)
     expected = raw.get("base_checkpoint_id")
     if expected is not None and int(expected) != latest_id:
         raise StalePlanningCheckpointError("Активный план изменился — пересоберите предпросмотр.")
@@ -1288,6 +1300,22 @@ def _capture_plan_build_inputs(
     values["events"] = events
     start = date.fromisoformat(values["start_week"])
     end = start + timedelta(days=weeks * 7 - 1)
+    if lifecycle is not None:
+        actual_start = date.fromisoformat(lifecycle["start_date"])
+        if lifecycle["action"] == "start_new":
+            if any(date.fromisoformat(event["date"]) < actual_start for event in events):
+                raise PlanningBuildPreviewError("invalid_start_date", "В новом цикле есть старт раньше даты начала.", status=422)
+        else:
+            end = min(end, date.fromisoformat(ownership["cycle"]["end_date"]))
+            if end < max(actual_start, as_of):
+                raise PlanningBuildPreviewError("invalid_start_date", "В изменении не осталось будущего периода.", status=422)
+        lifecycle["end_date"] = end.isoformat()
+        if lifecycle_context is not None and lifecycle != lifecycle_context:
+            raise PlanningBuildPreviewError("cycle_stale", "Контекст цикла изменился.")
+    constraint_start = max(as_of, date.fromisoformat(lifecycle["start_date"])) if lifecycle else start
+    constraint_rows = db._get_coach_constraints(conn, constraint_start.isoformat(), end.isoformat(), True, 500)
+    known_owners = {row["cycle_id"] for row in constraint_rows
+                    if row.get("cycle_id") and PlanningCycleStore(conn).cycle(row["cycle_id"])} if lifecycle else set()
     activities = db._get_activities(conn, cutoff)
     # SQL/pandas missing values are absent evidence. Infinity is not missing
     # and canonical serialization rejects it instead of publishing a bad plan.
@@ -1296,13 +1324,15 @@ def _capture_plan_build_inputs(
         "activities": {"columns": list(frame.columns), "data": frame.values.tolist()},
         "latest_checkpoint": latest,
         "athlete_profile": db._get_athlete_profile(conn) or {},
-        "constraints": db._get_coach_constraints(conn, start.isoformat(), end.isoformat(), True, 500),
+        "constraints": scoped_constraints(constraint_rows, lifecycle["target_cycle_id"], known_owners) if lifecycle else constraint_rows,
         "settings": settings,
     }
+    if lifecycle:
+        sources["constraint_ownership"] = constraint_rows
     sources_json = canonical_json(sources)
     context = {
         "athlete_day": as_of.isoformat(), "athlete_timezone": Settings.ATHLETE_TIMEZONE,
-        "activity_cutoff": cutoff, "constraint_start": start.isoformat(), "constraint_end": end.isoformat(),
+        "activity_cutoff": cutoff, "constraint_start": constraint_start.isoformat(), "constraint_end": end.isoformat(),
         "effective_horizon_weeks": weeks,
         "components": dependency_components(sources_json),
         "versions": {
@@ -1312,6 +1342,10 @@ def _capture_plan_build_inputs(
             "overlay": RACE_OVERLAY_RULE_VERSION, "science": SCIENCE_POLICY_VERSION,
         },
     }
+    if lifecycle:
+        context.update(lifecycle=lifecycle, cycle_ownership=ownership)
+        context["versions"]["protocol"] = 2
+        context["versions"]["cycle_build"] = "cycle-build-v2"
     return BuildInputSnapshot(BuildParameters.from_mapping(values), sources_json,
                               canonical_json(context), revision_time, checkpoint_source)
 
@@ -1322,6 +1356,8 @@ def prepare_plan_build(
     """Retain a complete, current preview without changing the active plan/settings."""
     if origin not in {"planning_ui", "coach"}:
         raise ValueError("unsupported planning preview origin")
+    if parameters.as_dict().get("action") not in {"start_new", "edit_current"}:
+        raise PlanningBuildPreviewError("cycle_context_required", "Выберите новый цикл или изменение текущего.")
     try:
         snapshot = _capture_plan_build_inputs(db, parameters)
         prepared = _calculate_plan_build(snapshot)
@@ -1333,10 +1369,20 @@ def prepare_plan_build(
         if origin == "planning_ui" or parameters.as_dict().get("demand") is not None:
             writes[PLANNING_DEMAND_SETTING_KEY] = values["demand"]
         prepared = replace(prepared, settings_write_json=canonical_json(writes))
+
+        def dependency_recheck(conn):
+            try:
+                return _capture_plan_build_inputs(db, snapshot.parameters, conn=conn,
+                    lifecycle_context=snapshot.context().get("lifecycle")).dependency_digest
+            except (ValueError, TypeError, KeyError):
+                return ""  # changed/unusable dependencies, not a second initial request
+
         row = store_pending(
             db, prepared, origin=origin, now=datetime.now(timezone.utc),
-            recheck=lambda conn: _capture_plan_build_inputs(db, snapshot.parameters, conn=conn).dependency_digest,
+            recheck=dependency_recheck,
         )
+    except CycleStateCorrupt as exc:
+        raise PlanningBuildPreviewError("cycle_corrupt", "Состояние цикла повреждено; требуется проверка.", status=500) from exc
     except StalePlanningCheckpointError as exc:
         raise PlanningBuildPreviewError("preview_stale", "Данные изменились — пересоберите предпросмотр.") from exc
     except sqlite3.Error as exc:
@@ -1354,12 +1400,13 @@ def confirm_plan_build(
     proposal_id: int | None = None,
 ) -> dict[str, Any]:
     """Apply the retained result once; retry returns its durable receipt."""
-    from api.planning_build_contract import BuildConfirmResponse
+    from api.planning_build_contract import BuildConfirmResponse, BuildPreviewResponseV2
     from pydantic import ValidationError
 
     def recheck(conn: sqlite3.Connection, row: dict[str, Any]) -> bool:
         try:
-            captured = _capture_plan_build_inputs(db, BuildParameters(row["parameters_json"]), conn=conn)
+            captured = _capture_plan_build_inputs(db, BuildParameters(row["parameters_json"]), conn=conn,
+                lifecycle_context=json.loads(row["cycle_context_json"]) if row["schema_version"] == 2 else None)
             return captured.dependency_digest == row["dependency_digest"]
         except (ValueError, TypeError, KeyError):
             # Current dependencies may have become unusable since preparation.
@@ -1367,7 +1414,8 @@ def confirm_plan_build(
 
     def validate_response(result: dict[str, Any]) -> None:
         try:
-            BuildConfirmResponse.model_validate(result)
+            model = BuildPreviewResponseV2 if result["confirmation"]["protocol_version"] == 2 else BuildConfirmResponse
+            model.model_validate(result)
             canonical_json(result)
         except (ValidationError, ValueError, TypeError) as exc:
             raise PlanningBuildPreviewError("preview_corrupt", "Предпросмотр повреждён; требуется проверка.", status=500) from exc
@@ -1472,6 +1520,7 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
     params = snapshot.parameters.as_dict()
     inputs = snapshot.sources()
     context = snapshot.context()
+    lifecycle = context.get("lifecycle")
     activities_df = _build_activities_frame(inputs["activities"])
     # The unified assembler also runs readiness, which has its own live-day
     # fallback. This build consumes load only: use its existing canonical
@@ -1504,7 +1553,7 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
         raise ValueError("intent must be maintain or develop")
 
     latest_checkpoint = inputs["latest_checkpoint"]
-    latest_checkpoint_id = (
+    latest_checkpoint_id = lifecycle["base_checkpoint_id"] if lifecycle else (
         int(latest_checkpoint.get("id"))
         if isinstance(latest_checkpoint, dict) and latest_checkpoint.get("id") is not None
         else 0
@@ -1732,30 +1781,51 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
     }
     goal_plan = synchronize_goal_plan_events(goal_plan)
     existing_plan = restore_goal_plan_from_checkpoint(latest_checkpoint)
-    goal_plan = ensure_session_identities(goal_plan, previous_goal_plan=existing_plan)
+    if lifecycle:
+        if lifecycle["action"] == "start_new":
+            goal_plan["identity_namespace"] = lifecycle["target_cycle_id"]
+        elif (existing_plan or {}).get("identity_namespace") is not None:
+            goal_plan["identity_namespace"] = existing_plan["identity_namespace"]
+        goal_plan = bound_prescriptions(goal_plan, lifecycle, existing_plan,
+                                         date.fromisoformat(context["athlete_day"]))
+        event_overlay = {**event_overlay, "microcycle_changes": goal_plan["microcycle_changes"],
+                         "overlays": goal_plan["event_overlays"], "protected_dates": goal_plan["protected_dates"],
+                         "race_forecast_loads": goal_plan["race_forecast_loads"]}
+    donor = existing_plan if not lifecycle or lifecycle["action"] == "edit_current" else None
+    goal_plan = ensure_session_identities(goal_plan, previous_goal_plan=donor)
     # Issue #205: the product weekly table is a projection of the materialized
     # leaf sessions (parts → sessions → weekly), computed after constraints and
     # identity stamping so it reflects the final executable truth.
-    goal_plan["weekly_summary"] = derive_weekly_sport_buckets_from_sessions(
-        list(goal_plan.get("weekly_summary") or []),
-        list(goal_plan.get("session_templates") or []),
-    )
+    if not lifecycle:
+        goal_plan["weekly_summary"] = derive_weekly_sport_buckets_from_sessions(
+            list(goal_plan.get("weekly_summary") or []),
+            list(goal_plan.get("session_templates") or []),
+        )
     goal_plan["science_audit"] = audit_training_plan(goal_plan, source="stored")
     goal_plan = with_checkpoint_provenance(
         goal_plan,
         source=checkpoint_source,
-        parent_checkpoint_id=latest_checkpoint_id or None,
+        parent_checkpoint_id=(latest_checkpoint_id or None) if not lifecycle or lifecycle["action"] == "edit_current" else None,
     )
 
     preview = _build_plan_preview(existing_plan, goal_plan)
     preview["base_checkpoint_id"] = latest_checkpoint_id
 
 
+    forecast_days = goal_plan.get("daily_plan", [])
+    forecast_start = start_week
+    if lifecycle:
+        forecast_start = date.fromisoformat(context["athlete_day"])
+        by_day = {row[0].date(): row for row in forecast_days if row[0].date() >= forecast_start}
+        end = date.fromisoformat(lifecycle["end_date"])
+        forecast_days = [by_day.get(day, (datetime.combine(day, datetime.min.time()), 0.0, {}))
+                         for day in (forecast_start + timedelta(days=i)
+                                     for i in range((end - forecast_start).days + 1))]
     forecast = _forecast(
         banister,
         metrics,
-        goal_plan.get("daily_plan", []),
-        start_week,
+        forecast_days,
+        forecast_start,
         race_forecast_loads=goal_plan.get("race_forecast_loads"),
     )
     weeks = _weeks_payload(
@@ -1790,6 +1860,8 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
         "weeks": weeks,
         "forecast": forecast,
     }
+    if lifecycle:
+        response["lifecycle"] = lifecycle
 
     return PreparedPlanBuild(
         snapshot=snapshot,

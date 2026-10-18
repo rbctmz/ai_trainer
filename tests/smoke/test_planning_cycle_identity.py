@@ -70,6 +70,20 @@ def test_characterization_legacy_identity_and_prescription_roundtrip():
     assert "ats_legacy_frozen_day" in identity_keys(ensure_session_identities(restored))
 
 
+def test_nested_composite_legs_cannot_reuse_other_cycle_ids():
+    candidate = namespaced_plan(CYCLE_A, kind="multisport")
+    for session in candidate["session_templates"][0]["sessions"]:
+        session.update(kind="composite", legs=[{"leg_index": 1, "sport": "bike"}, {"leg_index": 2, "sport": "run"}])
+    a = ensure_session_identities(candidate)
+    stale = deepcopy(a)
+    stale["identity_namespace"] = CYCLE_B
+    b = ensure_session_identities(stale, previous_goal_plan=a)
+    assert identity_keys(a).isdisjoint(identity_keys(b))
+    for session in b["session_templates"][0]["sessions"]:
+        assert all(leg["leg_id"].startswith(session["session_id"] + ":") for leg in session["legs"])
+    assert ensure_session_identities(b, previous_goal_plan=b) == b
+
+
 @pytest.mark.parametrize("ledger", ["match", "feedback"])
 def test_behavior_new_cycle_does_not_resolve_previous_evidence(tmp_path, monkeypatch, ledger):
     db = legacy_db(tmp_path, monkeypatch)

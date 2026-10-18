@@ -13,7 +13,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
-from api.planning_build_contract import BuildConfirmRequest, BuildConfirmResponse, BuildPreviewResponse
+from api.planning_build_contract import BuildConfirmRequest, BuildConfirmResponseVersioned, BuildPreviewResponseV2
+from api.planning_cycle_contract import CycleBuildRequest
 from models.planning_build_confirmation import BuildParameters, PlanningBuildPreviewError
 
 from api import planning_service
@@ -42,6 +43,7 @@ class PlanningRoute(APIRoute):
             except PlanningBuildPreviewError as exc:
                 return JSONResponse(status_code=exc.status, content={
                     "detail": str(exc), "code": exc.code, "retryable": exc.retryable,
+                    **exc.context,
                 })
         return protocol_handler
 
@@ -49,7 +51,7 @@ class PlanningRoute(APIRoute):
 router = APIRouter(prefix="/api/planning", tags=["planning"], route_class=PlanningRoute)
 
 
-class BuildRequest(BaseModel):
+class BuildRequest(CycleBuildRequest):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     goal_type: str
     distance: str
@@ -66,7 +68,7 @@ class BuildRequest(BaseModel):
     demand: Optional[str] = None
     persist: StrictBool = False
     confirm: StrictBool = False
-    base_checkpoint_id: Optional[int] = None
+    base_checkpoint_id: Optional[int] = Field(default=None, ge=0, strict=True)
 
 
 class AdjustRequest(BaseModel):
@@ -360,7 +362,7 @@ def planning_demand_confirm(
         raise HTTPException(status_code=422, detail=str(exc))
 
 
-@router.post("/build", response_model=BuildPreviewResponse)
+@router.post("/build", response_model=BuildPreviewResponseV2)
 def planning_build(req: BuildRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
     if req.persist:
         raise PlanningBuildPreviewError("preview_required", "Сначала создайте предпросмотр, затем подтвердите его.")
@@ -368,7 +370,7 @@ def planning_build(req: BuildRequest, db: Database = Depends(get_database)) -> d
         raise PlanningBuildPreviewError("invalid_confirmation", "Подтвердите сохранённый предпросмотр по его идентификатору.", status=422)
     try:
         return planning_service.prepare_plan_build(
-            db, parameters=BuildParameters.from_mapping(req.model_dump(exclude={"persist", "confirm"})),
+            db, parameters=BuildParameters.from_mapping(req.model_dump(mode="json", exclude={"persist", "confirm"})),
             origin="planning_ui",
         )
     except PlanningBuildPreviewError:
@@ -377,7 +379,7 @@ def planning_build(req: BuildRequest, db: Database = Depends(get_database)) -> d
         raise PlanningBuildPreviewError("invalid_build_request", "Проверьте параметры плана.", status=422) from exc
 
 
-@router.post("/build/confirm", response_model=BuildConfirmResponse)
+@router.post("/build/confirm", response_model=BuildConfirmResponseVersioned)
 def planning_build_confirm(req: BuildConfirmRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
     return planning_service.confirm_plan_build(db, preview_id=str(req.preview_id), origin="planning_ui")
 

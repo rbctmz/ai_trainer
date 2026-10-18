@@ -229,6 +229,16 @@ def test_endpoint_scenario(path: str, interface: str, scenario: dict, network_gu
         url = url.replace(f"{{{name}}}", _resolve_param(db, client, source))
 
     body = scenario.get("json")
+    def cycle_build_body(value):
+        context = client.get("/api/planning/cycles/current").json()
+        return {**value, "action": "start_new", "start_date": context["athlete_day"],
+                "base_cycle_id": context["cycle_id"], "base_cycle_revision": context["cycle_revision"],
+                "base_selection_revision": context["selection_revision"],
+                "base_checkpoint_id": context["checkpoint_id"] or 0,
+                "replace_current_cycle": context["cycle_id"] is not None}
+
+    if scenario.get("prepare_cycle_build"):
+        body = cycle_build_body(body)
     if scenario.get("prepare_cycle_command"):
         context = client.get("/api/planning/cycles/current").json()
         body = {"command_id": str(uuid4()), "confirm": True}
@@ -244,7 +254,7 @@ def test_endpoint_scenario(path: str, interface: str, scenario: dict, network_gu
             body.update(constraint_id=constraint["id"],
                         expected_constraint_fingerprint=constraint["constraint_fingerprint"], scope="athlete")
     if scenario.get("prepare_preview"):
-        prepared = client.post("/api/planning/build", json=scenario["prepare_preview"])
+        prepared = client.post("/api/planning/build", json=cycle_build_body(scenario["prepare_preview"]))
         assert prepared.status_code == 200, prepared.text
         body = {**body, "preview_id": prepared.json()["confirmation"]["preview_id"]}
     response = client.request(method, url,
