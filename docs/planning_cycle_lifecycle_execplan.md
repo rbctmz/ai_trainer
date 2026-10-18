@@ -48,8 +48,8 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-18) M2 RED checkpoint: 29 storage/projection cases failed before implementation (missing interfaces/tables), no collection errors. This preliminary RED is not migration/transaction proof.
 - [x] (2026-10-18) M3a complete: read/command API/TS contracts, retained close/outcome/scope commands, CAS/replay/rollback/retention probes. Independent scoped review READY at `b5807ad`, 222 focused GREEN; contributor contour with explicit M1 RED exclusions: 3502 passed / 14 skipped / 64 deselected. Publication remains intermediate draft only.
 - [x] (2026-10-18) M3b: S1 v2 start_new/edit_current, calendar/identity boundary and atomic replacement; applied-v1 replay retained, pending-v1 rejected. Independent round 1/2 READY at `5f5d2dd`, 473 focused GREEN; contributor-safe 3591 passed / 14 skipped / 68 deselected with only four known M4 assertions excluded beyond standard markers. Intermediate draft only.
-- [ ] M3c: every planning/Coach/legacy writer guards selected cycle/head under the writer lock; explicit restore ownership.
-- [ ] (2026-10-18) M3c implementation started on codex/issue-693-m3c-writer-guards, stacked on M3b #698: shared coherent write context and transactional child commit first, then all mutation families/restore/Coach/legacy adapters, synthetic fixture adaptation, regressions and independent review. Class A; approved scope unchanged.
+- [x] (2026-10-19) M3c: every prescription writer uses selected-cycle/head CAS under the writer lock; explicit restore ownership. Independent round 1/2 READY at `cc8d900`, 642 focused GREEN; pinned contributor-safe 3645 passed / 14 skipped / 68 deselected with the same four M4 reader exclusions. Intermediate draft publication follows.
+- [x] (2026-10-18–19) M3c on codex/issue-693-m3c-writer-guards, stacked on M3b #698: shared write guard, all mutation families/restore/Coach/legacy compatibility, synthetic fixture adaptation, 54 new writer cases and independent review completed. Class A; approved scope unchanged.
 - [ ] M4: explicit current-vs-history reader integration, then Domain→UI handoff for minimal actions/status and isolated web acceptance.
 - [ ] M5: final whole-S2 evidence, current-head CI/native review and explicit human merge decision.
 
@@ -698,6 +698,60 @@ cases passed 3632 / skipped 14 / deselected 68 in 269.75s, with only the four
 known M4 assertions excluded beyond standard markers. Final rerun on the pinned
 review commit and independent review follow;
 no whole-S2, native-review, merge or live-rollout readiness is claimed.
+
+### M3c independent review and handoff (2026-10-19)
+
+OpenCode 1.1.30 plan agent, verified fresh MODEL_OK from
+deepseek/deepseek-flash, session `ses_eaf1dd21bffeQV8AHleQQgq5MJ`, reviewed exact
+`5bd782e28501b023f6fd88d6961c6fb3f5d05ef6..cc8d900236cd1f52a06f6572b7864b04c0402a06`.
+All 74 changed paths were in scope, including runtime/contract changes, private
+synthetic initialization and test adaptations; generated TS artifact inspected
+selectively. Verdict READY for M3c only, no P1/blocking P2. Its approved focused
+command independently returned 642 passed / 7 warnings in 73.79s. Pinned author
+contributor-safe run returned 3645 passed / 14 skipped / 68 deselected in 274.87s;
+Ruff, web lint/build, contract freshness and diff check passed. Author broad/web
+results were not independently repeated. Reviewer checkout clean before/after,
+no repository edits or external publications, no remaining M3c review process.
+One full round of the two-round budget used; no extra full review requested.
+
+Suggestion 1 is `follow-up #693`, Domain/API owner in M4 contract polish:
+Observed by static branch ordering, unknown restore checkpoint currently yields
+409 cycle_not_current before the not-found branch, while the existing docstring
+promises 422. No state change or AC7 violation was reproduced.
+
+Suggestion 2 is `follow-up #693`, Domain/API owner in M4/M5 evidence: the shared
+legacy evidence_bytes helper deliberately covers original checkpoints/facts/
+settings, not lifecycle/constraint rows. Add a writer-specific complete state
+snapshot, captured expected restore context and explicit Coach retract/commit
+coverage. Do not globally change that helper's meaning: M3a uses it to prove
+original history remains unchanged during legitimate lifecycle metadata writes.
+Current tests separately check head/revision and constraints in specific cases;
+the suggestion is a coverage gap, not a reproduced partial mutation.
+
+Suggestion 3 is `follow-up #693`, Domain/API owner: low-level Coach commit can
+accept athlete scope carrying a non-null cycle_id. Public preview normalizes
+athlete scope to cycle_id=None, so no public bypass was found. Add the symmetric
+internal validation as defense in depth.
+
+Suggestion 4 is `fixed-in cb219d9`: removed duplicate pin_day setup from the
+reconciliation identity test. The exact affected test passed (1 in 0.95s),
+Ruff/diff check passed, and runtime remains byte-identical to the reviewed
+cc8d900. This fixture-only correction does not require another full audit.
+
+Reproducible independent focused command:
+
+    ai_trainer_env/bin/python -m pytest -q tests/smoke/test_planning_cycle_writer_guards.py tests/smoke/test_planning_cycle_build_v2.py tests/smoke/test_planning_cycle_commands.py tests/smoke/test_planning_cycle_storage.py tests/smoke/test_planning_cycle_identity.py tests/smoke/test_coach_constraint_mutation_gate.py tests/smoke/test_constraint_retraction.py tests/smoke/test_coach_constraints.py tests/smoke/test_planning_history_restore.py tests/smoke/test_planning_demand_change.py tests/smoke/test_recovery_replan_loop.py tests/smoke/test_recovery_replan_materialization_p1.py tests/smoke/test_planning_build_confirmation.py tests/smoke/test_planning_build_preparation.py tests/smoke/test_planning_build_commit.py tests/smoke/test_planning_build_preview_store.py tests/smoke/test_planning_build_coach_confirmation.py tests/smoke/test_planning_cycle_characterization.py tests/smoke/test_web_contract_drift.py tests/smoke/test_api_call_inventory.py tests/smoke/test_contract_extractor.py --tb=short
+
+The contributor-safe command is the M3b command above, with the same standard
+markers and exactly four M4 assertions deselected. The unchanged M1 boundary
+was independently exercised by the author: 4 failed / 41 passed. Full S2, native
+review and merge remain M5, with no acceptance label/waiver or live rollout.
+
+Handoff to Domain/API for M4: wire shared current/history semantics into status,
+overview, Planning/Today/Coach and historical fact consumers; guard provider
+delivery before provider I/O. Then hand CycleContext, allowed actions and the
+new expected-context mutation DTOs to UI/Design for screen integration and
+isolated browser acceptance. These are not implemented by this intermediate PR.
 
 ## Context and Orientation
 
