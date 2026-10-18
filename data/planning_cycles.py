@@ -8,6 +8,10 @@ from uuid import UUID, uuid4
 
 from models.planning_cycle import CycleStateCorrupt, checkpoint_period
 
+_VERSION_DELETE_GUARD = """CREATE TRIGGER IF NOT EXISTS planning_cycle_versions_no_delete
+    BEFORE DELETE ON planning_cycle_versions
+    BEGIN SELECT RAISE(ABORT, 'Cycle version associations are immutable'); END"""
+
 
 class PlanningCycleStore:
     """Use the caller's transaction; ordinary reads never initialize or commit."""
@@ -94,6 +98,7 @@ def initialize_cycle_store(conn: sqlite3.Connection) -> None:
             BEFORE INSERT ON planning_cycle_versions
             WHEN EXISTS(SELECT 1 FROM planning_cycle_versions WHERE checkpoint_id=NEW.checkpoint_id)
             BEGIN SELECT RAISE(ABORT, 'Cycle version associations are immutable'); END""",
+        _VERSION_DELETE_GUARD,
     ):
         conn.execute(statement)
     columns = {row[1] for row in conn.execute("PRAGMA table_info(coach_constraints)")}
@@ -199,8 +204,12 @@ def reset_cycle_store(conn: sqlite3.Connection) -> None:
     """Remove lifecycle state in the existing full-reset transaction."""
     if not conn.in_transaction:
         raise RuntimeError("Cycle reset requires a writer transaction")
+    # Full reset is the only lifecycle deletion operation. Transactional DDL
+    # restores the guard and old rows together if any later reset step fails.
+    conn.execute("DROP TRIGGER IF EXISTS planning_cycle_versions_no_delete")
     conn.execute("DELETE FROM planning_cycle_commands")
     conn.execute("DELETE FROM planning_cycle_versions")
     conn.execute("DELETE FROM planning_cycle_state")
     conn.execute("DELETE FROM planning_cycles")
     conn.execute("INSERT INTO planning_cycle_state VALUES (1,?,NULL,0,1)", (str(uuid4()),))
+    conn.execute(_VERSION_DELETE_GUARD)

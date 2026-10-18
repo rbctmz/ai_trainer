@@ -215,6 +215,8 @@ def test_corrupt_selected_links_fail_closed(tmp_path, monkeypatch, damage):
             elif damage == "missing-checkpoint":
                 conn.execute("DELETE FROM planning_checkpoints")
             elif damage == "wrong-map":
+                # Deliberately bypass the DDL guard to simulate damaged storage.
+                conn.execute("DROP TRIGGER planning_cycle_versions_no_delete")
                 conn.execute("DELETE FROM planning_cycle_versions")
             elif damage == "closed-selected":
                 conn.execute("UPDATE planning_cycles SET status='closed'")
@@ -295,6 +297,7 @@ def test_failed_migration_rolls_back_and_can_retry(tmp_path, monkeypatch, fault_
     conn = db._connect()
     try:
         with conn:
+            conn.execute("DROP TRIGGER planning_cycle_versions_no_delete")
             for table in ("planning_cycle_commands", "planning_cycle_versions", "planning_cycles", "planning_cycle_state"):
                 conn.execute(f"DELETE FROM {table}")
             conn.execute(f"CREATE TRIGGER m2_abort BEFORE INSERT ON {fault_table} "
@@ -353,6 +356,7 @@ def test_migration_keeps_all_old_history_and_fact_bytes(tmp_path, monkeypatch):
     conn = db._connect()
     try:
         with conn:
+            conn.execute("DROP TRIGGER planning_cycle_versions_no_delete")
             for table in ("planning_cycle_commands", "planning_cycle_versions", "planning_cycles", "planning_cycle_state"):
                 conn.execute(f"DELETE FROM {table}")
     finally:
@@ -401,6 +405,13 @@ def test_full_reset_rolls_back_cycle_state_when_other_delete_fails(tmp_path, mon
     with pytest.raises(sqlite3.IntegrityError, match="synthetic reset fault"):
         db.clear_all_data()
     assert {**evidence_bytes(db), **cycle_rows(db)} == before
+    conn = db._connect()
+    try:
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            with conn:
+                conn.execute("DELETE FROM planning_cycle_versions")
+    finally:
+        conn.close()
     assert current(Database(db.db_path))["checkpoint_id"] == 1
 
 
@@ -450,6 +461,8 @@ def test_connection_bound_selector_requires_a_transaction(tmp_path, monkeypatch)
 @pytest.mark.parametrize("statement", [
     "UPDATE planning_cycle_versions SET cycle_id=? WHERE checkpoint_id=1",
     "INSERT OR REPLACE INTO planning_cycle_versions VALUES (1,?,'restore')",
+    "DELETE FROM planning_cycle_versions WHERE checkpoint_id=1 AND ? IS NOT NULL",
+    "DELETE FROM planning_cycle_versions WHERE ? IS NOT NULL",
 ])
 def test_checkpoint_cycle_association_is_immutable(tmp_path, monkeypatch, statement):
     db = legacy_db(tmp_path, monkeypatch)
@@ -472,6 +485,7 @@ def test_concurrent_initialization_imports_exactly_once(tmp_path, monkeypatch):
     conn = db._connect()
     try:
         with conn:
+            conn.execute("DROP TRIGGER planning_cycle_versions_no_delete")
             for table in ("planning_cycle_commands", "planning_cycle_versions", "planning_cycles", "planning_cycle_state"):
                 conn.execute(f"DELETE FROM {table}")
     finally:
