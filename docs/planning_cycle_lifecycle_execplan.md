@@ -390,7 +390,8 @@ on [#695](https://github.com/rbctmz/ai_trainer/pull/695). Code checkpoint
 without changing reviewed runtime. Handoff to Domain / API Implementer for M3:
 freeze `api/planning_cycle_contract.py`, router/API/TS fixtures first, then
 strict close/outcome/scope receipts and S1 v2 exact publication/writer guards.
-Existing M1 build/identity/HTTP RED must become GREEN in that milestone. No UI
+M1 build/identity and new-command HTTP RED must become GREEN in M3;
+cross-surface overview/status RED remains M4 reader integration. No UI
 composition/styling decision is part of this Domain/API handoff.
 
 ## Context and Orientation
