@@ -66,10 +66,13 @@ migration/reset/Backup API restore. S1 receipt/replay переиспользуе
 selection revision защищает close/switch при том же raw checkpoint.
 
 M1 фиксирует 14 behavioral и 26 preliminary protocol RED. M2 подтверждён
-56 новыми storage/projection проверками: atomic migration/rollback, неизменные
+58 новыми storage/projection проверками: atomic migration/rollback, неизменные
 legacy JSON/ledger rows, явный selector, boundaries/timezone, unknown scope,
 reset/restart/Backup API. HTTP commands/build/writer guards и isolated browser
-tests остаются M3/M4; это не GREEN всей S2. Независимый M2 review ожидается.
+tests остаются M3/M4; это не GREEN всей S2. Независимый M2 review: READY после
+scoped correction `69a2623` (DELETE guard immutable associations + atomic reset),
+77 focused GREEN. Contributor-safe contour с явным исключением M1 RED-модулей:
+3427 passed / 14 skipped / 64 deselected; отдельный merge не разрешён.
 ADR-0001 переиспользуется, provider writes/live DB/общий UI redesign исключены.
 
 ## Comparable-session engine (ASR-REL-1/2, ASR-PERF-2, ASR-MOD-2/3; #500)

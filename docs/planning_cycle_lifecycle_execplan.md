@@ -43,8 +43,8 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-17) M1 author checkpoint: 14 behavioral RED, 26 preliminary protocol RED, 7 new GREEN characterization; 256 existing S1/planning/history regressions passed. Initial inventory: 87 calls and 19 SQL sites. No product/schema/UI changes.
 - [x] (2026-10-18) Partial independent M1 check reproduced 40 failed/7 passed, 7 GREEN characterization and Ruff. Found omitted historical accessor/callback references; author fixed inventory to 91 references / 19 SQL sites. Checker stopped on account usage limit before final verdict; no READY inferred.
 - [x] (2026-10-18) M1 complete: independent round 2/2 reviewed `f857f58..82a430f`, reproduced 40 RED/7 GREEN and verified 91 references/19 SQL sites; READY for intermediate checkpoint, zero P1/P2. Draft #695 published/attached, stacked on #694; not a merge candidate.
-- [x] (2026-10-18) M2 author implementation: additive store/migration, selected read and pure projection; 56 new storage cases GREEN, 75 with existing characterization/backup tests. Raw history/S1 oracles unchanged.
-- [ ] M2 independent review, final broad evidence and intermediate draft publication; no standalone merge/live migration.
+- [x] (2026-10-18) M2 author implementation: additive store/migration, selected read and pure projection; initial 56 new storage cases GREEN, 75 with existing characterization/backup tests. Raw history/S1 oracles unchanged.
+- [x] (2026-10-18) M2 complete: independent round 1 found one P2 (association DELETE); reproduced and fixed-in `69a2623`, scoped round 2/2 CLOSED/READY. Final 58 storage / 77 focused GREEN; contributor-safe contour excluding intentional M1 RED: 3427 passed, 14 skipped, 64 deselected. Draft #696 stacked on #695; no standalone merge/live migration.
 - [x] (2026-10-18) M2 RED checkpoint: 29 storage/projection cases failed before implementation (missing interfaces/tables), no collection errors. This preliminary RED is not migration/transaction proof.
 - [ ] M3: close/outcome/scope commands, S1 v2 start_new/edit_current and atomic replacement; every writer guards current cycle.
 - [ ] M4: explicit current-vs-history reader integration, then Domain→UI handoff for minimal actions/status and isolated web acceptance.
@@ -299,7 +299,8 @@ failed cases in 1.37s on M1, missing new interfaces/tables rather than proving
 transaction failures. Implementation now lives in `data/planning_cycles.py`,
 `models/planning_cycle.py`, `services/planning_cycles.py` and narrow Database
 initialization/selector/reset/constraint-metadata adapters. Additional tests
-expanded coverage to 56 cases. Fault injection includes after initial cycle,
+expanded initial coverage to 56 cases, then 58 after the review correction.
+Fault injection includes after initial cycle,
 association, singleton and after the final migration flag; a forced later reset
 delete failure preserves all cycle/old state and releases the connection.
 
@@ -324,12 +325,13 @@ receipt test storage/projection only, NOT command/CAS/idempotency semantics.
 Author commands from the repository root:
 
     ai_trainer_env/bin/python -m pytest -q tests/smoke/test_planning_cycle_storage.py tests/smoke/test_planning_cycle_characterization.py tests/smoke/test_sqlite_backup_restore.py --tb=short
-    # Final author focused run: 75 passed; storage alone contributes 56.
+    # Final author focused run: 77 passed in 3.03s; storage alone contributes 58.
     ai_trainer_env/bin/python -m pytest -q -m "not live and not debug and not e2e" tests/smoke/test_api_planning.py tests/smoke/test_planning_active_plan_overview.py tests/smoke/test_planning_build_confirmation.py tests/smoke/test_planning_build_confirmation_storage.py tests/smoke/test_planning_build_coach_confirmation.py tests/smoke/test_planning_checkpoint_history.py tests/smoke/test_planning_build_commit.py tests/smoke/test_planning_build_preparation.py tests/smoke/test_planning_build_preview_store.py --tb=short
     # 256 passed, 7 warnings in 33.81s; existing S1 oracle unchanged.
     ai_trainer_env/bin/python -m pytest -q -m "not live and not debug and not e2e" tests/ --ignore=tests/smoke/test_planning_cycle_projection.py --ignore=tests/smoke/test_planning_cycle_build.py --ignore=tests/smoke/test_planning_cycle_identity.py --tb=short
     # First broad run: 3422 passed, 14 skipped, 64 deselected, 7 warnings in 183.40s.
-    # Final candidate rerun follows; later narrow hardening added three storage cases.
+    # Final post-P2 run on 69a2623: 3427 passed, 14 skipped, 64 deselected,
+    # 7 warnings in 254.92s. No S2 case skipped or xfailed.
     ai_trainer_env/bin/python -m pytest -q tests/smoke/test_planning_cycle_projection.py tests/smoke/test_planning_cycle_build.py tests/smoke/test_planning_cycle_identity.py tests/smoke/test_planning_cycle_characterization.py --tb=short
     # Expected remaining M1 contour: 35 failed / 12 passed. Five migrated scope
     # projections became GREEN; public commands/build/UI and v2 IDs remain future.
@@ -345,11 +347,51 @@ to run migration. New constraint metadata is nullable/additive; old field values
 are retained. Legacy activity normalization still runs as before; preservation
 fixtures seed already-resolved synthetic TSS, without changing its math.
 
-Independent M2 review is pending. Next boundary remains M3 contracts/commands and
+Independent M2 review completed after the scoped correction below. Next boundary remains M3 contracts/commands and
 guarded exact publication. M4 will route Planning/Today/Coach and legacy cached
 consumers through this selector. Until those slices, existing HTTP/UI readers
 still use the old raw history behavior. This intermediate branch is neither a
 standalone merge candidate nor authorization to migrate a live cache.
+
+### M2 independent review and correction (2026-10-18)
+
+OpenCode 1.1.30 plan agent (edit denied), verified MODEL_OK
+`deepseek/deepseek-flash`, reviewed exact `39e8f39..873d701` in session
+`ses_eb1427a4fffeL4Z5dU72LfUQxe`. Its only test command was the focused three-file
+command above: 75 passed in 2.02s. One consolidated round-1 P2, no P1: UPDATE and
+replacement were guarded, but association DELETE was not, contrary to retained
+immutable version ownership. The reviewer returned NOT READY for M2, while
+confirming the other migration/selection/scope/preservation checks.
+
+Observed: supervisor added exact direct/bulk DELETE cases; both failed to raise
+on `873d701` (2 RED, 2 GREEN existing update/replace controls). Inferred: an
+accidental deletion could destroy retained ownership and turn the selected cycle
+into an indeterminate gap. Verified by: those executable temp-DB failures, then
+`69a2623` adds a BEFORE DELETE guard and makes full reset the sole production
+deletion path. Reset drops/recreates the guard inside its existing writer
+transaction. Its fault test checks guard restoration BEFORE any Database
+reinitialization, so startup repair cannot mask a partial reset. Deliberate
+corruption/pre-migration fixtures explicitly bypass the guard, not public code.
+
+Scoped round 2/2 reviewed ONLY `873d701..69a2623`, two files / 23 added lines, in
+session `ses_eb039426affeaX9frd788uOXZ0`. Same verified model/plan agent; 77 focused
+tests passed in 3.51s. It returned P2 CLOSED — fixed-in `69a2623`, READY for the M2
+checkpoint, no delta defect in initialization/reset/transactional DDL. Supervisor
+accepted that evidence after the regression/final broad run. Both reviews were
+read-only: clean tracked/untracked state before/after, no remaining audit
+processes. Remote-tracking status changed only because the author pushed the
+pinned commits. Native review/whole-S2 acceptance is still M5; no additional full
+review is requested. Append-only command-receipt write guards remain explicitly
+M3 scope, as triaged in the first review.
+
+Publication: draft [#696](https://github.com/rbctmz/ai_trainer/pull/696), stacked
+on [#695](https://github.com/rbctmz/ai_trainer/pull/695). Code checkpoint
+`873d701`, correction `69a2623`; this final docs-only revision records the results
+without changing reviewed runtime. Handoff to Domain / API Implementer for M3:
+freeze `api/planning_cycle_contract.py`, router/API/TS fixtures first, then
+strict close/outcome/scope receipts and S1 v2 exact publication/writer guards.
+Existing M1 build/identity/HTTP RED must become GREEN in that milestone. No UI
+composition/styling decision is part of this Domain/API handoff.
 
 ## Context and Orientation
 
