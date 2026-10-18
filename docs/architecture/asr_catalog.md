@@ -50,7 +50,7 @@ reset/retention и API↔TS. Сейчас проверены только исх
 
 ## Planning cycle lifecycle (planned S2; #693, parent #677)
 
-Статус на 2026-10-18: **Class A, M2 storage/projection реализован;
+Статус на 2026-10-18: **Class A, M2 storage/projection и M3a cycle commands реализованы;
 полный lifecycle/API/UI GREEN — NOT YET**.
 S1 #685/#691 уже слит как `93fa4f4`; S2 отдельно задаёт выбор/закрытие цикла,
 явный исход события и новый календарь. Контракт:
@@ -68,8 +68,12 @@ selection revision защищает close/switch при том же raw checkpoi
 M1 фиксирует 14 behavioral и 26 preliminary protocol RED. M2 подтверждён
 58 новыми storage/projection проверками: atomic migration/rollback, неизменные
 legacy JSON/ledger rows, явный selector, boundaries/timezone, unknown scope,
-reset/restart/Backup API. HTTP commands/build/writer guards и isolated browser
-tests остаются M3/M4; это не GREEN всей S2. Независимый M2 review: READY после
+reset/restart/Backup API. M3a добавляет API/TS contracts и явные close/outcome/scope
+commands: retained identity, CAS/replay, rollback, append-only receipts, scoped
+historical declarations. Независимый M3a review READY после correction
+`b5807ad` (закрытие indeterminate с nullable checkpoint CAS); 222 focused GREEN.
+Build v2/identity/writer guards и isolated browser tests остаются M3b/M3c/M4;
+это не GREEN всей S2. Независимый M2 review: READY после
 scoped correction `69a2623` (DELETE guard immutable associations + atomic reset),
 77 focused GREEN. Contributor-safe contour с явным исключением M1 RED-модулей:
 3427 passed / 14 skipped / 64 deselected; отдельный merge не разрешён.

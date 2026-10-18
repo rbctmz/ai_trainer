@@ -46,7 +46,7 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-18) M2 author implementation: additive store/migration, selected read and pure projection; initial 56 new storage cases GREEN, 75 with existing characterization/backup tests. Raw history/S1 oracles unchanged.
 - [x] (2026-10-18) M2 complete: independent round 1 found one P2 (association DELETE); reproduced and fixed-in `69a2623`, scoped round 2/2 CLOSED/READY. Final 58 storage / 77 focused GREEN; contributor-safe contour excluding intentional M1 RED: 3427 passed, 14 skipped, 64 deselected. Draft #696 stacked on #695; no standalone merge/live migration.
 - [x] (2026-10-18) M2 RED checkpoint: 29 storage/projection cases failed before implementation (missing interfaces/tables), no collection errors. This preliminary RED is not migration/transaction proof.
-- [ ] M3a: cycle read/command contracts, retained close/outcome/scope commands and transaction/retry proofs (author implementation complete; independent review and final checks pending).
+- [x] (2026-10-18) M3a complete: read/command API/TS contracts, retained close/outcome/scope commands, CAS/replay/rollback/retention probes. Independent scoped review READY at `b5807ad`, 222 focused GREEN; contributor contour with explicit M1 RED exclusions: 3502 passed / 14 skipped / 64 deselected. Publication remains intermediate draft only.
 - [ ] M3b: S1 v2 start_new/edit_current, calendar/identity boundary and atomic replacement; preserve applied-v1 replay and reject pending-v1.
 - [ ] M3c: every planning/Coach/legacy writer guards selected cycle/head under the writer lock; explicit restore ownership.
 - [ ] M4: explicit current-vs-history reader integration, then Domain→UI handoff for minimal actions/status and isolated web acceptance.
@@ -449,6 +449,64 @@ reader. No M1 assertion was removed, skipped or weakened. Build context/calendar
 v2 namespace/donor boundary and new-cycle publication are M3b, writer guards M3c;
 overview/status and other current-reader integration are M4. Intermediate S2
 drafts are not merge candidates and this branch is not a live rollout.
+
+M3a independent review round 1/2, OpenCode 1.1.30 plan agent,
+deepseek/deepseek-flash session `ses_eb01ec771ffeCiwt9rUK16yRCW`, examined
+`d09c7ed..b350bee` (16 paths; generated contract checked for relevant new
+schemas). Fresh MODEL_OK verified availability before assignment. The only
+allowed test command was the focused contour above: independent 217 passed /
+1 warning in 12.00s. One P2: the reader advertised close on indeterminate
+cycles but a null head failed request validation and corrupt ownership failed
+the command. Initial reviewer evidence was static; author independently
+reproduced three failing close cases and one refusal-code mismatch, with one
+already-green missing-checkpoint control (4 failed / 1 passed). Correction
+**fixed-in `b5807ad`**: required nullable checkpoint CAS, lifecycle-only close,
+and cycle-owned event lookup retained for optional declarations. No checkpoint
+or version association is repaired. Exact five probes then passed.
+
+Scoped review round 2/2 inspected **only `b350bee..b5807ad`**, five paths,
+55 additions / 5 deletions; fresh model smoke again MODEL_OK. Session
+`ses_eb0176968ffeeC4zVBHkZRqrVq`: P2-1 CLOSED, READY for M3a only, zero open
+P1/P2. Independent focused contour: **222 passed, 1 warning in 13.70s**;
+author same contour: **222 passed, 1 warning in 14.21s**. Reviewer limitations:
+no web build/Ruff/native review/M1 rerun, only the named synthetic test command.
+Both reviews were read-only with clean git status before/after; postflight ps
+matched no remaining M3a review process. No further full-diff review is needed.
+
+Non-blocking dispositions from consolidated round 1, in writing:
+suggestion 1 **disputed**: unknown save completion remains retryable with the
+same ID under the approved safe-error contract; only proven corrupt data is
+non-retryable. Suggestion 2 **disputed**: ASR-MOD-3 and TypeScript structural
+typing permit extra stored-event fields; declared date/label/priority and core
+keys are covered by conformance, future fields can be typed at M4 consumption.
+Suggestion 3 **follow-up #693** for later metadata hardening, not a new blocker:
+NaN constraint metadata already failed the old JSON response without any
+fingerprint. Cheap author falsifying check constructing JSONResponse with the
+old metadata-shaped payload raises the same ValueError. No corrupt metadata is
+silently repaired/dropped in this slice. Round 2 accepted these as triaged.
+
+Final M3a checks on `b5807ad`: Ruff, git diff --check, web lint/build and
+contract:extract --check GREEN. Final contributor-safe contour:
+
+    ai_trainer_env/bin/python -m pytest -q -m 'not live and not debug and not e2e' tests/ --ignore=tests/smoke/test_planning_cycle_projection.py --ignore=tests/smoke/test_planning_cycle_build.py --ignore=tests/smoke/test_planning_cycle_identity.py --tb=short
+    # 3502 passed, 14 skipped, 64 deselected, 7 warnings in 294.97s.
+
+The 14 skips are the same pre-existing fixture regeneration, optional garth and
+restricted socket/process cases as M2. No S2 assertion was skipped/xfail. The
+three incomplete M1 RED modules remain
+explicitly excluded from that contributor contour and independently measured
+as 19 failed / 25 passed; no whole-S2/CI/merge readiness is claimed.
+
+Publication: draft [#697](https://github.com/rbctmz/ai_trainer/pull/697), stacked
+on [#696](https://github.com/rbctmz/ai_trainer/pull/696), attached to this task.
+Reviewed runtime commits: `b350bee`, P2 correction `b5807ad`; the final docs-only
+commit records evidence without changing that reviewed runtime. Handoff remains
+Domain / API Implementer for M3b: freeze lifecycle build fields/API↔TS fixtures,
+retain v2 cycle_context_json in the S1 artifact, reject pending v1 but replay
+applied v1 unchanged, reserve target UUID/namespace once, clip new prescriptions
+at actual start, and atomically publish checkpoint/map/cycles/selection/settings/
+receipt/Coach approval. Then M3c must cover every writer family before M4 UI
+acceptance. No new full-diff review of M3a and no standalone merge are needed.
 
 ## Context and Orientation
 
