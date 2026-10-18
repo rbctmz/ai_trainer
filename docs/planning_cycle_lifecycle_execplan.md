@@ -48,7 +48,7 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-18) M2 RED checkpoint: 29 storage/projection cases failed before implementation (missing interfaces/tables), no collection errors. This preliminary RED is not migration/transaction proof.
 - [x] (2026-10-18) M3a complete: read/command API/TS contracts, retained close/outcome/scope commands, CAS/replay/rollback/retention probes. Independent scoped review READY at `b5807ad`, 222 focused GREEN; contributor contour with explicit M1 RED exclusions: 3502 passed / 14 skipped / 64 deselected. Publication remains intermediate draft only.
 - [x] (2026-10-18) M3b: S1 v2 start_new/edit_current, calendar/identity boundary and atomic replacement; applied-v1 replay retained, pending-v1 rejected. Independent round 1/2 READY at `5f5d2dd`, 473 focused GREEN; contributor-safe 3591 passed / 14 skipped / 68 deselected with only four known M4 assertions excluded beyond standard markers. Intermediate draft only.
-- [x] (2026-10-19) M3c: every prescription writer uses selected-cycle/head CAS under the writer lock; explicit restore ownership. Independent round 1/2 READY at `cc8d900`, 642 focused GREEN; pinned contributor-safe 3645 passed / 14 skipped / 68 deselected with the same four M4 reader exclusions. Intermediate draft publication follows.
+- [x] (2026-10-19) M3c: every prescription writer uses selected-cycle/head CAS under the writer lock; explicit restore ownership. Independent round 1/2 READY at `cc8d900`, 642 focused GREEN; pinned contributor-safe 3645 passed / 14 skipped / 68 deselected with the same four M4 reader exclusions. Published/attached as intermediate draft #699, stacked on #698.
 - [x] (2026-10-18–19) M3c on codex/issue-693-m3c-writer-guards, stacked on M3b #698: shared write guard, all mutation families/restore/Coach/legacy compatibility, synthetic fixture adaptation, 54 new writer cases and independent review completed. Class A; approved scope unchanged.
 - [ ] M4: explicit current-vs-history reader integration, then Domain→UI handoff for minimal actions/status and isolated web acceptance.
 - [ ] M5: final whole-S2 evidence, current-head CI/native review and explicit human merge decision.
@@ -752,6 +752,14 @@ overview, Planning/Today/Coach and historical fact consumers; guard provider
 delivery before provider I/O. Then hand CycleContext, allowed actions and the
 new expected-context mutation DTOs to UI/Design for screen integration and
 isolated browser acceptance. These are not implemented by this intermediate PR.
+
+Publication: [draft #699](https://github.com/rbctmz/ai_trainer/pull/699), stacked
+on #698 and attached to the task. Results and every review disposition are in
+[issue #693](https://github.com/rbctmz/ai_trainer/issues/693#issuecomment-6255425137).
+GitHub contributor-safe/E2E CI was still running at publication; contract and
+secret checks passed. Review gate has no submitted native review for the
+published head (run 39168408933); no acceptance label/waiver is added. Native
+review, complete M4 acceptance and human merge remain M5. No merge performed.
 
 ## Context and Orientation
 
