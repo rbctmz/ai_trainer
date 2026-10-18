@@ -67,7 +67,7 @@ def plan(start=date(2026, 9, 28), days=7):
 
 
 def legacy_db(tmp_path, monkeypatch, *, payloads=None, start=date(2026, 9, 28), days=7,
-              constraint_kind=None):
+              constraint_kind=None, before_init=None):
     """Create legacy rows BEFORE Database initialization/migration, not after it.
 
     Only the old table is declared here. Future cycle tables/selection must be
@@ -96,6 +96,8 @@ def legacy_db(tmp_path, monkeypatch, *, payloads=None, start=date(2026, 9, 28), 
             conn.execute("""INSERT INTO coach_constraints
                 (date, kind, status, source, metadata_json) VALUES (?, ?, 'active', 'test', '{}')""",
                          (TODAY.isoformat(), constraint_kind))
+        if before_init:
+            before_init(conn)
     db = Database(str(tmp_path / "plan.db"))
     rows = []
     for offset in range(28):

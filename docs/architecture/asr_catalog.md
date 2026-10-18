@@ -50,7 +50,8 @@ reset/retention и API↔TS. Сейчас проверены только исх
 
 ## Planning cycle lifecycle (planned S2; #693, parent #677)
 
-Статус на 2026-10-17: **Class A спецификация, runtime GREEN — NOT YET**.
+Статус на 2026-10-18: **Class A, M2 storage/projection реализован;
+полный lifecycle/API/UI GREEN — NOT YET**.
 S1 #685/#691 уже слит как `93fa4f4`; S2 отдельно задаёт выбор/закрытие цикла,
 явный исход события и новый календарь. Контракт:
 [`planning_cycle_lifecycle_slice_spec.md`](../planning_cycle_lifecycle_slice_spec.md),
@@ -64,9 +65,11 @@ current writers без потери historical reads. ASR-DEP-2: аддитив�
 migration/reset/Backup API restore. S1 receipt/replay переиспользуется; новый
 selection revision защищает close/switch при том же raw checkpoint.
 
-Проверки запланированы в cycle projection/storage/commands/build/writer/scope
-smoke и isolated browser tests. Сейчас подтверждены только synthetic baseline
-89 passed и истёкший/inherited/mid-week-start probes; это не GREEN S2.
+M1 фиксирует 14 behavioral и 26 preliminary protocol RED. M2 подтверждён
+56 новыми storage/projection проверками: atomic migration/rollback, неизменные
+legacy JSON/ledger rows, явный selector, boundaries/timezone, unknown scope,
+reset/restart/Backup API. HTTP commands/build/writer guards и isolated browser
+tests остаются M3/M4; это не GREEN всей S2. Независимый M2 review ожидается.
 ADR-0001 переиспользуется, provider writes/live DB/общий UI redesign исключены.
 
 ## Comparable-session engine (ASR-REL-1/2, ASR-PERF-2, ASR-MOD-2/3; #500)

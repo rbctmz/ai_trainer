@@ -43,7 +43,8 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-17) M1 author checkpoint: 14 behavioral RED, 26 preliminary protocol RED, 7 new GREEN characterization; 256 existing S1/planning/history regressions passed. Initial inventory: 87 calls and 19 SQL sites. No product/schema/UI changes.
 - [x] (2026-10-18) Partial independent M1 check reproduced 40 failed/7 passed, 7 GREEN characterization and Ruff. Found omitted historical accessor/callback references; author fixed inventory to 91 references / 19 SQL sites. Checker stopped on account usage limit before final verdict; no READY inferred.
 - [x] (2026-10-18) M1 complete: independent round 2/2 reviewed `f857f58..82a430f`, reproduced 40 RED/7 GREEN and verified 91 references/19 SQL sites; READY for intermediate checkpoint, zero P1/P2. Draft #695 published/attached, stacked on #694; not a merge candidate.
-- [ ] M2: additive cycle migration/store, explicit selection and pure state projection; reset/restart/restore probes.
+- [x] (2026-10-18) M2 author implementation: additive store/migration, selected read and pure projection; 56 new storage cases GREEN, 75 with existing characterization/backup tests. Raw history/S1 oracles unchanged.
+- [ ] M2 independent review, final broad evidence and intermediate draft publication; no standalone merge/live migration.
 - [x] (2026-10-18) M2 RED checkpoint: 29 storage/projection cases failed before implementation (missing interfaces/tables), no collection errors. This preliminary RED is not migration/transaction proof.
 - [ ] M3: close/outcome/scope commands, S1 v2 start_new/edit_current and atomic replacement; every writer guards current cycle.
 - [ ] M4: explicit current-vs-history reader integration, then Domain→UI handoff for minimal actions/status and isolated web acceptance.
@@ -100,6 +101,21 @@ IDs, untouched legacy IDs and an overlapping-cycle test matrix. Runtime GREEN
 is NOT YET; scoped spec verification follows.
 
 ## Decision Log
+
+Decision (2026-10-18, M2 Domain/API): initialize all cycle DDL, constraint scope
+columns, conservative import and migration flag in one BEGIN IMMEDIATE after
+existing Database column migrations finish. Existing initialization helpers
+commit internally, so they must not split the cycle transaction. Pure reads
+require initialized state; missing/corrupt selection is never repaired in a GET.
+No HTTP lifecycle route, command, writer migration or UI integration is added in
+M2. Existing raw writers remain temporary compatibility paths until M3 guards;
+their later history rows cannot alter the new explicit selector.
+
+Decision (2026-10-18, M2 Domain/API): ambiguous session-only constraint bindings
+include unassigned legacy history as an unknown owner. A verified explicit
+checkpoint disambiguates its own stored session; an unresolved/conflicting
+checkpoint cannot be overridden by a coinciding current session ID. Session
+scanning is skipped when no migrated constraint needs session ownership.
 
 Decision (2026-10-17, M1 Domain/API): keep runtime unchanged and separate tests
 by `test_behavior_`, `test_protocol_`, and `test_characterization_`. Missing
@@ -275,6 +291,65 @@ and reset, malformed data handling, real-command failure/race injection,
 unknown-scope prepare refusal, atomic replacement, old successful receipt replay
 after another selection, reserved namespace stability through preview/confirm,
 and every writer family after close/switch. M4 owns cross-surface/UI acceptance.
+
+### M2 author evidence (2026-10-18)
+
+Observed: `tests/smoke/test_planning_cycle_storage.py` initially produced 29
+failed cases in 1.37s on M1, missing new interfaces/tables rather than proving
+transaction failures. Implementation now lives in `data/planning_cycles.py`,
+`models/planning_cycle.py`, `services/planning_cycles.py` and narrow Database
+initialization/selector/reset/constraint-metadata adapters. Additional tests
+expanded coverage to 56 cases. Fault injection includes after initial cycle,
+association, singleton and after the final migration flag; a forced later reset
+delete failure preserves all cycle/old state and releases the connection.
+
+Inferred: the persisted selected pointer, immutable version associations and
+coherent read transaction prevent higher-ID history from becoming current and
+prevent closed/null selection from being reimported at restart. Conservative
+scope classification prevents a coinciding legacy session from donating
+ownership. Cheapest falsifiers are a larger raw checkpoint insertion, real
+two-connection read/write interleave, concurrent initialization, and a duplicated
+legacy session ID without an explicit checkpoint.
+
+Verified by: targeted suite includes all those falsifiers, inclusive start/end
+and athlete timezone boundary, missing/corrupt content, no writes under a SQLite
+authorizer, unselected-open corruption, historical selection identity, default
+unknown participation, provider source IDs in event keys, exact old JSON/ledger
+bytes, full reset/restart and Backup API retention of namespace/receipts.
+The duplicate legacy-ID constraint initially misclassified as cycle, and
+distinct source_id events initially collided: both were reproduced as 2 RED / 7
+GREEN targeted probes, then fixed. A simulated closed/selected state and seeded
+receipt test storage/projection only, NOT command/CAS/idempotency semantics.
+
+Author commands from the repository root:
+
+    ai_trainer_env/bin/python -m pytest -q tests/smoke/test_planning_cycle_storage.py tests/smoke/test_planning_cycle_characterization.py tests/smoke/test_sqlite_backup_restore.py --tb=short
+    # Final author focused run: 75 passed; storage alone contributes 56.
+    ai_trainer_env/bin/python -m pytest -q -m "not live and not debug and not e2e" tests/smoke/test_api_planning.py tests/smoke/test_planning_active_plan_overview.py tests/smoke/test_planning_build_confirmation.py tests/smoke/test_planning_build_confirmation_storage.py tests/smoke/test_planning_build_coach_confirmation.py tests/smoke/test_planning_checkpoint_history.py tests/smoke/test_planning_build_commit.py tests/smoke/test_planning_build_preparation.py tests/smoke/test_planning_build_preview_store.py --tb=short
+    # 256 passed, 7 warnings in 33.81s; existing S1 oracle unchanged.
+    ai_trainer_env/bin/python -m pytest -q -m "not live and not debug and not e2e" tests/ --ignore=tests/smoke/test_planning_cycle_projection.py --ignore=tests/smoke/test_planning_cycle_build.py --ignore=tests/smoke/test_planning_cycle_identity.py --tb=short
+    # First broad run: 3422 passed, 14 skipped, 64 deselected, 7 warnings in 183.40s.
+    # Final candidate rerun follows; later narrow hardening added three storage cases.
+    ai_trainer_env/bin/python -m pytest -q tests/smoke/test_planning_cycle_projection.py tests/smoke/test_planning_cycle_build.py tests/smoke/test_planning_cycle_identity.py tests/smoke/test_planning_cycle_characterization.py --tb=short
+    # Expected remaining M1 contour: 35 failed / 12 passed. Five migrated scope
+    # projections became GREEN; public commands/build/UI and v2 IDs remain future.
+    ai_trainer_env/bin/python -m ruff check .
+    git diff --check
+    # GREEN.
+
+The broad command explicitly excludes three intentionally RED M1 modules, so it
+is NOT a whole-S2 CI pass. Existing skips include optional missing `garth` and
+pre-existing fixture requirements; no new S2 test is skipped/xfail. All new work
+and probes use temporary synthetic databases; no local athlete cache is opened
+to run migration. New constraint metadata is nullable/additive; old field values
+are retained. Legacy activity normalization still runs as before; preservation
+fixtures seed already-resolved synthetic TSS, without changing its math.
+
+Independent M2 review is pending. Next boundary remains M3 contracts/commands and
+guarded exact publication. M4 will route Planning/Today/Coach and legacy cached
+consumers through this selector. Until those slices, existing HTTP/UI readers
+still use the old raw history behavior. This intermediate branch is neither a
+standalone merge candidate nor authorization to migrate a live cache.
 
 ## Context and Orientation
 

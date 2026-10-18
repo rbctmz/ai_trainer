@@ -28,6 +28,7 @@ from data.subjective_wellness_store import (
 from models.subjective_wellness import utc_timestamp
 from data.data_coverage_store import DataCoverageStore
 from data.planning_build_preview_store import create_planning_build_previews_table
+from data.planning_cycles import PlanningCycleStore, initialize_cycle_store, reset_cycle_store
 from config.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -959,7 +960,17 @@ class Database:
         ''')
         create_planning_build_previews_table(conn)
         conn.commit()
-        conn.close()
+        # Existing column migrations commit internally. Cycle import owns one
+        # separate writer transaction, including its additive columns and flag.
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            initialize_cycle_store(conn)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _ensure_activity_columns(self, conn: sqlite3.Connection) -> None:
         """Добавление недостающих колонок в таблицу activities (для обратной совместимости)."""
@@ -1661,6 +1672,47 @@ class Database:
         if isinstance(value, list):
             return [cls._replace_json_value(item, old, new) for item in value]
         return new if value == old else value
+
+    def get_current_planning_checkpoint(self) -> dict[str, Any] | None:
+        """Read the explicit selection; never fall back to raw latest history."""
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN")
+            return self._get_current_planning_checkpoint(conn)
+        finally:
+            conn.rollback()
+            conn.close()
+
+    def _get_current_planning_checkpoint(self, conn: sqlite3.Connection) -> dict[str, Any] | None:
+        """Read on the caller's coherent transaction, without side effects."""
+        from models.planning_cycle import cycle_checkpoint_reason
+
+        if not conn.in_transaction:
+            raise RuntimeError("Current checkpoint read requires a transaction")
+        store = PlanningCycleStore(conn)
+        selected_id = store.state()["current_cycle_id"]
+        if selected_id is None:
+            return None
+        cycle = store.cycle(selected_id)
+        if not cycle or cycle["status"] != "open":
+            return None
+        checkpoint_id = cycle["current_checkpoint_id"]
+        checkpoint = store.checkpoint(checkpoint_id)
+        reason = cycle_checkpoint_reason(cycle, checkpoint,
+                                         mapping_valid=store.version_cycle(checkpoint_id) == selected_id)
+        if reason:
+            # A readable snapshot with unknown actual dates remains inspectable;
+            # cycle_context (not this accessor) controls whether editing is safe.
+            snapshot = (checkpoint or {}).get("goal_plan_snapshot")
+            readable_gap = (reason.startswith("checkpoint_")
+                            and reason not in {"checkpoint_missing", "checkpoint_cycle_mismatch"}
+                            and isinstance(snapshot, dict) and bool(snapshot)
+                            and cycle["start_date"] is None and cycle["end_date"] is None)
+            if not readable_gap:
+                return None
+        row = conn.execute("SELECT id,goal_type,distance,weeks_to_race,checkpoint_data,created_at "
+                           "FROM planning_checkpoints WHERE id=?", (checkpoint_id,)).fetchone()
+        return self._deserialize_planning_checkpoint_row(row)
 
     def get_latest_planning_checkpoint(self):
         """Возвращает последний planning checkpoint или None."""
@@ -4482,7 +4534,7 @@ class Database:
         cursor.execute(
             '''
             SELECT id, date, kind, status, source, note, plan_id, session_id,
-                   metadata_json, resolved_at, created_at, sport
+                   metadata_json, resolved_at, created_at, sport, cycle_scope, cycle_id
             FROM coach_constraints
             WHERE id = ?
             ''',
@@ -4502,7 +4554,7 @@ class Database:
         cursor.execute(
             '''
             SELECT id, date, kind, status, source, note, plan_id, session_id,
-                   metadata_json, resolved_at, created_at, sport
+                   metadata_json, resolved_at, created_at, sport, cycle_scope, cycle_id
             FROM coach_constraints
             WHERE id = ?
             LIMIT 1
@@ -4547,7 +4599,7 @@ class Database:
         cursor.execute(
             f'''
             SELECT id, date, kind, status, source, note, plan_id, session_id,
-                   metadata_json, resolved_at, created_at, sport
+                   metadata_json, resolved_at, created_at, sport, cycle_scope, cycle_id
             FROM coach_constraints
             {where}
             ORDER BY date ASC, id ASC
@@ -4608,6 +4660,8 @@ class Database:
             'resolved_at': row[9],
             'created_at': row[10],
             'sport': row[11],
+            'cycle_scope': row[12] if len(row) > 12 else None,
+            'cycle_id': row[13] if len(row) > 13 else None,
         }
     
     def get_activities(self, days=30):
@@ -5613,9 +5667,21 @@ class Database:
     def clear_all_data(self):
         """Очистка всех данных из базы"""
         conn = self._connect()
+        try:
+            self._clear_all_data(conn)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def _clear_all_data(self, conn: sqlite3.Connection) -> None:
+        """Очистка в одной транзакции; ошибки не оставляют снятый выбор цикла."""
         cursor = conn.cursor()
 
         cursor.execute('DELETE FROM planning_build_previews')
+        reset_cycle_store(conn)
         
         # Очищаем все таблицы
         cursor.execute('DELETE FROM activities')
@@ -5696,9 +5762,6 @@ class Database:
         except sqlite3.OperationalError:
             pass
         
-        conn.commit()
-        conn.close()
-
     def get_user_setting(self, key, default=None):
         """Получение пользовательской настройки по ключу."""
         conn = self._connect()
