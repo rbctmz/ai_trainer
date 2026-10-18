@@ -623,6 +623,15 @@ the transaction. Do not make raw history or a cached plan select/reopen a cycle.
 Then hand shared readers/transport semantics to M4 before any screen work.
 This evidence-only documentation update does not change reviewed runtime.
 
+Publication: [draft #698](https://github.com/rbctmz/ai_trainer/pull/698), stacked
+on #697, attached to the task. Progress and all four non-blocking follow-ups are
+recorded in [issue #693](https://github.com/rbctmz/ai_trainer/issues/693#issuecomment-6254877507).
+GitHub CI was still running at publication; no native/final M5 readiness or
+merge is claimed. The known M4 reader RED are deliberately retained.
+Observed review-gate refusal at the published documentation head: no submitted
+native review for the current head (run 39164275124). No acceptance label or
+waiver is added; final native review remains M5.
+
 ## Context and Orientation
 
 Shared Python in models/services/data owns domain meaning; FastAPI api/ and
