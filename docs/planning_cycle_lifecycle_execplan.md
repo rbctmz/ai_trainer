@@ -51,7 +51,7 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-19) M3c: every prescription writer uses selected-cycle/head CAS under the writer lock; explicit restore ownership. Independent round 1/2 READY at `cc8d900`, 642 focused GREEN; pinned contributor-safe 3645 passed / 14 skipped / 68 deselected with the same four M4 reader exclusions. Published/attached as intermediate draft #699, stacked on #698.
 - [x] (2026-10-18–19) M3c on codex/issue-693-m3c-writer-guards, stacked on M3b #698: shared write guard, all mutation families/restore/Coach/legacy compatibility, synthetic fixture adaptation, 54 new writer cases and independent review completed. Class A; approved scope unchanged.
 - [x] (2026-10-19) M4: shared current/history readers and explicit Domain→UI handoff completed. Draft #700; all five P2 CLOSED at 32ef3c3, new provenance proof CLOSED at aeff866. Final contributor-safe 3665 GREEN, 36 isolated browser GREEN; native/whole-S2/human gates remain M5.
-- [ ] M5: final whole-S2 evidence, current-head CI/native review and explicit human merge decision.
+- [ ] (2026-10-19) M5 in progress, Supervisor / Integrator: fresh main is still 93fa4f4; assemble the complete S2 candidate on codex/issue-693-s2-acceptance, strengthen writer-specific state evidence, run complete acceptance, then request native review. Human acceptance/merge remains separate.
 
 ## Surprises & Discoveries
 

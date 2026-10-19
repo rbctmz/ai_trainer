@@ -10,8 +10,29 @@ from models.planning_build_confirmation import PlanningBuildPreviewError
 from models.planning_checkpoints import build_planning_checkpoint, restore_goal_plan_from_checkpoint, with_checkpoint_provenance
 from services.planning_cycles import current_cycle_context
 from services.planning_cycle_commands import execute_cycle_command
-from tests.smoke._planning_cycle_regressions import TODAY, legacy_db, evidence_bytes, client_for
+from tests.smoke._planning_cycle_regressions import TODAY, legacy_db, client_for
 from tests.planning_fixtures import append_history
+
+
+def writer_state(db):
+    """Capture all persisted tables in one read snapshot, including cycle CAS.
+
+    Keep the legacy evidence helper unchanged: lifecycle commands legitimately
+    change their own metadata while preserving the original history/fact rows.
+    Writer rejection and rollback must instead preserve every persisted row.
+    """
+    conn = db._connect()
+    try:
+        conn.execute("BEGIN")
+        tables = [row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
+        return {table: sorted(
+            (tuple(row) for row in conn.execute(
+                'SELECT * FROM "' + table.replace('"', '""') + '"')),
+            key=repr,
+        ) for table in tables}
+    finally:
+        conn.close()
 
 
 def close(db):
@@ -33,11 +54,11 @@ def child(db):
 
 def test_raw_public_save_cannot_append_or_select(tmp_path, monkeypatch):
     db = legacy_db(tmp_path, monkeypatch, start=TODAY)
-    before = evidence_bytes(db)
+    before = writer_state(db)
     with pytest.raises(PlanningBuildPreviewError) as error:
         db.save_planning_checkpoint(child(db))
     assert error.value.code == "cycle_context_required"
-    assert evidence_bytes(db) == before
+    assert writer_state(db) == before
 
 
 def test_child_checks_close_after_calculation_and_rolls_back(tmp_path, monkeypatch):
@@ -45,11 +66,11 @@ def test_child_checks_close_after_calculation_and_rolls_back(tmp_path, monkeypat
     context = db.planning_write_context()
     prepared = child(db)
     close(db)
-    before = evidence_bytes(db)
+    before = writer_state(db)
     with pytest.raises(PlanningBuildPreviewError) as error:
         db.save_planning_checkpoint(prepared, cycle_context=context)
     assert error.value.code == "cycle_stale"
-    assert evidence_bytes(db) == before
+    assert writer_state(db) == before
 
 
 def test_selected_child_advances_only_its_cycle_head(tmp_path, monkeypatch):
@@ -62,12 +83,19 @@ def test_selected_child_advances_only_its_cycle_head(tmp_path, monkeypatch):
     assert current["selection_revision"] == context["selection_revision"]
 
 
-@pytest.mark.parametrize("operation", ["adjustment", "materialization", "raw_build", "demand", "weekly", "bike", "recovery", "transfer", "rollback", "restore", "repair_day", "coach_manual"])
+@pytest.mark.parametrize("operation", ["adjustment", "materialization", "raw_build", "demand", "weekly", "bike", "recovery", "transfer", "rollback", "restore", "repair_day", "coach_manual", "coach_retract", "coach_commit"])
 @pytest.mark.parametrize("terminal", ["closed", "period_ended", "replaced"])
 def test_closed_cycle_writers_refuse_without_history_changes(tmp_path, monkeypatch, operation, terminal):
     db = legacy_db(tmp_path, monkeypatch, start=TODAY)
     context = db.planning_write_context()
     base = context["checkpoint_id"]
+    prepared = child(db)
+    constraint = db.save_coach_constraint(
+        date=TODAY.isoformat(), kind="manual_delete", cycle_scope="cycle",
+        cycle_id=context["cycle_id"], plan_id=str(base),
+    )
+    # Capture the token after setup; constraints participate in its digest.
+    context = db.planning_write_context()
     if terminal == "closed":
         close(db)
     elif terminal == "period_ended":
@@ -77,7 +105,7 @@ def test_closed_cycle_writers_refuse_without_history_changes(tmp_path, monkeypat
     else:
         from tests.smoke.test_planning_cycle_build_v2 import prepare, confirm
         confirm(db, prepare(db))
-    before = evidence_bytes(db)
+    before = writer_state(db)
     with pytest.raises((PlanningBuildPreviewError, ps.StalePlanningCheckpointError)):
         if operation == "adjustment":
             ps.apply_adjustment(db, rows=[], persist=True, cycle_context=context)
@@ -98,12 +126,22 @@ def test_closed_cycle_writers_refuse_without_history_changes(tmp_path, monkeypat
         elif operation == "rollback":
             ps.rollback_recovery_replan(db, {"applied_checkpoint_id": base, "rollback_checkpoint_id": base, "cycle_context": context})
         elif operation == "restore":
-            ps.restore_history_version(db, checkpoint_id=base, base_checkpoint_id=base)
+            ps.restore_history_version(db, checkpoint_id=base, base_checkpoint_id=base,
+                expected_cycle_id=context["cycle_id"],
+                expected_cycle_revision=context["cycle_revision"],
+                expected_selection_revision=context["selection_revision"])
         elif operation == "repair_day":
             ps.recover_day_after_constraint_retraction(db, base_checkpoint_id=base, date=TODAY.isoformat())
-        else:
+        elif operation == "coach_manual":
             ps.preview_coach_constraint_mutation(db, action="create_plan_constraint", params={"date": TODAY.isoformat(), "kind": "manual_delete", "cycle_context": context})
-    assert evidence_bytes(db) == before
+        elif operation == "coach_retract":
+            ps.preview_coach_constraint_mutation(db, action="retract_plan_constraint",
+                params={"constraint_id": constraint["id"], "cycle_context": context})
+        else:
+            db.commit_coach_plan_mutation(action="retract_plan_constraint",
+                base_checkpoint_id=base, checkpoint_data=prepared,
+                constraint_id=constraint["id"], cycle_context=context)
+    assert writer_state(db) == before
 
 
 def restore_fields(db):
@@ -138,12 +176,12 @@ def test_restore_cannot_cross_cycles_or_follow_cross_cycle_donor(tmp_path, monke
     old = db.get_current_planning_checkpoint()
     confirm(db, prepare(db))
     current = db.get_current_planning_checkpoint()
-    before = evidence_bytes(db)
+    before = writer_state(db)
     with pytest.raises(PlanningBuildPreviewError) as error:
         ps.restore_history_version(db, checkpoint_id=old["id"], base_checkpoint_id=current["id"], **restore_fields(db))
     assert error.value.code == "cycle_not_current"
     assert ps._find_day_donor(db, {**current, "checkpoint_parent_id": old["id"]}, TODAY.isoformat()) is None
-    assert evidence_bytes(db) == before
+    assert writer_state(db) == before
 
 
 def test_cycle_revision_invalidates_child_at_same_checkpoint(tmp_path, monkeypatch):
@@ -154,10 +192,10 @@ def test_cycle_revision_invalidates_child_at_same_checkpoint(tmp_path, monkeypat
         "command_id": str(uuid4()), "confirm": True, "expected_cycle_revision": context["cycle_revision"],
         "event_key": context["events"][0]["event_key"], "outcome": "did_not_participate",
     }, cycle_id=context["cycle_id"], validate_response=lambda value: value)
-    before = evidence_bytes(db)
+    before = writer_state(db)
     with pytest.raises(PlanningBuildPreviewError, match="Цикл"):
         db.save_planning_checkpoint(prepared, cycle_context=context)
-    assert evidence_bytes(db) == before
+    assert writer_state(db) == before
 
 
 def test_constraint_scope_change_invalidates_child_without_advancing_head(tmp_path, monkeypatch):
@@ -170,11 +208,11 @@ def test_constraint_scope_change_invalidates_child_without_advancing_head(tmp_pa
         "command_id": str(uuid4()), "confirm": True, "constraint_id": row["id"],
         "expected_constraint_fingerprint": constraint_fingerprint(row), "scope": "athlete", "cycle_id": None,
     }, validate_response=lambda value: value)
-    before = evidence_bytes(db)
+    before = writer_state(db)
     with pytest.raises(PlanningBuildPreviewError) as error:
         db.save_planning_checkpoint(prepared, cycle_context=context)
     assert error.value.code == "cycle_stale"
-    assert evidence_bytes(db) == before
+    assert writer_state(db) == before
 
 
 def test_two_real_writers_close_and_child_have_one_cas_winner(tmp_path, monkeypatch):
@@ -242,10 +280,10 @@ def test_mapping_failure_rolls_back_checkpoint_and_settings(tmp_path, monkeypatc
         else:
             conn.execute("CREATE TRIGGER synthetic_setting_fault BEFORE INSERT ON user_settings BEGIN SELECT RAISE(ABORT, 'synthetic fault'); END")
     conn.close()
-    before = evidence_bytes(db)
+    before = writer_state(db)
     with pytest.raises(sqlite3.IntegrityError):
         db.save_planning_checkpoint(child(db), cycle_context=context, settings_write={"planning_demand_level": "aggressive"})
-    assert evidence_bytes(db) == before
+    assert writer_state(db) == before
     assert current_cycle_context(db)["checkpoint_id"] == context["checkpoint_id"]
     assert current_cycle_context(db)["cycle_revision"] == context["cycle_revision"]
 
@@ -256,11 +294,11 @@ def test_coach_constraint_is_scoped_and_close_invalidates_its_proposal(tmp_path,
         params={"date": TODAY.isoformat(), "kind": "manual_delete"})
     assert proposal["params"]["cycle_scope"] == "cycle"
     close(db)
-    before = evidence_bytes(db)
+    before = writer_state(db)
     with pytest.raises(PlanningBuildPreviewError):
         ps.confirm_coach_constraint_mutation(db, action="create_plan_constraint", params=proposal["params"],
                                            preview_fingerprint=proposal["preview"]["preview_fingerprint"])
-    assert evidence_bytes(db) == before
+    assert writer_state(db) == before
     assert db.get_coach_constraints() == []
 
 
@@ -293,12 +331,12 @@ def test_http_mutation_checks_expected_cycle_revision_at_same_head(tmp_path, mon
         "command_id": str(uuid4()), "confirm": True, "expected_cycle_revision": context["cycle_revision"],
         "event_key": context["events"][0]["event_key"], "outcome": "did_not_participate",
     }, cycle_id=context["cycle_id"], validate_response=lambda value: value)
-    before = evidence_bytes(db)
+    before = writer_state(db)
     with client_for(db) as client:
         response = client.post("/api/planning/" + route, json=request)
     assert response.status_code == 409, response.text
     assert response.json()["code"] == "cycle_stale"
-    assert evidence_bytes(db) == before
+    assert writer_state(db) == before
     assert db.get_coach_constraints() == []
 
 
@@ -318,3 +356,28 @@ def test_explicit_athlete_constraint_without_current_cycle_never_reactivates_his
     assert response.json()["active_plan_updated"] is False
     assert current_cycle_context(db)["cycle_id"] is None
     assert len(db.get_recent_planning_checkpoints()) == count
+
+
+@pytest.mark.parametrize("action", ["create_plan_constraint", "retract_plan_constraint"])
+def test_coach_ledger_and_cycle_head_roll_back_if_child_mapping_fails(tmp_path, monkeypatch, action):
+    db = legacy_db(tmp_path, monkeypatch, start=TODAY)
+    current = current_cycle_context(db)
+    payload = {"date": TODAY.isoformat(), "kind": "manual_delete",
+               "cycle_scope": "cycle", "cycle_id": current["cycle_id"]}
+    constraint = db.save_coach_constraint(**payload)
+    context = db.planning_write_context()
+    prepared = child(db)
+    conn = db._connect()
+    with conn:
+        conn.execute("""CREATE TRIGGER synthetic_coach_mapping_fault
+            BEFORE INSERT ON planning_cycle_versions
+            BEGIN SELECT RAISE(ABORT, 'synthetic mapping fault'); END""")
+    conn.close()
+    before = writer_state(db)
+    with pytest.raises(sqlite3.IntegrityError, match="synthetic mapping fault"):
+        db.commit_coach_plan_mutation(
+            action=action, base_checkpoint_id=context["checkpoint_id"],
+            checkpoint_data=prepared, constraint_payload=payload,
+            constraint_id=constraint["id"], cycle_context=context,
+        )
+    assert writer_state(db) == before
