@@ -50,7 +50,7 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-18) M3b: S1 v2 start_new/edit_current, calendar/identity boundary and atomic replacement; applied-v1 replay retained, pending-v1 rejected. Independent round 1/2 READY at `5f5d2dd`, 473 focused GREEN; contributor-safe 3591 passed / 14 skipped / 68 deselected with only four known M4 assertions excluded beyond standard markers. Intermediate draft only.
 - [x] (2026-10-19) M3c: every prescription writer uses selected-cycle/head CAS under the writer lock; explicit restore ownership. Independent round 1/2 READY at `cc8d900`, 642 focused GREEN; pinned contributor-safe 3645 passed / 14 skipped / 68 deselected with the same four M4 reader exclusions. Published/attached as intermediate draft #699, stacked on #698.
 - [x] (2026-10-18–19) M3c on codex/issue-693-m3c-writer-guards, stacked on M3b #698: shared write guard, all mutation families/restore/Coach/legacy compatibility, synthetic fixture adaptation, 54 new writer cases and independent review completed. Class A; approved scope unchanged.
-- [ ] M4: explicit current-vs-history reader integration, then Domain→UI handoff for minimal actions/status and isolated web acceptance.
+- [x] (2026-10-19) M4: shared current/history readers and explicit Domain→UI handoff completed. Draft #700; all five P2 CLOSED at 32ef3c3, new provenance proof CLOSED at aeff866. Final contributor-safe 3665 GREEN, 36 isolated browser GREEN; native/whole-S2/human gates remain M5.
 - [ ] M5: final whole-S2 evidence, current-head CI/native review and explicit human merge decision.
 
 ## Surprises & Discoveries
@@ -1234,3 +1234,47 @@ full audit. Request only a proof-specific continuation of R5 on the three-line
 context correction and its new regression; no additional full-diff round.
 A final contributor-safe run is running on the correction; exact SHA/results
 and the proof-only disposition are recorded below before M4 is marked complete.
+
+
+### M4 final evidence and M5 handoff (2026-10-19)
+
+R5 proof-only continuation on `32ef3c3..aeff866` returned CLOSED/READY, with
+86 independently executed tests GREEN (4.37s), no remaining invariant violation.
+No second full audit occurred: one full M4 round, one consolidated scoped
+correction, then a proof-only check justified by fresh reproduced evidence.
+Current source is `aeff866`; subsequent commits only record evidence/links.
+
+Final author contributor-safe run on that runtime:
+
+    ai_trainer_env/bin/python -m pytest -q -m 'not live and not debug and not e2e' tests/ --tb=short
+
+Result: **3665 passed / 14 skipped / 82 deselected / 7 existing warnings in
+277.57s**. The 82 exclusions are the standard live/debug/optional-E2E markers;
+all original M4 reader assertions run. Skips are 10 explicit fixture-regeneration
+cases, missing optional garth (2), restricted process inspection (1), and local
+listening socket restriction (1). Warnings are existing Starlette/httpx and
+pandas proxy-connection diagnostics. No known failure is hidden by an exclusion.
+
+Other final evidence: author correction contour 418 GREEN (22.92s); independent
+418 GREEN (23.56s); final projection/story proof contour 86 GREEN (author 4.62s,
+independent 4.37s); 36 real synthetic M4/S1 browser tests GREEN (73.53s). Ruff,
+web lint/build, API inventory and contract artifact freshness GREEN. The later
+provenance-only change does not alter web/DTO/UI behavior; no redundant browser
+or web rebuild is claimed after it. Browser runs use temporary SQLite and
+ports, provider credentials disabled, six width/theme combinations and keyboard.
+Synthetic screenshots are committed under docs/design/evidence/issue-693;
+old issue-685 evidence is unchanged. Native review, user-observed UX acceptance,
+CI completion on the final published head and merge are distinct, not inferred.
+
+All first-round blocking findings have fixing commits: R1 `6def63c` plus
+`32ef3c3`; R2–R5 `32ef3c3`; newly reproduced inherited-revision edge `aeff866`.
+Nonblocking follow-ups remain explicitly owned in #693 as written above, along
+with the earlier M3c suggestions. No unaddressed blocking M4 finding remains.
+The tracked handoff is [draft #700](https://github.com/rbctmz/ai_trainer/pull/700),
+stacked on #699 and attached to this chat. No merge or rollout was performed.
+
+Next role: Supervisor / Integrator for M5, not another UI redesign. Assemble one
+whole-S2 candidate/evidence bundle against fresh main; include AC1–AC10,
+current-head CI and native review, then explicit human merge acceptance. Parent
+#677 retains S3 aggregates and S4 step-4 presentation. Personal live-provider
+acceptance/deployment is outside this completed M4 synthetic implementation.
