@@ -151,3 +151,23 @@ The original S1/v1 oracles remain unchanged. Complete contributor-safe/E2E are
 rerun, and results plus scoped native round 2/2 are recorded in PR/#693 to keep
 that final reviewed head stable. First-candidate counts above remain the actual
 first-candidate measurements, not claimed results of the correction.
+
+
+## Accepted and merged
+
+Owner explicitly accepted review and authorized merge of #701. Final head
+4f612dc had current-head CI GREEN, authenticated clean native receipt
+[6273981670](https://github.com/rbctmz/ai_trainer/pull/701#issuecomment-6273981670),
+zero unresolved threads and a fresh accepted Review gate/CLEAN. Native budget
+2/2; no waiver or exception. #701 merged as 5f3b738 on 2026-10-19; #693 closed,
+#677 stays open. `git diff --quiet 4f612dc origin/main` returned zero after fetch,
+so the merge tree matches the accepted tree. Main CI is separately recorded in
+[engineering process metrics](../../engineering_process_metrics.md).
+
+Final local corrective suite: 3683 passed /14 skipped /82 deselected; 58 browser
+passed. Final PR CI: 3658 passed /39 skipped /82 deselected; 24 contract assertions
+and 58 E2E passed. Environment skip details and exact receipts are in
+[the final handoff](https://github.com/rbctmz/ai_trainer/pull/701#issuecomment-6274074028).
+Historical pending-status paragraphs above describe their measured stage, not
+this final delivery status. This post-merge update is a separate docs-only delta.
+No live athlete deployment or owner-observed UX test is claimed.

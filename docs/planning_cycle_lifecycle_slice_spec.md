@@ -37,8 +37,8 @@ calendar correctness. Closed historical prescriptions are read-only.
 - [x] Storage, migration, readers/writers, failure/reset and test boundaries named.
 - [x] Human merge/rollout owner; author owns synthetic surfaces and task cleanup.
 - [x] (2026-10-17) Independent full spec round plus scoped correction: READY at `a2f3848`, zero remaining blockers, budget 2/2.
-- [ ] Runtime implementation GREEN, contracts/browser evidence and native review.
-- [ ] Explicit human acceptance and merge; live rollout separately authorized.
+- [x] (2026-10-19) Runtime/contracts/browser evidence GREEN; final native scoped round clean on 4f612dc, budget 2/2. Exact delivery receipts are in #701/#693 and ExecPlan.
+- [x] (2026-10-19) Explicit human acceptance and #701 merge as 5f3b738; live rollout remains separately authorized and unperformed.
 
 ## State boundaries and identity
 
@@ -416,3 +416,16 @@ scoped verification. Runtime S2 is unimplemented. Spec review budget used 2/2; h
 merge/live rollout and implementing author owns branch/test-surface cleanup.
 The next role is Domain / API Implementer for M1, with exact tests
 and invariant obligations in the ExecPlan. No CSS/layout role is assigned here.
+
+
+## Delivered S2 status (2026-10-19)
+
+The M0 proposal/review records above retain their original historical wording;
+they do not describe the delivery status after implementation. The approved
+contract was delivered through #701, final head 4f612dc, merged as 5f3b738 after
+human acceptance, fresh GREEN Review gate/CLEAN and pinned-head merge. Native
+round 1 found three P2, reproduced and fixed; scoped round 2 was clean, zero
+unresolved threads. Full synthetic CI/API/TS/browser evidence is in the ExecPlan
+and PR/#693 handoff. S3/S4 remain with #677; no live migration/provider writes or
+athlete-observed UX acceptance is claimed. This update changes status only,
+not an AC, invariant, public contract or non-goal.
