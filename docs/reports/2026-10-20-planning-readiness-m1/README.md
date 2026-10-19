@@ -101,3 +101,9 @@ only. The row is split into executable composite and deferred rounding/facts;
 no new runtime obligation or claimed coverage is introduced. Author verified the
 wording delta. Native review: not requested, 0 rounds. Human acceptance, merge and
 runtime GREEN are not implied by this specification READY.
+
+
+Publication: [draft PR #705](https://github.com/rbctmz/ai_trainer/pull/705),
+branch codex/issue-677-s3-m1, base main. This completes the M1 specification
+checkpoint; the four RED remain unresolved runtime work. CI was started by PR
+creation; no final CI result or native/human merge acceptance is claimed here.

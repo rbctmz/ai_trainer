@@ -22,7 +22,7 @@
 - [x] (2026-10-20) Сформулированы AC1–AC7: complete prescriptions, consistent load/time, target semantics, shared guard, old receipt compatibility, scientific boundary.
 - [x] (2026-10-20) Четыре acceptance assertion RED и bounded pure probes воспроизведены; existing focused baseline 128 passed, новая реализация не заявлена.
 - [x] (2026-10-20) Независимый spec round 1/2 READY на b279178, zero P1/P2; неблокирующая неоднозначность строки composite/rounding исправлена документацией.
-- [ ] Reviewable checkpoint опубликован и #677 обновлена результатом M1; runtime не объявлен исправленным.
+- [x] (2026-10-20) Draft PR #705 опубликован отдельно от #704; M1 contract/evidence checkpoint завершён, parent #677 остаётся открытой; runtime не объявлен исправленным.
 
 ## Surprises & Discoveries
 
@@ -135,7 +135,8 @@ prepare/confirm для Planning и Coach build, не дублируется в R
 
 M1 contract/evidence independently READY на b279178; four behavioral RED остаются
 неисправленными. Final author run: 128 passed, 4 xfailed; Ruff/diff/links GREEN.
-Publication record — pending до создания draft PR. Следующий handoff: Domain/API — M2 материализация и явная RPE
+Publication: [draft PR #705](https://github.com/rbctmz/ai_trainer/pull/705);
+CI и human merge/native acceptance не входят в объявленный spec READY. Следующий handoff: Domain/API — M2 материализация и явная RPE
 policy, затем M3 effective load + shared guard; Spec — M4 recent-history entry
 policy. Эти шаги не выполняются в текущем M1. UI/Design S4 следует за контрактом.
 
