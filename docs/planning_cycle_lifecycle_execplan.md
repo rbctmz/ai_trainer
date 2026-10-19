@@ -1122,3 +1122,14 @@ web check reruns after the final UI change. No rollout, live writes or merge.
 M3c nonblocking follow-ups remain assigned in #693: restore error-contract
 polish, writer-specific complete state snapshots and low-level athlete-scope
 validation are not silently folded into this reader/UI milestone.
+
+M4 frozen runtime author evidence at `f0fa5ce`: the approved independent-review
+boundary command is 376 passed / 1 existing warning in 21.87s. Browser rerun on
+that runtime: 32 passed / 1 existing warning in 61.00s, after adding three
+E2E-only empty/scheduled/indeterminate states; original 29 journeys remain.
+The supplementary test/screenshot commit does not alter runtime or contracts.
+The read-only checker began from CLEAN f0fa5ce. During its pinned-ref audit the
+author added only those three browser cases and regenerated the named synthetic
+screenshots; these are author changes, not checker edits. Review budget 1/2 is
+in progress. Final contributor-safe command runs without the four old M4
+reader exclusions; counts and independent verdict will be recorded below.

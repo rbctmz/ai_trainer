@@ -178,3 +178,27 @@ def test_unknown_constraint_scope_is_explicitly_resolvable(web_stack):
     page.get_by_role('button', name='Подтвердить область', exact=True).click()
     expect(page.get_by_text('Область ограничения сохранена.', exact=True)).to_be_visible()
     assert db.get_coach_constraints(active_only=True)[0]['cycle_scope'] == 'athlete'
+
+
+@pytest.mark.parametrize('scenario,label', [('empty','Текущего цикла нет'), ('scheduled','Цикл запланирован'), ('indeterminate','Состояние цикла не определено')])
+def test_cycle_gaps_and_future_period_have_server_owned_actions(web_stack, scenario, label):
+    from datetime import date
+    from models.planning_checkpoints import build_planning_checkpoint
+    from tests.planning_fixtures import seed_checkpoint
+    from tests.smoke._planning_cycle_regressions import plan
+    page, db = setup_ended(web_stack)
+    db.clear_all_data()
+    day = date.fromisoformat(page.request.get(f'{web_stack.api_base}/api/planning/cycles/current?demo=1').json()['athlete_day'])
+    if scenario != 'empty':
+        checkpoint = build_planning_checkpoint(plan(day + timedelta(days=7)))
+        if scenario == 'indeterminate':
+            checkpoint['goal_plan_snapshot']['daily_plan'] = []
+        seed_checkpoint(db, checkpoint)
+    page.reload()
+    expect(page.get_by_role('heading', name=label, exact=True)).to_be_visible()
+    expect(page.get_by_role('button', name='Начать новый цикл', exact=True)).to_be_enabled()
+    if scenario == 'indeterminate':
+        expect(page.get_by_role('button', name='Изменить план', exact=True)).to_be_disabled()
+    if scenario == 'scheduled':
+        expect(page.get_by_text('Текущей фазы нет', exact=True)).to_be_visible()
+        expect(page.get_by_role('button', name='Изменить план', exact=True)).to_be_enabled()
