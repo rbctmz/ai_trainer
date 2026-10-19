@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 from api.planning_service import reconciliation_at
 from data.database import Database
+from services.planning_cycles import session_checkpoint
 from models.plan_actual_reconciliation import (
     MATCH_RULE_VERSION,
     find_planned_session,
@@ -353,7 +354,7 @@ def _evidence_from_saved_feedback(
                 break
     else:
         checkpoints: list[Mapping[str, Any]] = []
-        latest_checkpoint = db.get_latest_planning_checkpoint()
+        latest_checkpoint = session_checkpoint(db, session_id)
         if isinstance(latest_checkpoint, Mapping):
             checkpoints.append(latest_checkpoint)
         checkpoint_reader = getattr(
@@ -592,7 +593,7 @@ def _match_revision_id_for_prompt(
     )
     if match_revision is not None:
         return match_revision.get("id")
-    checkpoint = db.get_latest_planning_checkpoint()
+    checkpoint = session_checkpoint(db, session_id)
     goal_plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
     _day_template, session = find_planned_session(
         goal_plan.get("session_templates") or [], session_id
@@ -671,7 +672,7 @@ def _feedback_evidence_for_session(
         if as_of
         else datetime.now().date()
     )
-    checkpoint = db.get_latest_planning_checkpoint()
+    checkpoint = db.get_current_planning_checkpoint()
     goal_plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
     # find_planned_session resolves by the PARENT session's own content-
     # derived id inside `sessions[]`, never the day-level scalar projection
@@ -721,7 +722,11 @@ def _feedback_evidence_for_session(
             )
             if historical_evidence is not None:
                 return historical_evidence
-        raise LookupError(f"planned session {session_id} not found in active checkpoint")
+        checkpoint = session_checkpoint(db, session_id, include_retired=False)
+        goal_plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
+        day_template, template = find_planned_session(goal_plan.get("session_templates") or [], session_id)
+        if day_template is None or template is None:
+            raise LookupError(f"planned session {session_id} not found in history")
     session_date_text = str(day_template.get("date") or "")[:10]
     try:
         session_date = date.fromisoformat(session_date_text)
@@ -735,7 +740,7 @@ def _feedback_evidence_for_session(
         db,
         weeks=1,
         as_of=session_date,
-        include_provider=False,
+        include_provider=False, checkpoint=checkpoint,
     )
     row = next(
         (
@@ -1330,7 +1335,7 @@ def list_feedback_prompts(
     current = _now(now_utc)
     anchor = as_of or current.date()
     payload = reconciliation_at(db, weeks=1, as_of=anchor, include_provider=False)
-    checkpoint = db.get_latest_planning_checkpoint()
+    checkpoint = db.get_current_planning_checkpoint()
     plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
     forecasts = db.get_session_quality_predictions(days=36500, limit=1000)
     return feedback_from_today_evidence(

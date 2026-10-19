@@ -103,6 +103,10 @@
         }
       ]
     },
+    "/api/planning/constraints": {
+      "interface": "PlanningConstraintsResponse",
+      "scenarios": [{"state": "empty", "expect": 200}, {"state": "cycle", "expect": 200}]
+    },
     "/api/planning/cycles/current": {
       "interface": "CycleContext",
       "scenarios": [
@@ -161,12 +165,6 @@
     },
     "/api/planning/overview": {
       "interface": "PlanningOverview",
-      "scenarios": [
-        {"state": "demo", "expect": 200}
-      ]
-    },
-    "/api/planning/edit-context": {
-      "interface": "PlanningEditContext",
       "scenarios": [
         {"state": "demo", "expect": 200}
       ]

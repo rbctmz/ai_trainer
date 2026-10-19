@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from config.settings import Settings
 from data.database import Database
+from services.planning_cycles import session_checkpoint
 from models.recovery_response import (
     CAPTURE_STATUS_FAILED,
     RECOVERY_RESPONSE_RULE_VERSION,
@@ -463,7 +464,7 @@ def _refresh_bounded_sync_episodes(
             "episodes": len(db.get_recovery_episodes(latest_only=True, capture_mode=capture_mode)),
             "reason": "no_plan",
         }
-    checkpoint = db.get_latest_planning_checkpoint()
+    checkpoint = db.get_planning_checkpoint(reconciliation.get("base_checkpoint_id"))
     plan = ensure_session_identities(restore_goal_plan_from_checkpoint(checkpoint) or {})
     templates = _session_template_projections(plan.get("session_templates", []) or [])
     start_text = earliest.isoformat()
@@ -808,7 +809,7 @@ def _refresh_targeted_episodes(
         seen.add(session_id)
         ordered_ids.append(session_id)
 
-    checkpoint = db.get_latest_planning_checkpoint()
+    checkpoint = None
     plan = ensure_session_identities(restore_goal_plan_from_checkpoint(checkpoint) or {}) if checkpoint else {}
     session_templates = plan.get("session_templates", []) or []
     templates = _session_template_projections(session_templates)
@@ -831,6 +832,10 @@ def _refresh_targeted_episodes(
     processed: list[dict[str, Any]] = []
     created = 0
     for session_id in ordered_ids:
+        checkpoint = session_checkpoint(db, session_id)
+        plan = ensure_session_identities(restore_goal_plan_from_checkpoint(checkpoint) or {}) if checkpoint else {}
+        session_templates = plan.get("session_templates", []) or []
+        templates = _session_template_projections(session_templates)
         # find_planned_session resolves by the PARENT session's own content-
         # derived id inside `sessions[]`, never the day-level scalar
         # projection -- required so a session on a multi-session day
@@ -862,9 +867,10 @@ def _refresh_targeted_episodes(
             continue
 
         date_key = session_date.isoformat()
-        if date_key not in reconciliation_cache:
-            reconciliation_cache[date_key] = reconciliation_at(
-                db, weeks=1, as_of=session_date, include_provider=False
+        cache_key = (date_key, (checkpoint or {}).get("id"))
+        if cache_key not in reconciliation_cache:
+            reconciliation_cache[cache_key] = reconciliation_at(
+                db, weeks=1, as_of=session_date, include_provider=False, checkpoint=checkpoint
             )
             window_end = (session_date + timedelta(days=3)).isoformat()
             activities_cache[date_key] = db.get_activities_between(date_key, window_end)
@@ -873,7 +879,7 @@ def _refresh_targeted_episodes(
                 for item in db.get_latest_plan_actual_matches(start_date=date_key, end_date=date_key)
             }
 
-        reconciliation = reconciliation_cache[date_key]
+        reconciliation = reconciliation_cache[cache_key]
         row = next(
             (
                 item

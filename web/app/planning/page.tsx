@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { ApiError, fetcher, postJSON, withDemo } from "@/lib/api";
+import { CyclePanel } from "@/components/planning/CyclePanel";
 import { AdherenceRibbon } from "@/components/AdherenceRibbon";
 import { DEFAULT_DEMAND_OPTIONS, PlanBuilder, Stat } from "@/components/planning/PlanBuilder";
 import { WorkoutStrip } from "@/components/WorkoutStrip";
@@ -223,6 +224,10 @@ export default function PlanningPage() {
   );
   const [tab, setTab] = useState<Tab | null>(null);
   const [buildLocked, setBuildLocked] = useState(false);
+  const [cycleLocked, setCycleLocked] = useState(false);
+  const locked = buildLocked || cycleLocked;
+  const [buildAction, setBuildAction] = useState<"start_new" | "edit_current">("edit_current");
+  const [builderGeneration, setBuilderGeneration] = useState(0);
   const [targetSessionId, setTargetSessionId] = useState<string | null>(null);
   const resolvedDefault = useRef(false);
   const hasAdjustmentDeepLink = useRef(false);
@@ -240,7 +245,7 @@ export default function PlanningPage() {
   useEffect(() => {
     if (!status || resolvedDefault.current) return;
     resolvedDefault.current = true;
-    setTab(status.has_plan && hasAdjustmentDeepLink.current ? "adjust" : status.has_plan ? "overview" : "build");
+    setTab(status.has_plan && hasAdjustmentDeepLink.current ? "adjust" : "overview");
   }, [status]);
 
   const hasPlan = status?.has_plan ?? false;
@@ -270,6 +275,8 @@ export default function PlanningPage() {
         </div>
       </section>
 
+      {status.cycle_context ? <CyclePanel context={status.cycle_context} locked={locked} onLockChange={setCycleLocked} onStartNew={() => {if (locked) return; setBuildAction("start_new"); setBuilderGeneration(value => value + 1); setTab("build");}} /> : null}
+      <fieldset disabled={cycleLocked} className="min-w-0 space-y-5">
       {hasPlan ? (
         <>
           <nav
@@ -280,7 +287,7 @@ export default function PlanningPage() {
               <button
                 key={readerTab}
                 type="button"
-                disabled={buildLocked}
+                disabled={locked}
                 onClick={() => setTab(readerTab)}
                 aria-current={tab === readerTab ? "page" : undefined}
                 className={`min-w-fit flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
@@ -294,15 +301,15 @@ export default function PlanningPage() {
           <div className="flex flex-wrap gap-2" aria-label="Действия с планом">
             <button
               type="button"
-              disabled={buildLocked}
-              onClick={() => setTab("build")}
+              disabled={locked || !status.has_actionable_plan}
+              onClick={() => {setBuildAction("edit_current"); setBuilderGeneration(value => value + 1); setTab("build");}}
               className="rounded-lg border border-surface-border px-3 py-2 text-sm font-medium text-ink transition hover:bg-surface-muted"
             >
               Изменить план
             </button>
             <button
               type="button"
-              disabled={buildLocked}
+              disabled={locked || !status.has_actionable_plan}
               onClick={() => setTab("adjust")}
               className="rounded-lg border border-surface-border px-3 py-2 text-sm font-medium text-ink transition hover:bg-surface-muted"
             >
@@ -310,7 +317,7 @@ export default function PlanningPage() {
             </button>
             <button
               type="button"
-              disabled={buildLocked}
+              disabled={locked || !status.has_actionable_plan}
               onClick={() => setTab("export")}
               className="rounded-lg border border-surface-border px-3 py-2 text-sm font-medium text-ink transition hover:bg-surface-muted"
             >
@@ -320,20 +327,21 @@ export default function PlanningPage() {
         </>
       ) : null}
 
-      {!hasPlan || tab === "build" ? (
-        <PlanBuilder status={status} onSaved={() => setTab("overview")} onConfirmationLockChange={setBuildLocked} />
+      {tab === "build" && (buildAction === "start_new" || status.has_actionable_plan) ? (
+        <PlanBuilder key={`${buildAction}-${builderGeneration}`} action={buildAction} status={status} onSaved={() => setTab("overview")} onConfirmationLockChange={setBuildLocked} />
       ) : null}
       {hasPlan && tab === "overview" ? <ActivePlanOverview overview={overview} error={overviewError} /> : null}
       {hasPlan && tab === "weeks" ? <PlanWeeks onResolveAmbiguous={() => setTab("adjust")} /> : null}
       {hasPlan && tab === "execution" ? <ExecutionOverview /> : null}
-      {tab === "adjust" ? (
+      {tab === "adjust" && status.has_actionable_plan ? (
         <AdjustMode
           hasPlan={hasPlan}
           targetSessionId={targetSessionId}
         />
       ) : null}
-      {tab === "export" ? <ExportMode /> : null}
-      {hasPlan ? <AdjustmentHistory /> : null}
+      {tab === "export" && status.has_actionable_plan ? <ExportMode /> : null}
+      <AdjustmentHistory locked={locked} />
+      </fieldset>
     </main>
   );
 }
@@ -350,7 +358,7 @@ function ActivePlanOverview({ overview, error }: { overview?: PlanningOverview; 
     <section className="rounded-card border border-surface-border bg-surface p-5 shadow-card">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">Активный план</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">Выбранный план</div>
           <h2 className="mt-1 text-xl font-bold text-ink">{goalTitle || "Цель плана уточняется"}</h2>
           {overview.timeline?.kind === "rolling" ? (
             <p className="mt-2 text-sm text-ink-soft">
@@ -374,7 +382,7 @@ function ActivePlanOverview({ overview, error }: { overview?: PlanningOverview; 
       <dl className="mt-5 grid gap-3 sm:grid-cols-3">
         <OverviewFact
           label="Текущая фаза"
-          value={currentWeek?.phase ?? "Недостаточно данных"}
+          value={currentWeek?.phase ?? "Текущей фазы нет"}
           detail={currentWeek ? `Неделя ${currentWeek.number}` : ""}
         />
         <OverviewFact
@@ -1075,7 +1083,7 @@ function LocalDataGap({ label }: { label: string }) {
 }
 
 /* ---------------- Первый план (онбординг, #271 §7) ---------------- */
-function AdjustmentHistory() {
+function AdjustmentHistory({locked}: {locked: boolean}) {
   const { mutate } = useSWRConfig();
   const { data } = useSWR<PlanningHistory>("/api/planning/history?limit=8", fetcher);
   const [expanded, setExpanded] = useState(false);
@@ -1084,10 +1092,11 @@ function AdjustmentHistory() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   if (!data || !data.has_history) return null;
-  const activeId = data.items[0]?.checkpoint_id ?? null;
+  const context = data.cycle_context;
+  const activeId = context?.checkpoint_id ?? null;
 
-  async function restore(item: { checkpoint_id: number | null }) {
-    if (activeId == null || item.checkpoint_id == null) return;
+  async function restore(item: PlanningHistory["items"][number]) {
+    if (activeId == null || item.checkpoint_id == null || !item.can_restore || !context || locked) return;
     setBusy(true);
     setError(null);
     setDone(null);
@@ -1095,6 +1104,10 @@ function AdjustmentHistory() {
       const result = await postJSON<RestoreHistoryResult>("/api/planning/history/restore", {
         checkpoint_id: item.checkpoint_id,
         base_checkpoint_id: activeId,
+        expected_cycle_id: context.cycle_id,
+        expected_cycle_revision: context.cycle_revision,
+        expected_selection_revision: context.selection_revision,
+        action: item.restore_action,
       });
       setConfirmingId(null);
       setDone(`Восстановлено как checkpoint #${result.applied_checkpoint_id}.`);
@@ -1137,8 +1150,8 @@ function AdjustmentHistory() {
         <div id="planning-adjustment-history" className="mt-3 divide-y divide-surface-border">
           {error ? <p className="py-2 text-xs text-rose-600">{error}</p> : null}
           {done ? <p className="py-2 text-xs text-emerald-700">{done}</p> : null}
-          {data.items.map((item, index) => {
-            const isActive = index === 0;
+          {data.items.map((item) => {
+            const isActive = item.checkpoint_id === activeId;
             const isConfirming = confirmingId === item.checkpoint_id;
             return (
               <div key={`${item.checkpoint_id}-${item.date}`} className="py-2.5">
@@ -1152,15 +1165,15 @@ function AdjustmentHistory() {
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {isActive ? (
                     <span className="text-[11px] text-ink-faint">активная версия</span>
-                  ) : isConfirming ? (
+                  ) : !item.can_restore ? <span className="text-[11px] text-ink-faint">Историческая версия · только чтение</span> : isConfirming ? (
                     <>
                       <span className="text-xs text-ink-soft">
-                        Восстановить версию {item.checkpoint_id}?
+                        {item.restore_action === "restore_legacy_version" ? "Восстановить несвязанную старую версию в выбранном legacy-цикле?" : `Восстановить версию ${item.checkpoint_id} в выбранном цикле?`}
                       </span>
                       <button
                         type="button"
                         onClick={() => restore(item)}
-                        disabled={busy}
+                        disabled={busy || locked}
                         className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40"
                       >
                         {busy ? "Восстанавливаю…" : "Да, восстановить"}
@@ -1171,7 +1184,7 @@ function AdjustmentHistory() {
                           setConfirmingId(null);
                           setError(null);
                         }}
-                        disabled={busy}
+                        disabled={busy || locked}
                         className="rounded-lg border border-surface-border px-3 py-1.5 text-xs text-ink-soft transition hover:bg-surface-muted disabled:opacity-40"
                       >
                         Отмена
@@ -1180,6 +1193,7 @@ function AdjustmentHistory() {
                   ) : (
                     <button
                       type="button"
+                      disabled={locked}
                       onClick={() => {
                         setConfirmingId(item.checkpoint_id);
                         setError(null);

@@ -27,7 +27,7 @@ def _read_context(
     )
 
 
-def current_cycle_context(db: Database) -> dict[str, Any]:
+def current_plan_snapshot(db: Database) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Capture athlete day and all selected context on one read transaction."""
     conn = db._connect()
     try:
@@ -35,10 +35,55 @@ def current_cycle_context(db: Database) -> dict[str, Any]:
         store = PlanningCycleStore(conn)
         selection = store.state()
         day, zone = athlete_local_date(), Settings.ATHLETE_TIMEZONE
-        return _read_context(store, selection, selection["current_cycle_id"], day, zone, store.has_history())
+        context = _read_context(store, selection, selection["current_cycle_id"], day, zone, store.has_history())
+        return context, db._get_current_planning_checkpoint(conn)
     finally:
         conn.rollback()
         conn.close()
+
+
+def current_cycle_context(db: Database) -> dict[str, Any]:
+    """Public state uses the same coherent snapshot as every current reader."""
+    return current_plan_snapshot(db)[0]
+
+
+def actionable(context: Mapping[str, Any]) -> bool:
+    return context["state"] in {"scheduled", "in_progress"} and context["is_selected"]
+
+
+def session_checkpoint(db: Database, session_id: str, *, include_retired: bool = True) -> dict[str, Any] | None:
+    """Explicit session history, independent of current selection or period.
+
+    The latest immutable version containing this exact ID is the historical
+    context; modern IDs cannot cross cycle namespaces. Never selects a cycle.
+    """
+    from models.plan_actual_reconciliation import find_planned_session
+    from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+
+    current_reader = getattr(db, "get_current_planning_checkpoint", None)
+    selected = current_reader() if callable(current_reader) else None
+    plan = restore_goal_plan_from_checkpoint(selected) or {}
+    if find_planned_session(plan.get("session_templates") or [], session_id)[1] is not None:
+        return selected
+    reader = getattr(db, "get_planning_checkpoints_for_session", None)
+    if callable(reader):
+        historical = next(iter(reader(session_id)), None)
+        if historical:
+            if not include_retired and selected is not None and hasattr(db, "_connect"):
+                conn = db._connect()
+                try:
+                    store = PlanningCycleStore(conn)
+                    if store.version_cycle(historical["id"]) == store.version_cycle(selected["id"]):
+                        return None
+                finally:
+                    conn.close()
+            return historical
+    match_reader = getattr(db, "get_latest_plan_actual_match_for_session", None)
+    match = match_reader(session_id) if callable(match_reader) else None
+    if match and match.get("base_checkpoint_id") is not None:
+        return db.get_planning_checkpoint(match["base_checkpoint_id"])
+    return None
+
 
 
 def historical_cycle_context(db: Database, cycle_id: str) -> dict[str, Any]:
@@ -64,6 +109,45 @@ def cycle_history(db: Database, *, limit: int = 50) -> list[dict[str, Any]]:
         day, zone, history = athlete_local_date(), Settings.ATHLETE_TIMEZONE, store.has_history()
         return [_read_context(store, selection, cycle_id, day, zone, history, historical=True)
                 for cycle_id in store.cycle_ids(limit)]
+    finally:
+        conn.rollback()
+        conn.close()
+
+
+def checkpoint_history(db: Database, *, limit: int = 10) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """History ownership and restore eligibility are server-owned read hints.
+
+    Confirm still rechecks its expected cycle/selection/head under the writer
+    lock. Unassigned legacy rows are never associated by browsing them.
+    """
+    from data.planning_cycle_writes import check_restore_owner
+    from models.planning_build_confirmation import PlanningBuildPreviewError
+
+    conn = db._connect()
+    try:
+        conn.execute("BEGIN")
+        store = PlanningCycleStore(conn)
+        selection = store.state()
+        context = _read_context(store, selection, selection["current_cycle_id"], athlete_local_date(),
+                                Settings.ATHLETE_TIMEZONE, store.has_history())
+        rows = conn.execute("SELECT id,goal_type,distance,weeks_to_race,checkpoint_data,created_at "
+                            "FROM planning_checkpoints ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        result = []
+        for row in rows:
+            checkpoint = db._deserialize_planning_checkpoint_row(row)
+            if checkpoint is None:
+                continue
+            owner = store.version_cycle(row[0])
+            legacy = owner is None
+            can_restore = actionable(context) and row[0] != context["checkpoint_id"]
+            if can_restore:
+                try:
+                    check_restore_owner(conn, context, row[0], legacy=legacy)
+                except PlanningBuildPreviewError:
+                    can_restore = False
+            result.append({"checkpoint": checkpoint, "cycle_id": owner, "can_restore": can_restore,
+                           "restore_action": "restore_legacy_version" if legacy else "restore_version"})
+        return context, result
     finally:
         conn.rollback()
         conn.close()

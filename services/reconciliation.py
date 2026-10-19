@@ -15,11 +15,13 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict
 
 from data.database import Database
+from services.planning_cycles import current_plan_snapshot
 from models.plan_actual_reconciliation import build_reconciliation
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.session_identity import ensure_session_identities
 
 
+_UNSET = object()
 _MAX_LOCAL_RECONCILIATION_WEEKS = 16
 _MAX_PROVIDER_RECONCILIATION_WEEKS = 12
 
@@ -66,9 +68,9 @@ def reconciliation_at(
     weeks: int = 1,
     as_of: date | str | None = None,
     include_provider: bool = True,
-    checkpoint: dict[str, Any] | None = None,
+    checkpoint: dict[str, Any] | None | object = _UNSET,
 ) -> Dict[str, Any]:
-    latest = checkpoint if checkpoint is not None else db.get_latest_planning_checkpoint()
+    latest = current_plan_snapshot(db)[1] if checkpoint is _UNSET else checkpoint
     goal_plan = restore_goal_plan_from_checkpoint(latest)
     if not goal_plan or not goal_plan.get("daily_plan"):
         return {"has_plan": False, "rows": [], "unplanned_activities": []}

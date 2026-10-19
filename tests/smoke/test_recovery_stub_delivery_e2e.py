@@ -16,7 +16,7 @@ Targetless event не эмитируется. Это regression-lock: если g
 from __future__ import annotations
 from tests.planning_fixtures import seed_checkpoint
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 import pytest
@@ -90,8 +90,10 @@ def _stub_plan() -> dict[str, Any]:
     }
 
 
-def test_recovery_stub_delivery_fails_closed_no_targetless_event(tmp_path) -> None:
+def test_recovery_stub_delivery_fails_closed_no_targetless_event(tmp_path, monkeypatch) -> None:
     """Production-доставка stub-сессии 07-30: fail-closed, provider ничего не получает."""
+    from tests.planning_fixtures import pin_day
+    pin_day(monkeypatch, date(2026, 7, 30))
     from services.intervals_plan_delivery import safe_deliver_active_plan
 
     db = Database(str(tmp_path / "stub_delivery.db"))

@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import Any, Mapping
 
 from data.database import Database
+from services.planning_cycles import session_checkpoint
 from models.session_projection import build_session_projection
 from models.plan_actual_reconciliation import (
     iter_parent_sessions,
@@ -26,7 +27,7 @@ def _date_text(value: Any) -> str | None:
 
 def _planned_session_date(db: Database, session_id: str) -> str | None:
     """Resolve a session's plan date without widening the evidence window."""
-    plan = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+    plan = restore_goal_plan_from_checkpoint(session_checkpoint(db, session_id))
     if not plan:
         return None
     plan = ensure_session_identities(plan)
@@ -68,6 +69,7 @@ def session_projection_at(
         weeks=weeks,
         as_of=resolved_as_of,
         include_provider=False,
+        checkpoint=session_checkpoint(db, session_id),
     )
     return session_projection_from_reconciliation(
         db,
@@ -127,7 +129,7 @@ def _effective_match_revision(
     if current is not None:
         return current
 
-    checkpoint = db.get_latest_planning_checkpoint()
+    checkpoint = session_checkpoint(db, session_id)
     plan = restore_goal_plan_from_checkpoint(checkpoint)
     if not plan:
         return None

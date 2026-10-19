@@ -131,9 +131,10 @@ def test_week_reader_is_one_server_owned_snapshot_with_truthful_states(tmp_path,
 
     monkeypatch.setattr(ps, "reconciliation_at", reconciliation_snapshot)
 
+    checkpoint = db.get_current_planning_checkpoint()
     payload = ps.week_by_week_plan(db)
 
-    assert calls == [{"weeks": 16, "as_of": today, "include_provider": False}]
+    assert calls == [{"weeks": 16, "as_of": today, "include_provider": False, "checkpoint": checkpoint}]
     assert payload["state"] == "available"
     assert payload["chart"]["metric"] == "tss"
     assert len([week for week in payload["weeks"] if week["is_current"]]) == 1
@@ -198,12 +199,13 @@ def test_week_reader_long_window_keeps_full_ordinals_and_matching_coverage(monke
             daily_plan.append((datetime.combine(day, datetime.min.time()), 10.0, {"run": 10.0}))
             templates.append({"date": day.isoformat()})
     calls: list[dict] = []
-    monkeypatch.setattr(ps, "get_active_plan", lambda _db: {"daily_plan": daily_plan, "session_templates": templates, "weekly_summary": weekly_summary, "events": []})
+    db = Database(str(tmp_path / "long-window.db"))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint({"daily_plan": daily_plan, "session_templates": templates, "weekly_summary": weekly_summary, "events": []}))
     monkeypatch.setattr(ps, "reconciliation_at", lambda *_args, **kwargs: calls.append(kwargs) or {"rows": [], "unplanned_activities": [], "data_quality": {}})
 
-    payload = ps.week_by_week_plan(Database(str(tmp_path / "long-window.db")))
+    payload = ps.week_by_week_plan(db)
 
-    assert calls == [{"weeks": 16, "as_of": today, "include_provider": False}]
+    assert calls == [{"weeks": 16, "as_of": today, "include_provider": False, "checkpoint": checkpoint}]
     assert len(payload["weeks"]) == 16
     assert payload["weeks"][0]["number"] == 5
     assert payload["weeks"][-1]["number"] == 20

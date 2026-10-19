@@ -19,6 +19,7 @@ import pandas as pd
 
 from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
+from services.planning_cycles import current_plan_snapshot, actionable, checkpoint_history
 from data.planning_cycles import PlanningCycleStore
 from services.planning_cycle_build import capture_lifecycle, scoped_constraints, bound_prescriptions
 from data.planning_cycle_writes import write_token, check_restore_owner
@@ -327,15 +328,18 @@ def planning_edit_context(db: Database) -> Dict[str, Any]:
     saved availability, events, demand), so the browser never maps domain
     labels itself. No writes, no provider I/O; missing data is an explicit gap.
     """
-    latest = db.get_latest_planning_checkpoint()
+    context, latest = current_plan_snapshot(db)
+    if not actionable(context):
+        return {"has_plan": latest is not None, "state": "data_gap", "reason": "Редактирование выбранного цикла недоступно.", "inputs": None, "cycle_context": context}
     if not isinstance(latest, dict) or not latest.get("goal_plan_snapshot"):
-        return {"has_plan": False, "state": "data_gap", "reason": "Активного плана нет.", "inputs": None}
+        return {"has_plan": False, "state": "data_gap", "reason": "Активного плана нет.", "inputs": None, "cycle_context": context}
     goal_plan = restore_goal_plan_from_checkpoint(latest)
     if goal_plan is None:
         return {
             "has_plan": True,
             "state": "data_gap",
             "reason": "Активный checkpoint не удаётся восстановить.",
+            "cycle_context": context,
             "inputs": None,
         }
 
@@ -357,6 +361,7 @@ def planning_edit_context(db: Database) -> Dict[str, Any]:
             "has_plan": True,
             "state": "data_gap",
             "reason": "В checkpoint нет достаточных входов для редактирования.",
+            "cycle_context": context,
             "inputs": None,
         }
 
@@ -364,6 +369,7 @@ def planning_edit_context(db: Database) -> Dict[str, Any]:
         "has_plan": True,
         "state": "available",
         "reason": None,
+        "cycle_context": context,
         "inputs": {
             "goal_type": goal_type,
             "distance": distance,
@@ -544,8 +550,9 @@ def _apply_active_coach_constraints(
 def current_status(db: Database) -> Dict[str, Any]:
     signals, _df = _current_signals(db)
     metrics = _metrics_from_signals(signals)
-    checkpoint = summarize_planning_checkpoint(db.get_latest_planning_checkpoint())
-    today = athlete_local_date()
+    context, selected_checkpoint = current_plan_snapshot(db)
+    checkpoint = summarize_planning_checkpoint(selected_checkpoint)
+    today = date.fromisoformat(context["athlete_day"])
     active_constraints = db.get_coach_constraints(
         start_date=today.isoformat(),
         end_date=(today + timedelta(days=30)).isoformat(),
@@ -564,6 +571,8 @@ def current_status(db: Database) -> Dict[str, Any]:
         "active_constraint_count": len(active_constraints),
         "active_constraints": active_constraints,
         "has_plan": checkpoint is not None,
+        "has_actionable_plan": checkpoint is not None and actionable(context),
+        "cycle_context": context,
         "checkpoint": checkpoint,
         "demand": demand_profile(_persisted_demand_level(db)),
         "demand_options": demand_options(),
@@ -1079,12 +1088,12 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
     This is deliberately a checkpoint-only read. In particular it does not
     discover events or ask an activity provider for new execution evidence.
     """
-    checkpoint = db.get_latest_planning_checkpoint()
+    context, checkpoint = current_plan_snapshot(db)
     goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
     if not checkpoint or not goal_plan:
-        return {"has_plan": False}
+        return {"has_plan": False, "has_actionable_plan": False, "cycle_context": context}
 
-    today = athlete_local_date()
+    today = date.fromisoformat(context["athlete_day"])
     planning_mode = str(goal_plan.get("planning_mode") or "").strip() or "training_goal"
     events = [dict(item) for item in list(goal_plan.get("events") or []) if isinstance(item, dict)]
     confirmed_a_event = next(
@@ -1112,31 +1121,9 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
         for row in list(goal_plan.get("weekly_summary") or [])
         if isinstance(row, dict)
     ]
-    current_index: int | None = None
     parsed_week_starts = [_overview_date(row.get("week_start")) for row in weekly_rows]
-    for index, week_start in enumerate(parsed_week_starts):
-        if week_start and week_start <= today < week_start + timedelta(days=7):
-            current_index = index
-            break
-    if current_index is None:
-        future_indexes = [
-            index for index, week_start in enumerate(parsed_week_starts) if week_start and week_start > today
-        ]
-        if future_indexes:
-            current_index = future_indexes[0]
-        elif weekly_rows:
-            current_index = len(weekly_rows) - 1
-
-    current_week: Dict[str, Any] | None = None
-    if current_index is not None:
-        row = weekly_rows[current_index]
-        week_start = parsed_week_starts[current_index]
-        current_week = {
-            "number": current_index + 1,
-            "phase": str(row.get("phase") or "").strip() or None,
-            "week_start": week_start.isoformat() if week_start else None,
-            "weekly_tss": _overview_int(row.get("weekly_tss")),
-        }
+    current_week = context["current_week"]
+    current_index = current_week["number"] - 1 if current_week else None
 
     completed_weeks = sum(
         1
@@ -1210,6 +1197,9 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
 
     return {
         "has_plan": True,
+        "has_actionable_plan": actionable(context),
+        "cycle_context": context,
+        "last_week": context["last_week"],
         "goal": goal,
         "timeline": timeline,
         "current_week": current_week,
@@ -1217,7 +1207,7 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
             "completed_weeks": min(completed_weeks, total_weeks),
             "total_weeks": total_weeks,
             "status": progress_status,
-            "status_label": "План завершён" if progress_status == "completed" else "Активный план",
+            "status_label": {"period_ended": "Период закончился", "scheduled": "Цикл запланирован", "in_progress": "Подготовка идёт", "indeterminate": "Состояние цикла не определено"}.get(context["state"], "Текущего цикла нет"),
         },
         "execution": execution,
         "roadmap": roadmap,
@@ -2033,7 +2023,8 @@ def _forecast(
 # Active plan access (restored from the latest persisted checkpoint)
 # ---------------------------------------------------------------------------
 def get_active_plan(db: Database) -> Optional[Dict[str, Any]]:
-    plan = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+    context, checkpoint = current_plan_snapshot(db)
+    plan = restore_goal_plan_from_checkpoint(checkpoint) if actionable(context) else None
     return ensure_session_identities(plan) if plan else None
 
 
@@ -2328,7 +2319,8 @@ def _week_by_week_window(
 
 def week_by_week_plan(db: Database) -> Dict[str, Any]:
     """Build one bounded plan/fact reader DTO from saved canonical projections."""
-    goal_plan = get_active_plan(db)
+    context, checkpoint = current_plan_snapshot(db)
+    goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
     if not goal_plan:
         return {"has_plan": False, "state": "no_plan", "weeks": [], "chart": []}
     if not list(goal_plan.get("daily_plan") or []):
@@ -2340,7 +2332,7 @@ def week_by_week_plan(db: Database) -> Dict[str, Any]:
             "chart": [],
         }
 
-    today = athlete_local_date()
+    today = date.fromisoformat(context["athlete_day"])
     weekly_rows: List[tuple[Dict[str, Any], date]] = []
     for raw_week in list(goal_plan.get("weekly_summary") or []):
         if not isinstance(raw_week, dict):
@@ -2370,7 +2362,7 @@ def week_by_week_plan(db: Database) -> Dict[str, Any]:
         db,
         weeks=_WEEK_BY_WEEK_RECONCILIATION_WEEKS,
         as_of=today,
-        include_provider=False,
+        include_provider=False, checkpoint=checkpoint,
     )
     matches = {
         str(row.get("session_id")): dict(row)
@@ -2886,12 +2878,11 @@ def record_plan_actual_match(
     action: str,
     client_request_id: str | None = None,
 ) -> Dict[str, Any]:
-    latest = db.get_latest_planning_checkpoint()
-    latest_id = int(latest.get("id")) if latest and latest.get("id") is not None else 0
-    if latest_id != int(base_checkpoint_id):
-        raise StalePlanningCheckpointError(
-            f"active checkpoint #{latest_id or 'none'} no longer matches match base #{base_checkpoint_id}"
-        )
+    # A factual correction is explicitly checkpoint-bound, even after closing.
+    latest_id = int(base_checkpoint_id)
+    latest = db.get_planning_checkpoint(latest_id)
+    if latest is None:
+        raise ValueError("planning checkpoint not found")
     goal_plan = ensure_session_identities(restore_goal_plan_from_checkpoint(latest) or {})
     template, session = find_planned_session(goal_plan.get("session_templates", []) or [], session_id)
     if template is None or session is None:
@@ -3484,9 +3475,10 @@ def deliver_intervals_plan(
 
 
 def planning_history(db: Database, limit: int = 10) -> Dict[str, Any]:
-    checkpoints = db.get_recent_planning_checkpoints(limit=max(1, min(int(limit or 10), 50)))
+    context, rows = checkpoint_history(db, limit=max(1, min(int(limit or 10), 50)))
     items: List[Dict[str, Any]] = []
-    for checkpoint in checkpoints:
+    for row in rows:
+        checkpoint = row["checkpoint"]
         summary = summarize_planning_checkpoint(checkpoint)
         if not summary:
             continue
@@ -3509,6 +3501,9 @@ def planning_history(db: Database, limit: int = 10) -> Dict[str, Any]:
             outcome = str(summary.get("headline") or provenance.get("detail") or "План сохранён")
         items.append(
             {
+                "cycle_id": row["cycle_id"],
+                "can_restore": row["can_restore"],
+                "restore_action": row["restore_action"],
                 "checkpoint_id": summary.get("checkpoint_id"),
                 "date": str(checkpoint.get("created_at") or ""),
                 "date_label": summary.get("created_at_label") or "",
@@ -3526,7 +3521,7 @@ def planning_history(db: Database, limit: int = 10) -> Dict[str, Any]:
                 "peak_tss": summary.get("peak_tss"),
             }
         )
-    return {"has_history": bool(items), "items": items}
+    return {"has_history": bool(items), "items": items, "cycle_context": context}
 
 
 def restore_history_version(

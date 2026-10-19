@@ -587,7 +587,7 @@ def test_duplicate_targets_dedup_with_stable_order_and_one_probe_per_distinct_da
 # ---------------------------------------------------------------------------
 
 
-def test_unknown_absent_and_future_dated_targets_fail_closed(tmp_path, monkeypatch):
+def test_unknown_future_refuse_but_explicit_matched_history_remains_available(tmp_path, monkeypatch):
     from services import reconciliation as reconciliation_service
 
     db = Database(str(tmp_path / "fail-closed.db"))
@@ -620,17 +620,14 @@ def test_unknown_absent_and_future_dated_targets_fail_closed(tmp_path, monkeypat
     assert by_id[future_session_id]["status"] == "not_found"
     assert by_id[future_session_id]["reason"] == "target_date_after_as_of"
 
-    # stale_session_id belongs to a superseded (non-active) checkpoint, so it
-    # is also absent from the currently active checkpoint's templates.
-    assert by_id[stale_session_id]["status"] == "not_found"
-    assert by_id[stale_session_id]["reason"] == "session_not_found_in_active_checkpoint"
-
-    assert result["created"] == 0
-    assert sorted(result["not_found"]) == sorted(
-        ["totally-unknown-id", stale_session_id, future_session_id]
-    )
-    assert calls == []  # no probe attempted for any failed-closed target
-    assert db.get_recovery_episodes(latest_only=True) == []
+    # S2: an explicit matched historical session remains factual context. It
+    # can refresh its episode without selecting its superseded checkpoint.
+    assert by_id[stale_session_id]["status"] == "created"
+    assert result["created"] == 1
+    assert sorted(result["not_found"]) == sorted(["totally-unknown-id", future_session_id])
+    assert len(calls) == 1
+    assert db.get_current_planning_checkpoint()["id"] == future_checkpoint["id"]
+    assert len(db.get_recovery_episodes(latest_only=True)) == 1
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 """#673: real saved evidence, parent identity and canonical freshness."""
-from tests.planning_fixtures import seed_checkpoint
+from tests.planning_fixtures import seed_checkpoint, pin_day
 from copy import deepcopy
 from datetime import timedelta
 
@@ -64,7 +64,8 @@ def test_two_parent_day_preserves_completed_bike_and_unobserved_run(tmp_path):
         assert fact["evidence_revision"] == projection["evidence_revision"]
 
 
-def test_real_today_snapshot_uses_independent_parents(tmp_path):
+def test_real_today_snapshot_uses_independent_parents(tmp_path, monkeypatch):
+    pin_day(monkeypatch, DAY)
     db, _, _, ids = _database(tmp_path)
     today = build_today_decision_snapshot(db, today=DAY)
     assert today["decision_story"]["next_action"]["kind"] == "follow_plan"

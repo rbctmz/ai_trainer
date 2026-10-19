@@ -14,7 +14,7 @@ data AND no pending proposal AND no open conflict. Any doubt keeps the
 full brief (a false "not quiet" is cheap; a hidden conflict is not).
 """
 from __future__ import annotations
-from tests.planning_fixtures import seed_checkpoint
+from tests.planning_fixtures import seed_checkpoint, pin_day
 
 from datetime import date, datetime, timedelta
 
@@ -166,6 +166,7 @@ def test_briefing_defaults_to_daily_and_marks_a_silent_day_quiet(tmp_path, monke
     from api.routers.today import today_view
 
     today = date(2026, 7, 10)
+    pin_day(monkeypatch, today)
     db = Database(str(tmp_path / "quiet-default.db"))
     seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today, target_role="easy")))
     day_session = _session(today, role="easy")
@@ -182,6 +183,7 @@ def test_briefing_frequency_setting_persists_and_reflects_in_today(tmp_path, mon
     from api.routers.today import today_view
 
     today = date(2026, 7, 10)
+    pin_day(monkeypatch, today)
     db = Database(str(tmp_path / "quiet-conflicts-only.db"))
     db.set_user_setting("briefing_frequency", "conflicts_only")
     seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today, target_role="easy")))
@@ -202,6 +204,7 @@ def test_briefing_is_never_quiet_on_a_conflict_day(tmp_path, monkeypatch) -> Non
     from api.routers.today import today_view
 
     today = date(2026, 7, 10)
+    pin_day(monkeypatch, today)
     db = Database(str(tmp_path / "quiet-conflict.db"))
     db.set_user_setting("briefing_frequency", "conflicts_only")
     seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today, target_role="quality")))
@@ -228,6 +231,7 @@ def test_briefing_is_never_quiet_while_a_pending_proposal_survives_a_later_silen
     from api.routers.today import today_view
 
     today = date(2026, 7, 10)
+    pin_day(monkeypatch, today)
     db = Database(str(tmp_path / "quiet-pending-proposal.db"))
     db.set_user_setting("briefing_frequency", "conflicts_only")
     checkpoint = seed_checkpoint(db, build_planning_checkpoint(_goal_plan(today)))

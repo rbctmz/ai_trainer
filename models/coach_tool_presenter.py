@@ -835,12 +835,17 @@ def format_tool_result(tool_name: str, data: Any) -> str:
         if not data.get("has_plan"):
             return f"ℹ️ **{data.get('message', 'Активный план не найден')}**"
 
+        context = data.get("cycle_context") or {}
+        state_label = {"period_ended": "Период закончился", "scheduled": "Цикл запланирован",
+                       "in_progress": "Подготовка идёт", "indeterminate": "Состояние цикла не определено"}.get(context.get("state"))
+        cycle_block = (f"Состояние: {state_label}. Период: {context.get('start_date')} — {context.get('end_date')}. "
+                       "Календарные даты не доказывают выполнение или участие в старте.") if state_label else ""
         goal = data.get("goal", {}) or {}
         timeline = data.get("timeline", {}) or {}
         current = data.get("current_week")
         totals = data.get("totals", {}) or {}
         weeks = data.get("weeks_preview", []) or []
-        events = [event for event in data.get("events", []) or [] if isinstance(event, dict)]
+        events = [event for event in (context.get("events") or data.get("events", [])) or [] if isinstance(event, dict)]
 
         goal_line = " ".join(part for part in [goal.get("goal_type"), goal.get("distance")] if part) or "н/д"
         race_date = goal.get("event_date") or timeline.get("plan_end")
@@ -851,6 +856,7 @@ def format_tool_result(tool_name: str, data: Any) -> str:
                 f"• {str(event.get('priority') or '—').upper()} · "
                 f"{event.get('label') or 'Старт'} — "
                 f"{format_date_label(event.get('date'), 'weekday_short')}"
+                + (f" · исход: {dict(unspecified='не указан', did_not_participate='не участвовал', participated='участвовал').get(event.get('outcome'), 'не указан')}" if context else "")
                 for event in events
             ]
             events_block = "\n".join(event_lines)
@@ -868,6 +874,8 @@ def format_tool_result(tool_name: str, data: Any) -> str:
         elif timeline.get("status") == "not_started":
             start_label = format_date_label(timeline.get("plan_start"), "weekday_short")
             current_block = f"### 📍 План ещё не начался (старт {start_label})"
+        elif context.get("state") == "period_ended":
+            current_block = "### 📍 Период закончился; текущей недели нет"
         elif timeline.get("status") == "completed":
             current_block = "### 📍 План завершён"
         else:
@@ -886,7 +894,8 @@ def format_tool_result(tool_name: str, data: Any) -> str:
             weeks_section = "Нет разбивки по неделям."
 
         return f"""
-## 🗓️ Активный план
+## 🗓️ {"Выбранный план" if context else "Активный план"}
+{cycle_block}
 
 ### 🎯 Цель:
 • {goal_line}

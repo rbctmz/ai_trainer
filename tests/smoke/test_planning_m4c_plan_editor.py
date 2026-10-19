@@ -94,12 +94,10 @@ def test_edit_context_without_plan_is_data_gap(tmp_path):
 
     result = ps.planning_edit_context(db)
 
-    assert result == {
-        "has_plan": False,
-        "state": "data_gap",
-        "reason": "Активного плана нет.",
-        "inputs": None,
-    }
+    assert result["has_plan"] is False
+    assert result["state"] == "data_gap"
+    assert result["inputs"] is None
+    assert result["cycle_context"]["state"] == "no_current"
 
 
 def test_m4c_plan_builder_component_exists_with_four_steps():
@@ -120,13 +118,13 @@ def test_m4c_plan_builder_component_exists_with_four_steps():
     assert "Подтвердить и сохранить" in builder
 
 
-def test_m4c_builder_hydrates_once_and_uses_edit_context():
+def test_m4c_builder_hydrates_once_from_canonical_cycle_context():
     builder = BUILDER.read_text(encoding="utf-8")
     page = PAGE.read_text(encoding="utf-8")
 
     assert "hydrated.current" in builder
     assert "revalidateOnFocus: false" in builder
-    assert "/api/planning/edit-context" in builder
+    assert "/api/planning/build-context" in builder
     assert "PlanBuilder" in page
     assert "hasPlan" in page
     assert "Изменить план" in page
@@ -145,5 +143,5 @@ def test_m4c_builder_offers_next_step_after_confirm():
 def test_m4c_builder_preserves_plan_calendar_on_edit():
     builder = BUILDER.read_text(encoding="utf-8")
 
-    assert "start_week" in builder
-    assert "start_week: startWeek" in builder
+    assert "start_date" in builder
+    assert "start_date: startDate" in builder

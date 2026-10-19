@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from typing import Dict, Any, List, Mapping, Optional
 from api import planning_service
 from data.database import Database
+from services.planning_cycles import current_plan_snapshot, actionable, session_checkpoint
 from models.banister import tsb_zone
 from models.hrv_analyzer import HRVAnalyzer
 from models.plan_events import normalized_events
@@ -1844,7 +1845,7 @@ class AITools:
         return proposal
 
     def _active_checkpoint_id_or_zero(self) -> int:
-        latest = self.db.get_latest_planning_checkpoint()
+        latest = self.db.get_current_planning_checkpoint()
         if isinstance(latest, dict) and latest.get("id") is not None:
             return int(latest.get("id"))
         return 0
@@ -2276,9 +2277,11 @@ class AITools:
     
     def get_active_plan(self) -> Dict[str, Any]:
         """Получить активный тренировочный план из последнего checkpoint."""
-        goal_plan = restore_goal_plan_from_checkpoint(self.db.get_latest_planning_checkpoint())
+        context, checkpoint = current_plan_snapshot(self.db)
+        goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
         if not goal_plan:
-            return {"has_plan": False, "message": "Активный план не найден. Пользователь ещё не построил план."}
+            return {"has_plan": False, "has_actionable_plan": False, "cycle_context": context, "current_week": None,
+                    "message": "Текущего цикла нет. История сохраняется; новый цикл требует явного выбора."}
 
         weekly_tss_plan = list(goal_plan.get("weekly_tss_plan") or [])
         events = normalized_events(goal_plan.get("events"))
@@ -2298,7 +2301,7 @@ class AITools:
             except (TypeError, ValueError):
                 return None
 
-        today = athlete_local_date()
+        today = date.fromisoformat(context["athlete_day"])
         total_weeks = max(len(weekly_tss_plan), len(weekly_summary_raw))
 
         start_week = _as_date(goal_plan.get("start_week"))
@@ -2353,6 +2356,8 @@ class AITools:
             }
 
         current_week = None
+        if context["current_week"] is None:
+            current_index = None
         if current_index is not None:
             current_week = {**_week_payload(current_index), "index": current_index + 1}
             current_week.pop("week", None)
@@ -2374,6 +2379,9 @@ class AITools:
 
         return {
             "has_plan": True,
+            "has_actionable_plan": actionable(context),
+            "cycle_context": context,
+            "last_week": context["last_week"],
             "goal": {
                 "goal_type": str(goal_plan.get("goal_type") or ""),
                 "distance": str(goal_plan.get("distance") or ""),
@@ -2398,9 +2406,11 @@ class AITools:
 
     def get_upcoming_workouts(self, days: int = 7) -> Dict[str, Any]:
         """Получить ближайшие плановые тренировки из активного плана."""
-        goal_plan = restore_goal_plan_from_checkpoint(self.db.get_latest_planning_checkpoint())
+        context, checkpoint = current_plan_snapshot(self.db)
+        goal_plan = restore_goal_plan_from_checkpoint(checkpoint) if actionable(context) else None
         if not goal_plan:
-            return {"has_plan": False, "message": "Активный план не найден."}
+            return {"has_plan": checkpoint is not None, "has_actionable_plan": False,
+                    "cycle_context": context, "sessions": [], "workouts": [], "message": "В текущем цикле нет доступных назначений."}
 
         daily_plan = list(goal_plan.get("daily_plan") or [])
         templates = list(goal_plan.get("session_templates") or [])
@@ -2537,7 +2547,7 @@ class AITools:
                 "sessions": [],
             }
 
-        return {"has_plan": True, "days": days, "sessions": sessions}
+        return {"has_plan": True, "has_actionable_plan": True, "cycle_context": context, "days": days, "sessions": sessions}
 
     def get_workout_structure(
         self,
@@ -2559,9 +2569,11 @@ class AITools:
                 "error": "Укажи date (YYYY-MM-DD) или session_id из get_upcoming_workouts.",
             }
 
-        goal_plan = restore_goal_plan_from_checkpoint(
-            self.db.get_latest_planning_checkpoint()
-        )
+        context, checkpoint = current_plan_snapshot(self.db)
+        if requested_session:
+            checkpoint = session_checkpoint(self.db, requested_session)
+        # An explicit date inspects this selected readable version, including an ended period.
+        goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
         if not goal_plan:
             return {"has_plan": False, "message": "Активный план не найден."}
 

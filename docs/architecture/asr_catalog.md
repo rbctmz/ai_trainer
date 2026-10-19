@@ -80,8 +80,9 @@ sessions/legs и фактические календарные границы. �
 для остальных prescription writers и explicit restore ownership; independent
 review `5bd782e..cc8d900` READY, 642 focused GREEN; author pinned contributor-safe
 3645 passed / 14 skipped / 68 deselected с теми же четырьмя M4 reader exclusions.
-Shared current/history readers, provider selection и isolated browser tests
-остаются M4; это не GREEN всей S2. Независимый M2 review: READY после
+M4 реализует shared current/history readers, provider selection до I/O и UI;
+29 isolated M4/S1 browser checks GREEN на synthetic SQLite, независимое M4 review
+и frozen full-suite ещё ожидаются. Это не GREEN всей S2. Независимый M2 review: READY после
 scoped correction `69a2623` (DELETE guard immutable associations + atomic reset),
 77 focused GREEN. Contributor-safe contour с явным исключением M1 RED-модулей:
 3427 passed / 14 skipped / 64 deselected; отдельный merge не разрешён.

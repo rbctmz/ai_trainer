@@ -391,6 +391,7 @@ export interface CoachNarrativeEvidenceGate {
 export type CoachEvent =
   | {
       type: "meta";
+      cycle_context?: CycleContext;
       chat_id: string;
       readiness_snapshot?: ReadinessSnapshot;
       readiness_conflicts?: Record<string, unknown>;
@@ -875,6 +876,11 @@ export interface CoachConstraint {
   created_at?: string | null;
 }
 
+export interface PlanningConstraintsResponse {
+  count: number;
+  constraints: CoachConstraint[];
+}
+
 export interface ConstraintApplication {
   applied_count: number;
   protected_dates: string[];
@@ -887,6 +893,8 @@ export interface ConstraintApplication {
 }
 
 export interface PlanningStatus {
+  cycle_context?: CycleContext;
+  has_actionable_plan?: boolean;
   metrics: { ctl: number; atl: number; tsb: number; form: string };
   readiness_snapshot?: ReadinessSnapshot;
   active_constraint_count?: number;
@@ -927,6 +935,8 @@ export interface PlanScienceAudit {
 
 /** Read-only projection of the persisted active checkpoint for Planning M1. */
 export interface PlanningOverview {
+  cycle_context?: CycleContext;
+  has_actionable_plan?: boolean;
   has_plan: boolean;
   goal?: {
     goal_type: string | null;
@@ -1160,6 +1170,7 @@ export interface RestoreHistoryResult {
 
 /** Read-only build inputs of the active checkpoint for the edit stepper (M4c). */
 export interface PlanningEditContext {
+  cycle_context?: CycleContext;
   has_plan: boolean;
   state: "available" | "data_gap" | string;
   reason: string | null;
@@ -1926,6 +1937,9 @@ export interface AdjustResult {
 }
 
 export interface PlanningHistoryItem {
+  cycle_id?: string | null;
+  can_restore?: boolean;
+  restore_action?: "restore_version" | "restore_legacy_version";
   checkpoint_id: number | null;
   date: string;
   date_label: string;
@@ -1940,6 +1954,7 @@ export interface PlanningHistoryItem {
 }
 
 export interface PlanningHistory {
+  cycle_context?: CycleContext;
   has_history: boolean;
   items: PlanningHistoryItem[];
 }
@@ -2320,6 +2335,8 @@ export interface TodayDecisionStory {
 }
 
 export interface TodayResponse {
+  cycle_context?: CycleContext;
+  has_actionable_plan?: boolean;
   decision_story: TodayDecisionStory;
   subjective_wellness?: SubjectiveWellness | null;
   snapshot_version: "today_decision_snapshot_v2" | string;

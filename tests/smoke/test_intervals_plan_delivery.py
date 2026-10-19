@@ -1,7 +1,7 @@
 """Contract-first tests for deterministic Intervals.icu plan delivery."""
 from __future__ import annotations
 from tests.planning_fixtures import build_plan as fixture_build_plan
-from tests.planning_fixtures import seed_checkpoint
+from tests.planning_fixtures import seed_checkpoint, pin_day
 
 from datetime import date, datetime, timezone
 
@@ -10,6 +10,11 @@ import pytest
 from data.database import Database
 from models.planning_checkpoints import build_planning_checkpoint
 from models.session_identity import ensure_session_identities
+
+
+@pytest.fixture(autouse=True)
+def delivery_athlete_day(monkeypatch):
+    pin_day(monkeypatch, date(2026, 7, 15))
 
 
 def _single_plan() -> dict:

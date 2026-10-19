@@ -42,7 +42,8 @@ def _event_plan_db(tmp_path) -> tuple[Database, str]:
 def test_overview_has_no_fake_hero_without_a_plan(tmp_path):
     overview = planning_overview(db=Database(str(tmp_path / "empty.db")))
 
-    assert overview == {"has_plan": False}
+    assert overview["has_plan"] is False
+    assert overview["cycle_context"]["state"] == "no_current"
 
 
 def test_event_plan_overview_uses_confirmed_a_goal_and_checkpoint_timeline(tmp_path):

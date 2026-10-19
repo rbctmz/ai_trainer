@@ -1,6 +1,6 @@
 """Smoke tests: get_active_plan / get_upcoming_workouts see a seeded plan."""
 from __future__ import annotations
-from tests.planning_fixtures import seed_checkpoint
+from tests.planning_fixtures import seed_checkpoint, pin_day
 
 from datetime import date, datetime, timedelta
 
@@ -10,6 +10,11 @@ from data.database import Database
 from models.ai_tools import AITools
 from models.planning_checkpoints import build_planning_checkpoint
 from tests.athlete_clock import athlete_now, athlete_today
+
+@pytest.fixture(autouse=True)
+def actual_athlete_day(monkeypatch):
+    # The synthetic plan's saved work days include Wednesday, not Monday.
+    pin_day(monkeypatch, date(2026, 10, 21))
 
 # ---------------------------------------------------------------------------
 # Helpers

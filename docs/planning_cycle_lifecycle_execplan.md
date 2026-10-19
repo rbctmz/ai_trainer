@@ -1026,3 +1026,99 @@ before/after. Spec review budget exhausted normally; no further full review.
 This final metadata update records that verdict and the exact Domain/API M1
 handoff, not a new implementation change. Draft publication and #693/#677 status
 links are recorded externally after push. Human merge/rollout remains separate.
+
+### M4 Domain → UI handoff (2026-10-19)
+
+User explicitly authorized M4 shared readers, then UI. Domain/API owns the
+first slice on `codex/issue-693-m4-readers-ui`, based on M3c `452ac71`.
+`services/planning_cycles.py::current_plan_snapshot` now captures CycleContext
+and its readable selected checkpoint in one read transaction. Status, overview,
+edit, Today and Coach consume selection; explicit session/checkpoint history
+keeps factual projections and corrections available after closure. Delivery
+checks actionable selection before obtaining a provider. Raw MAX/history and
+private v1 characterization paths remain raw, never selection fallbacks.
+
+Observed: the four original M1 reader assertions now pass (projection/build
+29 GREEN). New tests initially reproduced missing Coach cycle_context and loss
+of explicit session projection after close; one new status assertion used the
+wrong existing summary key (`id` instead of `checkpoint_id`) and was corrected
+as a harness error. Provider tests added after its guard are characterization,
+not claimed RED. Boundary rerun: 132 passed, including original M1, Coach,
+Today and historical facts; expanded domain/broad checks are still running.
+Historical July/October Today/provider fixtures explicitly pin the athlete
+clock; no runtime `today=` override bypasses the lifecycle clock.
+
+Clean role handoff: UI / Design Specialist consumes existing CycleContext,
+CycleBuildContext, expected-context mutation DTOs and CycleCommandResponse
+from `web/lib/types.ts` / `web/lib/planningCycles.ts`. History gains additive
+server-owned cycle_id/can_restore/restore_action hints and cycle_context;
+confirm still checks ownership/CAS. No API semantics/acceptance/CSS decision is
+inferred in the browser. Implementation validation may hand a reproduced
+contract defect back to Domain/API explicitly.
+
+UI brief (Class A, same AC1–AC10, no new product scope): athlete sees actual
+period/state first, can close without declaring an outcome, inspect history,
+correct an explicit event declaration and start a fresh cycle. Expand existing
+Planning panel, four-step builder and history using existing surface/ink/accent
+tokens. Start-new uses canonical inputs, explicit goal/intent choice, actual
+start date and explicit replacement acknowledgement; edit uses saved inputs.
+Preview/cancel remains read-only. Retain original command/preview identity on
+unknown outcome, lock reset/navigation until resolved. Today/Coach render the
+same status without interpreting dates. Unknown constraint scope is explicit
+and offers only athlete/known-cycle resolution.
+
+Named acceptance journeys: expired_unknown_close; close_with_dns; historical
+outcome_correction; start_new_clean/cancel/confirm; replacement_acknowledgement;
+close_lost_response_same_command; build_lost_response_same_preview; empty and
+indeterminate; scope_conflict. Use temporary SQLite/web stack only. Check
+390/900/1280 widths, light/dark, keyboard focus and screenshots. No user
+observation/UX acceptance or complete M4 result is claimed yet.
+
+### M4 implementation checkpoint (2026-10-19, review pending)
+
+Domain/API completed readers before the UI handoff above. UI/Design then wired
+CyclePanel and canonical builder hydration; subsequent isolated checks handed
+three concrete seams back to Domain/API: the Coach presenter still called an
+ended period completed, the legacy cache could reconstruct an inactive plan,
+and week reconciliation needed the exact captured checkpoint. Those corrections
+consume the same approved semantics, with no new acceptance or domain rule.
+The constraints-list response is now mirrored/registered for its existing GET;
+edit-context stays supported/tested but leaves the frontend-call registry
+because the builder now uses canonical build-context. Original S1 payload and
+M1 caller/identity oracles were not regenerated.
+
+Historical distinction: explicit matched historical sessions may refresh factual
+recovery episodes without selecting their checkpoint (AC6); the previous test
+that rejected every superseded ID now proves this access and unchanged selected
+head. A retired, unexecuted session replaced within the selected cycle still
+cannot receive fresh feedback by automatic matching. Its existing match-bound
+facts remain available. No interventions or prescriptions are created by the
+historical reader. Explicit date-based Coach structure inspection may read an
+ended selected snapshot; upcoming-workout assignment remains disabled.
+
+Observed / verified: the new lifecycle UI first passed 8/9, exposing a real
+reset bug: Cancel cleared hydration state but unchanged SWR data did not rerun
+hydration, leaving Next disabled. Corrected cancellation preserves its read-only
+draft; an applied/stale reset reloads context explicitly. Repeated new builders
+use distinct read identities so a cached old selection cannot hydrate a fresh
+new-cycle form. Expanded M4 + S1 browser run: 29 passed in 59.12s, synthetic
+SQLite/ports, provider credentials disabled. Includes 11 new lifecycle cases:
+unknown/DNS closure, historical correction, clean new start, cancel/confirm,
+replacement acknowledgement, unknown scope resolution, close/build lost
+responses with same identity, 390/900/1280 × light/dark and keyboard controls.
+Screenshots live under docs/design/evidence/issue-693; old issue-685 evidence
+is preserved. Owner-observed UX acceptance is not claimed.
+
+Read-side author checks: initial projection/build 29 GREEN; expanded domain
+431 GREEN; after presenter/cache/contract additions 27 targeted GREEN; calendar,
+week boundary and original story checks 69 GREEN. Intermediate broad diagnostics
+were run while files changed: 79 failed then 5 failed, with fixture clocks,
+removed test seams, one test-local missing variable and contract freshness
+corrected explicitly. They are not final current-head evidence. A frozen full
+contributor-safe run and exact-ref independent review follow; no known M4 RED
+is excluded from the final command. Ruff and web lint/build have passed; final
+web check reruns after the final UI change. No rollout, live writes or merge.
+
+M3c nonblocking follow-ups remain assigned in #693: restore error-contract
+polish, writer-specific complete state snapshots and low-level athlete-scope
+validation are not silently folded into this reader/UI milestone.
