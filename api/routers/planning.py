@@ -507,6 +507,7 @@ def planning_session_projection(
     session_id: str,
     weeks: Annotated[int, Query(ge=1, le=12)] = 1,
     as_of: Optional[str] = None,
+    checkpoint_id: Annotated[int | None, Query(ge=1)] = None,
     db: Database = Depends(get_database),
 ) -> dict[str, Any]:
     """Return the canonical provider-free projection for one plan session."""
@@ -516,6 +517,7 @@ def planning_session_projection(
             session_id=session_id,
             as_of=as_of,
             weeks=weeks,
+            checkpoint_id=checkpoint_id,
         )
     except SessionProjectionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="planned session not found") from exc

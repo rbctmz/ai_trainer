@@ -169,6 +169,8 @@ export function PlanBuilder({
     if (hydrated.current || !canonical) return;
     hydrated.current = true;
     setBuildContext(canonical);
+    setChoiceConfirmed(action === "edit_current");
+    setReplaceConfirmed(false);
     const source = canonical.inputs;
     setStartDate(source.start_date);
     setPlanningMode((source.planning_mode ?? "event_goal") as PlanningMode);
@@ -182,7 +184,7 @@ export function PlanBuilder({
     if (source.available_hours !== null) setHours(source.available_hours);
     if (source.available_days.length) setDays(source.available_days);
     setDemand(source.demand ?? "moderate");
-  }, [canonical, hydrationGeneration]);
+  }, [canonical, hydrationGeneration, action]);
 
   const previewKey = useMemo(() => {
     if (!days.length) return null;
@@ -317,7 +319,8 @@ export function PlanBuilder({
       await Promise.allSettled([
         mutate("/api/planning/status"), mutate("/api/planning/overview"),
         mutate("/api/planning/history?limit=8"), mutate("/api/onboarding/planning"),
-        mutate("/api/planning/edit-context"),
+        mutate("/api/planning/edit-context"), mutate("/api/planning/cycles"),
+        mutate("/api/planning/cycles/current"),
       ]);
     } catch (e) {
       const terminal = e instanceof ApiError && ["preview_stale", "preview_invalidated", "preview_expired", "preview_required", "proposal_not_pending", "cycle_stale", "cycle_not_current", "cycle_period_ended", "cycle_closed", "cycle_context_required"].includes(e.code ?? "");

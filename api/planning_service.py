@@ -2394,6 +2394,10 @@ def week_by_week_plan(db: Database) -> Dict[str, Any]:
     for week, week_start in selected_weeks:
         week_end = week_start + timedelta(days=6)
         week_state = "past" if week_end < today else "future" if week_start > today else "current"
+        if context["state"] == "period_ended":
+            week_state = "past"
+        elif context["state"] == "scheduled":
+            week_state = "future"
         days: List[Dict[str, Any]] = []
         for offset in range(7):
             day_date = week_start + timedelta(days=offset)
@@ -2422,6 +2426,10 @@ def week_by_week_plan(db: Database) -> Dict[str, Any]:
                         }
                     )
             day_state = "past" if day_date < today else "future" if day_date > today else "current"
+            if context["state"] == "period_ended":
+                day_state = "past"
+            elif context["state"] == "scheduled":
+                day_state = "future"
             plan_state = "planned" if target_tss > 0 else "unplanned" if unplanned_tss > 0 else "rest"
             days.append(
                 {

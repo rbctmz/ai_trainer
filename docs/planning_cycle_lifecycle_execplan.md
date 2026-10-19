@@ -1152,3 +1152,61 @@ not-debug, not-e2e markers are used; all original four M4 readers run GREEN.
 Additional excluded count is the three new optional E2E states, not a hidden
 reader exclusion. The later two-line UI fix needs its own web/browser checks,
 not another unchanged Python broad run.
+
+### M4 independent round 1/2 and corrective handoff (2026-10-19)
+
+OpenCode 1.1.30, plan/edit-denied, exact-model MODEL_OK; session
+`ses_ead4b2182ffeqVGQf4IgCbwyHM`. Requested immutable `452ac71..f0fa5ce` review;
+54 paths (author verified: 42 text, 12 PNG; reviewer split 44/10 was a metadata
+count error). Reviewer used git-show for the pinned code, ran only the allowed
+376-case command (23.50s), made no edits/posts/approvals, and returned no P1 but
+five blocking P2 at f0fa5ce. Author-only movement during review is documented
+above; no acceptance of unreviewed runtime is inferred.
+
+Written dispositions, all independently reproduced or checked by the author:
+
+1. Acknowledgements: edit goal dead-end and stale replacement acknowledgement.
+   First is fixed-in `6def63c`; the second was reproduced after correcting an
+   overly strict screenshot/status locator (harness error), then RED 1 failed
+   / 14 deselected (13.75s). Fresh canonical hydration now resets both flags;
+   exact case GREEN (10.01s). Correction commit is recorded below.
+2. Ended actions/factual correction: static check confirmed DemandControl was
+   unconditional and AdjustMode hidden. UI now hides prescription controls for
+   non-actionable cycles and exposes factual correction separately, querying
+   the saved end date and a bounded history window. One real browser test proves
+   a manual historical match succeeds while checkpoint remains unchanged and
+   demand/rebalance controls are absent. No provider/replanning action added.
+3. Partial ended week: author RED reproduced a Thursday actual end with Friday
+   athlete day still labelled current. Reader now forces ended/scheduled
+   week/day projections to past/future respectively, with no remaining budget
+   on the ended week. Uses shared server state; no browser date calculation.
+4. Direct legacy getter: author RED reproduced stale `goal_plan` without first
+   touching the combined resolver. Direct access now refreshes shared selection;
+   combined accessor consumes that captured cache instead of rereading it.
+5. Historical ambiguity: author RED reproduced two closed legacy owners for one
+   ID resolving to the newer checkpoint. Helper now refuses multiple owners or
+   multiple unassigned rows when neither selection nor a saved match supplies
+   context. Explicit `checkpoint_id` is accepted by the existing session-
+   projection GET/service; membership is checked, with no selection/write.
+   Saved-feedback resolution no longer retries the rejected global candidate
+   list. Tests prove missing context is a 404 gap and explicit context resolves
+   the original checkpoint after both cycles closed. Modern namespaces/v1 IDs
+   and receipt algorithms are unchanged.
+
+The three read-side reproductions were RED together (3 failed, no collection
+errors); after correction the focused read/week/comparable/projection contour
+is 89 GREEN. Extended lifecycle/history/provider/API contour initially had only
+one narrow route-mock signature failure (417 GREEN); the fake now explicitly
+asserts forwarding the approved checkpoint query. Contract/inventory/readback
+checks: 73 GREEN. A dynamic reconciliation URL gets its existing manual route
+annotation, not an inventory exclusion.
+
+Nonblocking suggestions have explicit dispositions: choice re-acknowledgement
+when changing other visible fields is `follow-up #693` (UI/Design, S4 polish);
+stale build-context recovery without page refresh is `follow-up #693`
+(UI/Design + Domain, existing explicit refresh path remains); stale CyclePanel
+history after build confirm is fixed in the corrective commit by refreshing
+both cycle reads. No extra full-diff review is requested; only the consolidated
+correction delta goes to scoped round 2/2. Final broad/web/E2E evidence and SHA
+follow. Latest author browser run: 36 GREEN in 73.53s, including all originals
+and factual correction, repeated-new acknowledgement, external-close retry.

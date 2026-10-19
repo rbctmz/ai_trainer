@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from data.database import Database
 from services.planning_cycles import session_checkpoint
-from models.session_projection import build_session_projection
+from models.session_projection import build_session_projection, SessionProjectionNotFoundError
 from models.plan_actual_reconciliation import (
     iter_parent_sessions,
     resolve_confirmed_replacement_ledger,
@@ -25,9 +25,9 @@ def _date_text(value: Any) -> str | None:
     return text or None
 
 
-def _planned_session_date(db: Database, session_id: str) -> str | None:
+def _planned_session_date(db: Database, session_id: str, *, checkpoint: Mapping[str, Any]) -> str | None:
     """Resolve a session's plan date without widening the evidence window."""
-    plan = restore_goal_plan_from_checkpoint(session_checkpoint(db, session_id))
+    plan = restore_goal_plan_from_checkpoint(checkpoint)
     if not plan:
         return None
     plan = ensure_session_identities(plan)
@@ -59,17 +59,21 @@ def session_projection_at(
     session_id: str,
     as_of: date | str | None = None,
     weeks: int = 1,
+    checkpoint_id: int | None = None,
 ) -> dict[str, Any]:
     """Read one session projection strictly from bounded local evidence."""
+    checkpoint = session_checkpoint(db, session_id, checkpoint_id=checkpoint_id)
+    if checkpoint is None:
+        raise SessionProjectionNotFoundError(session_id)
     resolved_as_of = as_of
     if resolved_as_of is None:
-        resolved_as_of = _planned_session_date(db, session_id)
+        resolved_as_of = _planned_session_date(db, session_id, checkpoint=checkpoint)
     reconciliation = reconciliation_at(
         db,
         weeks=weeks,
         as_of=resolved_as_of,
         include_provider=False,
-        checkpoint=session_checkpoint(db, session_id),
+        checkpoint=checkpoint,
     )
     return session_projection_from_reconciliation(
         db,

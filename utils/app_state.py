@@ -256,6 +256,7 @@ class HeadlessState:
 
     @property
     def goal_plan(self):
+        self.refresh_planning_checkpoint_cache()
         return self._session.get("goal_plan")
 
     @goal_plan.setter
@@ -289,8 +290,8 @@ class HeadlessState:
         from models.planning_checkpoints import resolve_goal_plan_context
 
         return resolve_goal_plan_context(
-            self.goal_plan,
-            self.latest_planning_checkpoint,
+            self._session.get("goal_plan"),
+            self._session.get("latest_planning_checkpoint"),
         )
 
     @property

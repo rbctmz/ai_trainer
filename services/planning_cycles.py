@@ -51,7 +51,7 @@ def actionable(context: Mapping[str, Any]) -> bool:
     return context["state"] in {"scheduled", "in_progress"} and context["is_selected"]
 
 
-def session_checkpoint(db: Database, session_id: str, *, include_retired: bool = True) -> dict[str, Any] | None:
+def session_checkpoint(db: Database, session_id: str, *, include_retired: bool = True, checkpoint_id: int | None = None) -> dict[str, Any] | None:
     """Explicit session history, independent of current selection or period.
 
     The latest immutable version containing this exact ID is the historical
@@ -60,29 +60,44 @@ def session_checkpoint(db: Database, session_id: str, *, include_retired: bool =
     from models.plan_actual_reconciliation import find_planned_session
     from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 
+    def contains(checkpoint):
+        plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
+        return find_planned_session(plan.get("session_templates") or [], session_id)[1] is not None
+
+    if checkpoint_id is not None:
+        explicit = db.get_planning_checkpoint(checkpoint_id)
+        return explicit if contains(explicit) else None
     current_reader = getattr(db, "get_current_planning_checkpoint", None)
     selected = current_reader() if callable(current_reader) else None
-    plan = restore_goal_plan_from_checkpoint(selected) or {}
-    if find_planned_session(plan.get("session_templates") or [], session_id)[1] is not None:
+    if contains(selected):
         return selected
-    reader = getattr(db, "get_planning_checkpoints_for_session", None)
-    if callable(reader):
-        historical = next(iter(reader(session_id)), None)
-        if historical:
-            if not include_retired and selected is not None and hasattr(db, "_connect"):
-                conn = db._connect()
-                try:
-                    store = PlanningCycleStore(conn)
-                    if store.version_cycle(historical["id"]) == store.version_cycle(selected["id"]):
-                        return None
-                finally:
-                    conn.close()
-            return historical
+    # A saved match is an explicit historical binding, not a MAX inference.
     match_reader = getattr(db, "get_latest_plan_actual_match_for_session", None)
     match = match_reader(session_id) if callable(match_reader) else None
     if match and match.get("base_checkpoint_id") is not None:
-        return db.get_planning_checkpoint(match["base_checkpoint_id"])
-    return None
+        bound = db.get_planning_checkpoint(match["base_checkpoint_id"])
+        if contains(bound):
+            return bound
+    reader = getattr(db, "get_planning_checkpoints_for_session", None)
+    candidates = list(reader(session_id) or []) if callable(reader) else []
+    if not candidates:
+        return None
+    if hasattr(db, "_connect"):
+        conn = db._connect()
+        try:
+            conn.execute("BEGIN")
+            store = PlanningCycleStore(conn)
+            owners = {store.version_cycle(row["id"]) or ("unassigned", row["id"]) for row in candidates}
+            if len(owners) != 1:
+                return None
+            if not include_retired and selected is not None and store.version_cycle(candidates[0]["id"]) == store.version_cycle(selected["id"]):
+                return None
+        finally:
+            conn.rollback()
+            conn.close()
+    elif len(candidates) != 1:
+        return None
+    return candidates[0]
 
 
 

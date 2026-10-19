@@ -37,14 +37,14 @@ def test_session_projection_route_delegates_to_local_service(tmp_path, monkeypat
     sentinel = {"schema_version": "session_projection_v1", "session_id": "session-1"}
     observed: dict[str, object] = {}
 
-    def fake_projection(db, *, session_id, as_of, weeks):
-        observed.update(db=db, session_id=session_id, as_of=as_of, weeks=weeks)
+    def fake_projection(db, *, session_id, as_of, weeks, checkpoint_id):
+        observed.update(db=db, session_id=session_id, as_of=as_of, weeks=weeks, checkpoint_id=checkpoint_id)
         return sentinel
 
     monkeypatch.setattr(service, "session_projection_at", fake_projection)
     db = Database(str(tmp_path / "projection.db"))
 
-    result = _route()(session_id="session-1", as_of="2026-07-08", weeks=2, db=db)
+    result = _route()(session_id="session-1", as_of="2026-07-08", weeks=2, checkpoint_id=31, db=db)
 
     assert result is sentinel
     assert observed == {
@@ -52,6 +52,7 @@ def test_session_projection_route_delegates_to_local_service(tmp_path, monkeypat
         "session_id": "session-1",
         "as_of": "2026-07-08",
         "weeks": 2,
+        "checkpoint_id": 31,
     }
 
 

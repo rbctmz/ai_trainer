@@ -357,19 +357,6 @@ def _evidence_from_saved_feedback(
         latest_checkpoint = session_checkpoint(db, session_id)
         if isinstance(latest_checkpoint, Mapping):
             checkpoints.append(latest_checkpoint)
-        checkpoint_reader = getattr(
-            db,
-            "get_planning_checkpoints_for_session",
-            None,
-        )
-        if callable(checkpoint_reader):
-            latest_id = (latest_checkpoint or {}).get("id")
-            checkpoints.extend(
-                checkpoint
-                for checkpoint in checkpoint_reader(session_id) or []
-                if isinstance(checkpoint, Mapping)
-                and checkpoint.get("id") != latest_id
-            )
         for checkpoint in checkpoints:
             plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
             day_template, template = find_planned_session(

@@ -309,11 +309,11 @@ export default function PlanningPage() {
             </button>
             <button
               type="button"
-              disabled={locked || !status.has_actionable_plan}
+              disabled={locked}
               onClick={() => setTab("adjust")}
               className="rounded-lg border border-surface-border px-3 py-2 text-sm font-medium text-ink transition hover:bg-surface-muted"
             >
-              Скорректировать
+              {status.has_actionable_plan ? "Скорректировать" : "Уточнить выполнение"}
             </button>
             <button
               type="button"
@@ -333,9 +333,11 @@ export default function PlanningPage() {
       {hasPlan && tab === "overview" ? <ActivePlanOverview overview={overview} error={overviewError} /> : null}
       {hasPlan && tab === "weeks" ? <PlanWeeks onResolveAmbiguous={() => setTab("adjust")} /> : null}
       {hasPlan && tab === "execution" ? <ExecutionOverview /> : null}
-      {tab === "adjust" && status.has_actionable_plan ? (
+      {tab === "adjust" && hasPlan ? (
         <AdjustMode
           hasPlan={hasPlan}
+          allowPlanChanges={status.has_actionable_plan ?? false}
+          historyAsOf={status.has_actionable_plan ? null : status.cycle_context?.end_date}
           targetSessionId={targetSessionId}
         />
       ) : null}
@@ -400,7 +402,7 @@ function ActivePlanOverview({ overview, error }: { overview?: PlanningOverview; 
         <AvailabilitySummary availability={overview.availability} />
         <WeeklyTargetExplanation explanation={overview.weekly_target_explanation} />
         <ScientificPlanAudit audit={overview.science_audit} />
-        <DemandControl explanation={overview.weekly_target_explanation} />
+        {overview.has_actionable_plan ? <DemandControl explanation={overview.weekly_target_explanation} /> : null}
         <PhaseRoadmap roadmap={overview.roadmap} />
         <FormProjection projection={overview.form_projection} />
       </div>
@@ -1217,14 +1219,19 @@ function AdjustmentHistory({locked}: {locked: boolean}) {
 /* ---------------- Adjust mode ---------------- */
 function AdjustMode({
   hasPlan,
+  allowPlanChanges,
+  historyAsOf,
   targetSessionId,
 }: {
   hasPlan: boolean;
+  allowPlanChanges: boolean;
+  historyAsOf?: string | null;
   targetSessionId: string | null;
 }) {
   const { mutate: mutateGlobal } = useSWRConfig();
+  // api-contract: manual: /api/planning/reconciliation
   const { data, mutate } = useSWR<ReconResponse>(
-    hasPlan ? "/api/planning/reconciliation?weeks=1&include_provider=false" : null,
+    hasPlan ? `/api/planning/reconciliation?weeks=${allowPlanChanges ? 1 : 16}&include_provider=false${historyAsOf ? `&as_of=${encodeURIComponent(historyAsOf)}` : ""}` : null,
     fetcher,
   );
   const [previewResult, setPreviewResult] = useState<RebalancePreviewResult | null>(null);
@@ -1254,6 +1261,7 @@ function AdjustMode({
   }, [data, targetSessionId]);
 
   async function buildPreview() {
+    if (!allowPlanChanges) return;
     setBusy(true);
     setError(null);
     setResult(null);
@@ -1300,6 +1308,7 @@ function AdjustMode({
   }
 
   async function buildBikePreview() {
+    if (!allowPlanChanges) return;
     setBikeBusy(true);
     setBikeError(null);
     setBikeResult(null);
@@ -1437,7 +1446,8 @@ function AdjustMode({
 
   return (
     <>
-      <section className="rounded-card border border-tone-warning/30 bg-tone-warning/5 p-4 shadow-card">
+      {!allowPlanChanges ? <p className="text-sm text-ink-soft">Уточнение выполнения меняет только факты. Расписание и закрытие цикла сохраняются.</p> : null}
+      {allowPlanChanges ? <section className="rounded-card border border-tone-warning/30 bg-tone-warning/5 p-4 shadow-card">
         <div className="text-sm font-medium text-ink">Проверка планового TSS вело</div>
         <p className="mt-1 text-xs text-ink-soft">
           Для будущих steady-state вело-сессий TSS сверяется с сохранёнными power-зонами и FTP. Прошлое и привязки не меняются.
@@ -1517,7 +1527,7 @@ function AdjustMode({
             )}
           </div>
         ) : null}
-      </section>
+      </section> : null}
       <section className="overflow-x-auto rounded-card border border-surface-border bg-surface shadow-card">
         <div className="border-b border-surface-border p-4">
           <div className="text-sm font-medium text-ink">План и факт · {data.window?.start}–{data.window?.end}</div>
@@ -1609,7 +1619,7 @@ function AdjustMode({
                       {legacyEvidenceLabels[r.evidence[0]] ?? r.evidence[0]}
                     </div>
                   ) : null}
-                  <SessionProjectionSummary
+                  <SessionProjectionSummary checkpointId={data.base_checkpoint_id ?? undefined}
                     sessionId={r.session_id}
                     projection={r.session_projection}
                     compact
@@ -1660,14 +1670,14 @@ function AdjustMode({
           </tbody>
         </table>
         <div className="p-4">
-          <button
+          {allowPlanChanges ? <button
             type="button"
             onClick={buildPreview}
             disabled={busy}
             className="rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40"
           >
             {busy ? "Проверяю…" : "Подготовить future-only preview"}
-          </button>
+          </button> : null}
           {error ? (
             <div className="mt-3 rounded-lg bg-tone-danger/10 px-3 py-2 text-sm text-tone-danger">
               {error}
@@ -1676,7 +1686,7 @@ function AdjustMode({
         </div>
       </section>
 
-      {preview ? (
+      {allowPlanChanges && preview ? (
         <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
           <div className="text-sm font-medium text-ink">
             {preview.status === "proposal" ? `Предложение: ${preview.future_tss_delta} TSS только в будущем` : "План остаётся без изменений"}

@@ -119,3 +119,41 @@ def test_coach_presenter_does_not_call_ended_period_completed(tmp_path, monkeypa
     assert 'Период закончился' in rendered
     assert 'План завершён' not in rendered
     assert 'исход: не указан' in rendered
+
+
+def test_partial_final_week_is_historical_after_actual_end(tmp_path, monkeypatch):
+    db = legacy_db(tmp_path, monkeypatch, start=date(2026, 10, 12), days=4)
+    payload = ps.week_by_week_plan(db)
+    assert payload['weeks']
+    assert all(not row['is_current'] and row['state'] == 'past' and row['remaining_tss'] is None for row in payload['weeks'])
+    assert all(day['state'] == 'past' for week in payload['weeks'] for day in week['days'])
+
+
+def test_direct_legacy_goal_cache_observes_external_close(tmp_path, monkeypatch):
+    from api.deps import make_headless_state
+    db = legacy_db(tmp_path, monkeypatch, start=TODAY)
+    state = make_headless_state(db)
+    state.refresh_planning_checkpoint_cache()
+    assert state.goal_plan is not None
+    close(db)
+    assert state.goal_plan is None
+
+
+def test_ambiguous_legacy_session_needs_explicit_checkpoint(tmp_path, monkeypatch):
+    from models.planning_checkpoints import build_planning_checkpoint
+    from models.session_identity import ensure_session_identities
+    from tests.smoke._planning_cycle_regressions import plan, client_for
+    from tests.planning_fixtures import seed_checkpoint
+    db = legacy_db(tmp_path, monkeypatch, start=TODAY)
+    first = db.get_current_planning_checkpoint()
+    sid = ensure_session_identities(restore_goal_plan_from_checkpoint(first))['session_templates'][0]['session_id']
+    close(db)
+    seed_checkpoint(db, build_planning_checkpoint(plan(TODAY)))
+    close(db)
+    with client_for(db) as client:
+        missing = client.get(f'/api/planning/session-projection/{sid}')
+        explicit = client.get(f'/api/planning/session-projection/{sid}?checkpoint_id={first["id"]}')
+    assert missing.status_code == 404
+    assert explicit.status_code == 200, explicit.text
+    assert explicit.json()['evidence_revision']['planning_checkpoint_id'] == first['id']
+    assert db.get_current_planning_checkpoint() is None

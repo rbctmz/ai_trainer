@@ -18,11 +18,13 @@ function loadLabel(value: number | null): string {
 
 export function SessionProjectionSummary({
   sessionId,
+  checkpointId,
   projection: suppliedProjection,
   compact = false,
   presentation = "default",
 }: {
   sessionId: string | null | undefined;
+  checkpointId?: number;
   projection?: SessionProjection | null;
   compact?: boolean;
   presentation?: "default" | "today";
@@ -31,7 +33,7 @@ export function SessionProjectionSummary({
   // api-contract: manual: /api/planning/session-projection/{session_id}
   const { data, error, isLoading } = useSWR<SessionProjection>(
     shouldFetch
-      ? `/api/planning/session-projection/${encodeURIComponent(sessionId ?? "")}`
+      ? `/api/planning/session-projection/${encodeURIComponent(sessionId ?? "")}${checkpointId ? `?checkpoint_id=${checkpointId}` : ""}`
       : null,
     fetcher,
   );

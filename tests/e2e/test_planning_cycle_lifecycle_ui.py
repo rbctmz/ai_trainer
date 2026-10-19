@@ -202,3 +202,47 @@ def test_cycle_gaps_and_future_period_have_server_owned_actions(web_stack, scena
     if scenario == 'scheduled':
         expect(page.get_by_text('Текущей фазы нет', exact=True)).to_be_visible()
         expect(page.get_by_role('button', name='Изменить план', exact=True)).to_be_enabled()
+
+
+def test_repeated_new_cycle_requires_fresh_choices_and_replacement_ack(web_stack):
+    page, _db = setup_ended(web_stack)
+    page.get_by_role('button', name='Начать новый цикл', exact=True).click()
+    page.get_by_role('button', name='Развивать форму Без выдуманной даты гонки', exact=True).click()
+    page.get_by_role('checkbox', name=re.compile('Выбираю эту цель')).check()
+    page.get_by_role('checkbox', name=re.compile('При сохранении нового плана')).check()
+    page.get_by_role('button', name='Далее', exact=True).click()
+    page.get_by_role('button', name='Далее', exact=True).click()
+    page.get_by_role('button', name='🧭 Предпросмотр плана', exact=True).click()
+    page.get_by_text(re.compile('План собран: изменение нагрузки')).wait_for()
+    page.get_by_role('button', name='Далее', exact=True).click()
+    page.get_by_role('button', name='Подтвердить и сохранить', exact=True).click()
+    expect(page.get_by_text('План сохранён и стал активным', exact=False)).to_be_visible()
+    page.get_by_role('button', name='Собрать заново', exact=True).click()
+    expect(page.get_by_role('checkbox', name=re.compile('При сохранении нового плана'))).not_to_be_checked()
+    expect(page.get_by_role('checkbox', name=re.compile('Выбираю эту цель'))).not_to_be_checked()
+
+
+def test_ended_cycle_allows_factual_correction_without_plan_changes(web_stack):
+    from models.planning_checkpoints import build_planning_checkpoint, restore_goal_plan_from_checkpoint
+    from models.planning_targets import build_weekly_target_breakdown
+    from tests.planning_fixtures import seed_checkpoint
+    page, db = setup_ended(web_stack)
+    goal = restore_goal_plan_from_checkpoint(db.get_current_planning_checkpoint())
+    goal['weekly_target_breakdown'] = build_weekly_target_breakdown(goal_type='Триатлон', distance='Олимпийка', activities_df=None, available_hours=10, demand='moderate')
+    db.clear_all_data()
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(goal))
+    day = str(checkpoint['goal_plan_snapshot']['daily_plan'][-1]['date'])[:10]
+    db.save_activities([{'activity_id':'historical-run', 'date':day, 'sport':'running', 'duration_minutes':30, 'tss':20}])
+    page.reload()
+    overview = page.request.get(f'{web_stack.api_base}/api/planning/overview?demo=1').json()
+    assert overview['weekly_target_explanation']['state'] == 'available'
+    expect(page.get_by_role('heading', name='Режим нагрузки', exact=True)).to_have_count(0)
+    page.get_by_role('button', name='Уточнить выполнение', exact=True).click()
+    expect(page.get_by_role('button', name='Подготовить preview вело TSS', exact=True)).to_have_count(0)
+    expect(page.get_by_role('button', name='Подготовить future-only preview', exact=True)).to_have_count(0)
+    row = page.get_by_role('row').filter(has_text=day[5:])
+    with page.expect_response('**/api/planning/reconciliation/matches*') as response:
+        row.get_by_role('button', name='Подтвердить', exact=True).click()
+    assert response.value.status == 200, response.value.text()
+    assert db.get_current_planning_checkpoint()['id'] == checkpoint['id']
+    assert db.get_latest_plan_actual_match_for_session(response.value.request.post_data_json['session_id']) is not None
