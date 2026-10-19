@@ -1210,3 +1210,27 @@ both cycle reads. No extra full-diff review is requested; only the consolidated
 correction delta goes to scoped round 2/2. Final broad/web/E2E evidence and SHA
 follow. Latest author browser run: 36 GREEN in 73.53s, including all originals
 and factual correction, repeated-new acknowledgement, external-close retry.
+
+Scoped round 2/2: same reviewer/session examined `f0fa5ce..32ef3c3`, independently
+ran 418 tests GREEN (23.56s), CLOSED all R1–R5 and returned READY for M4 at
+32ef3c3, with no new blockers. Author frozen full run on the same runtime:
+3664 passed / 14 skipped / 82 deselected / 7 existing warnings in 282.20s.
+Ruff, web lint/build and 36-browser run are GREEN. No native/UX/merge approval.
+
+A subsequent author-only falsifying probe supplied fresh risk evidence within
+R5: a closed legacy replacement session with a duplicate unassigned row and an
+explicit checkpoint projected the correct matched fact, but its inherited
+`match_revision_id` was None instead of stored revision #1. Cause verified by
+tracing the second independent context lookup in the revision resolver. The
+persisted facts/ledger were not changed. A named regression reproduced RED
+(1 failed, 14 deselected, 1.02s); the resolver now uses the already-captured
+reconciliation checkpoint for inherited revisions instead of resolving the
+ambiguous session again. Projection/story contour: 86 GREEN in 4.62s; no UI,
+contract, training formula or matching algorithm change. The helper docstring
+also now describes its explicit/selected/match-bound ownership policy accurately.
+
+This is fresh reproduced evidence after READY, not a new preference or reopened
+full audit. Request only a proof-specific continuation of R5 on the three-line
+context correction and its new regression; no additional full-diff round.
+A final contributor-safe run is running on the correction; exact SHA/results
+and the proof-only disposition are recorded below before M4 is marked complete.

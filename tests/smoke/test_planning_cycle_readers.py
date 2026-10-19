@@ -157,3 +157,35 @@ def test_ambiguous_legacy_session_needs_explicit_checkpoint(tmp_path, monkeypatc
     assert explicit.status_code == 200, explicit.text
     assert explicit.json()['evidence_revision']['planning_checkpoint_id'] == first['id']
     assert db.get_current_planning_checkpoint() is None
+
+
+def test_explicit_history_keeps_inherited_match_revision_when_id_is_ambiguous(tmp_path):
+    from copy import deepcopy
+    from data.database import Database
+    from models.planning_checkpoints import build_planning_checkpoint
+    from models.session_identity import ensure_session_identities
+    from tests.planning_fixtures import seed_checkpoint
+    from tests.smoke.test_issue_529_match_handoff import DAY_ISO, _activity, _confirmed_ledger, _plan, _session
+    original = _plan(_session('bike', 'quality', 60.0))
+    predecessor = original['session_templates'][0]['sessions'][0]['session_id']
+    changed = deepcopy(original)
+    changed['daily_plan'][0] = (changed['daily_plan'][0][0], 45.0, {'bike':45.0, 'run':0.0, 'swim':0.0})
+    changed['session_templates'][0]['sessions'][0].update(total_tss=45.0, duration_minutes=45)
+    changed['session_templates'][0]['duration_minutes'] = 45
+    changed['weekly_summary'][0].update(weekly_tss=45, bike=45.0)
+    changed['weekly_tss_plan'] = [45]
+    replacement = ensure_session_identities(changed, previous_goal_plan=original)
+    sid = replacement['session_templates'][0]['sessions'][0]['session_id']
+    db = Database(str(tmp_path / 'revision.db'))
+    first = seed_checkpoint(db, build_planning_checkpoint(original))
+    db.save_activities([_activity()])
+    confirmed = db.save_plan_actual_match({**_confirmed_ledger(predecessor), 'base_checkpoint_id':first['id']})
+    chosen = seed_checkpoint(db, build_planning_checkpoint(replacement))
+    close(db)
+    append_history(db, build_planning_checkpoint(replacement))
+    before = evidence_bytes(db)
+    result = session_projection_at(db, session_id=sid, as_of=DAY_ISO, checkpoint_id=chosen['id'])
+    assert result['projection_status'] == 'matched'
+    assert result['evidence_revision']['planning_checkpoint_id'] == chosen['id']
+    assert result['evidence_revision']['match_revision_id'] == confirmed['id']
+    assert evidence_bytes(db) == before

@@ -89,7 +89,7 @@ def session_projection_from_reconciliation(
     session_id: str,
 ) -> dict[str, Any]:
     """Compose one DTO from an already-bounded local reconciliation snapshot."""
-    match_revision = _effective_match_revision(db, session_id)
+    match_revision = _effective_match_revision(db, session_id, checkpoint_id=reconciliation.get("base_checkpoint_id"))
     feedback = db.get_latest_session_feedback(session_id)
     return build_session_projection(
         reconciliation,
@@ -122,8 +122,9 @@ def session_projection_revision_heads(
 def _effective_match_revision(
     db: Database,
     session_id: str,
+    *, checkpoint_id: int | None = None,
 ) -> Mapping[str, Any] | None:
-    """Return the match revision reconciliation uses for this active session.
+    """Return the match revision from the reconciliation checkpoint context.
 
     Reconciliation may inherit an explicit confirmation from a uniquely
     claimed replacement predecessor. Preserve that same ledger provenance in
@@ -133,7 +134,7 @@ def _effective_match_revision(
     if current is not None:
         return current
 
-    checkpoint = session_checkpoint(db, session_id)
+    checkpoint = db.get_planning_checkpoint(checkpoint_id) if checkpoint_id is not None else session_checkpoint(db, session_id)
     plan = restore_goal_plan_from_checkpoint(checkpoint)
     if not plan:
         return None

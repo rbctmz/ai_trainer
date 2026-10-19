@@ -54,8 +54,9 @@ def actionable(context: Mapping[str, Any]) -> bool:
 def session_checkpoint(db: Database, session_id: str, *, include_retired: bool = True, checkpoint_id: int | None = None) -> dict[str, Any] | None:
     """Explicit session history, independent of current selection or period.
 
-    The latest immutable version containing this exact ID is the historical
-    context; modern IDs cannot cross cycle namespaces. Never selects a cycle.
+    Explicit checkpoint, selection or saved-match bindings supply context.
+    Otherwise only a single known owner may donate its latest matching version;
+    ambiguous legacy rows need an explicit checkpoint. Never selects a cycle.
     """
     from models.plan_actual_reconciliation import find_planned_session
     from models.planning_checkpoints import restore_goal_plan_from_checkpoint
