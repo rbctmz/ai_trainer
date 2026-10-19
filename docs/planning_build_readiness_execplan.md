@@ -21,7 +21,7 @@
 - [x] (2026-10-20) Synthetic HTTP prepare/confirm/replay публикует 17 fallback и 6 infeasible sessions; pure Base/Recovery контроль исключает гипотезу о нехватке порогов.
 - [x] (2026-10-20) Сформулированы AC1–AC7: complete prescriptions, consistent load/time, target semantics, shared guard, old receipt compatibility, scientific boundary.
 - [x] (2026-10-20) Четыре acceptance assertion RED и bounded pure probes воспроизведены; existing focused baseline 128 passed, новая реализация не заявлена.
-- [ ] Независимый read-only checker завершил один spec round; замечания исправлены или явно triaged.
+- [x] (2026-10-20) Независимый spec round 1/2 READY на b279178, zero P1/P2; неблокирующая неоднозначность строки composite/rounding исправлена документацией.
 - [ ] Reviewable checkpoint опубликован и #677 обновлена результатом M1; runtime не объявлен исправленным.
 
 ## Surprises & Discoveries
@@ -133,8 +133,9 @@ prepare/confirm для Planning и Coach build, не дублируется в R
 
 ## Outcomes & Retrospective
 
-M1 in progress. Evidence/independent verdict/publication дополняются перед
-закрытием среза. Следующий handoff: Domain/API — M2 материализация и явная RPE
+M1 contract/evidence independently READY на b279178; four behavioral RED остаются
+неисправленными. Final author run: 128 passed, 4 xfailed; Ruff/diff/links GREEN.
+Publication record — pending до создания draft PR. Следующий handoff: Domain/API — M2 материализация и явная RPE
 policy, затем M3 effective load + shared guard; Spec — M4 recent-history entry
 policy. Эти шаги не выполняются в текущем M1. UI/Design S4 следует за контрактом.
 

@@ -12,7 +12,8 @@ Class A: будущий контракт меняет допуск к публи
 проверку перед транзакционной записью и совместимость pending previews.
 M1 поставляет только спецификацию, синтетические эксперименты и acceptance
 RED. Он не меняет runtime, HTTP/TS-модели, формулы, каталог или интерфейс.
-Review mode: manual; specification budget 0/2 до записи результата checker.
+Review mode: manual; specification budget 1/2: независимый round 1 READY на
+`b279178`, zero open blocking P1/P2; см. evidence report.
 Native PR review и human acceptance учитываются отдельно, не подразумеваются.
 
 ## Короткое правило
@@ -156,7 +157,8 @@ Domain/API получает M2 catalog/semantics и M3 consistency/guard; Spec �
 | Recovery vs Base | Pure probe: одинаковые easy параметры в трёх дисциплинах | Recovery получает подходящий recovery prescription либо явный blocker |
 | Спринты | Pure probe requested 25 vs derived 16.3, failed bounds | Отказ понятен; неверное задание не публикуется |
 | RPE fallback | Pure probe easy swim содержит RPE 6–8 без semantic policy | Явная корректная policy либо target_semantics_unverified |
-| Composite / округление / future facts | Контрольный pure probe; полная матрица запланирована ниже | Не ложные blockers |
+| Composite transition | Pure probe parent = legs + transition | Не ложный duration blocker |
+| Округление / future facts | Только spec в M1; исполняемые проверки остаются M3 | Не ложные blockers |
 
 M1 завершён после независимой проверки спецификации, сохранения фактических
 результатов и публикации reviewable checkpoint. XFAIL/characterization не являются

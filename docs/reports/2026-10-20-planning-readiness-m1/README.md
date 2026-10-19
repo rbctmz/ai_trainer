@@ -61,7 +61,9 @@ New acceptance with `--runxfail`: **4 assertion failures in 3.22s**. Two first /
 replacement preview cases each expose 23 invalid prescriptions; two confirm
 cases return 200 rather than refusing publication. No setup/collection failures.
 Strict XFAIL catches only AssertionError; unexpected exceptions remain failures.
-Normal XFAIL and Ruff results are filled after final verification below.
+Final author focused run: **128 passed, 4 xfailed, 1 existing httpx warning
+in 17.90s** with -p no:cacheprovider. Ruff --no-cache for both new Python files
+passed; git diff --check and local Markdown link resolution passed.
 
 Coverage is deliberately partial: tests exercise the existing public UI-origin
 prepare/confirm boundary and first/replacement cycles, not a future assessor
@@ -87,5 +89,15 @@ semantic-policy obligation rather than inventing new exertion targets.
 
 ## Review and final verification
 
-Independent spec round 1/2: pending. Native review: not requested, 0 rounds.
-No independent READY, merge approval or runtime GREEN is claimed yet.
+Independent read-only spec round 1/2: **READY** for exact diff
+5f3b738a8b890d1d69ce7793f684277fb00b40dd..b279178, six files, no blocking P1/P2.
+Checker independently reproduced the pure/HTTP probe, four AssertionError RED
+(3.03s), four normal XFAIL (3.01s), 128 existing passes (15.96s), Ruff GREEN and
+unchanged clean Git status before/after. Read-only reviewer: s3_m1_spec_checker.
+
+One nonblocking clarification: the initial RED matrix row grouped composite,
+rounding and future facts although the executable pure control covers transition
+only. The row is split into executable composite and deferred rounding/facts;
+no new runtime obligation or claimed coverage is introduced. Author verified the
+wording delta. Native review: not requested, 0 rounds. Human acceptance, merge and
+runtime GREEN are not implied by this specification READY.
