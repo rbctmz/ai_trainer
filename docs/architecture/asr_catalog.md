@@ -51,7 +51,7 @@ reset/retention и API↔TS. Сейчас проверены только исх
 ## Planning cycle lifecycle (planned S2; #693, parent #677)
 
 Статус на 2026-10-19: **Class A, M2 storage/projection, M3a commands, M3b exact build, M3c writer guards и M4 readers/UI реализованы;
-полный lifecycle/API/UI GREEN — NOT YET**.
+полный синтетический lifecycle/API/UI GREEN; native/current-head acceptance и human merge ещё не приняты**.
 S1 #685/#691 уже слит как `93fa4f4`; S2 отдельно задаёт выбор/закрытие цикла,
 явный исход события и новый календарь. Контракт:
 [`planning_cycle_lifecycle_slice_spec.md`](../planning_cycle_lifecycle_slice_spec.md),
@@ -83,8 +83,11 @@ review `5bd782e..cc8d900` READY, 642 focused GREEN; author pinned contributor-sa
 M4: shared current/history readers, provider selection до I/O и UI. Независимый
 full + scoped review закрыл пять P2; дополнительный provenance proof CLOSED на
 `aeff866`. Final contributor-safe 3665 GREEN; 36 isolated M4/S1 browser checks
-GREEN, lint/build/contracts GREEN. Цельная S2/native/CI/human merge приёмка
-остаётся M5. Это не merge/rollout и не пользовательская UX-приёмка. Независимый M2 review: READY после
+GREEN, lint/build/contracts GREEN. M5 общий кандидат на неизменившемся main
+`93fa4f4`: 540 focused, 82 contract, 3673 contributor-safe и все 58 E2E GREEN;
+writer-specific полный snapshot всех таблиц/Coach rollback — 62 GREEN.
+Evidence: [общая приёмка](../reports/2026-10-19-issue-693-s2/README.md).
+Native/current-head CI и human acceptance/merge остаются отдельными M5 gates. Это не merge/rollout и не пользовательская UX-приёмка. Независимый M2 review: READY после
 scoped correction `69a2623` (DELETE guard immutable associations + atomic reset),
 77 focused GREEN. Contributor-safe contour с явным исключением M1 RED-модулей:
 3427 passed / 14 skipped / 64 deselected; отдельный merge не разрешён.

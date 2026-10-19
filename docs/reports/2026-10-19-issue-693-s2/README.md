@@ -56,7 +56,7 @@ persisted table, including cycle state, commands, ownership, constraints,
 preview receipts and SQLite sequences. It leaves the legacy helper unchanged,
 passes captured expected restore fields and adds stale Coach retract/direct
 commit plus create/retract mapping-failure probes. Results are recorded below.
-No new runtime behavior or acceptance criterion is introduced by these tests.
+The writer-only run is 62 passed (3.78s). No new runtime behavior or acceptance criterion is introduced by these tests.
 
 ## Reproduction and results
 
@@ -71,7 +71,27 @@ Run from `/Users/gregkisel/Developer/ai_trainer` using `ai_trainer_env/bin/pytho
     npm --prefix web run build
     ai_trainer_env/bin/python -m pytest -m e2e tests/e2e -q --tb=short
 
-M5 final counts, source commit, current-head CI and native review: pending.
+Frozen tested source: `c6b2daffc150007b2038feab8d128499eb077da1`.
+Focused lifecycle/S1/constraint/backup acceptance: **540 passed / 7 existing
+warnings in 50.28s**. Contract extractor/inventory/drift assertions: **82 passed /
+1 existing warning in 5.26s**. Ruff, extractor freshness, API inventory, web lint
+and production build pass. Full contributor-safe: **3673 passed / 14 skipped / 82 deselected / 7 existing
+warnings in 218.61s**, including all original M1/M4 regressions. No additional
+failure exclusion is used. The 14 skips are 10 opt-in fixture regeneration,
+2 optional missing garth, 1 restricted process inspection and 1 local socket
+restriction; all 82 deselections use only the standard live/debug/E2E markers.
+Full isolated E2E: **58 passed / 1 existing warning in 180.61s**, including the
+36 S1/S2 cases and neighboring Today/Coach surfaces. The E2E run completed and
+its temporary processes/data were cleaned by fixture finalizers. Generated
+screenshots were produced again by the tests; only nondeterministic image bytes
+were reset to the already reviewed M4 images, not test assertions or fixtures.
+
+Local logs: `/private/tmp/s2-m5-focused.log`, `s2-m5-writer-evidence.log`,
+`s2-m5-contracts.log`, `s2-m5-contributor.log`, `s2-m5-browser.log` and
+`s2-m5-web-build.log`. Logs are local evidence, not durable CI receipts.
+Current-head CI/native results belong in the final PR conversation and #693
+with exact commit and authenticated result links. Do not make a documentation
+push after native review merely to copy those receipts and invalidate its head.
 Earlier M4 results (3665 contributor-safe / 36 selected browser GREEN) are not
 silently relabelled as the new whole-delivery run.
 
@@ -94,3 +114,21 @@ not silently treated as already fixed runtime defects.
 No acceptance label, waiver, PR merge or rollout is performed by this record.
 The final human decision is separate from completed synthetic acceptance and
 native review.
+
+
+## Operator handoff (not executed)
+
+Keep the athlete instance and provider delivery untouched during synthetic
+acceptance. For a separately authorized rollout, stop all SQLite writers,
+create and verify a Backup API snapshot with `scripts/sqlite_backup_restore.py`
+using the documented stopped-service procedure, then initialize the additive
+migration once. Check current-cycle state and history before enabling writes.
+Restart must preserve the null selection of a closed cycle. A pre-S2 binary is
+not a safe downgrade against this database: it can read raw latest history and
+write or deliver a closed plan. Disable writes/delivery and fix forward or use an
+explicitly compatible rejection bridge; preserve successful receipts. Tests of
+backup/restore here use disposable snapshots and do not prove a live restore.
+
+Change note: M5 assembles the approved milestones into one main-based candidate
+and strengthens the already requested writer-state proof. It changes no training
+formula, domain invariant, public contract or UI composition.

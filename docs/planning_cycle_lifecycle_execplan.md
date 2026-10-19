@@ -51,7 +51,8 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-19) M3c: every prescription writer uses selected-cycle/head CAS under the writer lock; explicit restore ownership. Independent round 1/2 READY at `cc8d900`, 642 focused GREEN; pinned contributor-safe 3645 passed / 14 skipped / 68 deselected with the same four M4 reader exclusions. Published/attached as intermediate draft #699, stacked on #698.
 - [x] (2026-10-18–19) M3c on codex/issue-693-m3c-writer-guards, stacked on M3b #698: shared write guard, all mutation families/restore/Coach/legacy compatibility, synthetic fixture adaptation, 54 new writer cases and independent review completed. Class A; approved scope unchanged.
 - [x] (2026-10-19) M4: shared current/history readers and explicit Domain→UI handoff completed. Draft #700; all five P2 CLOSED at 32ef3c3, new provenance proof CLOSED at aeff866. Final contributor-safe 3665 GREEN, 36 isolated browser GREEN; native/whole-S2/human gates remain M5.
-- [ ] (2026-10-19) M5 in progress, Supervisor / Integrator: fresh main is still 93fa4f4; assemble the complete S2 candidate on codex/issue-693-s2-acceptance, strengthen writer-specific state evidence, run complete acceptance, then request native review. Human acceptance/merge remains separate.
+- [x] (2026-10-19) M5 author whole-delivery acceptance: fresh main 93fa4f4 unchanged; codex/issue-693-s2-acceptance contains all S2 milestones. Tested source c6b2daf: 540 focused, 82 contract, 3673 contributor-safe and all 58 E2E GREEN; Ruff/web lint/build/freshness GREEN. Writer-only complete-state proof 62 GREEN, no runtime change.
+- [ ] M5 native current-head review/CI and separate human review acceptance/merge decision. Final receipts belong in the main-based PR/#693 conversation, without a post-review docs push.
 
 ## Surprises & Discoveries
 
@@ -1278,3 +1279,46 @@ whole-S2 candidate/evidence bundle against fresh main; include AC1–AC10,
 current-head CI and native review, then explicit human merge acceptance. Parent
 #677 retains S3 aggregates and S4 step-4 presentation. Personal live-provider
 acceptance/deployment is outside this completed M4 synthetic implementation.
+
+
+### M5 whole-delivery author acceptance (2026-10-19)
+
+Role handoff: M4 Domain/UI implementation is complete; Supervisor / Integrator
+owns the complete candidate, evidence and delivery. User authorized M5 and native
+review. Fetch confirms main remains 93fa4f4. New branch
+codex/issue-693-s2-acceptance preserves all 27 M0–M4 commits; intermediate drafts
+#694–#700 and unrelated S1 post-merge #692 are not merged or amended. The
+[whole-delivery evidence](reports/2026-10-19-issue-693-s2/README.md) maps AC1–AC10
+to exact tests and operator boundaries.
+
+Observed: M3c nonblocking evidence suggestion omitted lifecycle/constraint rows
+from the intentional legacy evidence helper, and the restore family case did
+not pass its captured expected cycle fields. Inferred: a negative writer test
+could miss a partial metadata write; this is a coverage gap, not a reproduced
+runtime defect. Verified by: writer-local snapshot now compares every persisted
+table in one read transaction, restore passes captured context, and Coach
+retract/direct commit are tested across closed/ended/replaced states. Separate
+create/retract mapping failures prove ledger/checkpoint/CAS rollback. The
+original evidence helper/oracles are unchanged. Writer-only 62 passed (3.78s).
+
+Frozen tested source c6b2daffc150007b2038feab8d128499eb077da1 has no new runtime
+change beyond reviewed M4 aeff866. Full focused command in the evidence report:
+540 passed / 7 existing warnings (50.28s). Contract assertions 82 passed (5.26s).
+Standard contributor-safe including PytestReturnNotNoneWarning-as-error:
+3673 passed / 14 skipped / 82 deselected / 7 existing warnings (218.61s).
+No custom M1/M4 deselection. Complete isolated E2E, not only selected lifecycle
+files: 58 passed / 1 existing warning (180.61s). Ruff, contract freshness/API
+inventory and production web lint/build pass. No personal database/provider I/O.
+Nondeterministic generated screenshots are returned to the already reviewed M4
+bytes; no assertion/golden is weakened or regenerated.
+
+M5 requests one full native review of the final main-based candidate; a fixing
+review must be scoped to the delta after the first reviewed SHA. Per-milestone
+review dispositions stand; no second local full-diff audit is requested. Final
+CI/native receipts will be posted with head SHA in the PR and #693, without a
+push just to copy metadata that would invalidate current-head review. Human
+acceptance and merge remain separate and unperformed. Parent #677 keeps S3/S4.
+
+Change note: progress and outcomes now distinguish completed synthetic whole-S2
+acceptance from pending native/current-head/human gates. No domain or visual
+scope is expanded.
