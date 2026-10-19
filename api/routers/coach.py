@@ -20,7 +20,6 @@ from api.recovery_replan_loop import run_recovery_replan_loop
 from api.today_snapshot import (
     _day_session,
     day_parent_session_ids,
-    _latest_checkpoint,
     _resolve_proposal,
     _resolve_state,
     build_coach_session_evidence,
@@ -28,6 +27,7 @@ from api.today_snapshot import (
 )
 from config.settings import Settings
 from data.database import Database
+from services.planning_cycles import current_plan_snapshot, actionable
 from models.ai_coach_runtime import (
     apply_response_contract_to_final_response,
     build_grounding_tool_results,
@@ -76,7 +76,9 @@ def _sse(event: dict[str, Any]) -> str:
 
 def _load_coach_plan_boundary(db: Database) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Read one checkpoint and restore the plan from that exact boundary."""
-    checkpoint = _latest_checkpoint(db)
+    context, checkpoint = current_plan_snapshot(db)
+    if not actionable(context):
+        checkpoint = None
     plan = restore_goal_plan_from_checkpoint(checkpoint) if checkpoint else None
     return checkpoint, plan
 
@@ -136,7 +138,9 @@ def coach_chat(
     load_metrics_context = _load_metrics_context(ai_tools)
     # Keep the same checkpoint boundary as the Today snapshot, which captures
     # the active plan before the recovery loop can create a new checkpoint.
-    today_checkpoint, goal_plan = _load_coach_plan_boundary(db)
+    cycle_context, selected_checkpoint = current_plan_snapshot(db)
+    today_checkpoint = selected_checkpoint if actionable(cycle_context) else None
+    goal_plan = restore_goal_plan_from_checkpoint(today_checkpoint) if today_checkpoint else None
     latest_data_at = latest_iso_from_database(db)
     has_data = latest_data_at is not None
     readiness_snapshot = (
@@ -215,6 +219,7 @@ def coach_chat(
             else None,
         )
         ai_tools.today_decision_context = {
+            "cycle_context": cycle_context,
             "date": local_today.isoformat(),
             "checkpoint_id": today_checkpoint.get("id") if today_checkpoint else None,
             "readiness": readiness_snapshot,
@@ -229,6 +234,7 @@ def coach_chat(
         yield _sse(
             {
                 "type": "meta",
+                "cycle_context": cycle_context,
                 "chat_id": chat_id,
                 "metrics_window_days": load_metrics_context.get("metrics_window_days"),
                 "as_of_date": load_metrics_context.get("as_of_date"),

@@ -1,5 +1,6 @@
 """Fact-only directional drift coverage for coach decisions (issue #468)."""
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from datetime import datetime
 import sqlite3
@@ -11,7 +12,7 @@ from services.coach_drift import build_coach_drift_report
 
 
 def _checkpoint(db: Database, weekly_tss: list[int], *, parent_id: int | None = None) -> int:
-    saved = db.save_planning_checkpoint(
+    saved = seed_checkpoint(db,
         {
             "goal_type": "Триатлон",
             "distance": "Olympic",

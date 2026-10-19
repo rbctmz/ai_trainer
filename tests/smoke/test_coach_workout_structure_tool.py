@@ -23,6 +23,7 @@
 материализацией.
 """
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from datetime import date, datetime, timedelta
 
@@ -124,7 +125,7 @@ def _goal_plan() -> dict:
 @pytest.fixture()
 def tools_with_structure(tmp_path):
     db = Database(str(tmp_path / "structure.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan()))
     return AITools(db)
 
 
@@ -417,7 +418,7 @@ def _run_goal_plan() -> dict:
 @pytest.fixture()
 def tools_with_pace(tmp_path):
     db = Database(str(tmp_path / "pace.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_run_goal_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_run_goal_plan()))
     return AITools(db)
 
 
@@ -578,7 +579,7 @@ def _edge_goal_plan() -> dict:
 @pytest.fixture()
 def tools_with_edge_sessions(tmp_path):
     db = Database(str(tmp_path / "edge.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_edge_goal_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_edge_goal_plan()))
     return AITools(db)
 
 

@@ -348,7 +348,7 @@ def _auto_matches_by_activity(
 ) -> dict[str, Mapping[str, Any]]:
     """Rebuild stable local auto-matches once, without provider I/O or writes."""
     if "checkpoint" not in latest_plan_cache:
-        reader = getattr(database, "get_latest_planning_checkpoint", None)
+        reader = getattr(database, "get_current_planning_checkpoint", None)
         checkpoint = reader() if callable(reader) else None
         latest_plan_cache["checkpoint"] = (
             dict(checkpoint) if isinstance(checkpoint, Mapping) else None
@@ -578,7 +578,7 @@ def _auto_reconciled_stimulus(
     if not planned_sport or planned_sport != activity_sport:
         return None
     if "plan" not in latest_plan_cache:
-        reader = getattr(database, "get_latest_planning_checkpoint", None)
+        reader = getattr(database, "get_current_planning_checkpoint", None)
         checkpoint = reader() if callable(reader) else None
         latest_plan_cache["checkpoint"] = (
             dict(checkpoint) if isinstance(checkpoint, Mapping) else None

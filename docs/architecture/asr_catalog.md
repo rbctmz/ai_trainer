@@ -48,6 +48,51 @@ reset/retention и API↔TS. Сейчас проверены только исх
 синтетической БД и блокировка второго writer при `BEGIN IMMEDIATE`; это не
 доказательство готовности будущего механизма. ADR-0001 переиспользуется.
 
+## Planning cycle lifecycle (planned S2; #693, parent #677)
+
+Статус на 2026-10-19: **Class A, M2 storage/projection, M3a commands, M3b exact build, M3c writer guards и M4 readers/UI реализованы;
+полный синтетический lifecycle/API/UI GREEN; native/current-head acceptance и human merge ещё не приняты**.
+S1 #685/#691 уже слит как `93fa4f4`; S2 отдельно задаёт выбор/закрытие цикла,
+явный исход события и новый календарь. Контракт:
+[`planning_cycle_lifecycle_slice_spec.md`](../planning_cycle_lifecycle_slice_spec.md),
+план: [`planning_cycle_lifecycle_execplan.md`](../planning_cycle_lifecycle_execplan.md).
+
+ASR-REL-1/2: планируются сохранение legacy ledger IDs, cycle namespace для новых
+sessions/legs без cross-cycle lineage, честные indeterminate и
+unknown outcome, отсутствие backdated new assignments. ASR-MOD-2/3: единый Python
+selector вместо MAX(checkpoint), conservative legacy import и guards всех
+current writers без потери historical reads. ASR-DEP-2: аддитивная atomic
+migration/reset/Backup API restore. S1 receipt/replay переиспользуется; новый
+selection revision защищает close/switch при том же raw checkpoint.
+
+M1 фиксирует 14 behavioral и 26 preliminary protocol RED. M2 подтверждён
+58 новыми storage/projection проверками: atomic migration/rollback, неизменные
+legacy JSON/ledger rows, явный selector, boundaries/timezone, unknown scope,
+reset/restart/Backup API. M3a добавляет API/TS contracts и явные close/outcome/scope
+commands: retained identity, CAS/replay, rollback, append-only receipts, scoped
+historical declarations. Независимый M3a review READY после correction
+`b5807ad` (закрытие indeterminate с nullable checkpoint CAS); 222 focused GREEN.
+M3b добавляет retained v2 lifecycle, атомарную замену/редактирование, namespace
+sessions/legs и фактические календарные границы. Независимое review exact
+`aedba20..5f5d2dd`: READY для M3b, 473 focused GREEN; author contributor-safe
+3591 passed / 14 skipped / 68 deselected (четыре известные M4 reader assertions
+исключены дополнительно к стандартным markers). M3c добавляет selected-cycle CAS
+для остальных prescription writers и explicit restore ownership; independent
+review `5bd782e..cc8d900` READY, 642 focused GREEN; author pinned contributor-safe
+3645 passed / 14 skipped / 68 deselected с теми же четырьмя M4 reader exclusions.
+M4: shared current/history readers, provider selection до I/O и UI. Независимый
+full + scoped review закрыл пять P2; дополнительный provenance proof CLOSED на
+`aeff866`. Final contributor-safe 3665 GREEN; 36 isolated M4/S1 browser checks
+GREEN, lint/build/contracts GREEN. M5 общий кандидат на неизменившемся main
+`93fa4f4`: 540 focused, 82 contract, 3673 contributor-safe и все 58 E2E GREEN;
+writer-specific полный snapshot всех таблиц/Coach rollback — 62 GREEN.
+Evidence: [общая приёмка](../reports/2026-10-19-issue-693-s2/README.md).
+Native/current-head CI и human acceptance/merge остаются отдельными M5 gates. Это не merge/rollout и не пользовательская UX-приёмка. Независимый M2 review: READY после
+scoped correction `69a2623` (DELETE guard immutable associations + atomic reset),
+77 focused GREEN. Contributor-safe contour с явным исключением M1 RED-модулей:
+3427 passed / 14 skipped / 64 deselected; отдельный merge не разрешён.
+ADR-0001 переиспользуется, provider writes/live DB/общий UI redesign исключены.
+
 ## Comparable-session engine (ASR-REL-1/2, ASR-PERF-2, ASR-MOD-2/3; #500)
 
 The post-workout surface and AI coach share one server-owned, read-only

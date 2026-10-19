@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from datetime import date
 
@@ -198,7 +199,7 @@ def test_database_roundtrips_planning_checkpoint(tmp_path):
     db = Database(str(tmp_path / "planning_checkpoints.db"))
     checkpoint = build_planning_checkpoint(_sample_goal_plan())
 
-    saved = db.save_planning_checkpoint(checkpoint)
+    saved = seed_checkpoint(db, checkpoint)
     latest = db.get_latest_planning_checkpoint()
     history = db.get_recent_planning_checkpoints(limit=3)
     fetched = db.get_planning_checkpoint(saved["id"])
@@ -231,8 +232,8 @@ def test_database_roundtrips_planning_checkpoint(tmp_path):
 def test_date_checkpoint_reader_excludes_post_activity_plan_edits(tmp_path):
     db = Database(str(tmp_path / "planning_checkpoint_time_bound.db"))
     checkpoint = build_planning_checkpoint(_sample_goal_plan())
-    earlier = db.save_planning_checkpoint(checkpoint)
-    later = db.save_planning_checkpoint(checkpoint)
+    earlier = seed_checkpoint(db, checkpoint)
+    later = seed_checkpoint(db, checkpoint)
     session_date = earlier["goal_plan_snapshot"]["session_templates"][0]["date"]
 
     conn = db._connect()

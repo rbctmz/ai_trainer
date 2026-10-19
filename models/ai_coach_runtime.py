@@ -844,7 +844,9 @@ def _parse_tool_params(params_str: str) -> Dict[str, Any]:
         key = key.strip()
         value = value.strip()
 
-        if value.isdigit():
+        if value.lower() in {"true", "false", "null"}:
+            params[key] = {"true": True, "false": False, "null": None}[value.lower()]
+        elif value.isdigit():
             params[key] = int(value)
         elif value.replace(".", "").isdigit():
             params[key] = float(value)

@@ -14,6 +14,7 @@ catalog identity. A builder-parity test guards the projector's key list against
 future drift. See docs/session_day_projection_execplan.md.
 """
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -34,7 +35,7 @@ _CATALOG_IDENTITY = ("template_name", "fatigue_cost", "expected_recovery_hours",
 def _active_plan(tmp_path) -> dict:
     db: Database = _seeded_db(tmp_path)
     event = (datetime.now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",

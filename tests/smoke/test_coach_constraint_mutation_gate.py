@@ -6,6 +6,7 @@ constraints or planning checkpoints.  The lower-level apply paths must also
 commit the constraint ledger and checkpoint as one unit.
 """
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from copy import deepcopy
 from threading import Event, Lock, Thread
@@ -30,31 +31,38 @@ from tests.smoke.test_constraint_retraction import TARGET, _collapsed_plan, _goa
 pytestmark = pytest.mark.smoke
 
 
+@pytest.fixture(autouse=True)
+def active_cycle_day(monkeypatch):
+    from datetime import date
+    from tests.planning_fixtures import pin_day
+    pin_day(monkeypatch, date.fromisoformat(TARGET))
+
+
 def _db(tmp_path, name: str = "constraint-gate.db") -> Database:
     return Database(str(tmp_path / name))
 
 
 def _seed_chain(db: Database) -> tuple[dict, dict]:
     """Save an executable donor and a collapsed child checkpoint."""
-    donor = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
+    donor = seed_checkpoint(db, build_planning_checkpoint(_goal_plan()))
     child_plan = with_checkpoint_provenance(
         _collapsed_plan(),
         source="coach_constraint",
         parent_checkpoint_id=donor["id"],
     )
-    child = db.save_planning_checkpoint(build_planning_checkpoint(child_plan))
+    child = seed_checkpoint(db, build_planning_checkpoint(child_plan))
     return donor, child
 
 
 def _seed_no_donor(db: Database) -> dict:
     """Save a root and child whose target day is already non-executable."""
-    root = db.save_planning_checkpoint(build_planning_checkpoint(_collapsed_plan()))
+    root = seed_checkpoint(db, build_planning_checkpoint(_collapsed_plan()))
     child_plan = with_checkpoint_provenance(
         deepcopy(_collapsed_plan()),
         source="manual_edit",
         parent_checkpoint_id=root["id"],
     )
-    return db.save_planning_checkpoint(build_planning_checkpoint(child_plan))
+    return seed_checkpoint(db, build_planning_checkpoint(child_plan))
 
 
 def _checkpoint_ids(db: Database) -> list[int]:
@@ -78,7 +86,7 @@ def _save_tool_proposal(db: Database, payload: dict) -> dict:
 
 def test_create_constraint_tool_returns_proposal_without_writes(tmp_path) -> None:
     db = _db(tmp_path)
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan()))
     before_checkpoints = _checkpoint_ids(db)
     before_constraints = _all_constraints(db)
 
@@ -147,7 +155,7 @@ def test_constraint_apply_rolls_back_ledger_when_checkpoint_insert_fails(
     tmp_path,
 ) -> None:
     db = _db(tmp_path, "constraint-atomicity.db")
-    base = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
+    base = seed_checkpoint(db, build_planning_checkpoint(_goal_plan()))
 
     conn = db._connect()
     conn.execute(
@@ -198,7 +206,7 @@ def test_retract_missing_donor_keeps_constraint_active(tmp_path) -> None:
 
 def test_stale_approval_writes_no_plan_or_constraint_state(tmp_path) -> None:
     db = _db(tmp_path, "stale-approval.db")
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan()))
     payload = AITools(db).execute_tool(
         "create_plan_constraint",
         date=TARGET,
@@ -209,7 +217,7 @@ def test_stale_approval_writes_no_plan_or_constraint_state(tmp_path) -> None:
         params=payload["params"],
         preview=payload["preview"],
     )
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan()))
     before_checkpoints = _checkpoint_ids(db)
     before_constraints = _all_constraints(db)
 
@@ -314,7 +322,7 @@ def test_approval_claim_serializes_concurrent_double_apply(tmp_path, monkeypatch
 
 def test_approved_scoped_create_applies_once_and_preserves_sibling_leg(tmp_path) -> None:
     db = _db(tmp_path, "scoped-create.db")
-    base = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
+    base = seed_checkpoint(db, build_planning_checkpoint(_goal_plan()))
     payload = AITools(db).execute_tool(
         "create_plan_constraint",
         date=TARGET,
@@ -367,7 +375,7 @@ def test_approved_retract_and_repair_use_saved_preview(tmp_path, action) -> None
 
 def test_reject_constraint_proposal_writes_no_plan_or_ledger_state(tmp_path) -> None:
     db = _db(tmp_path, "reject.db")
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan()))
     payload = AITools(db).execute_tool(
         "create_plan_constraint",
         date=TARGET,
@@ -386,7 +394,7 @@ def test_reject_constraint_proposal_writes_no_plan_or_ledger_state(tmp_path) -> 
 
 def test_fingerprint_mismatch_fails_before_mutation(tmp_path) -> None:
     db = _db(tmp_path, "fingerprint.db")
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan()))
     payload = AITools(db).execute_tool(
         "create_plan_constraint",
         date=TARGET,
@@ -473,7 +481,7 @@ def test_post_commit_rebind_failure_is_an_approved_warning(tmp_path, monkeypatch
 @pytest.mark.parametrize("native", [False, True])
 def test_marker_and_native_constraint_calls_only_produce_proposals(tmp_path, native) -> None:
     db = _db(tmp_path, f"runtime-{native}.db")
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan()))
     tools = AITools(db)
     before_checkpoints = _checkpoint_ids(db)
 

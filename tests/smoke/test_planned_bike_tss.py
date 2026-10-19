@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -508,12 +509,15 @@ def test_preview_fails_closed_when_weekly_duration_budget_is_missing():
     assert preview["time_budget_preserved"] is False
 
 
-def test_service_preview_is_read_only_and_confirmation_is_stale_safe(tmp_path):
+def test_service_preview_is_read_only_and_confirmation_is_stale_safe(tmp_path, monkeypatch):
+    from tests.planning_fixtures import pin_day
+    from datetime import date
+    pin_day(monkeypatch, date(2026, 8, 20))
     from api import planning_service as ps
     from data.database import Database
 
     db = Database(str(tmp_path / "bike-tss.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_plan()))
     before = db.get_latest_planning_checkpoint()
 
     preview_result = ps.preview_bike_tss_rebalance(db, as_of="2026-08-20")

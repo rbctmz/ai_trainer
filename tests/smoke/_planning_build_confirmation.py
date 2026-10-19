@@ -1,5 +1,6 @@
 """Synthetic, pinned inputs shared by the #685 confirmation regressions."""
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 import hashlib
 import json
@@ -65,11 +66,23 @@ def parameters(mode: str = "training_goal") -> dict[str, Any]:
 
 def internal_build(db: Database, request: dict[str, Any], *, persist: bool = True):
     """Trusted legacy facade remains the characterization target during extraction."""
-    return ps.build_plan(
+    return fixture_build_plan(
         db,
         **{**request, "start_week": date.fromisoformat(request["start_week"])},
         persist=persist,
     )
+
+
+def cycle_fields(db: Database) -> dict[str, Any]:
+    """Explicit current context for v2 fixtures; never inferred in the public API."""
+    from services.planning_cycles import current_cycle_context
+    context = current_cycle_context(db)
+    return {"action": "start_new", "base_cycle_id": context["cycle_id"],
+            "base_cycle_revision": context["cycle_revision"],
+            "base_selection_revision": context["selection_revision"],
+            "base_checkpoint_id": context["checkpoint_id"] or 0,
+            "replace_current_cycle": context["cycle_id"] is not None,
+            "start_date": athlete_time.athlete_local_date().isoformat()}
 
 
 def seeded_db(tmp_path, *, existing: bool = False, rested: bool = False) -> Database:
@@ -105,6 +118,16 @@ def seeded_db(tmp_path, *, existing: bool = False, rested: bool = False) -> Data
         original = parameters()
         original["available_hours"] = 8.0
         internal_build(db, original)
+        # Explicit test-side synthetic initialization owns this legacy cycle;
+        # production raw saves never select/reimport it.
+    # The known synthetic forced-rest row is an explicit athlete restriction.
+    # Production unresolved rows still fail prepare with constraint_scope_required.
+    conn = db._connect()
+    try:
+        with conn:
+            conn.execute("UPDATE coach_constraints SET cycle_scope='athlete',cycle_id=NULL")
+    finally:
+        conn.close()
     return db
 
 

@@ -1,5 +1,6 @@
 """Smoke tests: get_active_plan / get_upcoming_workouts see a seeded plan."""
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint, pin_day
 
 from datetime import date, datetime, timedelta
 
@@ -9,6 +10,11 @@ from data.database import Database
 from models.ai_tools import AITools
 from models.planning_checkpoints import build_planning_checkpoint
 from tests.athlete_clock import athlete_now, athlete_today
+
+@pytest.fixture(autouse=True)
+def actual_athlete_day(monkeypatch):
+    # The synthetic plan's saved work days include Wednesday, not Monday.
+    pin_day(monkeypatch, date(2026, 10, 21))
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -92,7 +98,7 @@ def _make_goal_plan(weeks_ago: int = 0) -> dict:
 
 def _seed_plan(db: Database, weeks_ago: int = 0) -> None:
     checkpoint = build_planning_checkpoint(_make_goal_plan(weeks_ago))
-    db.save_planning_checkpoint(checkpoint)
+    seed_checkpoint(db, checkpoint)
 
 
 @pytest.fixture()
@@ -187,7 +193,7 @@ def test_get_active_plan_legacy_checkpoint_without_event_date_uses_end_fallback(
     goal_plan = _make_goal_plan()
     goal_plan.pop("event_date", None)
     goal_plan.pop("events", None)
-    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    seed_checkpoint(db, build_planning_checkpoint(goal_plan))
 
     result = AITools(db).get_active_plan()
 
@@ -282,7 +288,7 @@ def _seed_today_session(
             ],
         }
     ]
-    return db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    return seed_checkpoint(db, build_planning_checkpoint(plan))
 
 
 def _seed_today_brick(db: Database, *, session_id: str = "ats_brick") -> None:
@@ -315,7 +321,7 @@ def _seed_today_brick(db: Database, *, session_id: str = "ats_brick") -> None:
             ],
         }
     ]
-    db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    seed_checkpoint(db, build_planning_checkpoint(plan))
 
 
 def _seed_today_match(

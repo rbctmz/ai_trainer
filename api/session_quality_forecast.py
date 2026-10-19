@@ -9,6 +9,7 @@ from typing import Any, Mapping, Sequence
 
 from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
+from services.planning_cycles import current_plan_snapshot, actionable
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.session_quality_forecast import (
     ACTUAL_SESSION_ROLES,
@@ -242,7 +243,10 @@ def record_shadow_session_quality_forecast(
 ) -> dict[str, Any]:
     """Record one idempotent revision without feeding it into product decisions."""
     anchor = today or datetime.now().date()
-    checkpoint = checkpoint or db.get_latest_planning_checkpoint()
+    context, selected = current_plan_snapshot(db)
+    if not actionable(context) or (checkpoint is not None and checkpoint.get("id") != context["checkpoint_id"]):
+        return {"prediction": None, "reason": "no_active_plan"}
+    checkpoint = checkpoint or selected
     # `restore_goal_plan_from_checkpoint` requires a real dict: a non-dict Mapping
     # would fall through to the same "no_active_plan" outcome below, only later.
     if not isinstance(checkpoint, dict) or not checkpoint.get("id"):

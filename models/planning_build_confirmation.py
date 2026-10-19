@@ -55,6 +55,7 @@ class PlanningBuildPreviewError(ValueError):
         self.code = code
         self.status = status
         self.retryable = retryable
+        self.context: dict[str, Any] = {}
 
 
 @dataclass(frozen=True)

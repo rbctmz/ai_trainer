@@ -1,5 +1,6 @@
 """Smoke coverage for proposal tools (propose_plan_build, propose_plan_adjustment)."""
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 from datetime import timedelta
 
@@ -10,6 +11,7 @@ from data.database import Database
 from models.ai_coach_runtime import create_chat_system_prompt_with_tools
 from models.ai_tools import AITools
 from tests.athlete_clock import athlete_now
+from tests.smoke._planning_build_confirmation import cycle_fields
 
 pytestmark = pytest.mark.smoke
 
@@ -33,7 +35,7 @@ def _seeded_db(tmp_path) -> Database:
 
 def _build_active_triathlon_plan(db: Database) -> None:
     event_date = (athlete_now() + timedelta(weeks=8)).strftime("%Y-%m-%d")
-    planning_service.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -80,6 +82,7 @@ def test_propose_plan_build_returns_proposal(tmp_path) -> None:
         event_date=event_date,
         available_hours=10,
         available_days="mon,tue,thu,sat,sun",
+        **cycle_fields(tools.db),
     )
 
     assert result["success"] is True, result.get("error")

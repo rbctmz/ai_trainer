@@ -297,6 +297,8 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "checkpoint_parent_id": checkpoint_parent_id,
         "checkpoint_restored_from_checkpoint_id": checkpoint_restored_from_id,
     }
+    if goal_plan.get("identity_namespace") is not None:
+        goal_plan_snapshot["identity_namespace"] = goal_plan["identity_namespace"]
 
     plan_adjustment = constraint_summary.get("plan_adjustment", {}) or {}
     execution_adaptation_pressure = summarize_execution_adaptation_pressure(

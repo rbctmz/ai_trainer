@@ -1,5 +1,8 @@
 """Behavior contract for Issue F: auditable RecoveryReplanLoop."""
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
+from data.planning_cycle_writes import write_token
+
 
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -22,6 +25,15 @@ from models.planning_checkpoints import (
     restore_goal_plan_from_checkpoint,
 )
 from models.recovery_replan import build_recovery_replan_variant
+
+
+@pytest.fixture(autouse=True)
+def active_cycle_day(monkeypatch, request):
+    import inspect
+    import re
+    from tests.planning_fixtures import pin_day
+    match = re.search(r"today = date\((\d+), (\d+), (\d+)\)", inspect.getsource(request.function))
+    pin_day(monkeypatch, date(*(int(value) for value in match.groups())) if match else date(2026, 7, 10))
 
 
 def _goal_plan(
@@ -168,7 +180,7 @@ def _silence_report(today: date, *, data_gap: bool = False) -> dict:
 
 
 def _save_plan(db: Database, goal_plan: dict) -> dict:
-    return db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    return seed_checkpoint(db, build_planning_checkpoint(goal_plan))
 
 
 def test_recovery_variant_targets_absolute_date_beyond_old_ten_row_cap() -> None:
@@ -571,6 +583,7 @@ def test_stale_conflict_cannot_publish_after_newer_complete_evidence(tmp_path) -
     publication = db.publish_current_recovery_proposal(
         params={
             "base_checkpoint_id": checkpoint["id"],
+            "cycle_context": write_token(db.planning_write_context()),
             "evidence_fingerprint": "older-conflict",
             "evidence_revision": old["evidence_revision"],
         },
@@ -600,6 +613,7 @@ def test_newer_conflict_atomically_replaces_active_proposal_ownership(tmp_path) 
     first_publication = db.publish_current_recovery_proposal(
         params={
             "base_checkpoint_id": checkpoint["id"],
+            "cycle_context": write_token(db.planning_write_context()),
             "evidence_fingerprint": "conflict-c1",
             "evidence_revision": first["evidence_revision"],
         },
@@ -620,6 +634,7 @@ def test_newer_conflict_atomically_replaces_active_proposal_ownership(tmp_path) 
     second_publication = db.publish_current_recovery_proposal(
         params={
             "base_checkpoint_id": checkpoint["id"],
+            "cycle_context": write_token(db.planning_write_context()),
             "evidence_fingerprint": "conflict-c2",
             "evidence_revision": second["evidence_revision"],
         },
@@ -643,6 +658,7 @@ def test_newer_conflict_atomically_replaces_active_proposal_ownership(tmp_path) 
     stale_retry = db.publish_current_recovery_proposal(
         params={
             "base_checkpoint_id": checkpoint["id"],
+            "cycle_context": write_token(db.planning_write_context()),
             "evidence_fingerprint": "conflict-c1",
             "evidence_revision": first["evidence_revision"],
         },
@@ -671,6 +687,7 @@ def test_newer_conflict_waits_for_applying_proposal_then_republishes(tmp_path) -
     first_publication = db.publish_current_recovery_proposal(
         params={
             "base_checkpoint_id": checkpoint["id"],
+            "cycle_context": write_token(db.planning_write_context()),
             "evidence_fingerprint": "applying-c1",
             "evidence_revision": first["evidence_revision"],
             "rule_version": READINESS_CONFLICT_RULE_VERSION,
@@ -698,6 +715,7 @@ def test_newer_conflict_waits_for_applying_proposal_then_republishes(tmp_path) -
     publish_args = {
         "params": {
             "base_checkpoint_id": checkpoint["id"],
+            "cycle_context": write_token(db.planning_write_context()),
             "evidence_fingerprint": "waiting-c2",
             "evidence_revision": second["evidence_revision"],
             "rule_version": READINESS_CONFLICT_RULE_VERSION,

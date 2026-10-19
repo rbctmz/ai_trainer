@@ -72,6 +72,7 @@
         {
           "state": "empty",
           "expect": 200,
+          "prepare_cycle_build": true,
           "json": {
             "goal_type": "triathlon",
             "distance": "olympic",
@@ -102,6 +103,58 @@
         }
       ]
     },
+    "/api/planning/constraints": {
+      "interface": "PlanningConstraintsResponse",
+      "scenarios": [{"state": "empty", "expect": 200}, {"state": "cycle", "expect": 200}]
+    },
+    "/api/planning/cycles/current": {
+      "interface": "CycleContext",
+      "scenarios": [
+        {"state": "empty", "expect": 200},
+        {"state": "cycle", "expect": 200}
+      ]
+    },
+    "/api/planning/build-context": {
+      "interface": "CycleBuildContext",
+      "scenarios": [
+        {"state": "empty", "expect": 200, "query_params": {"action": "start_new"}},
+        {"state": "cycle", "expect": 200, "query_params": {"action": "start_new"}}
+      ]
+    },
+    "/api/planning/cycles": {
+      "interface": "CycleHistoryResponse",
+      "scenarios": [
+        {"state": "empty", "expect": 200},
+        {"state": "cycle", "expect": 200}
+      ]
+    },
+    "/api/planning/cycles/{cycle_id}": {
+      "interface": "CycleContext",
+      "scenarios": [
+        {"state": "cycle", "expect": 200, "path_params": {"cycle_id": "current_cycle_id"}}
+      ]
+    },
+    "/api/planning/cycles/{cycle_id}/close": {
+      "interface": "CycleCommandResponse",
+      "method": "POST",
+      "scenarios": [
+        {"state": "cycle", "expect": 200, "prepare_cycle_command": "close", "path_params": {"cycle_id": "current_cycle_id"}}
+      ]
+    },
+    "/api/planning/cycles/{cycle_id}/event-outcome": {
+      "interface": "CycleCommandResponse",
+      "method": "POST",
+      "scenarios": [
+        {"state": "cycle", "expect": 200, "prepare_cycle_command": "event-outcome", "path_params": {"cycle_id": "current_cycle_id"}}
+      ]
+    },
+    "/api/planning/cycles/constraint-scope": {
+      "interface": "CycleCommandResponse",
+      "method": "POST",
+      "scenarios": [
+        {"state": "cycle", "expect": 200, "prepare_cycle_command": "constraint-scope"}
+      ]
+    },
     "/api/planning/status": {
       "interface": "PlanningStatus",
       "scenarios": [
@@ -112,12 +165,6 @@
     },
     "/api/planning/overview": {
       "interface": "PlanningOverview",
-      "scenarios": [
-        {"state": "demo", "expect": 200}
-      ]
-    },
-    "/api/planning/edit-context": {
-      "interface": "PlanningEditContext",
       "scenarios": [
         {"state": "demo", "expect": 200}
       ]

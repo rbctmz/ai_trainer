@@ -103,7 +103,8 @@ def _seed(db: Any) -> None:
                 }
             )
     event_date = start_week + datetime.timedelta(weeks=5)
-    db.save_planning_checkpoint(
+    from services.synthetic_planning import _seed_legacy_checkpoint
+    _seed_legacy_checkpoint(db,
         build_planning_checkpoint(
             {
                 "goal_type": "Триатлон",

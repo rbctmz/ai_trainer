@@ -1,4 +1,5 @@
 """Three narrow, versioned tasks for actual Coach runtime outputs (#528)."""
+from tests.planning_fixtures import seed_checkpoint
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -170,7 +171,7 @@ def build_comparison_database(path, today: date):
     plan["plan_revision"] = f"{today.isoformat()}T00:00:00"
     plan["session_templates"][0]["export_name"] = "Синтетика — Sprint maintenance"
     plan["session_templates"][0]["session_focus"] = "Sprint maintenance"
-    database.save_planning_checkpoint(build_planning_checkpoint(plan))
+    seed_checkpoint(database, build_planning_checkpoint(plan))
     # Database startup fills missing TSS provenance. Complete that once before
     # the canonical snapshot, so opening a clone doesn't change its inputs.
     from data.database import Database

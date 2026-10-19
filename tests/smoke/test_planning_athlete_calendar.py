@@ -41,6 +41,8 @@ def _athlete_day_is(monkeypatch, days: int):
     """Сдвинуть атлетский день относительно host clock на `days` суток."""
     shifted = datetime.now().date() + timedelta(days=days)
     monkeypatch.setattr(ps, "athlete_local_date", lambda *args, **kwargs: shifted)
+    from services import planning_cycles
+    monkeypatch.setattr(planning_cycles, "athlete_local_date", lambda: shifted)
     return shifted
 
 

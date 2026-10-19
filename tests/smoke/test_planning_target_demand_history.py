@@ -1,5 +1,7 @@
 """Smoke contracts for issue #23 planning target math, demand, and history."""
 from __future__ import annotations
+from tests.planning_fixtures import write_context
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 import importlib
 from datetime import datetime, timedelta
@@ -79,7 +81,7 @@ def test_demand_setting_roundtrips_and_build_uses_multiplier(tmp_path):
     assert ps.get_demand(db)["demand"]["level"] == "aggressive"
     assert ps.current_status(db)["demand"]["level"] == "aggressive"
 
-    moderate = ps.build_plan(
+    moderate = fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -89,7 +91,7 @@ def test_demand_setting_roundtrips_and_build_uses_multiplier(tmp_path):
         demand="moderate",
         persist=False,
     )
-    aggressive = ps.build_plan(
+    aggressive = fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -110,7 +112,7 @@ def test_planning_history_lists_adjustment_checkpoints(tmp_path):
 
     db = _seeded_db(tmp_path)
     event = (datetime.now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -125,7 +127,7 @@ def test_planning_history_lists_adjustment_checkpoints(tmp_path):
     assert rows
     rows[0]["outcome"] = "skipped"
     rows[0]["actual_total_tss"] = 0
-    ps.apply_adjustment(db, rows=rows, weeks=1, persist=True)
+    ps.apply_adjustment(db, rows=rows, weeks=1, persist=True, cycle_context=write_context(db))
 
     history = ps.planning_history(db, limit=5)
 

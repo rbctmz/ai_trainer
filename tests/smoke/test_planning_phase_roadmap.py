@@ -1,5 +1,6 @@
 """BDD gates for Planning M2 phase roadmap and form projection (#302)."""
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -18,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 def _event_plan_db(tmp_path) -> Database:
     db = _seeded_db(tmp_path)
     today = athlete_now().date()
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -103,7 +104,7 @@ def test_roadmap_only_extends_for_the_short_post_plan_event_bridge():
 
 def test_rolling_horizon_has_no_synthetic_race_date_or_countdown(tmp_path):
     db = _seeded_db(tmp_path)
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="run",
         distance="10k",
@@ -127,7 +128,7 @@ def test_rolling_horizon_has_no_synthetic_race_date_or_countdown(tmp_path):
 def test_missing_activity_history_is_a_projection_data_gap_not_zero_chart(tmp_path):
     db = Database(str(tmp_path / "empty-history.db"))
     event_date = (athlete_now().date() + timedelta(weeks=6)).isoformat()
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="run",
         distance="10k",

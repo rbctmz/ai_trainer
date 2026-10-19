@@ -15,7 +15,7 @@ from data.planning_build_preview_store import get_preview
 from models import planning_build_confirmation as protocol
 from models.planning_build_confirmation import BuildParameters, PlanningBuildPreviewError
 from tests.smoke._planning_build_confirmation import (
-    MODES, TODAY, add_late_activity, checkpoint_payload, parameters, pin_clock, protected_state, seeded_db,
+    MODES, TODAY, add_late_activity, checkpoint_payload, cycle_fields, parameters, pin_clock, protected_state, seeded_db,
 )
 from tests.smoke.test_planning_build_preparation import execute
 
@@ -26,7 +26,7 @@ def clock(monkeypatch):
 
 
 def prepare(db, mode="training_goal", origin="planning_ui"):
-    return ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping(parameters(mode)), origin=origin)
+    return ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping({**parameters(mode), **cycle_fields(db)}), origin=origin)
 
 
 def confirm(db, shown):
@@ -84,7 +84,7 @@ def test_stale_invalidates_only_preview(tmp_path, monkeypatch, change):
     elif change in {"demand", "planning_profile"}:
         db.set_user_setting("planning_demand_level" if change == "demand" else change, "changed")
     elif change == "base":
-        db.save_planning_checkpoint({"goal_type": "synthetic", "distance": "synthetic"})
+        execute(db, "UPDATE planning_cycle_state SET revision=revision+1")
     elif change == "day":
         monkeypatch.setattr(ps, "athlete_local_date", lambda: TODAY + timedelta(days=1))
     elif change == "timezone":
@@ -245,14 +245,14 @@ def test_dependency_writer_blocked_until_after_confirm_is_later_event(tmp_path, 
     db = seeded_db(tmp_path)
     shown = prepare(db)
     checking, blocked, committed = Event(), Event(), Event()
-    read_latest = db._get_latest_planning_checkpoint
+    read_latest = db._get_current_planning_checkpoint
 
     def at_check(conn):
         checking.set()
         assert blocked.wait(5)
         return read_latest(conn)
 
-    monkeypatch.setattr(db, "_get_latest_planning_checkpoint", at_check)
+    monkeypatch.setattr(db, "_get_current_planning_checkpoint", at_check)
 
     def writer():
         assert checking.wait(5)
@@ -383,6 +383,8 @@ def test_confirm_owns_one_closed_connection_and_one_transaction(tmp_path, monkey
 ])
 def test_full_dependency_contract_at_confirmation(tmp_path, monkeypatch, change, stale):
     db = seeded_db(tmp_path, existing=True)
+    if change == "deactivate_constraint":
+        execute(db, "UPDATE coach_constraints SET date='2026-11-10' WHERE id=1")
     if change == "absent_to_null":
         db.delete_user_setting("planning_profile")
     shown = prepare(db)

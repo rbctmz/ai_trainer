@@ -12,8 +12,10 @@ from fastapi.testclient import TestClient
 
 from api.deps import get_database
 from api.routers.planning import router
+from api.routers.planning_cycles import router as cycles_router
 from tests.smoke._planning_build_confirmation import (
     add_late_activity,
+    cycle_fields,
     parameters,
     pin_clock,
     protected_state,
@@ -30,13 +32,15 @@ def scenario(tmp_path, monkeypatch, request):
     db = seeded_db(tmp_path, existing=request.param)
     app = FastAPI()
     app.include_router(router)
+    app.include_router(cycles_router)
     app.dependency_overrides[get_database] = lambda: db
     with TestClient(app) as client:
         yield client, db
 
 
 def preview(client):
-    response = client.post(BUILD, json=parameters())
+    db = client.app.dependency_overrides[get_database]()
+    response = client.post(BUILD, json={**parameters(), **cycle_fields(db)})
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -152,17 +156,17 @@ def test_bad_identity_uses_safe_protocol_envelope(scenario, payload):
 @pytest.mark.parametrize("patch,code,status", [
     ({"persist": True}, "preview_required", 409),
     ({"confirm": True}, "invalid_confirmation", 422),
-    ({"start_week": "2026-99-99"}, "invalid_build_request", 422),
+    ({"start_week": "2026-99-99"}, "invalid_start_date", 422),
     ({"available_hours": -1}, "invalid_build_request", 422),
     ({"available_hours": "nan"}, "invalid_build_request", 422),
     ({"origin": "coach"}, "invalid_build_request", 422),
     ({"checkpoint_json": "{}"}, "invalid_build_request", 422),
-    ({"base_checkpoint_id": 999}, "preview_stale", 409),
+    ({"base_checkpoint_id": 999}, "cycle_stale", 409),
 ])
 def test_invalid_build_and_legacy_flags_never_write(scenario, patch, code, status):
     client, db = scenario
     before = protected_state(db)
-    response = client.post(BUILD, json={**parameters(), **patch})
+    response = client.post(BUILD, json={**parameters(), **cycle_fields(db), **patch})
     assert response.status_code == status, response.text
     assert response.json()["code"] == code
     assert response.json()["retryable"] is False

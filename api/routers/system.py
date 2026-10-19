@@ -271,25 +271,29 @@ def _seed_demo_plan(db) -> int:
     (test_api_architecture::test_services_modules_do_not_depend_on_api, #194).
     Returns the number of planned days (0 if no plan was produced).
     """
-    from datetime import datetime, timedelta
+    from datetime import timedelta
 
     from api import planning_service
+    from models.planning_build_confirmation import BuildParameters
+    from services.planning_cycles import current_cycle_context
+    from utils.athlete_time import athlete_local_date
 
     # Deterministic athlete profile so the plan builder has FTP/LTHR regardless
     # of the runner's .env.
     db.save_athlete_profile(
         {"ftp": 240, "weight_kg": 72.0, "lthr": 160, "source": "demo"}
     )
-    event_date = (datetime.now().date() + timedelta(weeks=9)).strftime("%Y-%m-%d")
-    planning_service.build_plan(
-        db,
-        goal_type="triathlon",
-        distance="olympic",
-        event_date=event_date,
-        available_hours=10.0,
-        available_days=["mon", "tue", "wed", "thu", "sat", "sun"],
-        persist=True,
-    )
+    context = current_cycle_context(db)
+    event_date = (athlete_local_date() + timedelta(weeks=9)).isoformat()
+    preview = planning_service.prepare_plan_build(db, parameters=BuildParameters.from_mapping({
+        "goal_type": "triathlon", "distance": "olympic", "event_date": event_date,
+        "available_hours": 10.0, "available_days": ["mon", "tue", "wed", "thu", "sat", "sun"],
+        "action": "start_new", "base_cycle_id": context["cycle_id"],
+        "base_cycle_revision": context["cycle_revision"], "base_selection_revision": context["selection_revision"],
+        "base_checkpoint_id": context["checkpoint_id"] or 0, "replace_current_cycle": context["cycle_id"] is not None,
+        "start_date": athlete_local_date().isoformat(),
+    }), origin="planning_ui")
+    planning_service.confirm_plan_build(db, preview_id=preview["confirmation"]["preview_id"], origin="planning_ui")
     active = planning_service.get_active_plan(db)
     if not active or not active.get("daily_plan"):
         return 0

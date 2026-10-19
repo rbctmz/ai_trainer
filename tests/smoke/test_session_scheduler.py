@@ -7,6 +7,7 @@ quantitative contract confirmed by the athlete for a normal 10-hour week and
 are committed RED before the implementation exists.
 """
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 from datetime import datetime, timedelta
 
@@ -512,7 +513,7 @@ def test_reference_plan_histogram_replaces_three_session_days(tmp_path):
     db = Database(str(tmp_path / "scheduler-reference.db"))
     today = datetime.now().date()
     b_date, a_date = pinned_reference_events(today)
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -598,7 +599,7 @@ def test_post_race_spillover_week_is_explicitly_reduced(
     days_ahead = (race_weekday - today.weekday()) % 7
     b_date = today + timedelta(days=days_ahead + 7)  # ≥ a week out, pinned weekday
     a_date = today + timedelta(weeks=12)
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",

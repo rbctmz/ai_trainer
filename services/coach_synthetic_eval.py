@@ -215,7 +215,8 @@ def build_synthetic_coach_database(
     """Детерминированная база сценария: план, день отдыха и три активности."""
     days = days or synthetic_fixture_days()
     database = Database(str(path))
-    database.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(days)))
+    from services.synthetic_planning import _seed_legacy_checkpoint
+    _seed_legacy_checkpoint(database, build_planning_checkpoint(_goal_plan(days)))
     database.save_activities(
         [
             _activity("syn-bike-cached", days.cached_fact, "bike", "Синтетика — вело с кэшем"),

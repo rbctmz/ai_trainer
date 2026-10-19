@@ -14,7 +14,7 @@ from api.routers import decisions
 from data.planning_build_preview_store import get_preview
 from models.ai_tools import AITools
 from models.planning_build_confirmation import BuildParameters, PlanningBuildPreviewError
-from tests.smoke._planning_build_confirmation import add_late_activity, checkpoint_payload, parameters, pin_clock, protected_state, seeded_db
+from tests.smoke._planning_build_confirmation import add_late_activity, checkpoint_payload, cycle_fields, parameters, pin_clock, protected_state, seeded_db
 from tests.smoke.test_planning_build_preparation import execute
 
 
@@ -26,7 +26,7 @@ def clock(monkeypatch):
 def prepared(db):
     request = parameters()
     request.pop("demand")  # current trusted Coach tool does not request a settings write
-    return ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping(request), origin="coach")
+    return ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping({**request, **cycle_fields(db)}), origin="coach")
 
 
 def save(db, shown, **kwargs):
@@ -38,7 +38,7 @@ def save(db, shown, **kwargs):
 def test_tool_prepares_identity_summary_and_actual_base(tmp_path):
     db = seeded_db(tmp_path, existing=True)
     before = protected_state(db)
-    raw = AITools(db).propose_plan_build(goal_type="triathlon", distance="olympic", event_date="2026-12-06")
+    raw = AITools(db).propose_plan_build(goal_type="triathlon", distance="olympic", event_date="2026-12-06", **cycle_fields(db))
     assert raw["is_proposal"]
     token = raw["params"]["preview_id"]
     row = get_preview(db, token, origin="coach")
@@ -144,7 +144,7 @@ def test_rejected_or_mismatched_proposal_never_applies(tmp_path, tamper):
         execute(db, "UPDATE coach_proposals SET params_json=? WHERE id=?",
                 (json.dumps({"preview_id": other["confirmation"]["preview_id"]}), proposal["id"]))
     elif tamper == "wrong-origin":
-        other = ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping(parameters()), origin="planning_ui")
+        other = ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping({**parameters(), **cycle_fields(db)}), origin="planning_ui")
         execute(db, "UPDATE coach_proposals SET params_json=? WHERE id=?",
                 (json.dumps({"preview_id": other["confirmation"]["preview_id"]}), proposal["id"]))
     else:
@@ -202,7 +202,7 @@ def test_explicit_coach_demand_is_applied_once_without_profile_write(tmp_path,mo
     db = seeded_db(tmp_path)
     execute(db,"UPDATE user_settings SET updated_at='synthetic-old' WHERE key='planning_demand_level'")
     before = protected_state(db)
-    shown = ps.prepare_plan_build(db,parameters=BuildParameters.from_mapping({**parameters(),"demand":level}),origin="coach")
+    shown = ps.prepare_plan_build(db,parameters=BuildParameters.from_mapping({**parameters(),**cycle_fields(db),"demand":level}),origin="coach")
     proposal = save(db,shown)
     decisions.approve_proposal(proposal["id"],db=db)
     settings = {row[0]:row for row in protected_state(db)["settings"]}

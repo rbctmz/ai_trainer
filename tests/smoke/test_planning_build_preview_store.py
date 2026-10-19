@@ -14,7 +14,7 @@ from data.database import Database
 from data.planning_build_preview_store import get_preview, store_pending, validate_pending
 from models.planning_build_confirmation import BuildParameters, PlanningBuildPreviewError, canonical_json
 from scripts.sqlite_backup_restore import backup_database, restore_database
-from tests.smoke._planning_build_confirmation import parameters, pin_clock, protected_state, seeded_db
+from tests.smoke._planning_build_confirmation import cycle_fields, parameters, pin_clock, protected_state, seeded_db
 from tests.smoke.test_planning_build_preparation import execute, pending_count
 
 NOW = datetime(2026, 10, 16, 9, tzinfo=timezone.utc)
@@ -24,7 +24,7 @@ NOW = datetime(2026, 10, 16, 9, tzinfo=timezone.utc)
 def artifact(tmp_path, monkeypatch):
     pin_clock(monkeypatch)
     db = seeded_db(tmp_path)
-    snapshot = ps._capture_plan_build_inputs(db, BuildParameters.from_mapping(parameters()))
+    snapshot = ps._capture_plan_build_inputs(db, BuildParameters.from_mapping({**parameters(), **cycle_fields(db)}))
     prepared = ps._calculate_plan_build(snapshot)
     return db, prepared
 
@@ -199,7 +199,7 @@ def test_retained_context_has_component_hashes_not_copied_activity_history(artif
     db, prepared = artifact
     row = retain(db, prepared)
     context = json.loads(row["dependency_context_json"])
-    assert set(context["components"]) == {"activities", "athlete_profile", "constraints", "latest_checkpoint", "settings"}
+    assert set(context["components"]) == {"activities", "athlete_profile", "constraints", "constraint_ownership", "latest_checkpoint", "settings"}
     assert all(len(value) == 64 for value in context["components"].values())
     assert "sources_json" not in row
     assert canonical_json(context) == row["dependency_context_json"]

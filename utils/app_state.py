@@ -256,6 +256,7 @@ class HeadlessState:
 
     @property
     def goal_plan(self):
+        self.refresh_planning_checkpoint_cache()
         return self._session.get("goal_plan")
 
     @goal_plan.setter
@@ -264,8 +265,7 @@ class HeadlessState:
 
     @property
     def latest_planning_checkpoint(self):
-        if not self._session.get("planning_checkpoint_cache_loaded", False):
-            self.refresh_planning_checkpoint_cache()
+        self.refresh_planning_checkpoint_cache()
         return self._session.get("latest_planning_checkpoint")
 
     @latest_planning_checkpoint.setter
@@ -286,11 +286,12 @@ class HeadlessState:
 
     @property
     def resolved_goal_plan_context(self):
+        self.refresh_planning_checkpoint_cache()
         from models.planning_checkpoints import resolve_goal_plan_context
 
         return resolve_goal_plan_context(
-            self.goal_plan,
-            self.latest_planning_checkpoint,
+            self._session.get("goal_plan"),
+            self._session.get("latest_planning_checkpoint"),
         )
 
     @property
@@ -392,9 +393,17 @@ class HeadlessState:
     # Convenience helpers for transient data
     # ------------------------------------------------------------------
     def refresh_planning_checkpoint_cache(self, limit: int = 6):
-        latest = self.database.get_latest_planning_checkpoint()
+        from services.planning_cycles import current_plan_snapshot, actionable
+        from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+
+        context, latest = current_plan_snapshot(self.database)
+        self._session["planning_cycle_context"] = context
+        if actionable(context) and latest:
+            self._session["goal_plan"] = restore_goal_plan_from_checkpoint(latest)
+        else:
+            self._session.pop("goal_plan", None)
         history = self.database.get_recent_planning_checkpoints(limit=limit)
-        self._session["latest_planning_checkpoint"] = latest
+        self._session["latest_planning_checkpoint"] = latest if actionable(context) else None
         self._session["planning_checkpoint_history"] = history
         self._session["planning_checkpoint_cache_loaded"] = True
         return history

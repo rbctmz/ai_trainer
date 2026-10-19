@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CycleState } from "@/components/planning/CyclePanel";
 import Link from "next/link";
 import useSWR from "swr";
 import { fetcher, putJSON } from "@/lib/api";
@@ -193,6 +194,7 @@ export default function TodayPage() {
 
   return (
     <main className="w-full space-y-5">
+      {data?.cycle_context ? <section className="rounded-card border border-surface-border bg-surface p-4"><CycleState context={data.cycle_context} /></section> : null}
       {isLoading ? (
         <div
           role="status"

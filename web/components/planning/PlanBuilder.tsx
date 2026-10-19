@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
+import { readCycleBuildContext } from "@/lib/planningCycles";
 import { ApiError, fetcher, postJSON } from "@/lib/api";
 import {
   BuiltPlan,
@@ -9,10 +10,9 @@ import {
   BuildConfirmResponse,
   ForecastPoint,
   PlanningDemand,
-  PlanningEditContext,
+  CycleBuildContext,
   PlanningEventsResponse,
   PlanningOnboarding,
-  PlanningProfile,
   PlanningStatus,
   PlanWeek,
   RaceEvent,
@@ -104,15 +104,17 @@ function microcycleStateLabel(state: { role: string; sport: string; tss: number 
  *
  * Serves both the first-plan path (hydrates once from onboarding suggestions)
  * and the "Изменить план" path (hydrates once from the active checkpoint via
- * /api/planning/edit-context). Preview is explicit on step 3; confirmation is
+ * /api/planning/build-context). Preview is explicit on step 3; confirmation is
  * an explicit identity-only action on step 4.
  */
 export function PlanBuilder({
   status,
+  action = "start_new",
   onSaved,
   onConfirmationLockChange,
 }: {
   status?: PlanningStatus;
+  action?: "start_new" | "edit_current";
   onSaved?: () => void;
   onConfirmationLockChange?: (locked: boolean) => void;
 }) {
@@ -145,70 +147,44 @@ export function PlanBuilder({
   useEffect(() => { onConfirmationLockChange?.(confirmationLocked); }, [confirmationLocked, onConfirmationLockChange]);
   // Сохранённая неделя старта активного плана: при редактировании пересборка
   // идёт с того же календаря, а не «с сегодня» (#337, фикс после ручной приёмки).
-  const [startWeek, setStartWeek] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState("");
+  const [choiceConfirmed, setChoiceConfirmed] = useState(action === "edit_current");
+  const [replaceConfirmed, setReplaceConfirmed] = useState(false);
+  const [buildContext, setBuildContext] = useState<CycleBuildContext | null>(null);
   const demandOptions = status?.demand_options?.length ? status.demand_options : DEFAULT_DEMAND_OPTIONS;
   const hydrated = useRef(false);
+  const [hydrationGeneration, setHydrationGeneration] = useState(0);
   const stepHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
   const { data: onboarding } = useSWR<PlanningOnboarding>("/api/onboarding/planning", fetcher, {
     revalidateOnFocus: false,
   });
-  const { data: editContext } = useSWR<PlanningEditContext>(
-    status?.has_plan ? "/api/planning/edit-context" : null,
-    fetcher,
+  const [contextReadId] = useState(() => crypto.randomUUID());
+  // api-contract: manual: /api/planning/build-context
+  const { data: canonical, error: contextError, mutate: reloadContext } = useSWR<CycleBuildContext>(
+    ["/api/planning/build-context", action, contextReadId], () => readCycleBuildContext(action),
     { revalidateOnFocus: false },
   );
-
-  // Hydrate exactly once: editing an active plan starts from the checkpoint's
-  // saved inputs; a first plan starts from the onboarding suggestion/profile.
-  // Later SWR revalidation must never clobber athlete edits (#304).
   useEffect(() => {
-    if (hydrated.current) return;
-    if (status?.has_plan) {
-      if (!editContext || editContext.state !== "available" || !editContext.inputs) return;
-      hydrated.current = true;
-      const source = editContext.inputs;
-      setPlanningMode(source.planning_mode as PlanningMode);
-      setIntent(source.intent as "maintain" | "develop");
-      setGoalType(source.goal_type);
-      setDistance(source.distance);
-      setEventDate(source.event_date ?? "");
-      setHorizonWeeks(source.horizon_weeks);
-      if (source.planning_mode === "manual" && source.manual_phases.length) {
-        setManualPhases(source.manual_phases.join(", "));
-      }
-      setHours(source.available_hours);
-      if (source.available_days.length) setDays(source.available_days);
-      setDemand(source.demand);
-      if (source.events?.length) setSelectedEvents(source.events);
-      setStartWeek(source.start_week);
-      return;
-    }
-    if (!onboarding) return;
+    if (hydrated.current || !canonical) return;
     hydrated.current = true;
-    const source: Partial<PlanningProfile> = onboarding.profile ?? {
-      planning_mode: onboarding.suggested.planning_mode.value,
-      intent: onboarding.suggested.intent.value,
-      goal_type: onboarding.suggested.goal_type.value,
-      distance: onboarding.suggested.distance.value,
-      available_hours: onboarding.suggested.available_hours.value,
-      available_days: onboarding.suggested.available_days.value,
-      horizon_weeks: onboarding.suggested.horizon_weeks.value,
-    };
-    if (source.planning_mode) setPlanningMode(source.planning_mode);
-    if (source.intent) setIntent(source.intent);
-    if (source.goal_type) setGoalType(source.goal_type);
-    if (source.distance) setDistance(source.distance);
-    if (source.available_hours) setHours(source.available_hours);
-    if (source.available_days?.length) setDays(source.available_days);
-    if (source.horizon_weeks) setHorizonWeeks(source.horizon_weeks);
-  }, [onboarding, editContext, status?.has_plan]);
-
-  useEffect(() => {
-    if (status?.demand?.level && !attempt.current && generation.current === 0) {
-      setDemand(status.demand.level);
-    }
-  }, [status?.demand?.level]);
+    setBuildContext(canonical);
+    setChoiceConfirmed(action === "edit_current");
+    setReplaceConfirmed(false);
+    const source = canonical.inputs;
+    setStartDate(source.start_date);
+    setPlanningMode((source.planning_mode ?? "event_goal") as PlanningMode);
+    setIntent((source.intent ?? "develop") as "maintain" | "develop");
+    setGoalType(source.goal_type ?? "triathlon");
+    setDistance(source.distance ?? "olympic");
+    setEventDate(source.event_date ?? "");
+    setSelectedEvents(source.events);
+    setManualPhases(source.manual_phases?.join(", ") ?? "");
+    setHorizonWeeks(source.horizon_weeks ?? 8);
+    if (source.available_hours !== null) setHours(source.available_hours);
+    if (source.available_days.length) setDays(source.available_days);
+    setDemand(source.demand ?? "moderate");
+  }, [canonical, hydrationGeneration, action]);
 
   const previewKey = useMemo(() => {
     if (!days.length) return null;
@@ -239,6 +215,7 @@ export function PlanBuilder({
   }
   function onGoalChange(v: string) {
     setGoalType(v);
+    setChoiceConfirmed(action === "edit_current");
     setDistance(DISTANCES[v][v === "run" ? 2 : 1].value);
     invalidatePlan();
   }
@@ -283,11 +260,18 @@ export function PlanBuilder({
       available_hours: hours,
       available_days: days,
       demand,
-      start_week: startWeek,
+      action,
+      start_date: startDate,
+      base_cycle_id: buildContext?.cycle_context.cycle_id ?? null,
+      base_cycle_revision: buildContext?.cycle_context.cycle_revision ?? null,
+      base_selection_revision: buildContext?.cycle_context.selection_revision,
+      base_checkpoint_id: buildContext?.cycle_context.checkpoint_id ?? 0,
+      replace_current_cycle: action === "start_new" && replaceConfirmed,
+
     };
   }
   async function build() {
-    if (attempt.current) return;
+    if (attempt.current || !buildContext) return;
     const current = ++generation.current;
     setFlow("previewing");
     setPlan(null);
@@ -335,10 +319,11 @@ export function PlanBuilder({
       await Promise.allSettled([
         mutate("/api/planning/status"), mutate("/api/planning/overview"),
         mutate("/api/planning/history?limit=8"), mutate("/api/onboarding/planning"),
-        mutate("/api/planning/edit-context"),
+        mutate("/api/planning/edit-context"), mutate("/api/planning/cycles"),
+        mutate("/api/planning/cycles/current"),
       ]);
     } catch (e) {
-      const terminal = e instanceof ApiError && ["preview_stale", "preview_invalidated", "preview_expired", "preview_required", "proposal_not_pending"].includes(e.code ?? "");
+      const terminal = e instanceof ApiError && ["preview_stale", "preview_invalidated", "preview_expired", "preview_required", "proposal_not_pending", "cycle_stale", "cycle_not_current", "cycle_period_ended", "cycle_closed", "cycle_context_required"].includes(e.code ?? "");
       if (terminal) {
         attempt.current = null;
         generation.current += 1;
@@ -358,7 +343,7 @@ export function PlanBuilder({
 
   const needsEventDate = planningMode === "event_goal" && !eventDate && !hasSelectedARace;
   const canProceedFromStep =
-    (step === 1 && !needsEventDate) ||
+(step === 1 && !needsEventDate && !!buildContext && choiceConfirmed && !!startDate && (!buildContext.cycle_context.cycle_id || action !== "start_new" || replaceConfirmed)) ||
     (step === 2 && days.length > 0) ||
     (step === 3 && plan !== null) ||
     step === 4;
@@ -371,11 +356,18 @@ export function PlanBuilder({
   function resetBuilder() {
     if (attempt.current) return;
     invalidatePlan();
+    if (flow === "applied" || flow === "needs_preview") {
+      setBuildContext(null);
+      void reloadContext().then(value => {
+        if (value) {hydrated.current = false; setHydrationGeneration(current => current + 1);}
+      });
+    }
     goToStep(1);
   }
 
   return (
     <>
+      {contextError ? <p role="alert" className="text-sm text-tone-warning">Не удалось получить контекст цикла. Обновите страницу перед созданием плана.</p> : null}
       {onboarding && !onboarding.completed ? (
         <FirstPlanCard onboarding={onboarding} hours={hours} days={days} />
       ) : null}
@@ -421,9 +413,13 @@ export function PlanBuilder({
           </ol>
         </nav>
 
-        <fieldset disabled={confirmationLocked}>
+        <fieldset disabled={confirmationLocked || !buildContext}>
         {step === 1 ? (
           <>
+            <p className="mb-3 text-sm text-ink-soft">{action === "start_new" ? "Новый цикл: прошлые события, даты и ручные правки не переносятся." : "Изменение выбранного цикла: начало периода и сохранённое прошлое остаются."}</p>
+            <label className="mb-4 block text-sm text-ink-soft">Дата начала цикла
+              <input aria-label="Дата начала цикла" type="date" value={startDate} min={action === "start_new" ? buildContext?.cycle_context.athlete_day : undefined} disabled={action === "edit_current"} onChange={e => {setStartDate(e.target.value); invalidatePlan();}} className="ml-2 rounded-lg border border-surface-border bg-surface px-3 py-2 text-ink" />
+            </label>
             <Field label="Подход к планированию">
               <div className="mb-4 grid gap-2 sm:grid-cols-3">
                 {PLANNING_MODES.map((option) => (
@@ -541,6 +537,10 @@ export function PlanBuilder({
               </div>
             ) : null}
 
+            {action === "start_new" ? <div className="mt-4 space-y-3 text-sm text-ink-soft">
+              <label className="flex items-start gap-2"><input type="checkbox" checked={choiceConfirmed} onChange={e => {setChoiceConfirmed(e.target.checked); invalidatePlan();}} /><span>Выбираю эту цель и подход для нового цикла: {GOAL_TYPES.find(row => row.value === goalType)?.label}, {DISTANCES[goalType]?.find(row => row.value === distance)?.label}; {intent === "develop" ? "развивать форму" : "поддерживать форму"}.</span></label>
+              {buildContext?.cycle_context.cycle_id ? <label className="flex items-start gap-2"><input type="checkbox" checked={replaceConfirmed} onChange={e => {setReplaceConfirmed(e.target.checked); invalidatePlan();}} /><span>При сохранении нового плана закрыть прежний цикл {buildContext.cycle_context.start_date} — {buildContext.cycle_context.end_date}. До подтверждения он остаётся выбранным.</span></label> : null}
+            </div> : null}
             {needsEventDate ? (
               <p className="mt-3 text-xs text-ink-faint">
                 Для режима «К старту» нужна дата A-гонки — выберите событие из Intervals.icu или
@@ -553,6 +553,7 @@ export function PlanBuilder({
 
         {step === 2 ? (
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {action === "start_new" ? <p className="text-sm text-ink-soft sm:col-span-2">{buildContext?.input_sources.available_hours === "profile_suggestion" || buildContext?.input_sources.available_days === "profile_suggestion" ? "Доступность предложена из сохранённого профиля. Проверьте её для нового цикла." : "Укажите доступность для нового цикла."} Это потолок времени, а не цель заполнения.</p> : null}
             <Field label={`Часов в неделю: ${hours}`}>
               <input
                 type="range"
@@ -619,7 +620,7 @@ export function PlanBuilder({
             <button
               type="button"
               onClick={build}
-              disabled={building || days.length === 0 || needsEventDate}
+              disabled={building || !buildContext || !choiceConfirmed || days.length === 0 || needsEventDate || (action === "start_new" && !!buildContext.cycle_context.cycle_id && !replaceConfirmed)}
               className="mt-5 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40 sm:w-auto sm:px-8"
             >
               {building ? "Собираю план…" : "🧭 Предпросмотр плана"}
@@ -683,6 +684,7 @@ export function PlanBuilder({
       {plan && step === 4 ? (
         <>
           <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+            {"lifecycle" in plan ? <p className="mb-3 text-sm text-ink" role="note">{plan.lifecycle.action === "start_new" ? "Новый цикл" : "Изменение выбранного цикла"}: {plan.lifecycle.start_date} — {plan.lifecycle.end_date}.{plan.lifecycle.closes_cycle_id ? " При подтверждении прежний цикл закроется. История сохранится; участие не будет выведено автоматически." : ""}</p> : null}
             {plan.plan_id ? (
               <div className="text-sm text-tone-success">
                 <div className="flex items-center gap-2 text-base font-semibold">

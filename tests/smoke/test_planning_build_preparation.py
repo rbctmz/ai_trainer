@@ -12,11 +12,11 @@ import pytest
 
 from api import planning_service as ps
 from config.settings import Settings
-from data.planning_build_preview_store import get_preview
+from data.planning_build_preview_store import get_preview, preview_response, store_pending
 from models import planning_build_confirmation as protocol
 from models.planning_build_confirmation import BuildParameters, PlanningBuildPreviewError
 from tests.smoke._planning_build_confirmation import (
-    MODES, TODAY, add_late_activity, characterization, parameters, pin_clock, protected_state, seeded_db,
+    MODES, TODAY, add_late_activity, characterization, cycle_fields, parameters, pin_clock, protected_state, seeded_db,
 )
 
 
@@ -32,9 +32,12 @@ def test_prepared_payload_preserves_complete_m1_calculation(tmp_path, mode, exis
 
     db = seeded_db(tmp_path, existing=existing, rested=True)
     before = protected_state(db)
-    shown = ps.prepare_plan_build(
-        db, parameters=BuildParameters.from_mapping(parameters(mode)), origin="planning_ui",
-    )
+    # Keep the frozen S1 calculation oracle byte-for-byte. This low-level v1
+    # fixture is readable but deliberately NOT eligible for confirmation in S2.
+    snapshot = ps._capture_plan_build_inputs(db, BuildParameters.from_mapping(parameters(mode)))
+    prepared = ps._calculate_plan_build(snapshot)
+    shown = preview_response(store_pending(db, prepared, origin="planning_ui", now=ps.datetime.now(ps.timezone.utc),
+                                          recheck=lambda _conn: snapshot.dependency_digest))
     retained = get_preview(db, shown["confirmation"]["preview_id"], origin="planning_ui")
     checkpoint = json.loads(retained["checkpoint_json"])
     public = json.loads(retained["response_json"])
@@ -67,6 +70,7 @@ def execute(db, sql, values=()):
 
 def test_capture_and_prepare_use_coherent_connection_bound_reads(tmp_path, monkeypatch):
     db = seeded_db(tmp_path)
+    request = {**parameters(), **cycle_fields(db)}
     traces = []
     connect = db._connect
 
@@ -78,7 +82,7 @@ def test_capture_and_prepare_use_coherent_connection_bound_reads(tmp_path, monke
         return conn
 
     monkeypatch.setattr(db, "_connect", traced_connect)
-    ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping(parameters()), origin="planning_ui")
+    ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping(request), origin="planning_ui")
     assert len(traces) == 2, "One read snapshot and one publication/recheck transaction"
     for index, (conn, trace) in enumerate(traces):
         assert trace[0] == ("BEGIN" if index == 0 else "BEGIN IMMEDIATE")
@@ -190,7 +194,7 @@ def test_change_during_calculation_never_publishes_token(tmp_path, monkeypatch, 
         if change == "activity":
             add_late_activity(db)
         elif change == "base":
-            db.save_planning_checkpoint({"goal_type": "synthetic", "distance": "synthetic"})
+            execute(db, "UPDATE planning_cycle_state SET revision=revision+1")
         elif change == "day":
             monkeypatch.setattr(ps, "athlete_local_date", lambda: TODAY + timedelta(days=1))
         else:
@@ -199,15 +203,11 @@ def test_change_during_calculation_never_publishes_token(tmp_path, monkeypatch, 
 
     monkeypatch.setattr(ps, "_calculate_plan_build", raced)
     with pytest.raises(PlanningBuildPreviewError) as error:
-        ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping(parameters()), origin="planning_ui")
+        ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping({**parameters(), **cycle_fields(db)}), origin="planning_ui")
     assert error.value.code == "preview_stale"
     assert pending_count(db) == 0
     after = protected_state(db)
-    if change == "base":
-        assert len(after["checkpoints"]) == len(before["checkpoints"]) + 1  # competing writer only
-        assert after["settings"] == before["settings"]
-    else:
-        assert after == before
+    assert after == before  # a lifecycle-only competing writer appended no checkpoint
 
 
 @pytest.mark.parametrize(("change", "is_stale"), [
@@ -272,7 +272,7 @@ def test_failure_before_storage_keeps_active_state_and_leaves_no_token(tmp_path,
 
     monkeypatch.setattr(ps, "_forecast", fail)
     with pytest.raises(ArithmeticError, match="synthetic"):
-        ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping(parameters()), origin="planning_ui")
+        ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping({**parameters(), **cycle_fields(db)}), origin="planning_ui")
     assert protected_state(db) == before
     assert pending_count(db) == 0
 
@@ -282,7 +282,7 @@ def test_nonfinite_source_is_not_turned_into_a_plausible_preview(tmp_path):
     execute(db, "UPDATE activities SET tss = ? WHERE activity_id = 's0'", (float("inf"),))
     before = protected_state(db)
     with pytest.raises(ValueError):
-        ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping(parameters()), origin="planning_ui")
+        ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping({**parameters(), **cycle_fields(db)}), origin="planning_ui")
     assert protected_state(db) == before
     assert pending_count(db) == 0
 
@@ -293,7 +293,7 @@ def test_retained_settings_are_normalized_intentions_not_live_writes(tmp_path, o
     before = protected_state(db)
     request = parameters()
     request["demand"] = None
-    shown = ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping(request), origin=origin)
+    shown = ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping({**request, **cycle_fields(db)}), origin=origin)
     retained = get_preview(db, shown["confirmation"]["preview_id"], origin=origin)
     writes = json.loads(retained["settings_write_json"])
     assert ("planning_profile" in writes) is (origin == "planning_ui")

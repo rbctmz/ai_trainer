@@ -1,5 +1,7 @@
 """BDD gates for Planning M3 week-by-week reader (#303)."""
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
+from tests.planning_fixtures import seed_checkpoint
 
 import copy
 from datetime import date, datetime, timedelta
@@ -27,7 +29,7 @@ def _shift_active_plan_into_past_and_future(db: Database) -> dict:
     least one of the seven offsets is guaranteed to work.
     """
     db.save_athlete_profile({"ftp": 200, "lthr": 165, "weight_kg": 80, "source": "test"})
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -63,7 +65,7 @@ def _shift_active_plan_into_past_and_future(db: Database) -> dict:
         return candidate
 
     def includes_today(candidate: dict) -> bool:
-        db.save_planning_checkpoint(build_planning_checkpoint(candidate))
+        seed_checkpoint(db, build_planning_checkpoint(candidate))
         restored = ps.get_active_plan(db) or {}
         return any(
             date.fromisoformat(str(day.get("date"))[:10]) == today
@@ -83,7 +85,7 @@ def _shift_active_plan_into_past_and_future(db: Database) -> dict:
         {"date": (today + timedelta(days=3)).isoformat(), "priority": "C", "label": "Club race", "confirmed": True},
         {"date": (today + timedelta(days=10)).isoformat(), "priority": "A", "label": "Main race", "confirmed": True},
     ]
-    db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    seed_checkpoint(db, build_planning_checkpoint(plan))
     return ps.get_active_plan(db) or {}
 
 
@@ -129,9 +131,10 @@ def test_week_reader_is_one_server_owned_snapshot_with_truthful_states(tmp_path,
 
     monkeypatch.setattr(ps, "reconciliation_at", reconciliation_snapshot)
 
+    checkpoint = db.get_current_planning_checkpoint()
     payload = ps.week_by_week_plan(db)
 
-    assert calls == [{"weeks": 16, "as_of": today, "include_provider": False}]
+    assert calls == [{"weeks": 16, "as_of": today, "include_provider": False, "checkpoint": checkpoint}]
     assert payload["state"] == "available"
     assert payload["chart"]["metric"] == "tss"
     assert len([week for week in payload["weeks"] if week["is_current"]]) == 1
@@ -196,12 +199,13 @@ def test_week_reader_long_window_keeps_full_ordinals_and_matching_coverage(monke
             daily_plan.append((datetime.combine(day, datetime.min.time()), 10.0, {"run": 10.0}))
             templates.append({"date": day.isoformat()})
     calls: list[dict] = []
-    monkeypatch.setattr(ps, "get_active_plan", lambda _db: {"daily_plan": daily_plan, "session_templates": templates, "weekly_summary": weekly_summary, "events": []})
+    db = Database(str(tmp_path / "long-window.db"))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint({"daily_plan": daily_plan, "session_templates": templates, "weekly_summary": weekly_summary, "events": []}))
     monkeypatch.setattr(ps, "reconciliation_at", lambda *_args, **kwargs: calls.append(kwargs) or {"rows": [], "unplanned_activities": [], "data_quality": {}})
 
-    payload = ps.week_by_week_plan(Database(str(tmp_path / "long-window.db")))
+    payload = ps.week_by_week_plan(db)
 
-    assert calls == [{"weeks": 16, "as_of": today, "include_provider": False}]
+    assert calls == [{"weeks": 16, "as_of": today, "include_provider": False, "checkpoint": checkpoint}]
     assert len(payload["weeks"]) == 16
     assert payload["weeks"][0]["number"] == 5
     assert payload["weeks"][-1]["number"] == 20

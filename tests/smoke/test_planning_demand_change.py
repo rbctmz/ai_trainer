@@ -6,6 +6,8 @@ stale-guarded mutation that creates a new checkpoint with demand_change
 provenance. Tests use temporary SQLite only and never contact a provider.
 """
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
+from tests.planning_fixtures import seed_checkpoint
 
 import importlib
 from datetime import datetime, timedelta
@@ -27,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 def _event_plan_db(tmp_path, *, available_hours=12, demand="moderate"):
     db = _seeded_db(tmp_path)
     event_date = (datetime.now().date() + timedelta(weeks=9)).isoformat()
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -219,7 +221,7 @@ def test_demand_preview_missing_target_breakdown_is_data_gap(tmp_path):
     assert goal_plan is not None
     goal_plan.pop("weekly_target_breakdown", None)
     goal_plan["constraint_summary"] = {}
-    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    seed_checkpoint(db, build_planning_checkpoint(goal_plan))
 
     result = ps.demand_preview(db, "aggressive")
 

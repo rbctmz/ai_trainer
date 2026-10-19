@@ -23,6 +23,19 @@ class _ReadOnlyPlanningStore:
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
 
+    def _connect(self):
+        return sqlite3.connect(f"{self.database_path.as_uri()}?mode=ro", uri=True)
+
+    def planning_write_context(self, *, allow_inactive=False):
+        from contextlib import closing
+        from data.planning_cycle_writes import read_write_context
+        from data.planning_cycles import PlanningCycleStore
+        with closing(self._connect()) as conn:
+            conn.execute("BEGIN")
+            context = read_write_context(conn, allow_inactive=allow_inactive)
+            context["_checkpoint"] = PlanningCycleStore(conn).checkpoint(context["checkpoint_id"])
+            return context
+
     def _get_planning_checkpoint(
         self,
         checkpoint_id: int | None = None,
@@ -88,7 +101,28 @@ def repair_database(
     if not path.is_file():
         raise FileNotFoundError(f"database does not exist: {path}")
     db = Database(str(path)) if apply else _ReadOnlyPlanningStore(path)
-    result = repair_active_plan_materialization(db, persist=apply)
+    legacy_preview = False
+    if not apply:
+        from contextlib import closing
+        with closing(db._connect()) as conn:
+            legacy_preview = conn.execute("SELECT 1 FROM sqlite_master WHERE name='planning_cycle_state'").fetchone() is None
+    if legacy_preview:
+        # Explicit read-only diagnosis of a pre-migration file, never a selected
+        # cycle or executable write proposal. Unknown ancestry cannot be a donor.
+        from api.planning_service import _recovery_replan_session_ids_from_history
+        from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+        from models.planning_near_term import rematerialize_non_executable_sessions
+        checkpoint = db.get_latest_planning_checkpoint()
+        if not checkpoint:
+            raise ValueError("no checkpoint to inspect")
+        root = {**checkpoint, "checkpoint_parent_id": None, "goal_plan_snapshot": {
+            **checkpoint.get("goal_plan_snapshot", {}), "checkpoint_parent_id": None}}
+        _, dates = rematerialize_non_executable_sessions(restore_goal_plan_from_checkpoint(checkpoint),
+            recovery_session_ids=_recovery_replan_session_ids_from_history(db, root))
+        result = {"plan_id": None, "base_checkpoint_id": checkpoint["id"], "changed_dates": dates,
+                  "confirmation_required": bool(dates), "historical_preview": True}
+    else:
+        result = repair_active_plan_materialization(db, persist=apply)
     return {
         "mode": "apply" if apply else "dry-run",
         "database": str(path),

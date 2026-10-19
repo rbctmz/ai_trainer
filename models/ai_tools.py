@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from typing import Dict, Any, List, Mapping, Optional
 from api import planning_service
 from data.database import Database
+from services.planning_cycles import current_plan_snapshot, actionable, session_checkpoint
 from models.banister import tsb_zone
 from models.hrv_analyzer import HRVAnalyzer
 from models.plan_events import normalized_events
@@ -618,6 +619,8 @@ class AITools:
                     "Предложить собрать новый план подготовки. Параметры: goal_type (Триатлон/Бег/Вело/Плавание), "
                     "distance (Sprint/Olympic/Half/Full или 5K/10K/21K/42K), event_date (YYYY-MM-DD), "
                     "available_hours (часов в неделю), available_days (необязательно, через запятую: mon,tue,...)."
+                    " Нужны явное действие action, start_date и актуальные base_* цикла; "
+                    "replace_current_cycle=true разрешено только для явно подтверждённой замены."
                 ),
                 "parameters": _params(
                     {
@@ -641,8 +644,17 @@ class AITools:
                             "type": "string",
                             "description": "Необязательно: дни недели через запятую (mon,tue,...)",
                         },
+                        "action": {"type": "string", "enum": ["start_new", "edit_current"]},
+                        "base_cycle_id": {"type": ["string", "null"]},
+                        "base_cycle_revision": {"type": ["integer", "null"]},
+                        "base_selection_revision": {"type": "integer"},
+                        "base_checkpoint_id": {"type": "integer"},
+                        "replace_current_cycle": {"type": "boolean"},
+                        "start_date": {"type": "string", "description": "Фактическое начало цикла, YYYY-MM-DD"},
                     },
-                    required=["goal_type", "distance", "event_date", "available_hours"],
+                    required=["goal_type", "distance", "event_date", "available_hours", "action", "start_date",
+                              "base_cycle_id", "base_cycle_revision", "base_selection_revision",
+                              "base_checkpoint_id", "replace_current_cycle"],
                 ),
             },
             {
@@ -1575,6 +1587,13 @@ class AITools:
         event_date: str = "",
         available_hours: float = 10.0,
         available_days: str = "",
+        action: str | None = None,
+        base_cycle_id: str | None = None,
+        base_cycle_revision: int | None = None,
+        base_selection_revision: int | None = None,
+        base_checkpoint_id: int | None = None,
+        replace_current_cycle: bool | None = None,
+        start_date: str | None = None,
     ) -> Dict[str, Any]:
         """Построить preview нового плана без сохранения в БД."""
         if not str(event_date or "").strip():
@@ -1592,10 +1611,15 @@ class AITools:
                     "goal_type": goal_type, "distance": distance,
                     "event_date": str(event_date).strip(), "available_hours": float(available_hours),
                     "available_days": days_list,
+                    "action": action, "base_cycle_id": base_cycle_id,
+                    "base_cycle_revision": base_cycle_revision, "base_selection_revision": base_selection_revision,
+                    "base_checkpoint_id": base_checkpoint_id, "replace_current_cycle": replace_current_cycle,
+                    "start_date": start_date,
                 }), origin="coach",
             )
         except Exception as exc:
-            return {"success": False, "error": str(exc)}
+            return {"success": False, "error": str(exc), "code": getattr(exc, "code", None),
+                    **getattr(exc, "context", {})}
 
         return {
             "is_proposal": True,
@@ -1610,6 +1634,7 @@ class AITools:
                 "base_checkpoint_id": preview["preview"]["base_checkpoint_id"],
             },
             "preview": {
+                "lifecycle": preview["lifecycle"],
                 "confirmation": preview["confirmation"],
                 "goal": preview.get("goal", {}),
                 "total_weeks": len(preview.get("weeks", []) or []),
@@ -1820,7 +1845,7 @@ class AITools:
         return proposal
 
     def _active_checkpoint_id_or_zero(self) -> int:
-        latest = self.db.get_latest_planning_checkpoint()
+        latest = self.db.get_current_planning_checkpoint()
         if isinstance(latest, dict) and latest.get("id") is not None:
             return int(latest.get("id"))
         return 0
@@ -1878,7 +1903,7 @@ class AITools:
 - [TOOL: get_upcoming_workouts, days=7] - тренировки на ближайшие 7 дней из плана
 - [TOOL: get_workout_structure, date=2026-09-26] - структура плановой тренировки: шаги, длительность, целевые зоны (date или session_id)
 - [TOOL: get_activity_structure, date=2026-09-24] - структура выполненной активности: отрезки, длительность, дистанция, мощность, ЧСС (date или activity_id; sport — если активностей несколько)
-- [TOOL: propose_plan_build, goal_type=Триатлон, distance=Half, event_date=2026-10-01, available_hours=10] - предложить новый план
+- propose_plan_build требует актуальный контекст цикла: action, start_date, base_cycle_id, base_cycle_revision, base_selection_revision, base_checkpoint_id, replace_current_cycle; неизвестные значения нельзя угадывать.
 - [TOOL: propose_plan_adjustment, weeks=1] - предложить корректировку активного плана
 - [TOOL: create_plan_constraint, date=tomorrow, kind=sick, sport=swim, note=Бассейн закрыт] - убрать только плавание из дня; остальные ноги сохранятся
 - [TOOL: get_coach_constraints] - список активных ограничений с их id
@@ -2252,9 +2277,11 @@ class AITools:
     
     def get_active_plan(self) -> Dict[str, Any]:
         """Получить активный тренировочный план из последнего checkpoint."""
-        goal_plan = restore_goal_plan_from_checkpoint(self.db.get_latest_planning_checkpoint())
+        context, checkpoint = current_plan_snapshot(self.db)
+        goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
         if not goal_plan:
-            return {"has_plan": False, "message": "Активный план не найден. Пользователь ещё не построил план."}
+            return {"has_plan": False, "has_actionable_plan": False, "cycle_context": context, "current_week": None,
+                    "message": "Текущего цикла нет. История сохраняется; новый цикл требует явного выбора."}
 
         weekly_tss_plan = list(goal_plan.get("weekly_tss_plan") or [])
         events = normalized_events(goal_plan.get("events"))
@@ -2274,7 +2301,7 @@ class AITools:
             except (TypeError, ValueError):
                 return None
 
-        today = athlete_local_date()
+        today = date.fromisoformat(context["athlete_day"])
         total_weeks = max(len(weekly_tss_plan), len(weekly_summary_raw))
 
         start_week = _as_date(goal_plan.get("start_week"))
@@ -2329,6 +2356,8 @@ class AITools:
             }
 
         current_week = None
+        if context["current_week"] is None:
+            current_index = None
         if current_index is not None:
             current_week = {**_week_payload(current_index), "index": current_index + 1}
             current_week.pop("week", None)
@@ -2350,6 +2379,9 @@ class AITools:
 
         return {
             "has_plan": True,
+            "has_actionable_plan": actionable(context),
+            "cycle_context": context,
+            "last_week": context["last_week"],
             "goal": {
                 "goal_type": str(goal_plan.get("goal_type") or ""),
                 "distance": str(goal_plan.get("distance") or ""),
@@ -2374,14 +2406,16 @@ class AITools:
 
     def get_upcoming_workouts(self, days: int = 7) -> Dict[str, Any]:
         """Получить ближайшие плановые тренировки из активного плана."""
-        goal_plan = restore_goal_plan_from_checkpoint(self.db.get_latest_planning_checkpoint())
+        context, checkpoint = current_plan_snapshot(self.db)
+        goal_plan = restore_goal_plan_from_checkpoint(checkpoint) if actionable(context) else None
         if not goal_plan:
-            return {"has_plan": False, "message": "Активный план не найден."}
+            return {"has_plan": checkpoint is not None, "has_actionable_plan": False,
+                    "cycle_context": context, "sessions": [], "workouts": [], "message": "В текущем цикле нет доступных назначений."}
 
         daily_plan = list(goal_plan.get("daily_plan") or [])
         templates = list(goal_plan.get("session_templates") or [])
 
-        today = athlete_local_date()
+        today = date.fromisoformat(context["athlete_day"])
         cutoff = today + timedelta(days=days)
 
         # Composite bricks cannot be reconciled safely from sport/date alone:
@@ -2407,6 +2441,7 @@ class AITools:
             weeks=1,
             as_of=today,
             include_provider=needs_provider_identity,
+            checkpoint=checkpoint,
         )
         reconciled_by_session = {
             str(row.get("session_id")): row
@@ -2513,7 +2548,7 @@ class AITools:
                 "sessions": [],
             }
 
-        return {"has_plan": True, "days": days, "sessions": sessions}
+        return {"has_plan": True, "has_actionable_plan": True, "cycle_context": context, "days": days, "sessions": sessions}
 
     def get_workout_structure(
         self,
@@ -2535,9 +2570,11 @@ class AITools:
                 "error": "Укажи date (YYYY-MM-DD) или session_id из get_upcoming_workouts.",
             }
 
-        goal_plan = restore_goal_plan_from_checkpoint(
-            self.db.get_latest_planning_checkpoint()
-        )
+        context, checkpoint = current_plan_snapshot(self.db)
+        if requested_session:
+            checkpoint = session_checkpoint(self.db, requested_session)
+        # An explicit date inspects this selected readable version, including an ended period.
+        goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
         if not goal_plan:
             return {"has_plan": False, "message": "Активный план не найден."}
 

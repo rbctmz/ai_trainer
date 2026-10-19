@@ -530,13 +530,13 @@ def test_coach_plan_and_checkpoint_share_one_read_boundary(monkeypatch) -> None:
 
     def latest(_db):
         calls.append("checkpoint")
-        return checkpoint
+        return {"state": "in_progress", "is_selected": True}, checkpoint
 
     def restore(value):
         calls.append(("restore", value["id"]))
         return {"name": "frozen"}
 
-    monkeypatch.setattr(coach, "_latest_checkpoint", latest)
+    monkeypatch.setattr(coach, "current_plan_snapshot", latest)
     monkeypatch.setattr(coach, "restore_goal_plan_from_checkpoint", restore)
     frozen_checkpoint, plan = coach._load_coach_plan_boundary(object())
 
