@@ -213,7 +213,7 @@ export function PlanBuilder({
   }
   function onGoalChange(v: string) {
     setGoalType(v);
-    setChoiceConfirmed(false);
+    setChoiceConfirmed(action === "edit_current");
     setDistance(DISTANCES[v][v === "run" ? 2 : 1].value);
     invalidatePlan();
   }

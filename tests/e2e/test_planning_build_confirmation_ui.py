@@ -264,3 +264,39 @@ def test_cancel_ready_changes_no_active_plan_or_settings(web_stack):
     expect(page.get_by_role("heading",name="Настройка плана — шаг 1: Подход и цель",exact=True)).to_be_focused()
     assert protected_state(db) == before
     expect(page.get_by_text("Предпросмотр · План ещё не сохранён",exact=False)).to_have_count(0)
+
+
+def test_edit_goal_change_does_not_require_hidden_new_cycle_ack(web_stack):
+    page = step3(web_stack)
+    page.get_by_role('navigation', name='Шаги настройки плана').get_by_role('button').first.click()
+    page.get_by_role('combobox').first.select_option('run')
+    expect(page.get_by_role('button', name='Далее', exact=True)).to_be_enabled()
+
+
+def test_unresolved_edit_survives_external_close_and_replays_as_history(web_stack):
+    from data.database import Database
+    from tests.smoke.test_planning_cycle_writer_guards import close
+    page = ready(web_stack)
+    def lose(route):
+        assert route.fetch().status == 200
+        route.abort('failed')
+    page.route('**/api/planning/build/confirm*', lose)
+    page.get_by_role('button', name='Подтвердить и сохранить', exact=True).click()
+    expect(page.get_by_text(re.compile('Статус сохранения неизвестен'))).to_be_visible()
+    db = Database(str(web_stack.tmp_dir / 'demo.db'))
+    close(db)
+    # SWR focus refresh has a five-second throttle; observe the new server
+    # selection in the mounted page, without navigating away from the owner.
+    page.wait_for_timeout(5100)
+    page.evaluate("window.dispatchEvent(new Event('focus'))")
+    expect(page.get_by_role('heading', name='Текущего цикла нет', exact=True)).to_be_visible()
+    expect(page.get_by_role('button', name='Повторить проверку', exact=True)).to_be_visible()
+    artifact = Path(__file__).parents[2] / 'docs/design/evidence/issue-693'
+    artifact.mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=str(artifact / 'pending-edit-after-external-close.png'), full_page=True)
+    page.unroute('**/api/planning/build/confirm*', lose)
+    with page.expect_response('**/api/planning/build/confirm*') as response:
+        page.get_by_role('button', name='Повторить проверку', exact=True).click()
+    assert response.value.json()['confirmation']['replayed'] is True
+    assert response.value.json()['confirmation']['is_current'] is False
+    assert db.get_current_planning_checkpoint() is None

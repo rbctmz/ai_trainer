@@ -327,7 +327,7 @@ export default function PlanningPage() {
         </>
       ) : null}
 
-      {tab === "build" && (buildAction === "start_new" || status.has_actionable_plan) ? (
+      {tab === "build" && (buildAction === "start_new" || status.has_actionable_plan || buildLocked) ? (
         <PlanBuilder key={`${buildAction}-${builderGeneration}`} action={buildAction} status={status} onSaved={() => setTab("overview")} onConfirmationLockChange={setBuildLocked} />
       ) : null}
       {hasPlan && tab === "overview" ? <ActivePlanOverview overview={overview} error={overviewError} /> : null}

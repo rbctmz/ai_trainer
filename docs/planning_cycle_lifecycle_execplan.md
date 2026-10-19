@@ -1133,3 +1133,22 @@ author added only those three browser cases and regenerated the named synthetic
 screenshots; these are author changes, not checker edits. Review budget 1/2 is
 in progress. Final contributor-safe command runs without the four old M4
 reader exclusions; counts and independent verdict will be recorded below.
+
+M4 author self-review found two additional concrete UI regressions while the
+independent first round remained pinned to f0fa5ce. Two new isolated tests
+reproduced RED (2 failed / 18 deselected in 26.71s): changing the goal type in
+edit_current reset the acknowledgement even though only start_new renders its
+checkbox; and after a lost edit confirmation, external close plus SWR refresh
+unmounted the builder, losing its retry control and leaving the parent lock.
+Narrow UI correction: edit_current keeps its explicit edit eligibility when the
+goal changes; a builder owning an unresolved confirmation stays mounted across
+null selection. The same two tests now pass (16.66s), including historical
+same-preview replay without reselecting the closed cycle. No API/domain change.
+This correction will receive only a scoped delta check after the first review.
+
+Frozen contributor-safe run on runtime f0fa5ce is GREEN: 3661 passed / 14 skipped
+/ 78 deselected / 7 existing warnings in 279.85s. Only standard not-live,
+not-debug, not-e2e markers are used; all original four M4 readers run GREEN.
+Additional excluded count is the three new optional E2E states, not a hidden
+reader exclusion. The later two-line UI fix needs its own web/browser checks,
+not another unchanged Python broad run.
