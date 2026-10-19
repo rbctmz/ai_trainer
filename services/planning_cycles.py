@@ -7,8 +7,36 @@ from typing import Any, Mapping
 from config.settings import Settings
 from data.database import Database
 from data.planning_cycles import PlanningCycleStore
-from models.planning_cycle import CycleNotFound, project_cycle_context
+from models.planning_cycle import CycleNotFound, cycle_events, project_cycle_context
 from utils.athlete_time import athlete_local_date
+
+
+def _owned_event_candidates(store: PlanningCycleStore, cycle: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """Retain distinct event snapshots from verified cycle-owned versions.
+
+    Prefer the head, then the newest version carrying a repeated key. Repeated
+    versions are not ambiguous; a duplicate within any version still is.
+    """
+    candidates: dict[str, dict[str, Any]] = {}
+    ambiguous: set[str] = set()
+    for (checkpoint_id,) in store.conn.execute(
+        "SELECT checkpoint_id FROM planning_cycle_versions WHERE cycle_id=? "
+        "ORDER BY (checkpoint_id=?) DESC,checkpoint_id DESC",
+        (cycle["id"], cycle["current_checkpoint_id"]),
+    ):
+        try:
+            events = cycle_events(cycle, store.checkpoint(checkpoint_id))
+        except (ValueError, TypeError):
+            # An unreadable old snapshot cannot donate an inferred event.
+            # The head projection separately reports its corruption reason.
+            continue
+        for event in events:
+            if event["is_ambiguous"]:
+                ambiguous.add(event["event_key"])
+            candidates.setdefault(event["event_key"], {"checkpoint_id": checkpoint_id, "event": event})
+    for key in ambiguous:
+        candidates[key]["event"]["is_ambiguous"] = True
+    return candidates
 
 
 def _read_context(
@@ -19,12 +47,18 @@ def _read_context(
     if historical and cycle is None:
         raise CycleNotFound("Planning cycle not found")
     checkpoint_id = (cycle or {}).get("current_checkpoint_id")
-    return project_cycle_context(
+    context = project_cycle_context(
         selection=selection, cycle=cycle, checkpoint=store.checkpoint(checkpoint_id),
         athlete_day=day, athlete_timezone=zone, has_history=has_history,
         mapping_valid=cycle_id is not None and store.version_cycle(checkpoint_id) == cycle_id,
         queried_cycle_id=cycle_id if historical else None,
     )
+    if cycle and store.version_cycle(checkpoint_id) == cycle_id:
+        context["events"] = [row["event"] for row in _owned_event_candidates(store, cycle).values()]
+        if context["state"] == "closed" and any(not event["is_ambiguous"] for event in context["events"]):
+            if "set_event_outcome" not in context["allowed_actions"]:
+                context["allowed_actions"].append("set_event_outcome")
+    return context
 
 
 def current_plan_snapshot(db: Database) -> tuple[dict[str, Any], dict[str, Any] | None]:

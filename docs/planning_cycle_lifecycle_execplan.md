@@ -1322,3 +1322,51 @@ acceptance and merge remain separate and unperformed. Parent #677 keeps S3/S4.
 Change note: progress and outcomes now distinguish completed synthetic whole-S2
 acceptance from pending native/current-head/human gates. No domain or visual
 scope is expanded.
+
+
+### M5 native round 1 and scoped correction (2026-10-19)
+
+The single main-based candidate is [PR #701](https://github.com/rbctmz/ai_trainer/pull/701),
+head 65cf6f3c1d8289cbdd81c4f32749751308719352. All GitHub technical checks
+passed. Authenticated native review 5571637188 on that head returned three P2
+findings; no human acceptance or merge occurred. The user authorized continuing.
+Supervisor / Integrator explicitly handed the corrective slice to Domain/API;
+no UI composition/contract redesign is needed.
+
+N1 (4313890382), AC5: Observed, correcting a declared event to unspecified leaves
+its key in event_outcomes_json. Inferred, projection alone concealed a retained
+declaration. Verified by four public-API RED cases, two previous outcomes across
+set-outcome and close. Fix removes only the targeted key for unspecified; the
+append-only command receipt still records before/after and exact replay.
+
+N2 (4313890392), AC5: Observed, after rename/removal in a same-cycle version,
+current/historical/list reads omit the former event. Inferred, head-only event
+projection loses access despite the command resolver knowing previous owned
+versions. Verified by two API RED cases that read all three endpoints after a
+saved child, then close/correct the old event. Fix shares one owned-version
+candidate resolver between reads and commands, prefers the head, deduplicates
+repeated keys and retains within-version ambiguity across versions. Unassigned
+or foreign checkpoints do not donate events; unreadable snapshots do not invent
+them. A closed cycle with only historical events still permits their correction.
+No old event key/outcome is transferred to the renamed event.
+
+N3 (4313890400), AC1/coherent snapshot: Observed, upcoming-workout reconciliation
+omits the captured checkpoint and reads the clock again. Inferred, a close or
+replacement between reads mixes snapshot contexts. Verified by two RED cases
+with real intervening close/replacement and a changed module-local clock. Fix
+passes the captured checkpoint to reconciliation and uses context.athlete_day.
+A response can linearize before an external mutation, but its assignments and
+completion facts use the same captured version/day.
+
+Original reproduction: 8 failed / 1 control passed (2.08s), no harness errors.
+Corrected regression/control suite has 10 cases; combined commands/storage/
+readers/Coach suite is 167 passed / 1 existing warning (7.70s). Ruff, diff check
+and unchanged API/TS artifact freshness pass. Full contributor-safe and complete
+E2E are rerun on the correction; their receipts will be recorded in PR/#693.
+One scoped native round 2/2 will inspect only this correction after 65cf6f3,
+with written fixing SHA in each original review thread. No second full audit,
+acceptance label, waiver, merge or live rollout is requested.
+
+Change note: native review supplied new reproductions within approved AC1/AC5;
+these narrow fixes preserve their contracts and add exact regressions. M5
+technical acceptance remains open until the corrective run/native result.

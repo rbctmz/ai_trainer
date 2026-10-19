@@ -2415,7 +2415,7 @@ class AITools:
         daily_plan = list(goal_plan.get("daily_plan") or [])
         templates = list(goal_plan.get("session_templates") or [])
 
-        today = athlete_local_date()
+        today = date.fromisoformat(context["athlete_day"])
         cutoff = today + timedelta(days=days)
 
         # Composite bricks cannot be reconciled safely from sport/date alone:
@@ -2441,6 +2441,7 @@ class AITools:
             weeks=1,
             as_of=today,
             include_provider=needs_provider_identity,
+            checkpoint=checkpoint,
         )
         reconciled_by_session = {
             str(row.get("session_id")): row

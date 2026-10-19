@@ -11,9 +11,9 @@ from data.database import Database
 from data.planning_cycles import PlanningCycleStore
 from models.planning_build_confirmation import canonical_json, fingerprint
 from models.planning_cycle import (
-    CycleCommandError, CycleStateCorrupt, constraint_fingerprint, cycle_events, stored_day,
+    CycleCommandError, CycleStateCorrupt, constraint_fingerprint, stored_day,
 )
-from services.planning_cycles import _read_context
+from services.planning_cycles import _owned_event_candidates, _read_context
 from utils.athlete_time import athlete_local_date
 
 _CONSTRAINT_COLUMNS = """id,date,kind,status,source,note,plan_id,session_id,
@@ -31,21 +31,12 @@ def _outcome_changes(store: PlanningCycleStore, cycle: dict[str, Any], declarati
     """Resolve event identity only in immutable versions owned by this cycle."""
     if not declarations:
         return []
-    candidates: dict[str, dict] = {}
-    ambiguous = set()
-    for (checkpoint_id,) in store.conn.execute(
-        "SELECT checkpoint_id FROM planning_cycle_versions WHERE cycle_id=? ORDER BY checkpoint_id",
-        (cycle["id"],),
-    ):
-        for event in cycle_events(cycle, store.checkpoint(checkpoint_id)):
-            if event["is_ambiguous"]:
-                ambiguous.add(event["event_key"])
-            candidates[event["event_key"]] = {"checkpoint_id": checkpoint_id, "event": event}
+    candidates = _owned_event_candidates(store, cycle)
     changes = []
     for declaration in declarations:
         key, outcome = declaration["event_key"], declaration["outcome"]
         candidate = candidates.get(key)
-        if candidate is None or key in ambiguous:
+        if candidate is None or candidate["event"]["is_ambiguous"]:
             raise CycleCommandError("event_not_found", "Сохранённый старт не найден однозначно.", status=404)
         event = candidate["event"]
         event_day = stored_day(event.get("date"))
@@ -56,6 +47,16 @@ def _outcome_changes(store: PlanningCycleStore, cycle: dict[str, Any], declarati
                                            if k not in {"event_key", "outcome", "is_ambiguous"}},
                         "before": event["outcome"], "after": outcome})
     return changes
+
+
+def _updated_outcomes(cycle: dict[str, Any], changes: list[dict]) -> str:
+    outcomes = json.loads(cycle["event_outcomes_json"])
+    for change in changes:
+        if change["after"] == "unspecified":
+            outcomes.pop(change["event_key"], None)
+        else:
+            outcomes[change["event_key"]] = change["after"]
+    return canonical_json(outcomes)
 
 
 def _close(store: PlanningCycleStore, request: dict, day) -> dict:
@@ -77,9 +78,7 @@ def _close(store: PlanningCycleStore, request: dict, day) -> dict:
     # reinterpret corrupt historical outcome bytes.
     outcomes_json = cycle["event_outcomes_json"]
     if changes:
-        outcomes = json.loads(outcomes_json)
-        outcomes.update({change["event_key"]: change["after"] for change in changes})
-        outcomes_json = canonical_json(outcomes)
+        outcomes_json = _updated_outcomes(cycle, changes)
     store.conn.execute("""UPDATE planning_cycles SET status='closed',closed_at=?,revision=revision+1,
         event_outcomes_json=? WHERE id=?""",
         (datetime.now(timezone.utc).isoformat(), outcomes_json, cycle["id"]))
@@ -94,10 +93,8 @@ def _set_outcome(store: PlanningCycleStore, request: dict, day) -> dict:
     if cycle["revision"] != request["expected_cycle_revision"]:
         raise CycleCommandError("cycle_stale", "Цикл изменился — обновите данные.")
     changes = _outcome_changes(store, cycle, [request], day)
-    outcomes = json.loads(cycle["event_outcomes_json"])
-    outcomes[request["event_key"]] = request["outcome"]
     store.conn.execute("UPDATE planning_cycles SET event_outcomes_json=?,revision=revision+1 WHERE id=?",
-                       (canonical_json(outcomes), cycle["id"]))
+                       (_updated_outcomes(cycle, changes), cycle["id"]))
     return {"effect": "event_outcome_set", "cycle_id": cycle["id"], "cycle_revision": cycle["revision"] + 1,
             "checkpoint_id": cycle["current_checkpoint_id"], "selection_revision": store.state()["revision"],
             "event_outcomes": changes, "constraint_scope": None}

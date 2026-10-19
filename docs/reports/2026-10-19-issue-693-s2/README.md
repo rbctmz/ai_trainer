@@ -132,3 +132,22 @@ backup/restore here use disposable snapshots and do not prove a live restore.
 Change note: M5 assembles the approved milestones into one main-based candidate
 and strengthens the already requested writer-state proof. It changes no training
 formula, domain invariant, public contract or UI composition.
+
+
+## Native round-1 correction
+
+PR #701, reviewed head `65cf6f3c1d8289cbdd81c4f32749751308719352`, authenticated
+native review 5571637188: three blocking P2. N1 (4313890382) leaves unspecified
+as an explicit persisted declaration; N2 (4313890392) omits prior owned event
+snapshots after rename/removal; N3 (4313890400) rereads the selection/day in
+Coach upcoming-workout reconciliation. All were reproduced before correction:
+8 RED / 1 control GREEN in 2.08s. Details and exact changes are in the ExecPlan.
+
+Corrections are limited to services/planning_cycle_commands.py,
+services/planning_cycles.py and models/ai_tools.py, with ten regression/control
+cases in tests/smoke/test_planning_cycle_native_regressions.py. Combined affected
+suite: 167 passed in 7.70s; Ruff, diff and unchanged contract freshness pass.
+The original S1/v1 oracles remain unchanged. Complete contributor-safe/E2E are
+rerun, and results plus scoped native round 2/2 are recorded in PR/#693 to keep
+that final reviewed head stable. First-candidate counts above remain the actual
+first-candidate measurements, not claimed results of the correction.
