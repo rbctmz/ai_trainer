@@ -11,7 +11,7 @@ posting or edits. Human owns merge and cleanup. M1 AC1–AC7 remain the authorit
 ## Change Class / review
 
 Class A: persistent artifact provenance and transactional publication gate.
-Manual trigger. Independent rounds 0/2, native rounds 0; verdict pending.
+Manual trigger. Independent full rounds 1/2, native rounds 0; scoped delta verdict pending.
 No merge acceptance or review-budget exception is implied.
 
 ## Scope / non-goals

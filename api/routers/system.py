@@ -286,7 +286,7 @@ def _seed_demo_plan(db) -> int:
         "goal_type": "triathlon", "distance": "olympic", "event_date": None,
         "planning_mode": "manual", "horizon_weeks": 8, "events": [],
         "manual_phases": ["Recovery", "Base", "Build", "Recovery", "Base", "Base", "Build", "Recovery"],
-        "available_hours": 10.0, "available_days": ["mon", "tue", "wed", "thu", "sat", "sun"],
+        "available_hours": 8.0, "available_days": ["mon", "tue", "wed", "thu", "sat", "sun"],
         "action": "start_new", "base_cycle_id": context["cycle_id"],
         "base_cycle_revision": context["cycle_revision"], "base_selection_revision": context["selection_revision"],
         "base_checkpoint_id": context["checkpoint_id"] or 0, "replace_current_cycle": context["cycle_id"] is not None,

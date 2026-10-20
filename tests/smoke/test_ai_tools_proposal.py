@@ -71,9 +71,11 @@ def test_propose_plan_build_missing_event_date(tmp_path) -> None:
     assert "event_date" in result.get("error", "").lower() or "дат" in result.get("error", "").lower()
 
 
-def test_propose_plan_build_returns_proposal(tmp_path) -> None:
-    tools = AITools(_seeded_db(tmp_path))
-    event_date = (athlete_now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
+def test_propose_plan_build_returns_proposal(tmp_path, monkeypatch) -> None:
+    from tests.smoke._planning_build_confirmation import pin_clock, seeded_db
+    pin_clock(monkeypatch)
+    tools = AITools(seeded_db(tmp_path, rested=True))
+    event_date = "2027-02-13"
 
     result = tools.execute_tool(
         "propose_plan_build",
@@ -81,8 +83,8 @@ def test_propose_plan_build_returns_proposal(tmp_path) -> None:
         distance="Half",
         event_date=event_date,
         available_hours=10,
-        available_days="mon,tue,thu,sat,sun",
-        **cycle_fields(tools.db),
+        available_days="mon,tue,wed,thu,fri,sat,sun",
+        **{**cycle_fields(tools.db), "start_date": "2026-10-26"},
     )
 
     assert result["success"] is True, result.get("error")
@@ -90,7 +92,7 @@ def test_propose_plan_build_returns_proposal(tmp_path) -> None:
     assert proposal.get("is_proposal") is True
     assert proposal.get("action") == "build_plan"
     assert proposal["params"]["event_date"] == event_date
-    assert proposal["params"]["available_days"] == ["mon", "tue", "thu", "sat", "sun"]
+    assert proposal["params"]["available_days"] == ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
     assert proposal["preview"]["goal"]["events"] == [
         {
             "date": event_date,

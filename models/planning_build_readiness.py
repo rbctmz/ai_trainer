@@ -273,6 +273,7 @@ def assess_plan_build_readiness(
         low, high = _num(value.get(low_key)), _num(value.get(high_key))
         valid = (
             kind in units
+            and kind in _list(_map(leaf.get("definition_snapshot")).get("target_preference"))
             and (value.get("type"), value.get("unit")) == units.get(kind)
             and low is not None
             and high is not None
@@ -358,6 +359,7 @@ def assess_plan_build_readiness(
             valid = False
         if (
             not valid
+            or row.get("sport") != definition.get("sport")
             or current_phase not in _list(definition.get("phase_eligibility"))
             or (
                 not leg
@@ -367,7 +369,7 @@ def assess_plan_build_readiness(
             fail(
                 "prescription_infeasible",
                 field + ".definition_snapshot",
-                "known version and eligible phase/role",
+                "known version and matching sport/eligible phase/role",
                 row.get("template_key"),
             )
 
@@ -638,6 +640,15 @@ def assess_plan_build_readiness(
                         field + ".legs",
                         "nonempty legs",
                         session.get("legs"),
+                    )
+                required_sports = _list(_map(session.get("definition_snapshot")).get("requirements"))
+                actual_sports = [_map(leg).get("sport") for leg in legs]
+                if not required_sports or actual_sports != required_sports:
+                    fail(
+                        "prescription_missing",
+                        field + ".legs",
+                        required_sports,
+                        actual_sports,
                     )
                 load, minutes = 0.0, 0.0
                 for j, raw_leg in enumerate(legs):

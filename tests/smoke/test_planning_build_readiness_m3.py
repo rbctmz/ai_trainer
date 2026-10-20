@@ -705,3 +705,70 @@ def test_identity_catalog_calendar_and_bounded_power_validation(candidate, mutat
     elif mutation == "numeric_string_duration":
         single(plan)["materialized_steps"][0]["duration_seconds"] = "99999999999999"
     assert assess(candidate)["status"] == "blocked"
+
+
+def resync_candidate(candidate):
+    """Keep arithmetic honest so semantic regressions isolate catalog eligibility."""
+    from models.planning_build_readiness import normalize_build_loads, forecast_build_input
+    from models.planning_build_confirmation import fingerprint
+
+    plan, response, context = candidate[2:]
+    for day in plan["session_templates"]:
+        if day.get("sessions"):
+            primary = day["sessions"][0]
+            for field in ("sport", "legs", "materialized_steps", "target_provenance", "parameter_snapshot", "duration_minutes", "total_tss"):
+                if field in primary:
+                    day[field] = deepcopy(primary[field])
+    plan["daily_plan"] = [(d["date"], d["total_tss"], d["parts"]) for d in plan["daily_plan"]]
+    normalized = normalize_build_loads(plan, context)
+    plan.clear()
+    plan.update(normalized)
+    plan["daily_plan"] = [{"date": d, "total_tss": t, "parts": p} for d, t, p in plan["daily_plan"]]
+    response["weeks"] = ps._weeks_payload(plan["weekly_summary"], plan["phases"])
+    response["totals"].update(effective_build_totals(plan))
+    preview = response["preview"]
+    preview["total_tss_after"] = response["totals"]["total_tss"]
+    preview["weekly_tss_delta"] = round(preview["total_tss_after"] - preview["total_tss_before"])
+    preview["weekly_tss_after"] = plan["weekly_tss_plan"]
+    plan["forecast_input"] = forecast_build_input(plan, context, plan["forecast_input"]["initial_metrics"])
+    response["forecast"]["input_fingerprint"] = fingerprint(plan["forecast_input"])
+
+
+@pytest.mark.parametrize("leg", [False, True])
+def test_catalog_sport_mismatch_is_blocked_even_with_consistent_aggregates(candidate, leg):
+    row = composite(candidate[2])["legs"][0] if leg else single(candidate[2])
+    row["sport"] = "run"
+    resync_candidate(candidate)
+    result = assess(candidate)
+    assert result["status"] == "blocked", result
+    assert any(b["code"] == "prescription_infeasible" and b["field"].endswith("definition_snapshot") for b in result["blockers"]), result
+
+
+def test_target_method_must_be_supported_by_selected_definition(candidate):
+    row = single(candidate[2])
+    row["target_provenance"] = {"kind": "css", "source": "athlete_profile.css", "value": 110}
+    for step in row["materialized_steps"]:
+        old = step["target"]
+        step["target"] = {"type": "pace", "unit": "seconds_per_100m", "fast": round(110 / old["relative_high"], 1), "slow": round(110 / old["relative_low"], 1), "relative_low": old["relative_low"], "relative_high": old["relative_high"]}
+    for key in ("planned_tss", "planned_tss_method", "planned_tss_evidence"):
+        row["parameter_snapshot"].pop(key, None)
+    resync_candidate(candidate)
+    result = assess(candidate)
+    assert result["status"] == "blocked", result
+    assert any(b["code"] == "target_semantics_unverified" for b in result["blockers"]), result
+
+
+@pytest.mark.parametrize("mutation", ["missing_run", "reversed"])
+def test_composite_requires_catalog_sports_in_order_even_after_resumming(candidate, mutation):
+    row = composite(candidate[2])
+    row["legs"] = row["legs"][:1] if mutation == "missing_run" else list(reversed(row["legs"]))
+    for index, leg in enumerate(row["legs"], 1):
+        leg["leg_index"] = index
+    row["total_tss"] = round(sum(leg["target_tss"] for leg in row["legs"]), 1)
+    row["duration_minutes"] = sum(leg["duration_minutes"] for leg in row["legs"]) + row["transition_minutes"]
+    row["parameter_snapshot"]["target_tss"] = row["total_tss"]
+    row["parameter_snapshot"]["duration_minutes"] = row["duration_minutes"]
+    resync_candidate(candidate)
+    result = assess(candidate)
+    assert result["status"] == "blocked", result
+    assert any(b["code"] == "prescription_missing" and b["field"].endswith("legs") for b in result["blockers"]), result

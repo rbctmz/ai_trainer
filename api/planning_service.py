@@ -1521,9 +1521,14 @@ def build_plan(
     prepared = _calculate_plan_build(snapshot)
     response = json.loads(prepared.response_json)
     if persist:
-        require_prepared_readiness(prepared)
+        # Legacy non-build writers keep their own CAS/confirmation boundary.
+        # Their checkpoint is not a publication through the assessed build protocol.
+        checkpoint = json.loads(prepared.checkpoint_json)
+        checkpoint["goal_plan_snapshot"].pop("build_readiness", None)
+        checkpoint["goal_plan_snapshot"].pop("forecast_input", None)
+        response["build_readiness"] = historical_build_readiness({})
         settings_write = {PLANNING_DEMAND_SETTING_KEY: snapshot.parameters.as_dict()["demand"]} if demand is not None else {}
-        saved = db.save_planning_checkpoint(json.loads(prepared.checkpoint_json), cycle_context=cycle_context,
+        saved = db.save_planning_checkpoint(checkpoint, cycle_context=cycle_context,
                                              settings_write=settings_write)
         response.update(plan_id=str(saved["id"]), confirmation_required=False)
     return response

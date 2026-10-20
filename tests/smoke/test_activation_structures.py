@@ -60,7 +60,15 @@ def test_activation_materializes_structured_short_sharpening(sport: str, tss: fl
     steps = first.get("materialized_steps") or []
     assert steps
     assert sum(int(s.get("duration_seconds") or 0) for s in steps) > 0
-    assert sum(float(s.get("tss") or 0.0) for s in steps) == pytest.approx(tss, abs=0.11)
+    # Requested budget is retained; effective bike load comes from power steps.
+    effective = first["parameter_snapshot"]["target_tss"]
+    assert first["selection_evidence"]["requested_tss"] == tss
+    assert sum(float(s.get("tss") or 0.0) for s in steps) == pytest.approx(effective, abs=0.11)
+    if sport == "bike":
+        from models.workout_catalog import planned_bike_tss_from_steps
+        assert effective == planned_bike_tss_from_steps(steps, first["target_provenance"])["planned_tss"]
+    else:
+        assert effective == tss
     work_steps = [s for s in steps if s.get("intensity") == "work"]
     assert len(work_steps) >= 2, [s.get("name") for s in steps]
     assert all(int(s.get("duration_seconds") or 0) > 0 for s in steps)

@@ -16,13 +16,21 @@ def step3(web_stack):
     page.get_by_role("button", name="Изменить план", exact=True).click()
     page.get_by_role("button", name="Развивать форму Без выдуманной даты гонки", exact=True).click()
     page.get_by_role("button", name="Далее", exact=True).click()
+    # Explicit feasible protocol control; refusal cases live in the API suite.
+    page.get_by_role("slider").fill("12")
+    for label in ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"):
+        button = page.get_by_role("button", name=label, exact=True)
+        if "bg-accent" not in (button.get_attribute("class") or ""):
+            button.click()
     page.get_by_role("button", name="Далее", exact=True).click()
     return page
 
 
 def ready(web_stack):
     page = step3(web_stack)
-    page.get_by_role("button", name="🧭 Предпросмотр плана", exact=True).click()
+    with page.expect_response("**/api/planning/build?*") as built:
+        page.get_by_role("button", name="🧭 Предпросмотр плана", exact=True).click()
+    assert built.value.status == 200, built.value.text()
     page.get_by_text(re.compile("План собран: изменение нагрузки")).wait_for(timeout=60000)
     page.get_by_role("button", name="Далее", exact=True).click()
     expect(page.get_by_role("heading",name="Настройка плана — шаг 4: Подтверждение",exact=True)).to_be_focused()

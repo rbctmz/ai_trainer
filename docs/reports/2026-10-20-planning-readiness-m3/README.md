@@ -64,3 +64,29 @@ not hidden by altering rest/activation intent or weakening the guard.
 
 Full contributor, final contract/lint/build and independent review are in progress;
 no full GREEN, native review or merge claimed. Final disposition appended below.
+
+
+## Independent round 1 / author reproduction
+
+Full diff5aa8f6e..d8d516f:3 reproduced blocking P2, author RED5 failed (sport single
+and leg, unsupported CSS bike targets, missing/reversed brick legs), then GREEN5.
+Assessment now checks matching known definition sport, allowed target_preference,
+and exact ordered requirements. No claim of an external HTTP digest exploit.
+Independent checker197 core +59 conformance GREEN, clean unchanged head/status.
+Dispositions: all three fixed in the subsequent fix commit; final scoped verdict
+is pending. Native rounds0, independent full rounds1/2.
+
+Broad first run15failed/3796passed/16skipped/82deselected in233.59s. Narrow triage:
+legacy demand guard was unintended outside AC5; removed, explicit unassessed
+checkpoint regression added. Bike activation old budget-equality assertions now
+check retained request and independently recomputed effective power TSS. Other
+Coach/CAS/characterization success controls use feasible pinned candidates; real
+incomplete-Sunday controls stay blocked. Demo manual8h passes both empty/seeded
+history matrix (10h empty failed swim quality75.6TSS/100min). These are synthetic
+fixture choices, not personalized dose prescriptions.
+
+Planning E2E initially timed out on a blocked20.2TSS/50min long-bike. Add explicit
+build HTTP assertion and feasible availability in protocol success controls. First
+broad E2E was interrupted, not passed; temporary servers were stopped without
+touching the user's primary stack. Remaining unsupported low-dose Base-long/event
+activation arrangements must be tracked for a generation follow-up, not waived.

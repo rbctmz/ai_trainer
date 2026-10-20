@@ -166,3 +166,41 @@ fixture timestamps were not frozen; pin synthetic inputs rather than weaken the
 candidate binding. Demo fixture uses declared manual phases so the guard stays
 active. See slice review matrix and report for verified evidence and remaining
 unallocated pre-race activation refusals.
+
+## First independent review and regression triage
+
+Round 1 exact diff 5aa8f6e..d8d516f: three blocking P2 reproduced by the
+read-only checker and independently by author. Five behavioral RED assertions
+showed ready despite sport mismatch (single/leg), unsupported CSS target method,
+and missing/reversed required brick legs after all arithmetic was resynchronized.
+Narrow fixes bind sport and target method to immutable definition and required
+ordered legs to composite requirements. The five semantic controls are now GREEN.
+No parent role was invented for leg DTOs. Checker independently ran197 core and59
+conformance tests green at the reviewed head; that is not a final-delta verdict.
+
+Broad first run:15 failed/3796 passed/16 skipped/82 deselected. Two old activation
+assertions equated requested budget with effective power load; controls now assert
+both separately. Legacy demand confirm unintentionally acquired the new build
+publication guard: removed this scope expansion, and explicitly strip readiness /
+forecast evidence on this non-build writer. Demand regression asserts no inherited
+assessment. Other old successful Coach/CAS fixtures used incomplete Sunday/event
+plans; move those protocol controls to the same pinned feasible Saturday candidate,
+retaining genuine HTTP blocked cases. A new cycle with the same goal still changes
+selection/version and must invalidate the older proposal.
+
+Demo empty-history matrix:10h manual fixture blocked at75.6TSS/100min swim quality;
+8h and6h ready for both empty and seeded activity histories. Choose8h synthetic demo;
+do not bypass guard or expand catalog just for a fixture. Standard training-goal
+E2E edit initially blocked at20.2TSS/50min long-bike; success protocol control uses
+explicit12h/all-seven-days availability. Browser refusal response is now asserted
+before waiting for success text. No browser CSS or product interactions changed.
+
+Oracle regeneration inspected complete six-case plans: only build_readiness
+blockers changed (known matching sport eligibility message); existing-plan binding
+also changes because captured previous checkpoint contains that assessment. Two
+independently recreated full-payload sets match6/6 exactly. Old v3/v4 oracles remain
+unchanged. Current oracle remains full-payload, not TSS-only or field-stripped.
+
+Second full run and targeted Planning E2E are pending at this commit. First broad
+E2E was stopped after repeated timeouts; temporary process groups were identified
+and stopped explicitly, primary8000/3000 untouched. It is not counted as a pass.

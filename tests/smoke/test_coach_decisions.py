@@ -9,7 +9,6 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from data.database import Database
-from tests.athlete_clock import athlete_today
 from tests.smoke._planning_build_confirmation import cycle_fields
 
 
@@ -419,17 +418,19 @@ def test_decisions_api_dedupes_recovery_conflict_rules(tmp_path):
     assert len(recovery["report"]["conflicts"]) == 4
 
 
-def test_approve_build_plan_proposal_persists_checkpoint(tmp_path):
+def test_approve_build_plan_proposal_persists_checkpoint(tmp_path, monkeypatch):
+    from tests.smoke._planning_build_confirmation import pin_clock, seeded_db
+    pin_clock(monkeypatch)
     from api.routers.decisions import approve_proposal
     from api.planning_service import get_active_plan
 
-    db = _seeded_db(tmp_path, "approve_build.db")
-    event_date = _future_event_date()
+    db = seeded_db(tmp_path, rested=True)
+    event_date = "2027-02-13"
     from models.ai_tools import AITools
     raw = AITools(db).propose_plan_build(
         goal_type="Триатлон", distance="Olympic", event_date=event_date,
-        available_hours=10, available_days="mon,wed,sat,sun",
-        **cycle_fields(db),
+        available_hours=10, available_days="mon,tue,wed,thu,fri,sat,sun",
+        **{**cycle_fields(db), "start_date": "2026-10-26"},
     )
     proposal = db.save_coach_proposal(action=raw["action"], params=raw["params"], preview=raw["preview"])
 
@@ -449,30 +450,32 @@ def test_approve_build_plan_proposal_persists_checkpoint(tmp_path):
     assert active_plan["event_date"] == event_date
 
 
-def test_coach_build_proposal_records_and_guards_its_preview_base(tmp_path):
+def test_coach_build_proposal_records_and_guards_its_preview_base(tmp_path, monkeypatch):
+    from tests.smoke._planning_build_confirmation import pin_clock, seeded_db
+    pin_clock(monkeypatch)
     from models.planning_build_confirmation import PlanningBuildPreviewError
 
     from api import planning_service
     from api.routers.decisions import approve_proposal
     from models.ai_tools import AITools
 
-    db = _seeded_db(tmp_path, "stale_build.db")
+    db = seeded_db(tmp_path, rested=True)
     from models.planning_build_confirmation import BuildParameters
     def build_cycle(event_date):
         shown = planning_service.prepare_plan_build(db, parameters=BuildParameters.from_mapping({
             "goal_type": "Триатлон", "distance": "Olympic", "event_date": event_date,
-            "available_hours": 10, "available_days": ["mon", "wed", "sat", "sun"], **cycle_fields(db),
+            "available_hours": 10, "available_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], **{**cycle_fields(db), "start_date": "2026-10-26"},
         }), origin="planning_ui")
         return planning_service.confirm_plan_build(db, preview_id=shown["confirmation"]["preview_id"], origin="planning_ui")
 
-    initial = build_cycle(_future_event_date(weeks=10))
+    initial = build_cycle("2027-02-13")
     raw = AITools(db).propose_plan_build(
         goal_type="Триатлон",
         distance="Olympic",
-        event_date=_future_event_date(weeks=12),
+        event_date="2027-02-13",
         available_hours=10,
-        available_days="mon,wed,sat,sun",
-        **cycle_fields(db),
+        available_days="mon,tue,wed,thu,fri,sat,sun",
+        **{**cycle_fields(db), "start_date": "2026-10-26"},
     )
     assert raw["params"]["base_checkpoint_id"] == int(initial["plan_id"])
     proposal = db.save_coach_proposal(
@@ -485,7 +488,7 @@ def test_coach_build_proposal_records_and_guards_its_preview_base(tmp_path):
 
     # Another append-only plan version wins before approval. The old preview
     # must fail closed instead of producing misleading drift lineage.
-    build_cycle(_future_event_date(weeks=11))
+    build_cycle("2027-02-13")
 
     with pytest.raises(PlanningBuildPreviewError) as exc_info:
         approve_proposal(proposal["id"], db=db)
@@ -576,6 +579,8 @@ def test_coach_completion_writes_decision_record(tmp_path, monkeypatch):
 
 
 def test_coach_stream_persists_proposal_and_emits_id(tmp_path, monkeypatch):
+    from tests.smoke._planning_build_confirmation import pin_clock, seeded_db
+    pin_clock(monkeypatch)
     from config.settings import Settings
 
     monkeypatch.setattr(Settings, "CHATS_DIR", str(tmp_path / "chats"), raising=False)
@@ -583,7 +588,7 @@ def test_coach_stream_persists_proposal_and_emits_id(tmp_path, monkeypatch):
     from api.routers import coach as coach_mod
     from models.mock_ai_provider import MockAIProvider
 
-    event_date = _future_event_date()
+    event_date = "2027-02-13"
 
     class ProposalProvider(MockAIProvider):
         def __init__(self):
@@ -596,7 +601,7 @@ def test_coach_stream_persists_proposal_and_emits_id(tmp_path, monkeypatch):
                 return (
                     "[TOOL: propose_plan_build, goal_type=Триатлон, "
                     f"distance=Olympic, event_date={event_date}, available_hours=10, "
-                    f"action=start_new, start_date={athlete_today().isoformat()}, base_selection_revision=0, "
+                    "action=start_new, start_date=2026-10-26, base_selection_revision=0, "
                     "base_checkpoint_id=0, replace_current_cycle=false]"
                 )
             return "Готово: я подготовил предложение плана, его нужно подтвердить."
@@ -605,7 +610,7 @@ def test_coach_stream_persists_proposal_and_emits_id(tmp_path, monkeypatch):
     monkeypatch.setattr(coach_mod, "resolve_provider", lambda provider_type=None: provider)
     monkeypatch.setattr(coach_mod, "supports_streaming", lambda _provider: False)
 
-    db = _seeded_db(tmp_path, "coach_proposal_stream.db")
+    db = seeded_db(tmp_path, rested=True)
     req = coach_mod.ChatRequest(
         message="Собери план на олимпийку.",
         provider="mock",
