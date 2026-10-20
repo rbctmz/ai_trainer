@@ -301,3 +301,36 @@ pending at fix commit; exact result will be recorded in the native thread before
 verification request, without an extra documentation push after native review.
 Final small subset10passed after the optional parent blocker address remained
 nullable-string even for malformed IDs. Ruff/contract freshness/diffcheck GREEN.
+
+
+## Dependency native fixes and integration (2026-10-20)
+
+Human asked to finish and continue the full stack. Supervisor/Integrator handoff:
+M1 d13d013 has green CI and clean scoped native round2; M2 dbf9772 fixes three
+native P2 findings,203 targeted GREEN and3754 contributor-safe passed,16 skipped,
+82 deselected,4 expected strict M3 XFAIL in207.40s. M2 final native is pending
+stable CI. Native budgets M1 2/2, M2 1/2, M3 2/2; no third M3 review is requested.
+M3 accepted clean receipt names32ab8712ef, not the later integrated candidate.
+
+Merged M1 documentation corrections and M2 native fixes locally without rewriting
+history. Conflict resolution preserves M3 activation-derived TSS, bounded Recovery
+replacement, explicit composite leg status and atomic readiness guards alongside
+raw RPE validation, explicit legacy stage identities and downward fallback
+quantization. New integrated materializer v8 distinguishes v6 M3 and v7 M2 inputs;
+matching version assertions and oracle pins change, with no new training policy.
+No UI/API contract/acceptance changes; role stays integration of bounded fixes.
+
+Pure pinned experiment reproduced old readiness-v1 oracle6/6 using original M3
+catalog source. Full payload diff inspected: legacy segment kinds, version and
+resulting session/leg/fingerprint identities change; readiness candidate hashes
+and blocker addresses follow those identities. Daily-plan/events/science/forecast
+hashes are identical6/6. New separate readiness-v2 oracle keeps complete-field
+comparisons; all older fixtures stay unchanged.
+
+Run integrated generation/readiness/confirm/receipt/lifecycle regressions, full
+contributor-safe contour and current-head CI before owner acceptance. Main/user
+DB/providers are unchanged. Because imported blocking native fixes advance M3
+past its exhausted two-round budget, docs/loop_engineering_instruction.md requires
+explicit privileged-owner review-budget-exception plus review acceptance for the
+final tested head; the old accepted label does not authorize that exception.
+Prepare the concrete evidence first, then request that final owner decision.

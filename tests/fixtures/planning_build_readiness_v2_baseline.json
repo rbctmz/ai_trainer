@@ -1,0 +1,62 @@
+{
+  "cases": {
+    "event_goal:existing": {
+      "checkpoint": "58a917e118f44aac9394ec01e792de1b2c1e76ffc04131b6c3360e203ba33a92",
+      "daily_plan": "5bf611d49adf6c7ad7951bfb914a5cbb230250e0c73098e3f5099385e644143f",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "68930cc5741a89c4a1dd4abb637fdadc677ff6d5193fb95f135b064d07474a78",
+      "response": "51c96f279ccdc8247643f50ebc7ce7461fbb0fd934662bb20ee895801e97e817",
+      "science_audit": "c016f8afcc22a7b35e0506272eebd84f869ab2aef4a9339fafab538ebd10d5a8",
+      "session_templates": "fa4521314ab563a046878de7af1e604036b9bcc13b31c69216a05d921859feb0"
+    },
+    "event_goal:first": {
+      "checkpoint": "5b0348885b1763a03bcded697a7ec70b48ed73938a19837c7908034cd8e5a68b",
+      "daily_plan": "5bf611d49adf6c7ad7951bfb914a5cbb230250e0c73098e3f5099385e644143f",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "68930cc5741a89c4a1dd4abb637fdadc677ff6d5193fb95f135b064d07474a78",
+      "response": "b5eb197c6de69ceb03116512a9ef1629f16276d3be6fbf18e62bdf18cb7c8df7",
+      "science_audit": "c016f8afcc22a7b35e0506272eebd84f869ab2aef4a9339fafab538ebd10d5a8",
+      "session_templates": "d2fd8c07d85e8ed761cac72a20ed6b57036642bd8526a4847bf4eef2b5875d37"
+    },
+    "manual:existing": {
+      "checkpoint": "3d64dc31803fa7f5dbe6a88cc09ce590aa2b1514fcda1ade9ff70d44b216c19a",
+      "daily_plan": "40e79d3a8f43256807ebc794713b42e76c85b92baa87ee30c3b22af0bd8f84cb",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "6a529318ff55e3abf51f2342fa10d44e9f364549db754a03b5604b2d5a6f8139",
+      "response": "7e29dcd76a0e60d6e2990331d43a595a4c0d4cddd295b8c933d33952192fa2a8",
+      "science_audit": "201b764b345406b5e020b51f42eeb918a8560be6df02d7f255f281f2696da012",
+      "session_templates": "67b793cb304bec119167c2112cf302199f404e4558d2ae62bd8a378b845c9ef2"
+    },
+    "manual:first": {
+      "checkpoint": "8312a7ad492c6058b4d1c02973e0a874f36063b2e3b72b994ccef6d608bdf83d",
+      "daily_plan": "40e79d3a8f43256807ebc794713b42e76c85b92baa87ee30c3b22af0bd8f84cb",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "6a529318ff55e3abf51f2342fa10d44e9f364549db754a03b5604b2d5a6f8139",
+      "response": "eaaf754cea0ff8db3fc72baa924f64fffdab23b44c929db682b4f326cf30ff9b",
+      "science_audit": "201b764b345406b5e020b51f42eeb918a8560be6df02d7f255f281f2696da012",
+      "session_templates": "a16eea92fcdbc8da3ccac265aa203a78b12d74ce7174aa719230c045da073145"
+    },
+    "training_goal:existing": {
+      "checkpoint": "cad663dc1b04f6d54ea0329046386a1efa88d50c7aad1881a3d7a6c5b2a06479",
+      "daily_plan": "5d7d58f0c9a758021b8d3cb3ac623f9903bd5da31eaecf2791b7ce0c5a240065",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "2a2055355ef840c3be6f4fa114e81060fd4a5e8dc830bf269183fa43064a8a90",
+      "response": "f76e9bb2878ec438da482b6f60bf21855772855f86846774a8d6b8d77608a7bb",
+      "science_audit": "505cf00a493a922f0ebf734abdb03f37aea60b367e3ee6f53d7950417044a69f",
+      "session_templates": "10c1a21222223edaeaecf527fbfbe41981d7666e3a1fb3338acc103a96e787c3"
+    },
+    "training_goal:first": {
+      "checkpoint": "14f46c87f3966e6b44613941c2bbee654343770767a885368f720317cb58fb8e",
+      "daily_plan": "5d7d58f0c9a758021b8d3cb3ac623f9903bd5da31eaecf2791b7ce0c5a240065",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "2a2055355ef840c3be6f4fa114e81060fd4a5e8dc830bf269183fa43064a8a90",
+      "response": "b4e9276b7796fdced4077384208380cffb142cedaf80410a3840fb13e5b86344",
+      "science_audit": "505cf00a493a922f0ebf734abdb03f37aea60b367e3ee6f53d7950417044a69f",
+      "session_templates": "10c1a21222223edaeaecf527fbfbe41981d7666e3a1fb3338acc103a96e787c3"
+    }
+  },
+  "description": "S3 M3 integration oracle after M2 native fixes; v1 and older catalog fixtures remain unchanged.",
+  "materializer_rule_version": "workout_materializer_v8",
+  "policy_version": "plan-build-readiness-v1",
+  "source_commit": "32ab8712efc243a4be366177edfd88382d1cd909 + reviewed M1/M2 corrections"
+}

@@ -263,3 +263,81 @@ def test_incomplete_or_invalid_rpe_policy_never_guesses_a_target(corruption):
     assert result["materialization_status"] == "infeasible"
     assert result["failed_bounds"] == ["target_semantics_unverified"]
     assert result["steps"] == []
+
+
+@pytest.mark.parametrize("policy", [
+    (("warmup", 1),),
+    None,
+    ((["warmup"], 1, 2),),
+    (("warmup", "1", 2),),
+    (("warmup", True, 2),),
+    (("warmup", 1, 2), ("cooldown", 1, 2), ("recovery", 1, 2),
+     ("stage", 3, 4), ("work", 7, 8), ("work", 2, 3)),
+])
+def test_malformed_or_duplicate_raw_rpe_policy_is_refused_without_exception(policy):
+    definition = next(d for d in wc.catalog_definitions()
+                      if d.template_key == "swim_threshold_repeats")
+    result = wc.materialize_workout(
+        replace(definition, rpe_stage_targets=policy),
+        {"duration_minutes": 45, "target_tss": 35}, {},
+    )
+    assert result["materialization_status"] == "infeasible"
+    assert result["failed_bounds"] == ["target_semantics_unverified"]
+    assert result["steps"] == []
+
+
+def test_legacy_interval_structure_preserves_stage_identity_and_rpe_policy():
+    definition = next(d for d in wc.catalog_definitions()
+                      if d.template_key == "swim_threshold_repeats")
+    result = wc.materialize_workout(
+        definition, {"duration_minutes": 45, "target_tss": 35}, {},
+    )
+    assert result["materialization_status"] == "materialized"
+    assert [s["segment_kind"] for s in result["steps"]] == [
+        "warmup", "work", "recovery", "cooldown",
+    ]
+    assert [(s["target"]["low"], s["target"]["high"]) for s in result["steps"]] == [
+        (1, 2), (7, 8), (1, 2), (1, 2),
+    ]
+
+
+@pytest.mark.parametrize("minutes", [25, 29, 31])
+def test_light_fallback_rounding_never_exceeds_unchanged_density_cap(minutes):
+    result = wc.materialize_session_template(**{
+        **_request(), "target_tss": 20, "estimated_duration_minutes": minutes,
+    })
+    assert result["materialization_status"] == "materialized"
+    assert result["session_role"] == "easy"
+    assert result["template_key"] == "bike_recovery_spin"
+    assert result["duration_minutes"] <= minutes
+    effective = result["parameter_snapshot"]["target_tss"]
+    assert effective <= 20
+    definition = next(d for d in wc.catalog_definitions()
+                      if d.template_key == result["template_key"])
+    assert effective * 60 / result["duration_minutes"] <= definition.max_tss_per_hour
+    assert not result.get("failed_bounds")
+
+
+@pytest.mark.parametrize("low,high", [("1", 2), (True, 2), (1.5, 2), (1, None)])
+def test_complete_rpe_policy_requires_integer_scale_bounds(low, high):
+    definition = next(d for d in wc.catalog_definitions()
+                      if d.template_key == "swim_threshold_repeats")
+    targets = [(key, low, high) if key == "work" else (key, lo, hi)
+               for key, lo, hi in definition.rpe_stage_targets]
+    result = wc.materialize_workout(
+        replace(definition, rpe_stage_targets=tuple(targets)),
+        {"duration_minutes": 45, "target_tss": 35}, {},
+    )
+    assert result["failed_bounds"] == ["target_semantics_unverified"]
+    assert result["steps"] == []
+
+
+def test_absolute_target_does_not_depend_on_unused_malformed_rpe_policy():
+    definition = next(d for d in wc.catalog_definitions()
+                      if d.template_key == "swim_threshold_repeats")
+    result = wc.materialize_workout(
+        replace(definition, rpe_stage_targets=(("warmup", 1),)),
+        {"duration_minutes": 45, "target_tss": 35}, {"css": 110},
+    )
+    assert result["materialization_status"] == "materialized"
+    assert all(s["target"]["type"] == "pace" for s in result["steps"])

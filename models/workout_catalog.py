@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 
 CATALOG_VERSION = "workout_catalog_v4"
 SELECTOR_RULE_VERSION = "workout_selector_v2"
-MATERIALIZER_RULE_VERSION = "workout_materializer_v6"
+MATERIALIZER_RULE_VERSION = "workout_materializer_v8"
 PRESCRIPTION_NP_TSS_RULE_VERSION = "prescription_np_tss_v1"
 STRUCTURE_RULE_VERSION = "workout_structure_v2"
 
@@ -381,16 +381,16 @@ def select_workout_template(context: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-_STEP_PATTERNS: dict[str, tuple[tuple[str, str, float, float], ...]] = {
-    "recovery": (("Warm-up", "easy", 0.15, 0.35), ("Recovery", "steady", 0.70, 0.50), ("Cool-down", "easy", 0.15, 0.30)),
-    "endurance": (("Warm-up", "easy", 0.15, 0.45), ("Aerobic endurance", "steady", 0.70, 0.68), ("Cool-down", "easy", 0.15, 0.35)),
-    "progression": (("Warm-up", "easy", 0.15, 0.45), ("Aerobic", "steady", 0.40, 0.68), ("Progression", "work", 0.30, 0.82), ("Cool-down", "easy", 0.15, 0.35)),
-    "tempo": (("Warm-up", "easy", 0.20, 0.45), ("Tempo blocks", "work", 0.50, 0.88), ("Easy reset", "easy", 0.10, 0.45), ("Cool-down", "easy", 0.20, 0.35)),
-    "threshold": (("Warm-up", "easy", 0.20, 0.45), ("Threshold intervals", "work", 0.45, 1.00), ("Recoveries", "easy", 0.15, 0.45), ("Cool-down", "easy", 0.20, 0.35)),
-    "vo2": (("Warm-up", "easy", 0.25, 0.45), ("VO2 intervals", "work", 0.30, 1.15), ("Recoveries", "easy", 0.20, 0.40), ("Cool-down", "easy", 0.25, 0.35)),
-    "neuromuscular": (("Warm-up", "easy", 0.30, 0.45), ("Sprints", "work", 0.15, 1.30), ("Full recoveries", "easy", 0.30, 0.35), ("Cool-down", "easy", 0.25, 0.30)),
-    "technique": (("Easy warm-up", "easy", 0.20, 0.45), ("Technique drills", "steady", 0.45, 0.55), ("Aerobic swim", "work", 0.20, 0.70), ("Easy cool-down", "easy", 0.15, 0.40)),
-    "race_pace": (("Warm-up", "easy", 0.20, 0.45), ("Race-pace blocks", "work", 0.50, 0.95), ("Easy reset", "easy", 0.10, 0.45), ("Cool-down", "easy", 0.20, 0.35)),
+_STEP_PATTERNS: dict[str, tuple[tuple[str, str, float, float, str], ...]] = {
+    "recovery": (("Warm-up", "easy", 0.15, 0.35, "warmup"), ("Recovery", "steady", 0.7, 0.5, "stage"), ("Cool-down", "easy", 0.15, 0.3, "cooldown")),
+    "endurance": (("Warm-up", "easy", 0.15, 0.45, "warmup"), ("Aerobic endurance", "steady", 0.7, 0.68, "stage"), ("Cool-down", "easy", 0.15, 0.35, "cooldown")),
+    "progression": (("Warm-up", "easy", 0.15, 0.45, "warmup"), ("Aerobic", "steady", 0.4, 0.68, "stage"), ("Progression", "work", 0.3, 0.82, "work"), ("Cool-down", "easy", 0.15, 0.35, "cooldown")),
+    "tempo": (("Warm-up", "easy", 0.2, 0.45, "warmup"), ("Tempo blocks", "work", 0.5, 0.88, "work"), ("Easy reset", "easy", 0.1, 0.45, "recovery"), ("Cool-down", "easy", 0.2, 0.35, "cooldown")),
+    "threshold": (("Warm-up", "easy", 0.2, 0.45, "warmup"), ("Threshold intervals", "work", 0.45, 1.0, "work"), ("Recoveries", "easy", 0.15, 0.45, "recovery"), ("Cool-down", "easy", 0.2, 0.35, "cooldown")),
+    "vo2": (("Warm-up", "easy", 0.25, 0.45, "warmup"), ("VO2 intervals", "work", 0.3, 1.15, "work"), ("Recoveries", "easy", 0.2, 0.4, "recovery"), ("Cool-down", "easy", 0.25, 0.35, "cooldown")),
+    "neuromuscular": (("Warm-up", "easy", 0.3, 0.45, "warmup"), ("Sprints", "work", 0.15, 1.3, "work"), ("Full recoveries", "easy", 0.3, 0.35, "recovery"), ("Cool-down", "easy", 0.25, 0.3, "cooldown")),
+    "technique": (("Easy warm-up", "easy", 0.2, 0.45, "warmup"), ("Technique drills", "steady", 0.45, 0.55, "stage"), ("Aerobic swim", "work", 0.2, 0.7, "work"), ("Easy cool-down", "easy", 0.15, 0.4, "cooldown")),
+    "race_pace": (("Warm-up", "easy", 0.2, 0.45, "warmup"), ("Race-pace blocks", "work", 0.5, 0.95, "work"), ("Easy reset", "easy", 0.1, 0.45, "recovery"), ("Cool-down", "easy", 0.2, 0.35, "cooldown")),
 }
 
 
@@ -768,9 +768,9 @@ def _legacy_specs(
             intensity,
             seconds[index],
             target_fraction,
-            "work" if intensity == "work" else "stage",
+            segment_kind,
         )
-        for index, (name, intensity, _share, target_fraction) in enumerate(pattern)
+        for index, (name, intensity, _share, target_fraction, segment_kind) in enumerate(pattern)
     ]
     return specs, {
         "rule_version": STRUCTURE_RULE_VERSION,
@@ -1051,6 +1051,25 @@ _POWER_DERIVED_BIKE_BUILDERS = frozenset(
 )
 
 
+def _validated_rpe_targets(definition: WorkoutTemplateDefinition) -> dict[str, tuple[int, int]]:
+    """Validate the raw stage policy before unpacking or collapsing its entries."""
+    raw = definition.rpe_stage_targets
+    required = {"warmup", "cooldown", "recovery", "stage", "work"}
+    if not definition.rpe_policy_version or not isinstance(raw, (tuple, list)):
+        return {}
+    targets: dict[str, tuple[int, int]] = {}
+    for entry in raw:
+        if not isinstance(entry, (tuple, list)) or len(entry) != 3:
+            return {}
+        key, low, high = entry
+        if (not isinstance(key, str) or key not in required or key in targets
+            or type(low) is not int or type(high) is not int
+            or not 1 <= low <= high <= 10):
+            return {}
+        targets[key] = (low, high)
+    return targets if set(targets) == required else {}
+
+
 def materialize_workout(
     definition: WorkoutTemplateDefinition,
     parameters: Mapping[str, Any],
@@ -1087,12 +1106,9 @@ def materialize_workout(
         for spec in specs
     ]
     provenance = _resolve_provenance(definition, zone_snapshot)
-    rpe_targets = {key: (low, high) for key, low, high in definition.rpe_stage_targets}
-    if provenance["kind"] == "relative_rpe" and (
-        not definition.rpe_policy_version
-        or set(rpe_targets) != {"warmup", "cooldown", "recovery", "stage", "work"}
-        or any(not (1 <= low <= high <= 10) for low, high in rpe_targets.values())
-    ):
+    rpe_targets = (_validated_rpe_targets(definition)
+                   if provenance["kind"] == "relative_rpe" else {})
+    if provenance["kind"] == "relative_rpe" and not rpe_targets:
         return {**base, "materialization_status": "infeasible",
                 "failed_bounds": ["target_semantics_unverified"], "target_provenance": provenance}
     tss_values = _exact_distribution(target_tss, duration_shares, 1)
@@ -1108,10 +1124,7 @@ def materialize_workout(
                 provenance,
                 spec.intensity,
                 spec.target_fraction,
-                rpe_range=rpe_targets.get(
-                    "warmup" if index == 0 else "cooldown" if index == len(specs) - 1
-                    else spec.segment_kind if spec.segment_kind in {"work", "recovery"} else "stage"
-                ),
+                rpe_range=rpe_targets.get(spec.segment_kind),
             ),
             "segment_kind": spec.segment_kind,
         }
@@ -1471,6 +1484,9 @@ def materialize_session_template(
                 continue
             reduced_request = min(target_tss, definition.max_tss,
                                   definition.max_tss_per_hour * duration / 60.0)
+            # The persisted materializer uses tenths of TSS. Never round a
+            # raw upper density/load cap upward into an infeasible request.
+            reduced_request = math.floor(reduced_request * 10) / 10
             if _failed_bounds(definition, duration, reduced_request):
                 continue
             light.append((definition, duration))

@@ -169,3 +169,36 @@ probe1failed without directory→1passed with directory; product code unchanged.
 Complete rerun uses a pre-created private temp root. Final small subset10passed;
 Ruff/TS freshness/diffcheck GREEN. Current-head full/CI/native verification outcome
 will be added to the finding thread, avoiding a post-review docs-only head change.
+
+
+## Native dependency fixes: integrated candidate
+
+M1 d13d013: mandatory Class A record, portable commands and honest RED matrix;
+all functional CI green, clean scoped native2/2 receipt:
+https://github.com/rbctmz/ai_trainer/pull/705#issuecomment-6291819702 .
+M2 dbf9772: raw RPE policy fail-closed validation, explicit legacy stage kinds,
+and conservative light-fallback rounding. Exact6 RED failures +4 controls;
+203 focused GREEN,1458-request matrix/486 valid bounded replacements. Full M2
+contributor3754passed/16skipped/82deselected/4 strict expected XFAIL in207.40s.
+Native2/2 waits for stable current-head remote CI; all3 findings fixed-in/replied.
+
+Local M3 integration keeps all existing M3 runtime/guard fixes and imports only
+those M1/M2 corrections. Materializer v8 pins the combined semantics. Version,
+.gitignore and golden-file selection conflicts were resolved without discarding
+M3 activation-derived TSS, Recovery caps, leg status or identity reservation.
+No api/web/TypeScript runtime changed since32ab871.
+
+Original readiness-v1 six cases reproduced exactly using original M3 catalog.
+Inspected full before/after payloads: changed legacy kinds/version imply changed
+fingerprint/session/leg/replacement IDs plus assessment candidate hashes and
+blocker addresses. Daily totals/events/science/forecast hashes unchanged6/6.
+Separate readiness-v2 baseline retains whole-payload assertions; all old oracles
+remain intact. Integrated focused contour:364passed,7 existing warnings in60.92s,
+covering generation, readiness, atomic commit/replay, Coach, lifecycle, storage,
+preparation and materialization. Ruff, TS freshness and whitespace GREEN.
+Full integrated contributor/remote CI remain pending at this checkpoint.
+
+M3 native2/2 accepted32ab871 predates dependency corrections. Do not reuse its
+old acceptance label for the new head or request a third review. Final merge
+requires explicit owner review-budget-exception under the existing runbook,
+after all integrated checks are green. No merge or live DB writes claimed.
