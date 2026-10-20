@@ -83,3 +83,38 @@ the 16-week performance case therefore uses a real 16-week event calendar.
 Broad contributor contour: running; no GREEN claimed yet. Independent review:
 pending, native rounds 0. Final failures/triage/verification are appended before
 publishing. Four M1 readiness acceptance cases remain M3 obligations.
+
+## Broad regression / oracle investigation
+
+First sandbox contributor run: 51 failed, 3,660 passed, 38 skipped, 82 deselected.
+Breakdown: 27 default SQLite path permission failures; 12 exact v3 oracle hashes
+intentionally changed; 4 M1 acceptance tests reached absent M3 readiness keys
+once generation passed; 7 #554 fixtures depended on now-repaired assignments;
+1 recovery-replan assertion expected easy bike to select sprints. A fresh
+`DATABASE_PATH` / `DEMO_DATABASE_PATH` / `CHATS_DIR` under temporary storage fixes
+the environment, without opening an athlete DB. Assertions are updated narrowly,
+not marked skipped; four M3 tests retain strict AssertionError-only XFAIL, with
+an explicit missing-assessment assertion before accessing future DTO fields.
+
+Observed: archived source `7550d2e` reproduces all six frozen pre-extraction hash
+cases exactly. Verified by: same pinned helpers, temporary SQLite and full
+`characterization` comparison. The original v3 JSON stays byte-for-byte intact;
+`planning_build_confirmation_catalog_v4_baseline.json` is a separate explicit
+oracle for the new generation. Every component still compared; only events
+remain identical. Synthetic total TSS before/after is event_goal 1244/1205,
+training_goal 1108/1020, manual 1105/1037, equal in first/existing variants.
+Science/forecast changes follow changed prescriptions; no normalization hides them.
+
+The oracle intentionally includes incompatible pre-race requests/overlays:
+event_goal still has one infeasible Peak bike; training_goal has one Recovery
+activation fallback from an explicit event; manual has two infeasible and two
+fallback sessions. M2 must not silently replace pre-race intent or pretend these
+are publishable. They are retained as explicit M3 rejection fixtures, unlike
+the event-free training-goal probe where all 58 sessions now materialize. Final
+load consistency/publication readiness is still NOT implemented.
+
+Independent round 1: READY for code at 5f15c87, zero confirmed P1/blocking P2.
+Checker independently passed 128 tests and examined 2,268 quality requests across
+phase/sport/dose/time/threshold combinations: 84 explicit fallbacks, no load/time
+cap, allowed phase, light-family or role violations. P3 E401 in report probe fixed.
+Overall readiness awaits completed broad run and scoped verification delta.

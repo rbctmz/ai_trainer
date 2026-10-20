@@ -191,3 +191,75 @@ def test_recovery_primary_role_is_honest_in_builder_description():
     assert session["materialization_status"] == "materialized"
     assert session["session_role"] == "recovery"
     assert templates[0]["session_role"] == "recovery"
+
+
+def test_light_replacement_fits_the_failed_power_pair_not_only_schedule_estimate():
+    result = wc.materialize_session_template(**_request())
+    assert result["selection_evidence"]["role_override"] == "quality_to_easy"
+    attempted = result["selection_evidence"]["skipped_candidates"]
+    assert attempted
+    assert result["duration_minutes"] <= min(a["duration_minutes"] for a in attempted)
+    assert result["duration_minutes"] < 45
+
+
+@pytest.mark.parametrize(
+    "version_name",
+    ["CATALOG_VERSION", "SELECTOR_RULE_VERSION", "MATERIALIZER_RULE_VERSION"],
+)
+@pytest.mark.parametrize("applied", [False, True], ids=["pending", "receipt"])
+def test_changed_catalog_context_rejects_pending_but_preserves_applied_receipt(
+    tmp_path, monkeypatch, version_name, applied
+):
+    from api import planning_service as ps
+    from models.planning_build_confirmation import PlanningBuildPreviewError
+    from tests.smoke._planning_build_confirmation import (
+        pin_clock,
+        protected_state,
+        seeded_db,
+    )
+    from tests.smoke.test_planning_build_commit import prepare, confirm
+
+    pin_clock(monkeypatch)
+    db = seeded_db(tmp_path, rested=True)
+    with monkeypatch.context() as old:
+        old.setattr(ps, version_name, "prior-catalog-test-context")
+        shown = prepare(db)
+        if applied:
+            receipt = confirm(db, shown)
+    before = protected_state(db)
+    if applied:
+        replay = confirm(db, shown)
+        assert replay == {
+            **receipt,
+            "confirmation": {**receipt["confirmation"], "replayed": True},
+        }
+    else:
+        with pytest.raises(PlanningBuildPreviewError) as error:
+            confirm(db, shown)
+        assert error.value.code == "preview_stale"
+    assert protected_state(db) == before
+
+
+@pytest.mark.parametrize(
+    "corruption", ["missing_stage", "reversed_range", "out_of_scale"]
+)
+def test_incomplete_or_invalid_rpe_policy_never_guesses_a_target(corruption):
+    definition = next(
+        d
+        for d in wc.catalog_definitions()
+        if d.template_key == "swim_recovery_technique"
+    )
+    targets = list(definition.rpe_stage_targets)
+    if corruption == "missing_stage":
+        targets = targets[:-1]
+    else:
+        key, _, _ = targets[-1]
+        targets[-1] = (key, 4, 2) if corruption == "reversed_range" else (key, 0, 11)
+    result = wc.materialize_workout(
+        replace(definition, rpe_stage_targets=tuple(targets)),
+        {"duration_minutes": 30, "target_tss": 15},
+        {},
+    )
+    assert result["materialization_status"] == "infeasible"
+    assert result["failed_bounds"] == ["target_semantics_unverified"]
+    assert result["steps"] == []

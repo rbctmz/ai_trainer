@@ -4,6 +4,7 @@ This living ExecPlan follows `.agent/PLANS.md` and the M1 contract in
 [planning_build_readiness_slice_spec.md](planning_build_readiness_slice_spec.md).
 Human owner explicitly authorized M2 on 2026-10-20. Role: Domain/API Implementer;
 Class A (versioned prescription/provenance and cross-module role projection).
+[M2 slice/review record](planning_build_readiness_m2_slice_spec.md).
 Base is M1 `7550d2e8a4df594ee502a359004287b341436074`, draft #705. M2 is a separate
 stacked branch; no merge, provider delivery or change to the athlete DB is authorized.
 

@@ -35,6 +35,7 @@ from models.session_identity import ensure_session_identities
 from models.training_planner import (
     build_daily_session_templates,
     project_daily_plan_from_session_templates,
+    project_day_scalars,
 )
 from models.workout_catalog import (
     _single_candidates,
@@ -68,7 +69,8 @@ _TAPER_ZONE = {"ftp": 200.0}
 # Репро супервайзера: короткая quality-сессия, где derived-прескрипция не
 # проходит объявленные границы дефиниции.
 _SHORT_QUALITY_SELECTION = {
-    "phase": "Build",
+    # Peak must preserve the requested stimulus; M2 light fallback is forbidden.
+    "phase": "Peak",
     "session_role": "quality",
     "sport": "bike",
     "goal_type": "Триатлон",
@@ -422,7 +424,7 @@ _REBALANCE_QUALITY_INDEX = 9
 _REBALANCE_RECOVERY_INDEX = 11
 
 
-def _weekly_rebalance_plan() -> dict:
+def _weekly_rebalance_plan(*, historical_quality: bool = False) -> dict:
     """Реальная цепочка билдера: build_daily_session_templates → проекция дня."""
     daily = []
     for index in range(21):
@@ -455,6 +457,23 @@ def _weekly_rebalance_plan() -> dict:
         "olympic",
         zone_snapshot=_TAPER_ZONE,
     )
+    if historical_quality:
+        # Preserve the original #554 regression: a saved easy-labelled day can
+        # contain a quality prescription with requested 70 but effective 40.2.
+        # M2 no longer generates that pairing. Construct it explicitly rather
+        # than depending on the removed easy->sprints selector eligibility.
+        primary = materialize_session_template(
+            phase="Build", session_role="quality", sport="bike",
+            goal_type="triathlon", target_tss=70, estimated_duration_minutes=60,
+            zone_snapshot=_TAPER_ZONE,
+            recent_template_keys=["bike_vo2max_intervals", "bike_aerobic_progression",
+                                  "bike_threshold_intervals", "bike_race_pace"],
+        )
+        primary["total_tss"] = primary["parameter_snapshot"]["target_tss"]
+        primary["sport"] = "bike"
+        primary["session_role"] = "easy"  # frozen historical label
+        templates[_REBALANCE_QUALITY_INDEX]["sessions"] = [primary]
+        project_day_scalars(templates[_REBALANCE_QUALITY_INDEX])
     plan = {
         "goal_type": "triathlon",
         "distance": "olympic",
@@ -515,7 +534,7 @@ def _change_for(preview: dict, index: int) -> dict:
 
 def test_weekly_rebalance_scales_the_quality_day_from_the_effective_load():
     """P1: правка недели делит на эффективную нагрузку, а не на старый бюджет."""
-    plan = _weekly_rebalance_plan()
+    plan = _weekly_rebalance_plan(historical_quality=True)
     index = _REBALANCE_QUALITY_INDEX
     before = plan["session_templates"][index]["sessions"][0]
     before_snapshot = before["parameter_snapshot"]

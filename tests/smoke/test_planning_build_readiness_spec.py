@@ -1,7 +1,7 @@
 """#677 S3 M1: executable acceptance RED, not a runtime implementation.
 
 Run --runxfail to expose the four publication failures. Strict AssertionError-only
-XFAIL keeps this spec checkpoint reviewable; remove marks during M2/M3 GREEN.
+XFAIL keeps this spec checkpoint reviewable; remove marks during M3 GREEN.
 All inputs are synthetic; Database paths are pytest-owned temporary paths.
 """
 from __future__ import annotations
@@ -59,7 +59,7 @@ def _prepare(client, db):
     })
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S3 AC1/AC5: prepare publishes incomplete prescriptions")
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S3 M3 AC1/AC5: readiness assessment/publication guard not implemented")
 def test_successful_preview_has_ready_prescriptions_or_explicit_block(scenario):
     client, db = scenario
     before = writer_state(db)
@@ -76,6 +76,7 @@ def test_successful_preview_has_ready_prescriptions_or_explicit_block(scenario):
     assert response.status_code == 200, response.text
     failures = _invalid_prescriptions(_candidate(db, body["confirmation"]["preview_id"]))
     assert not failures, f"Usable preview contains {len(failures)} incomplete/infeasible prescriptions"
+    assert isinstance(body.get("build_readiness"), dict), "M3 readiness assessment missing"
     assert body["build_readiness"]["status"] == "ready"
     assert body["build_readiness"]["training_suitability"] == "not_assessed"
     assert not body["build_readiness"]["blockers"]
@@ -85,7 +86,7 @@ def test_successful_preview_has_ready_prescriptions_or_explicit_block(scenario):
     }
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S3 AC5/AC6: confirm applies retained invalid prescriptions")
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S3 M3 AC5/AC6: confirmation readiness/guard not implemented")
 def test_confirmation_cannot_publish_invalid_prescriptions(scenario):
     client, db = scenario
     before_prepare = writer_state(db)
@@ -108,6 +109,7 @@ def test_confirmation_cannot_publish_invalid_prescriptions(scenario):
         assert writer_state(db) == before_confirm
         return
     assert confirmed.status_code == 200, confirmed.text
+    assert isinstance(confirmed.json().get("build_readiness"), dict), "M3 readiness assessment missing"
     assert confirmed.json()["build_readiness"]["status"] == "ready"
     after = writer_state(db)
     replay = client.post("/api/planning/build/confirm", json=payload)

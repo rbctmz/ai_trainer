@@ -27,13 +27,14 @@ def clock(monkeypatch):
 
 @pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize("existing", [False, True], ids=["first", "existing"])
-def test_prepared_payload_preserves_complete_m1_calculation(tmp_path, mode, existing):
+def test_prepared_payload_preserves_complete_versioned_calculation(tmp_path, mode, existing):
     from tests.smoke.test_planning_build_confirmation_storage import BASELINE
 
     db = seeded_db(tmp_path, existing=existing, rested=True)
     before = protected_state(db)
-    # Keep the frozen S1 calculation oracle byte-for-byte. This low-level v1
-    # fixture is readable but deliberately NOT eligible for confirmation in S2.
+    # Compare every field against the versioned catalog oracle; the original
+    # pre-extraction v3 oracle remains unchanged as historical evidence. This
+    # low-level v1 fixture is deliberately NOT eligible for confirmation in S2.
     snapshot = ps._capture_plan_build_inputs(db, BuildParameters.from_mapping(parameters(mode)))
     prepared = ps._calculate_plan_build(snapshot)
     shown = preview_response(store_pending(db, prepared, origin="planning_ui", now=ps.datetime.now(ps.timezone.utc),
@@ -42,7 +43,7 @@ def test_prepared_payload_preserves_complete_m1_calculation(tmp_path, mode, exis
     checkpoint = json.loads(retained["checkpoint_json"])
     public = json.loads(retained["response_json"])
     # Legacy persisted response differed only in these two publication fields;
-    # full prepared content must still match the pre-extraction M1 oracle.
+    # full prepared content must match the versioned calculation oracle.
     public["confirmation_required"] = False
     expected = json.loads(BASELINE.read_text())["cases"][f"{mode}:{'existing' if existing else 'first'}"]
     assert characterization(public, checkpoint) == expected
