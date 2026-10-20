@@ -262,6 +262,7 @@ chats/
 !tests/contracts/ts_contract.json
 !tests/fixtures/planning_build_confirmation_baseline.json
 !tests/fixtures/planning_build_confirmation_catalog_v4_baseline.json
+!tests/fixtures/planning_build_readiness_v1_baseline.json
 # Issue #562 M6a: запиненные JSON-фикстуры терминального API для browser-приёмки
 !tests/e2e/fixtures/recovery_capture/*.json
 

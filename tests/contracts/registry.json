@@ -66,9 +66,22 @@
       ]
     },
     "/api/planning/build": {
-      "interface": "BuildPreviewResponse",
+      "interface": "BuildPrepareResult",
       "method": "POST",
       "scenarios": [
+        {
+          "state": "empty",
+          "expect": 422,
+          "prepare_cycle_build": true,
+          "json": {
+            "goal_type": "triathlon",
+            "distance": "olympic",
+            "planning_mode": "manual",
+            "horizon_weeks": 4,
+            "manual_phases": ["Peak", "Peak", "Peak", "Peak"],
+            "available_hours": 4
+          }
+        },
         {
           "state": "empty",
           "expect": 200,
@@ -84,7 +97,7 @@
       ]
     },
     "/api/planning/build/confirm": {
-      "interface": "BuildConfirmResponse",
+      "interface": "BuildConfirmResult",
       "method": "POST",
       "scenarios": [
         {

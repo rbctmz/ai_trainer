@@ -271,8 +271,6 @@ def _seed_demo_plan(db) -> int:
     (test_api_architecture::test_services_modules_do_not_depend_on_api, #194).
     Returns the number of planned days (0 if no plan was produced).
     """
-    from datetime import timedelta
-
     from api import planning_service
     from models.planning_build_confirmation import BuildParameters
     from services.planning_cycles import current_cycle_context
@@ -284,9 +282,10 @@ def _seed_demo_plan(db) -> int:
         {"ftp": 240, "weight_kg": 72.0, "lthr": 160, "source": "demo"}
     )
     context = current_cycle_context(db)
-    event_date = (athlete_local_date() + timedelta(weeks=9)).isoformat()
     preview = planning_service.prepare_plan_build(db, parameters=BuildParameters.from_mapping({
-        "goal_type": "triathlon", "distance": "olympic", "event_date": event_date,
+        "goal_type": "triathlon", "distance": "olympic", "event_date": None,
+        "planning_mode": "manual", "horizon_weeks": 8, "events": [],
+        "manual_phases": ["Recovery", "Base", "Build", "Recovery", "Base", "Base", "Build", "Recovery"],
         "available_hours": 10.0, "available_days": ["mon", "tue", "wed", "thu", "sat", "sun"],
         "action": "start_new", "base_cycle_id": context["cycle_id"],
         "base_cycle_revision": context["cycle_revision"], "base_selection_revision": context["selection_revision"],

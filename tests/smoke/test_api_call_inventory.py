@@ -48,7 +48,7 @@ def test_registry_schema() -> None:
         for scenario in scenarios:
             state = scenario.get("state")
             assert state in KNOWN_STATES, f"{path}: неизвестное состояние {state!r}"
-            assert scenario.get("expect") == 200, f"{path}: conformance проверяет только expect=200"
+            assert scenario.get("expect") == 200 or (path == "/api/planning/build" and scenario.get("expect") == 422 and entry["interface"] == "BuildPrepareResult"), f"{path}: неожиданный error contract scenario"
     for item in registry.get("excluded", []):
         assert str(item.get("path", "")).startswith("/api/"), f"исключение вне /api/: {item}"
         assert isinstance(item.get("reason"), str) and item["reason"], f"исключение без причины: {item}"

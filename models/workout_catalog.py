@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 
 CATALOG_VERSION = "workout_catalog_v4"
 SELECTOR_RULE_VERSION = "workout_selector_v2"
-MATERIALIZER_RULE_VERSION = "workout_materializer_v5"
+MATERIALIZER_RULE_VERSION = "workout_materializer_v6"
 PRESCRIPTION_NP_TSS_RULE_VERSION = "prescription_np_tss_v1"
 STRUCTURE_RULE_VERSION = "workout_structure_v2"
 
@@ -1046,6 +1046,7 @@ _POWER_DERIVED_BIKE_BUILDERS = frozenset(
         "vo2",
         "neuromuscular",
         "race_pace",
+        "activation",
     }
 )
 
@@ -1436,9 +1437,17 @@ def materialize_session_template(
     quality_load_ceiling = max((d.max_tss for d in _CATALOG
         if d.kind == "single" and d.sport == sport and "quality" in d.roles
         and phase in d.phase_eligibility and _goal_matches(d, goal_type)), default=0)
-    if (executable_index is None and session_role == "quality"
-        and phase in {"Base", "Build", "Maintenance"}
-        and 0 < target_tss <= quality_load_ceiling and estimated_duration_minutes > 0):
+    recovery_request = phase == "Recovery" and session_role in {"easy", "quality", "long", "recovery"}
+    recovery_load_ceiling = max((d.max_tss for d in _CATALOG
+        if d.kind == "single" and d.sport == sport and "Recovery" in d.phase_eligibility
+        and d.step_builder_key in {"recovery", "endurance", "technique"}
+        and _goal_matches(d, goal_type)), default=0)
+    allow_light_replacement = (
+        (session_role == "quality" and phase in {"Base", "Build", "Maintenance"}
+         and 0 < target_tss <= quality_load_ceiling)
+        or (recovery_request and 0 < target_tss <= recovery_load_ceiling)
+    )
+    if executable_index is None and allow_light_replacement and estimated_duration_minutes > 0:
         # A concrete light replacement is explicit in role/evidence, bounded by
         # both the original duration and requested load. Never substitute a
         # long endurance session for a pre-race sharpening.
@@ -1451,8 +1460,9 @@ def materialize_session_template(
         light = []
         for definition in _CATALOG:
             if (definition.kind != "single" or definition.sport != sport
-                or "easy" not in definition.roles or phase not in definition.phase_eligibility
-                or definition.step_builder_key not in {"recovery", "endurance", "technique"}
+                or ("recovery" if recovery_request else "easy") not in definition.roles
+                or phase not in definition.phase_eligibility
+                or definition.step_builder_key not in ({"recovery", "technique"} if recovery_request else {"recovery", "endurance", "technique"})
                 or not _goal_matches(definition, goal_type)
                 or (load_state == "deep_fatigue" and max(definition.fatigue_cost) >= 3)):
                 continue
@@ -1647,6 +1657,7 @@ def materialize_brick_session(
         legs.append(
             {
                 "leg_index": leg_index,
+                "materialization_status": materialized["materialization_status"],
                 "sport": sport,
                 "target_tss": round(
                     bike_effective_tss if sport == "bike" else run_effective_tss,

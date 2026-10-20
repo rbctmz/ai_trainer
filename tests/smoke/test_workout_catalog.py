@@ -84,7 +84,7 @@ def test_catalog_is_exact_versioned_and_immutable():
 
     assert CATALOG_VERSION == "workout_catalog_v4"
     assert SELECTOR_RULE_VERSION == "workout_selector_v2"
-    assert MATERIALIZER_RULE_VERSION == "workout_materializer_v5"
+    assert MATERIALIZER_RULE_VERSION == "workout_materializer_v6"
     assert len(definitions) == 23
     assert {item.template_key for item in definitions} == EXPECTED_TEMPLATE_KEYS
     assert len({(item.template_key, item.version) for item in definitions}) == 23

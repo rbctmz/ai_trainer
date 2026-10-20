@@ -14,7 +14,7 @@ from api.routers import decisions
 from data.planning_build_preview_store import get_preview
 from models.ai_tools import AITools
 from models.planning_build_confirmation import BuildParameters, PlanningBuildPreviewError
-from tests.smoke._planning_build_confirmation import add_late_activity, checkpoint_payload, cycle_fields, parameters, pin_clock, protected_state, seeded_db
+from tests.smoke._planning_build_confirmation import add_late_activity, checkpoint_payload, cycle_fields, ready_parameters as parameters, pin_clock, protected_state, seeded_db
 from tests.smoke.test_planning_build_preparation import execute
 
 
@@ -36,9 +36,9 @@ def save(db, shown, **kwargs):
 
 
 def test_tool_prepares_identity_summary_and_actual_base(tmp_path):
-    db = seeded_db(tmp_path, existing=True)
+    db = seeded_db(tmp_path, existing=True, rested=True)
     before = protected_state(db)
-    raw = AITools(db).propose_plan_build(goal_type="triathlon", distance="olympic", event_date="2026-12-06", **cycle_fields(db))
+    raw = AITools(db).propose_plan_build(goal_type="triathlon", distance="olympic", event_date="2027-02-13", **{**cycle_fields(db), "start_date": "2026-10-26"})
     assert raw["is_proposal"]
     token = raw["params"]["preview_id"]
     row = get_preview(db, token, origin="coach")

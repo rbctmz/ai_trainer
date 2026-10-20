@@ -727,3 +727,16 @@ explicit quality downgrade and versioned RPE stage policy. ASR-REL-1/2: no
 historical rewrite or silent impossible-request success; ASR-MOD-2/3: additive
 immutable provenance, existing DTOs; ASR-PERF-4: 16-week synthetic prepare 0.321s.
 No training-suitability validation or M3 publication guard is claimed.
+
+## Final build readiness (draft implementation; #677 S3 M3)
+
+2026-10-20: [ExecPlan](../planning_build_readiness_m3_execplan.md),
+[slice](../planning_build_readiness_m3_slice_spec.md),
+[evidence](../reports/2026-10-20-planning-readiness-m3/README.md).
+Pure final candidate assessment binds effective load, time, known target policy,
+forecast input and immutable snapshot. Shared UI/Coach prepare refuses incomplete
+plans before retaining a token; pending confirm validates before active writes,
+while old applied receipts replay first. ASR-REL-1/2, ASR-MOD-2/3, ASR-PERF-4 and
+ASR-DEP-2 reuse existing transaction/reset ownership. No new table, provider I/O,
+Banister under lock, personal suitability approval or UI layout change. Independent
+review/full verification pending; no merge/rollout implied.

@@ -15,7 +15,7 @@ from data.planning_build_preview_store import get_preview
 from models import planning_build_confirmation as protocol
 from models.planning_build_confirmation import BuildParameters, PlanningBuildPreviewError
 from tests.smoke._planning_build_confirmation import (
-    MODES, TODAY, add_late_activity, checkpoint_payload, cycle_fields, parameters, pin_clock, protected_state, seeded_db,
+    MODES, TODAY, add_late_activity, checkpoint_payload, cycle_fields, ready_parameters as parameters, pin_clock, protected_state, seeded_db,
 )
 from tests.smoke.test_planning_build_preparation import execute
 
@@ -26,7 +26,10 @@ def clock(monkeypatch):
 
 
 def prepare(db, mode="training_goal", origin="planning_ui"):
-    return ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping({**parameters(mode), **cycle_fields(db)}), origin=origin)
+    request = {**parameters(mode), **cycle_fields(db)}
+    if mode == "event_goal":
+        request.update(start_week="2026-10-26", start_date="2026-10-26")
+    return ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping(request), origin=origin)
 
 
 def confirm(db, shown):

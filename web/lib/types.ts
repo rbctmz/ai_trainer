@@ -935,6 +935,7 @@ export interface PlanScienceAudit {
 
 /** Read-only projection of the persisted active checkpoint for Planning M1. */
 export interface PlanningOverview {
+  build_readiness?: BuildReadiness;
   cycle_context?: CycleContext;
   has_actionable_plan?: boolean;
   has_plan: boolean;
@@ -1313,6 +1314,8 @@ export interface BuiltPlan {
     weekly_tss_before: number[];
     weekly_tss_after: number[];
     weekly_tss_delta: number;
+    total_tss_before?: number;
+    total_tss_after?: number;
     microcycle_changes: RaceMicrocycleChange[];
   };
   goal: {
@@ -1335,10 +1338,39 @@ export interface BuiltPlan {
   totals: { peak_tss: number; total_tss: number };
   constraint_application?: ConstraintApplication;
   weeks: PlanWeek[];
-  forecast: { points: ForecastPoint[]; final_tsb: number; message: string };
+  forecast: { points: ForecastPoint[]; final_tsb: number; message: string; input_fingerprint?: string };
 }
 
 // Server-owned prepared build; unrelated BuiltPlan producers remain unchanged.
+export interface BuildReadinessReason {
+  code: "prescription_missing" | "prescription_infeasible" | "target_semantics_unverified" | "load_inconsistent" | "duration_inconsistent" | "availability_exceeded";
+  date: string | null;
+  session_id: string | null;
+  leg_index: number | null;
+  field: string;
+  expected: unknown;
+  observed: unknown;
+}
+
+export interface BuildReadiness {
+  policy_version: "plan-build-readiness-v1" | null;
+  status: "ready" | "blocked" | "unassessed";
+  can_confirm: boolean;
+  scope: { start_date: string; end_date: string } | null;
+  assessed_session_count: number;
+  candidate_fingerprint: string | null;
+  blockers: BuildReadinessReason[];
+  warnings: BuildReadinessReason[];
+  training_suitability: "not_assessed";
+}
+
+export interface BuildReadinessError {
+  detail: string;
+  code: "plan_not_ready";
+  retryable: boolean;
+  build_readiness: BuildReadiness;
+}
+
 export interface BuildParameters {
   goal_type: string;
   distance: string;
@@ -1366,6 +1398,7 @@ export interface BuildConfirmation {
 }
 
 export interface LegacyBuildPreviewResponse extends BuiltPlan {
+  build_readiness?: BuildReadiness | null;
   parameters: BuildParameters;
   confirmation: BuildConfirmation;
 }
@@ -1383,6 +1416,8 @@ export interface BuildLifecycle {
 }
 
 export interface CycleBuildPreviewResponse extends BuiltPlan {
+  /** Historical applied receipts may predate readiness; new pending always has it. */
+  build_readiness?: BuildReadiness | null;
   parameters: BuildParameters;
   confirmation: BuildConfirmationV2;
   lifecycle: BuildLifecycle;
@@ -1399,6 +1434,8 @@ export interface BuildConfirmationV2 {
 
 export type BuildPreviewResponse = LegacyBuildPreviewResponse | CycleBuildPreviewResponse;
 export type BuildConfirmResponse = BuildPreviewResponse;
+export type BuildPrepareResult = BuildPreviewResponse | BuildReadinessError;
+export type BuildConfirmResult = BuildConfirmResponse | BuildReadinessError;
 
 export interface CycleBuildInputs {
   start_date: string;
@@ -1933,7 +1970,7 @@ export interface AdjustResult {
   totals: { peak_tss: number; total_tss: number };
   constraint_application?: ConstraintApplication;
   weeks: PlanWeek[];
-  forecast: { points: ForecastPoint[]; final_tsb: number; message: string };
+  forecast: { points: ForecastPoint[]; final_tsb: number; message: string; input_fingerprint?: string };
 }
 
 export interface PlanningHistoryItem {

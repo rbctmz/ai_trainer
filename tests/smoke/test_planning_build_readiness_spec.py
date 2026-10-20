@@ -59,7 +59,6 @@ def _prepare(client, db):
     })
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S3 M3 AC1/AC5: readiness assessment/publication guard not implemented")
 def test_successful_preview_has_ready_prescriptions_or_explicit_block(scenario):
     client, db = scenario
     before = writer_state(db)
@@ -86,7 +85,6 @@ def test_successful_preview_has_ready_prescriptions_or_explicit_block(scenario):
     }
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S3 M3 AC5/AC6: confirmation readiness/guard not implemented")
 def test_confirmation_cannot_publish_invalid_prescriptions(scenario):
     client, db = scenario
     before_prepare = writer_state(db)

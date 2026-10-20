@@ -64,6 +64,22 @@ def parameters(mode: str = "training_goal") -> dict[str, Any]:
     }
 
 
+def ready_parameters(mode: str = "training_goal") -> dict[str, Any]:
+    """Protocol controls use feasible assignments; original oracle inputs stay intact.
+
+    Deliberately incompatible pre-race overlays in parameters() remain explicit
+    S3 rejection fixtures. A protocol/CAS test must first have a valid preview.
+    """
+    values = parameters(mode)
+    values["events"] = ([{"date": "2027-02-13", "priority": "A", "label": "Synthetic A", "confirmed": True}]
+                        if mode == "event_goal" else [])
+    if mode == "event_goal":
+        values["available_hours"] = 10
+    if mode == "manual":
+        values["manual_phases"] = ["Base", "Base", "Build", "Recovery"] * 2
+    return values
+
+
 def internal_build(db: Database, request: dict[str, Any], *, persist: bool = True):
     """Trusted legacy facade remains the characterization target during extraction."""
     return fixture_build_plan(
@@ -114,6 +130,7 @@ def seeded_db(tmp_path, *, existing: bool = False, rested: bool = False) -> Data
         "distance": "10k", "available_hours": 6.0, "available_days": ["mon", "wed", "sat"],
         "horizon_weeks": 4, "source": "planning_form",
     }, sort_keys=True))
+    _pin_source_timestamps(db)
     if existing:
         original = parameters()
         original["available_hours"] = 8.0
@@ -128,7 +145,20 @@ def seeded_db(tmp_path, *, existing: bool = False, rested: bool = False) -> Data
             conn.execute("UPDATE coach_constraints SET cycle_scope='athlete',cycle_id=NULL")
     finally:
         conn.close()
+    _pin_source_timestamps(db)
     return db
+
+
+def _pin_source_timestamps(db: Database) -> None:
+    """Freeze fixture provenance as well as athlete/revision clocks for hashes."""
+    conn = db._connect()
+    try:
+        with conn:
+            for table, column in (("activities", "created_at"), ("athlete_profile", "synced_at"),
+                                  ("coach_constraints", "created_at"), ("planning_checkpoints", "created_at")):
+                conn.execute(f"UPDATE {table} SET {column}=?", (REVISION.isoformat(),))
+    finally:
+        conn.close()
 
 
 def add_late_activity(db: Database) -> None:

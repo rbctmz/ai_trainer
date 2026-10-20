@@ -1,0 +1,66 @@
+# S3 M3 evidence: final consistency and publication readiness
+
+Parent #677; M2 base 5aa8f6e / #706. Class A, Domain/API; human authorization
+2026-10-20. All probes use synthetic temporary SQLite/TestClient, no athlete DB,
+.env, private runtime logs, live API/provider calls or live writes.
+
+## Observed / Inferred / Verified by
+
+Observed: original four M1 assertions fail on M2 because readiness is absent.
+Verified by: --runxfail -> four AssertionError RED. They now pass unmarked.
+
+Observed: Recovery bike long 46.6 TSS /115 minutes/deep_fatigue returns fallback,
+even with no events. Inferred: dose exceeds the recovery template's own envelope;
+not a reason to relax catalog bounds or rename pre-race activation. Verified by:
+new pure RED, then explicit smaller light replacement GREEN. Existing Recovery
+role, impossible-request and hours tests remain required.
+
+Observed: activation bike20min/request24 gives power-derived12 TSS, but stored
+parameter target24. Verified by: dedicated RED, then existing named NP/TSS method
+also applied to activation. Targets and derived-bound thresholds unchanged.
+
+Observed: a week with run sum115.5 could be compared as115 using naïve float sum,
+while display was116 after its one-decimal projection. Inferred: float accumulation
+near .5, not a legitimate load difference. Verified by: 16-week event control and
+stable math.fsum projections. Whole total uses raw daily sums once; preview delta
+uses the same before/after total rather than summed rounded weeks.
+
+Observed: full-payload hashes changed between identical-looking test runs, while
+only readiness/response/checkpoint hashes drifted. Verified by: two snapshots
+showed different activities.created_at/profile.synced_at/constraint.created_at
+SQL timestamps. Pin those synthetic source timestamps; do not strip context from
+production fingerprints. After pinning, two complete six-case sets match exactly.
+Archived M2 reproduced all six original catalog-v4 oracle cases before this change;
+original v3/v4 fixture files remain unchanged. Separate readiness-v1 oracle keeps
+all fields, including false/blocked assessment for legacy characterization inputs.
+
+Observed: demo's former event/short-long assignment is not executable under the
+new guard. Verified by: offline demo seed probe. Demo fixture now declares manual
+phases (Recovery/Base/Build/Recovery/Base/Base/Build/Recovery), no fictional race,
+and still goes through shared prepare/confirm validation. Conformance passed at
+124-test checkpoint; final suite follows below.
+
+Discarded: a new historical GET test initially hit date-vs-datetime under the test
+PinnedDateTime subclass. Restoring the native parser class just for that GET while
+keeping athlete-day helpers pinned resolves it. No production clock defect or
+unrelated clock-code fix is claimed.
+
+## Boundaries / measurements so far
+
+Final-build scope and transaction behavior follow M1. Every future parent and leg
+is checked; old past assignments and applied receipts are not rematerialized.
+RPE/definition integrity uses immutable catalog constants. Power load is derived;
+run/swim/relative targets explicitly retain an estimate. Candidate/forecast bindings
+cover the final serialized artifact, not an intermediate draft. Current build guard
+covers UI and Coach; other mutation checkpoints deliberately become unassessed.
+
+Latest focused M3+storage+preparation: 117 passed in23.87s. Previous protocol,
+Coach, HTTP:172 passed; original S2+M3 contour89 passed; conformance/inventory with
+manual demo124 passed at its checkpoint. Four M1 XFAIL removed after actual GREEN.
+Valid 16-week Saturday A control prepares/confirms within10s per operation; same
+calendar with Sunday A exposes unallocated activation and is blocked with reasons.
+This remaining unsupported event arrangement is retained as rejection evidence,
+not hidden by altering rest/activation intent or weakening the guard.
+
+Full contributor, final contract/lint/build and independent review are in progress;
+no full GREEN, native review or merge claimed. Final disposition appended below.
