@@ -5,6 +5,7 @@ Parent: [#677](https://github.com/rbctmz/ai_trainer/issues/677). Дата: 2026-
 отдельная read-only проверка M1; результат записывается в evidence report.
 Baseline: `5f3b738a8b890d1d69ce7793f684277fb00b40dd`.
 [ExecPlan](planning_build_readiness_execplan.md).
+[Class A audit/review record](planning_build_readiness_m1_review_record.md).
 
 ## Change Class и граница M1
 
@@ -153,7 +154,7 @@ Domain/API получает M2 catalog/semantics и M3 consistency/guard; Spec �
 | Проверка | Исполняемая evidence M1 | Ожидаемый результат будущей реализации |
 | --- | --- | --- |
 | Полный новый / замещающий цикл | 2 HTTP RED: success обязан содержать только готовые назначения либо prepare явно blocked без записи | GREEN после M2/M3 |
-| Защита publish независимо от UI | 2 HTTP RED: pending с явными invalid prescriptions не публикуется; готовый control сохраняется и replay безопасен | GREEN после M3 |
+| Защита publish независимо от UI | 2 HTTP RED invalid-publication: оба pending содержат 23 invalid prescriptions; assertion падает до ветки готового control/replay, которая остаётся M2/M3 | GREEN после M3 |
 | Recovery vs Base | Pure probe: одинаковые easy параметры в трёх дисциплинах | Recovery получает подходящий recovery prescription либо явный blocker |
 | Спринты | Pure probe requested 25 vs derived 16.3, failed bounds | Отказ понятен; неверное задание не публикуется |
 | RPE fallback | Pure probe easy swim содержит RPE 6–8 без semantic policy | Явная корректная policy либо target_semantics_unverified |
