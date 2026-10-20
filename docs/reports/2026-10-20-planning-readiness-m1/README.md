@@ -107,3 +107,25 @@ Publication: [draft PR #705](https://github.com/rbctmz/ai_trainer/pull/705),
 branch codex/issue-677-s3-m1, base main. This completes the M1 specification
 checkpoint; the four RED remain unresolved runtime work. CI was started by PR
 creation; no final CI result or native/human merge acceptance is claimed here.
+
+
+## Native round1 documentation corrections
+
+Native review on7550d2e found3 P2: absent instantiated Class A audit record,
+nonportable interpreter in Concrete Steps, and a RED-matrix ready/replay overclaim.
+The mandatory record now lives at docs/planning_build_readiness_m1_review_record.md
+and is linked by spec/ExecPlan. Commands use caller PYTHON or activated python.
+Matrix now states that both invalid confirm fixtures fail at HTTP409 assertion
+with23 invalid prescriptions, before the ready/replay branch. A replay of an
+invalid published candidate in the separate probe is not a valid-ready control.
+Native-fix `--runxfail` again returns4 AssertionError failures; initial evidence
+remains historical and runtime unchanged. Verification/result/fix SHA are posted
+in the PR thread, with native budget1/2 until the scoped second result.
+
+
+Native documentation-fix verification:128passed/4strict xfailed in10.10s;
+--runxfail4AssertionError failures in2.12s (confirm cases23 invalid instructions,
+ready/replay branch unreached). Every required template heading is instantiated,
+relative links resolve, and the portable default interpreter command executed
+Python3.11.12 with PYTHON unset. Ruff and diffcheck GREEN. No runtime/test/API/TS
+file changed. Fixing SHA and scoped native result are recorded in PR#705 threads.

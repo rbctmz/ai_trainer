@@ -6,6 +6,8 @@
 `5f3b738a8b890d1d69ce7793f684277fb00b40dd`.
 [Slice spec](planning_build_readiness_slice_spec.md) содержит будущие AC1–AC7,
 точные ошибки/совместимость и deferred coverage.
+[Class A review record](planning_build_readiness_m1_review_record.md) содержит
+обязательные audit fields и отдельный учёт native rounds.
 
 ## Purpose / Big Picture
 
@@ -84,10 +86,14 @@ ai_trainer.db, .env, logs, не обращаться к provider и не имп�
 ## Concrete Steps
 
 Из корня этого worktree использовать существующий Python с dev/API dependencies.
-В текущем окружении он расположен в исходном checkout; в чистом окружении
-установить requirements.txt, requirements-dev.txt и requirements-web.txt.
+Сначала активировать окружение репозитория (`source ai_trainer_env/bin/activate`
+в POSIX shell; для Windows — соответствующий Scripts/activate). В managed
+worktree с внешним окружением вызывающий может заранее задать PYTHON. В чистом
+окружении установить requirements.txt, requirements-dev.txt и requirements-web.txt.
+Команды используют активированный python по умолчанию, без пути автора:
 
-    PYTHON=/Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python
+    PYTHON="${PYTHON:-python}"
+    "$PYTHON" --version
     "$PYTHON" docs/reports/2026-10-20-planning-readiness-m1/probe.py
     "$PYTHON" -m pytest tests/smoke/test_planning_build_readiness_spec.py -q
     "$PYTHON" -m pytest tests/smoke/test_planning_build_readiness_spec.py --runxfail -q
@@ -142,3 +148,27 @@ policy. Эти шаги не выполняются в текущем M1. UI/Des
 
 Revision 2026-10-20: initial M1 contract/evidence checkpoint after #677 dogfood;
 сохранение исключено из числа доказательств полноты и научной обоснованности.
+
+## Native review documentation correction (2026-10-20)
+
+Role handoff: Spec / Architecture Owner fixes only the three native documentation
+findings from7550d2e. Observed: no instantiated Class A record; author-specific
+interpreter path; confirm matrix claimed a ready/replay control not reached by
+invalid fixtures. Verified by template-field search, command inspection and four
+AssertionError RED (two confirm failures show23 invalid assignments). The separate
+probe's invalid receipt replay remains an observation, not a valid-plan control.
+
+Added the linked complete Class A record, selected caller/activated Python with a
+portable default, and labelled invalid-publication evidence accurately. AC1–AC7,
+public contracts, test code and runtime are unchanged. Normal four XFAIL remain
+expected; no runtime GREEN or new acceptance is asserted. Scoped native round2
+will verify the fixing commit; result is recorded in the PR thread to avoid a
+post-review documentation-only head change. Merge remains human-owned.
+
+
+Native documentation-fix verification:128passed/4strict xfailed in10.10s;
+--runxfail4AssertionError failures in2.12s (confirm cases23 invalid instructions,
+ready/replay branch unreached). Every required template heading is instantiated,
+relative links resolve, and the portable default interpreter command executed
+Python3.11.12 with PYTHON unset. Ruff and diffcheck GREEN. No runtime/test/API/TS
+file changed. Fixing SHA and scoped native result are recorded in PR#705 threads.
