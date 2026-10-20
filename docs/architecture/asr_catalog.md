@@ -739,4 +739,5 @@ plans before retaining a token; pending confirm validates before active writes,
 while old applied receipts replay first. ASR-REL-1/2, ASR-MOD-2/3, ASR-PERF-4 and
 ASR-DEP-2 reuse existing transaction/reset ownership. No new table, provider I/O,
 Banister under lock, personal suitability approval or UI layout change. Independent
-review/full verification pending; no merge/rollout implied.
+review2/2 READY at3eafc7b; contributor3816 and browser58passed. Generator
+limitations owned in #707; no native acceptance, merge or rollout implied.

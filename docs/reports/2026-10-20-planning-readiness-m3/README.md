@@ -107,3 +107,27 @@ success protocol controls explicitly choose executable manual8h inputs. Coach ca
 control uses real origin=coach prepare and real bound approval/replay, while true
 AITools generation is separately exercised by tool tests. No UI/CSS implementation
 or browser-local business rule was introduced. Full browser suite still pending.
+
+
+## Final verification and dispositions
+
+Full browser suite58passed,1existing FastAPI/httpx deprecation warning in176.03s;
+all isolated API/Next/Chromium servers shut down. Planning/Coach/lifecycle36passed
+subset is part of that58, not additional coverage to sum. Contributor3816passed
+is a separate no-live/no-debug/no-e2e contour. Final TS contract extractor --check,
+Ruff --no-cache, inventory and whitespace GREEN. Web lint/build successful; no
+web/type/registry/artifact change after the verified build snapshot. No personal
+runtime DB, credentials, user API8000/3000 or provider was modified.
+
+Independent scoped delta round2 READY at3eafc7bf6070904c3c97b2265b6ca6bbd8223e41;
+runtime60c234371bb2666369946ec7375077d4af05909e.199passed32.81s. All3 reproduced P2
+fixed-in60c2343. Round1 sport definition, target_preference and ordered composite
+requirements are now enforced;5 exact semantic RED→GREEN cases. Reviewer wrote no
+files and HEAD remained unchanged. Post-review changes only record evidence.
+Review budget2/2 (one full + one scoped),native0; stop, no merge acceptance.
+
+Generator gaps and paired falsifying checks tracked/read back in [#707](https://github.com/rbctmz/ai_trainer/issues/707).
+[Planning retry screenshot](browser/planning-uncertain-390.png) and
+[Coach retry screenshot](browser/coach-uncertain.png) are synthetic M3 evidence.
+Worktree is retained for review. Human owns merge and cleanup. CI/native acceptance
+will be reported separately; local GREEN is not a remote CI or deployment claim.

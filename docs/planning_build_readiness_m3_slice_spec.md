@@ -11,7 +11,9 @@ posting or edits. Human owns merge and cleanup. M1 AC1–AC7 remain the authorit
 ## Change Class / review
 
 Class A: persistent artifact provenance and transactional publication gate.
-Manual trigger. Independent full rounds 1/2, native rounds 0; scoped delta verdict pending.
+Manual trigger. Independent rounds 2/2 (full + scoped delta), native rounds 0. READY at
+3eafc7bf6070904c3c97b2265b6ca6bbd8223e41; later evidence-only commits do not
+change the reviewed runtime60c2343.
 No merge acceptance or review-budget exception is implied.
 
 ## Scope / non-goals
@@ -31,7 +33,8 @@ build-ready provenance. Existing saved assignments/receipts remain unchanged.
 
 - [x] Observable valid and blocked paths, both origins and all-table state checks.
 - [x] Pure/HTTP, replay/rollback/CAS, target/time/load/identity/rounding/performance tests named below.
-- [x] Merge/cleanup owner assigned; final broad and independent verdict still required.
+- [x] Contributor3816, full browser58, contracts/Ruff/web build and independent READY.
+- [x] Merge/cleanup owner remains human; no merge/native acceptance implied.
 
 ## Public contract
 
@@ -131,3 +134,29 @@ ASR-REL-1/2, ASR-MOD-2/3, ASR-PERF-4, ASR-DEP-2; ADR-0001 reused. Scientific
 suitability remains not_assessed. Final verdict / finding dispositions / CI / native
 rounds and publication identity live in the evidence report. Human merges only
 following separate current-head acceptance.
+
+## Review findings and final verdict
+
+| Round | Exact reviewed head | Mode | Disposition |
+| --- | --- | --- | --- |
+| 1 | d8d516fffe4ec28c7f1793a719df27d5712ba446 | manual full diff from5aa8f6e | BLOCK,3 reproduced P2 |
+| 2 | 3eafc7bf6070904c3c97b2265b6ca6bbd8223e41 | scoped delta since d8d516f | READY,199 independent tests,zero open blockers |
+
+P2 sport mismatch single/leg:fixed-in60c2343. P2 unsupported per-definition target
+kind:fixed-in60c2343. P2 missing/reversed required composite leg:fixed-in60c2343.
+Author independently reproduced ready[] with resynchronized arithmetic, then5
+exact regressions GREEN. No public HTTP integrity exploit is claimed.
+
+Final implementation verdict:READY for the agreed M3 scope, with owned generator
+follow-up [#707](https://github.com/rbctmz/ai_trainer/issues/707). Full contributor
+3816passed/16skipped/82deselected, full E2E58passed; Ruff, TS freshness/inventory,
+web lint/build and diffcheck GREEN. No runtime/API/TS changes after reviewed head.
+Native review rounds0; no native acceptance label or merge requested. Human owns
+current-head CI/native review acceptance, parent stack merge, post-merge outcome
+record and eventual worktree cleanup. Keep #677 open for M4 and S4.
+
+M4 handoff: personal entry-dose specification using actual sport-specific recent
+history/completeness, then implementation only when separately assigned. S4 UI
+consumes the shared readiness/error DTO, including comprehensible reasons; it must
+not infer readiness in the browser. #707 remains generation behavior and does not
+become a medical/personal suitability rule.
