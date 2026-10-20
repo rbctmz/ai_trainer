@@ -438,6 +438,55 @@ No personal database, provider, deployment or old-binary downgrade was operated.
 The [final evidence bundle](planning_preview_confirm_acceptance.md) preserves
 exact scope, reset/rollback probes and live rollout limitations.
 
+
+## 2026-10-19 post-merge: Planning S2 #693 / PR #701
+
+**Observed:** [PR #701](https://github.com/rbctmz/ai_trainer/pull/701) merged
+accepted head `4f612dcb349bfaf0a03bdb68df233e19091a8d36` as
+`5f3b738a8b890d1d69ce7793f684277fb00b40dd` at 2026-10-19 19:06:03 UTC
+(22:06:03 Europe/Moscow). [Issue #693](https://github.com/rbctmz/ai_trainer/issues/693)
+closed automatically at 19:06:05 UTC. Parent #677 remains open for S3/S4.
+Class A was declared before runtime implementation; this record does not
+recompute historical prospective-cohort totals. Scope is explicit cycle state,
+close/outcome correction, clean new cycle and guarded readers/writers/UI,
+not live rollout or general confirmation-screen/aggregate redesign.
+
+| Metric | Observed outcome |
+| --- | --- |
+| Issue calendar lead time | Created 2026-10-17 17:46:33 UTC; **49h 19m 30s to merge /49h 19m 32s to close**. Includes implementation, external review and human wait; active time is not captured. |
+| Final PR calendar cycle | Created 2026-10-19 12:27:31 UTC; **6h 38m 32s** to merge. Earlier milestone drafts are not extra independently merged product changes. |
+| Native review | **2/2:** full round on 65cf6f3, then scoped correction on 4f612dc. The clean result is an authenticated comment receipt, not a second formal native review object. The repository policy counts one submitted native review plus one clean receipt: 2 total /1 on accepted head. Human comment replies appearing as COMMENTED review objects are not native rounds. |
+| Native findings | **0 P1 /3 blocking P2**, all reproduced and fixed-in 4f612dc. Unspecified declaration retention, hidden prior event snapshots, and Coach second-selection/day read. Controlled reproduction 8 RED /1 control GREEN (2.08s); corrected native/control plus affected commands/storage/readers/Coach 167 GREEN (7.70s). Ten final native regression/control cases remain. Earlier independent spec/milestone findings and dispositions are in the ExecPlan; no combined local/native finding total is inferred. |
+| Accepted-head local checks | Contributor-safe **3683 passed /14 skipped /82 deselected**, 313.29s; complete isolated E2E **58 passed**, 256.62s. Ruff, diff, extractor freshness/inventory pass; lint/build passed on unchanged web sources before the final Python-only correction. Earlier whole-delivery 540 focused/82 contract and 62 all-table writer-state probes are distinct measurements, not additive totals. |
+| Accepted-head GitHub CI | Run **39299941540**: contributor-safe **3658 passed /39 skipped /82 deselected**, 212.40s; web-contract **24 passed**, 4.51s; full E2E **58 passed**, 227.99s. Python-only CI skips 23 TypeScript-dependent tests that execute in web-contract; other skips: 10 explicit fixture regen, 2 optional garth, 1 unavailable synthetic pilot session, 3 missing HRV inputs. No special M1/M4 failure deselection. Secret scan run 39299941528 SUCCESS. |
+| Review acceptance and merge gates | Owner explicitly authorized acceptance label and merge in the task. status: review accepted added; automation added status: ready to merge. Fresh Review gate **39308042164 SUCCESS**, CLEAN/MERGEABLE before `gh pr merge --merge --match-head-commit 4f612dc…`. Zero unresolved threads or active CHANGES_REQUESTED. No waiver, budget exception, force/admin bypass or additional native round. |
+| CI failures/reruns/flakes | Both full technical PR CI runs (initial candidate and native correction) succeeded. Earlier red Review gate runs waited for current-head native review/owner acceptance; they are not classified as test flakes. Overall workflow rerun count and agent wait time are not captured. |
+| Main verification | Fetched merge 5f3b738 and `git diff --quiet 4f612dc origin/main` returned zero. Main [CI 39308131797](https://github.com/rbctmz/ai_trainer/actions/runs/39308131797) SUCCESS: **3658 passed /39 skipped /82 deselected**, 275.03s; **58 E2E passed**, 269.27s; **24 contract assertions passed**, 4.30s. Main [Secret scan 39308131852](https://github.com/rbctmz/ai_trainer/actions/runs/39308131852) SUCCESS. No redundant local full-suite rerun on the byte-identical merge tree. |
+| Escaped defects / acceptance limits | No linked post-merge defect observed at this immediate snapshot; this is not proof of absence. Browser acceptance is synthetic; owner-observed athlete UX and live rollout were not performed. No personal SQLite, real provider write or backfill. |
+
+**Verified by:** GitHub PR/issue timestamps and final head; native full review
+5571637188, [clean receipt 6273981670](https://github.com/rbctmz/ai_trainer/pull/701#issuecomment-6273981670),
+three resolved review threads and durable status
+`review-gate/codex-clean/6273981670:4f612dcb34` created by github-actions[bot].
+The repository review-gate.cjs evaluated the authenticated receipts as 2 rounds,
+1 current-head and 0 unresolved threads; acceptance changed only after explicit
+owner authorization. Exact technical handoff is
+[recorded in #701](https://github.com/rbctmz/ai_trainer/pull/701#issuecomment-6274074028).
+
+**Delivery and remaining work:** intermediate drafts #695–#700 were closed
+without additional merges; branches/evidence remain. GitHub also reports spec
+#694 MERGED after the complete stack delivery; no separate merge command was
+issued for it. Unrelated S1 docs #692 were preserved. Nonblocking UI/S4 and
+Domain/API follow-ups are carried into the still-open
+[parent record](https://github.com/rbctmz/ai_trainer/issues/677#issuecomment-6275096581):
+other-field acknowledgement/stale-context ergonomics, restore error/doc
+consistency and low-level athlete-scope validation. No public bypass or partial
+write was reproduced for the latter two. The M3c full writer-state evidence gap
+is closed by M5. The independent milestone/spec records stay in
+`docs/planning_cycle_lifecycle_execplan.md`; the post-merge documentation is a
+separate Class C delta, so the accepted product head was not invalidated by an
+evidence-only push.
+
 ## 2026-10-20 post-merge: issue #677 S3 / integrated PR #708
 
 **Observed.** [PR #708](https://github.com/rbctmz/ai_trainer/pull/708) merged into
@@ -462,7 +511,7 @@ not reported and no cohort totals are recomputed here.
 | Owner acceptance and merge | Explicit owner instruction accepted post-budget exception and merge of4c0c07c. [Decision recorded](https://github.com/rbctmz/ai_trainer/pull/708#issuecomment-6292272684); privileged review-budget-exception + status: review accepted applied; latest Review gate and readiness SUCCESS/CLEAN before merge. M3 head changed after its second native round to import M1/M2 blocking corrections; no third native round, waiver or admin bypass was used. |
 | Author verification | Integrated focused364passed; complete contributor3836passed,16skipped,82deselected,7 existing warnings in241.18s. Original four strict M3 XFAIL now pass. Ruff, TS contract freshness and whitespace GREEN. Current accepted-head remote Contributor-safe pytest, Web E2E, Web contract and Gitleaks SUCCESS. |
 | Falsifying evidence | M2 native repro6failed/4controls, then added15 regressions; matrix1458requests/486light replacements without time/load/status/bounds violations. M3 native ID collision four behavioral RED cases then five controls GREEN, preserving malformed historical-only data. Original complete-payload oracles retained; integrated readiness-v2 six cases follow inspected version/stage/identity changes with unchanged daily-load/events/science/forecast hashes. |
-| CI and environment limits | Pre-merge functional checks GREEN; historical review-gate failures were missing acceptance/current-head evidence, not functional-test results. Earlier local missing-parent SQLite and subprocess PATH failures are disclosed in existing reports; no unmeasured flaky-rate/rerun total is invented. Separate main CI39432895573 started for9d679b3 and remains in progress at this post-merge snapshot. |
+| CI and environment limits | Pre-merge functional checks GREEN; historical review-gate failures were missing acceptance/current-head evidence, not functional-test results. Earlier local missing-parent SQLite and subprocess PATH failures are disclosed in existing reports; no unmeasured flaky-rate/rerun total is invented. Separate main [CI39432895573](https://github.com/rbctmz/ai_trainer/actions/runs/39432895573) on9d679b3 completed SUCCESS:3813passed/39skipped/82deselected in378.71s;58E2Epassed in261.95s;24contract tests passed in4.43s. Main secret scan alsoSUCCESS. The23 TypeScript-dependent checks are skipped in the Python-only job and covered by web-contract; local3836 and remote3813 are different environment contours. |
 | Follow-ups / escaped defects / wait | Generation refusals remain explicit in#707. Pre-existing workflow ledger defect#709 counts imported dependency receipts against the integrating PR (pure4 vs same-PR control2; existing gate tests28passed). It was reproduced before merge and left outside this runtime PR; even a corrected count would not qualify the newer head without owner exception. No escaped defect causally linked to#708 observed at this snapshot; observation remains open. Active work and agent/human wait durations not captured. |
 
 **Verified by.** Current-head GitHub checks/review-thread snapshots, the explicit
@@ -472,3 +521,13 @@ Pre-merge evidence is [recorded on the PR](https://github.com/rbctmz/ai_trainer/
 The primary checkout's unrelated research edits and local athlete DB were left
 untouched. Next slice is M4 recent-history entry dose; technical readiness still
 reports personal training suitability as `not_assessed`.
+
+
+Documentation integration note (2026-10-20): S1 record#692, S2 record#704 and
+the separately committed S3 record are combined for one docs-only#704 review.
+Their original commits and retrospective timestamps are preserved; the shared
+metrics append conflict keeps all three sections. ASR status wording now agrees
+with the verified S1/S2 merges. Runtime/API/TS/test trees remain identical to
+main9d679b3; this documentation delivery does not change any AC or authorize its
+own merge. Current native/owner acceptance belongs to the final documentation
+candidate, not the historical implementation PRs.

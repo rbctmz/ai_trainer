@@ -23,14 +23,15 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | ASR-DEP-1 | `docker compose up` поднимает весь стек | High | compose + `/api/health` + healthcheck (уже реализованы) | самопроверка compose | ✅ |
 | ASR-DEP-2 | Обновление без потери данных | High | SQLite в named volume; append-only чекпойнты; stopped-service Backup API snapshot, integrity check, atomic restore и pre-restore rollback (#293) | `test_sqlite_backup_restore.py`: clean-volume domain drill + rollback/failure gates | ✅ |
 
-## Planning preview → confirm (planned; #685, parent #677)
+## Planning preview → confirm (delivered S1; #685 / #691, parent #677)
 
-Статус на 2026-10-16: **спецификация, реализация и GREEN — NOT YET**.
+Статус на 2026-10-17: **S1 реализован и принят; #691 слит как `93fa4f4`
+после clean native review, явного human acceptance и GREEN gates/CLEAN**.
 Этот подраздел не меняет статусы ранее реализованных механизмов в таблице выше.
 Контракт: [`planning_preview_confirm_slice_spec.md`](../planning_preview_confirm_slice_spec.md).
 Порядок реализации: [`planning_preview_confirm_execplan.md`](../planning_preview_confirm_execplan.md).
 
-- **ASR-REL-1/2**: планируется сохранять замороженный результат preview после
+- **ASR-REL-1/2**: сохраняется замороженный результат preview после
   проверки актуальности входов; checkpoint, настройки и receipt подтверждения
   записываются одной SQLite-транзакцией. Повтор возвращает исходный результат,
   не активируя исторический план; stale/corrupt требуют явного безопасного исхода.
@@ -39,25 +40,28 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
   неподтверждённый raw-build write намеренно отклоняется. Только build-предложения
   Коуча включены в адаптацию, остальные типы не мигрируют.
 - **ASR-PERF-4**: расчёт вне writer lock, подтверждение без пересборки и provider
-  I/O; при реализации проверить reference-preview 16 недель <10 с.
+  I/O; критерий reference-preview 16 недель <10 с сохранён. Границы выполненных
+  измерений указаны в S1 evidence bundle.
 
-Проверки запланированы в `test_planning_build_confirmation.py`,
+Проверки выполнены в `test_planning_build_confirmation.py`,
 `test_planning_build_confirmation_storage.py` и изолированном web E2E, включая
 dependency freshness, реальную конкуренцию, rollback, lost-response replay,
-reset/retention и API↔TS. Сейчас проверены только исходное расхождение на
-синтетической БД и блокировка второго writer при `BEGIN IMMEDIATE`; это не
-доказательство готовности будущего механизма. ADR-0001 переиспользуется.
+reset/retention и API↔TS. Точные выполненные проверки и ограничения live rollout
+собраны в [`planning_preview_confirm_acceptance.md`](../planning_preview_confirm_acceptance.md).
+После merge на неизменном дереве прошли 51 confirmation/replay cases; это
+синтетическое подтверждение, а не live migration/provider или пользовательская
+UX-приёмка. ADR-0001 переиспользуется.
 
-## Planning cycle lifecycle (planned S2; #693, parent #677)
+## Planning cycle lifecycle (delivered S2; #693 / #701, parent #677)
 
 Статус на 2026-10-19: **Class A, M2 storage/projection, M3a commands, M3b exact build, M3c writer guards и M4 readers/UI реализованы;
-полный синтетический lifecycle/API/UI GREEN; native/current-head acceptance и human merge ещё не приняты**.
+полный синтетический lifecycle/API/UI GREEN; native 2/2 clean, human review принят, #701 слит как 5f3b738**.
 S1 #685/#691 уже слит как `93fa4f4`; S2 отдельно задаёт выбор/закрытие цикла,
 явный исход события и новый календарь. Контракт:
 [`planning_cycle_lifecycle_slice_spec.md`](../planning_cycle_lifecycle_slice_spec.md),
 план: [`planning_cycle_lifecycle_execplan.md`](../planning_cycle_lifecycle_execplan.md).
 
-ASR-REL-1/2: планируются сохранение legacy ledger IDs, cycle namespace для новых
+ASR-REL-1/2: реализованы сохранение legacy ledger IDs, cycle namespace для новых
 sessions/legs без cross-cycle lineage, честные indeterminate и
 unknown outcome, отсутствие backdated new assignments. ASR-MOD-2/3: единый Python
 selector вместо MAX(checkpoint), conservative legacy import и guards всех
@@ -87,7 +91,8 @@ GREEN, lint/build/contracts GREEN. M5 общий кандидат на неиз�
 `93fa4f4`: 540 focused, 82 contract, 3673 contributor-safe и все 58 E2E GREEN;
 writer-specific полный snapshot всех таблиц/Coach rollback — 62 GREEN.
 Evidence: [общая приёмка](../reports/2026-10-19-issue-693-s2/README.md).
-Native/current-head CI и human acceptance/merge остаются отдельными M5 gates. Это не merge/rollout и не пользовательская UX-приёмка. Независимый M2 review: READY после
+M5 закрыт после native/current-head CI, явного human acceptance и GREEN Review gate/CLEAN. Финальный accepted head 4f612dc, merge 5f3b738; post-merge outcomes записаны отдельно в engineering_process_metrics.md. Личный rollout и пользовательская UX-приёмка не выполнялись.
+Следующие checkpoint-измерения относятся к промежуточным M2–M4 до M5. Независимый M2 review: READY после
 scoped correction `69a2623` (DELETE guard immutable associations + atomic reset),
 77 focused GREEN. Contributor-safe contour с явным исключением M1 RED-модулей:
 3427 passed / 14 skipped / 64 deselected; отдельный merge не разрешён.

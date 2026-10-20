@@ -52,7 +52,7 @@ same result. Planning, Today and Coach report the same server-owned state.
 - [x] (2026-10-18–19) M3c on codex/issue-693-m3c-writer-guards, stacked on M3b #698: shared write guard, all mutation families/restore/Coach/legacy compatibility, synthetic fixture adaptation, 54 new writer cases and independent review completed. Class A; approved scope unchanged.
 - [x] (2026-10-19) M4: shared current/history readers and explicit Domain→UI handoff completed. Draft #700; all five P2 CLOSED at 32ef3c3, new provenance proof CLOSED at aeff866. Final contributor-safe 3665 GREEN, 36 isolated browser GREEN; native/whole-S2/human gates remain M5.
 - [x] (2026-10-19) M5 author whole-delivery acceptance: fresh main 93fa4f4 unchanged; codex/issue-693-s2-acceptance contains all S2 milestones. Tested source c6b2daf: 540 focused, 82 contract, 3673 contributor-safe and all 58 E2E GREEN; Ruff/web lint/build/freshness GREEN. Writer-only complete-state proof 62 GREEN, no runtime change.
-- [ ] M5 native current-head review/CI and separate human review acceptance/merge decision. Final receipts belong in the main-based PR/#693 conversation, without a post-review docs push.
+- [x] (2026-10-19) M5 complete: final head 4f612dc, native budget 2/2 and zero open threads; current-head technical CI GREEN. Human accepted review and authorized merge. Authenticated status: review accepted + automatic ready to merge, fresh Review gate GREEN/CLEAN; #701 merged as 5f3b738. No live rollout. Post-merge record is a separate docs-only branch.
 
 ## Surprises & Discoveries
 
@@ -1370,3 +1370,52 @@ acceptance label, waiver, merge or live rollout is requested.
 Change note: native review supplied new reproductions within approved AC1/AC5;
 these narrow fixes preserve their contracts and add exact regressions. M5
 technical acceptance remains open until the corrective run/native result.
+
+
+### M5 accepted and merged (2026-10-19)
+
+Human owner explicitly accepted review, authorized the acceptance label and
+merge of #701. Author rechecked head 4f612dcb349bfaf0a03bdb68df233e19091a8d36,
+clean authenticated receipt 6273981670 and zero unresolved threads. After adding
+status: review accepted, automation added status: ready to merge. Fresh
+[Review gate run 39308042164](https://github.com/rbctmz/ai_trainer/actions/runs/39308042164)
+passed and GitHub reported CLEAN/MERGEABLE. No waiver, exception, admin bypass or
+third native round was used. `gh pr merge --merge --match-head-commit` pinned the
+accepted head. Merge commit is 5f3b738a8b890d1d69ce7793f684277fb00b40dd;
+#693 automatically closed, #677 stays open for S3/S4.
+
+Final author correction evidence: 3683 passed /14 skipped /82 deselected /7
+existing warnings (313.29s); all 58 isolated browser cases passed (256.62s).
+Current-head CI run 39299941540: 3658 passed /39 skipped /82 deselected (212.40s),
+24 contract assertions passed, and all 58 E2E passed (227.99s). The Python-only
+job skips 23 TypeScript-dependent checks that run in its web-contract sibling;
+other skips are explicit fixture regeneration, optional garth and unavailable
+synthetic pilot/HRV inputs. Exact final CI/native receipts are in
+[PR handoff](https://github.com/rbctmz/ai_trainer/pull/701#issuecomment-6274074028)
+and [#693](https://github.com/rbctmz/ai_trainer/issues/693#issuecomment-6274074831).
+
+Observed: fetched origin/main is merge 5f3b738. Inferred: accepted candidate and
+merged runtime are identical. Verified by: `git diff --quiet 4f612dc origin/main`
+returned zero, including tests/docs; no post-review commit changed the accepted
+head. Main CI/secret scan run automatically on the merge commit; their actual
+outcome is recorded in the separate post-merge metrics update. No additional
+local full-suite run is claimed for byte-identical source.
+
+Intermediate drafts #695–#700 were closed after delivery, without separate
+merges or branch deletions. GitHub also reports #694 MERGED after the whole-stack
+merge; no separate merge command was issued for it. Unrelated S1 docs #692 were
+not amended/merged. Nonblocking UI/S4 and Domain/API follow-ups were carried to
+the still-open #677 so closure of #693 does not lose their owners. M3c complete
+writer-state evidence suggestion is fulfilled by M5.
+
+Change note: this post-merge docs-only record closes the M5 progress item and
+records explicit owner acceptance, the real merge, final checks and cleanup.
+It does not expand the accepted domain/UI behavior or authorize live rollout.
+
+
+Post-merge run 39308131797 on 5f3b738: SUCCESS, contributor-safe 3658 passed /
+39 skipped /82 deselected (275.03s), full E2E 58 passed (269.27s), contracts
+24 passed (4.30s). Secret scan 39308131852 SUCCESS. Nonblocking follow-ups are
+anchored at [#677 comment 6275096581](https://github.com/rbctmz/ai_trainer/issues/677#issuecomment-6275096581).
+The separate post-merge documentation updates only Markdown; it is not a new
+runtime delivery or authorization to merge its own PR.
