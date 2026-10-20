@@ -390,3 +390,38 @@ requested for a single PR.
 **Falsification, not just a green run.** For #663 the acceptance criterion demanded that no test be weakened to fit the current date, so the fix was verified across opposite extremes: `TZ=UTC`, `TZ=Pacific/Kiritimati` (UTC+14) and `TZ=Pacific/Honolulu` (UTC−10) each give **2933 passed, 13 skipped** — a fix that merely papered over one direction would have failed the other. The merged tree was then re-measured on `main` at `df5a48b` under `TZ=UTC` at 22:15 UTC, still inside the formerly broken window: **2940 passed, 13 skipped**, `ruff` clean.
 
 **What the synthetic run actually proves, and what it does not.** #662 adds a deterministic scenario database (structured plan day, rest day, activity with a provider cache, activity without one, brick day) and five scripted questions executed through the marker path to the synthesis prompt. Its checks are falsifiable by construction and were falsified: making the rest day unrecognisable fails `plan-rest-day`; masking the honest refusal fails `fact-without-cache`; breaking the prompt delivery fails all five. The run never touches the network — a test replaces three provider entry points with raising stubs and still requires 5/5. **What it does not prove:** it verifies that data reaches the model, not that the model uses it well. The generation-side check needs a real provider over the same fixture, and the "every number must be traceable to the evidence bundle" checker is a separate slice; both are recorded as non-goals rather than implied coverage.
+
+## 2026-10-20 post-merge: issue #677 S3 / integrated PR #708
+
+**Observed.** [PR #708](https://github.com/rbctmz/ai_trainer/pull/708) merged into
+main as `9d679b3410cc7b34c9a3a554b050edaebf8ccd23` at
+2026-10-20T13:43:32Z (16:43:32 Europe/Moscow), **5h 15m 58s** after opening
+at08:27:34Z; +6045/−246 across53 files for the combined M1–M3 stack. The exact
+accepted head was `4c0c07c0ce6cf985e41cc074be193a164edb2710`. M1
+[#705](https://github.com/rbctmz/ai_trainer/pull/705) was automatically marked
+merged at13:43:34Z. M2 [#706](https://github.com/rbctmz/ai_trainer/pull/706)
+was closed explicitly as integrated, rather than merged again into its old M1
+base. Both dependency heads (`d13d013`, `dbf9772`) are ancestors of fetched
+origin/main; `git diff 4c0c07c..9d679b3` is empty. No history rewrite or branch
+deletion was performed. Parent [#677](https://github.com/rbctmz/ai_trainer/issues/677)
+stays open for later slices, so its final issue lead time/cohort completion is
+not reported and no cohort totals are recomputed here.
+
+| Metric | Verified outcome |
+| --- | --- |
+| Class and scope | Class A S3, declared in checked-in M1/M2/M3 specs and ExecPlans: executable Recovery/fallback prescriptions, explicit RPE semantics, effective-load consistency and atomic build-readiness guards. No individualized entry dose or S4 layout delivery. |
+| Native review rounds | Two own native rounds per PR, six across705/706/708. Each second request was scoped to the first round's fixes. Final M1 clean receipt [d13d013](https://github.com/rbctmz/ai_trainer/pull/705#issuecomment-6291819702); final M2 clean receipt [dbf9772](https://github.com/rbctmz/ai_trainer/pull/706#issuecomment-6292097611); M3 clean receipt [32ab871](https://github.com/rbctmz/ai_trainer/pull/708#issuecomment-6291007773). Independent working-session rounds are recorded separately in slice evidence; they are not inferred from GitHub objects. |
+| Pre-merge findings | Native review found seven P2: three M1 documentation/evidence defects, three M2 raw-RPE/stage/fallback defects, one M3 preserved-ID collision. All have fixing commits, written dispositions and resolved threads. M3 additionally records three independent P2 fixed-in60c2343; this is not a complete aggregate of all session findings. No native P0/P1 observed. |
+| Owner acceptance and merge | Explicit owner instruction accepted post-budget exception and merge of4c0c07c. [Decision recorded](https://github.com/rbctmz/ai_trainer/pull/708#issuecomment-6292272684); privileged review-budget-exception + status: review accepted applied; latest Review gate and readiness SUCCESS/CLEAN before merge. M3 head changed after its second native round to import M1/M2 blocking corrections; no third native round, waiver or admin bypass was used. |
+| Author verification | Integrated focused364passed; complete contributor3836passed,16skipped,82deselected,7 existing warnings in241.18s. Original four strict M3 XFAIL now pass. Ruff, TS contract freshness and whitespace GREEN. Current accepted-head remote Contributor-safe pytest, Web E2E, Web contract and Gitleaks SUCCESS. |
+| Falsifying evidence | M2 native repro6failed/4controls, then added15 regressions; matrix1458requests/486light replacements without time/load/status/bounds violations. M3 native ID collision four behavioral RED cases then five controls GREEN, preserving malformed historical-only data. Original complete-payload oracles retained; integrated readiness-v2 six cases follow inspected version/stage/identity changes with unchanged daily-load/events/science/forecast hashes. |
+| CI and environment limits | Pre-merge functional checks GREEN; historical review-gate failures were missing acceptance/current-head evidence, not functional-test results. Earlier local missing-parent SQLite and subprocess PATH failures are disclosed in existing reports; no unmeasured flaky-rate/rerun total is invented. Separate main CI39432895573 started for9d679b3 and remains in progress at this post-merge snapshot. |
+| Follow-ups / escaped defects / wait | Generation refusals remain explicit in#707. Pre-existing workflow ledger defect#709 counts imported dependency receipts against the integrating PR (pure4 vs same-PR control2; existing gate tests28passed). It was reproduced before merge and left outside this runtime PR; even a corrected count would not qualify the newer head without owner exception. No escaped defect causally linked to#708 observed at this snapshot; observation remains open. Active work and agent/human wait durations not captured. |
+
+**Verified by.** Current-head GitHub checks/review-thread snapshots, the explicit
+owner decision, merge REST response plus PR readback, independent ancestor/tree
+checks after fetching main, and [parent completion record](https://github.com/rbctmz/ai_trainer/issues/677#issuecomment-6292326217).
+Pre-merge evidence is [recorded on the PR](https://github.com/rbctmz/ai_trainer/pull/708#issuecomment-6292231345).
+The primary checkout's unrelated research edits and local athlete DB were left
+untouched. Next slice is M4 recent-history entry dose; technical readiness still
+reports personal training suitability as `not_assessed`.
