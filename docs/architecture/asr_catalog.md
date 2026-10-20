@@ -717,3 +717,13 @@ ASR-DEP-2: новые таблицы, backfill и отдельное retention o
 Проверки M1: tests/smoke/test_planning_build_readiness_spec.py (--runxfail) и
 docs/reports/2026-10-20-planning-readiness-m1/probe.py; результаты в report README.
 Это planned раздел, он не повышает статус доставленных механизмов S1/S2.
+
+## Planning prescription repair (in progress; #677 S3 M2)
+
+2026-10-20: [ExecPlan](../planning_build_readiness_m2_execplan.md),
+[evidence](../reports/2026-10-20-planning-readiness-m2/README.md). Shared Python
+catalog adds light Recovery eligibility, feasibility-first rotation, bounded
+explicit quality downgrade and versioned RPE stage policy. ASR-REL-1/2: no
+historical rewrite or silent impossible-request success; ASR-MOD-2/3: additive
+immutable provenance, existing DTOs; ASR-PERF-4: 16-week synthetic prepare 0.321s.
+No training-suitability validation or M3 publication guard is claimed.

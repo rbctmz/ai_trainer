@@ -43,20 +43,20 @@ def _assert_exact(result: dict, *, seconds: int, tss: float) -> None:
     assert sum(step["tss"] for step in steps) == pytest.approx(effective_tss, abs=0.01)
 
 
-def test_catalog_versions_pin_v3_addition_and_v4_materializer() -> None:
+def test_catalog_versions_pin_v4_policy_and_v5_materializer() -> None:
     definitions = {item.template_key: item for item in catalog_definitions()}
 
-    assert CATALOG_VERSION == "workout_catalog_v3"
-    assert SELECTOR_RULE_VERSION == "workout_selector_v1"
-    assert MATERIALIZER_RULE_VERSION == "workout_materializer_v4"
+    assert CATALOG_VERSION == "workout_catalog_v4"
+    assert SELECTOR_RULE_VERSION == "workout_selector_v2"
+    assert MATERIALIZER_RULE_VERSION == "workout_materializer_v5"
     assert len(definitions) == 23
-    assert definitions["bike_threshold_intervals"].version == 2
-    assert definitions["run_tempo_threshold"].version == 2
-    assert definitions["brick_race_pace"].version == 2
-    assert definitions["swim_threshold_repeats"].version == 1
-    assert definitions["swim_recovery_technique"].version == 1
-    assert definitions["walk_recovery"].version == 1
-    assert definitions["bike_race_pace"].version == 1
+    assert definitions["bike_threshold_intervals"].version == 3
+    assert definitions["run_tempo_threshold"].version == 3
+    assert definitions["brick_race_pace"].version == 3
+    assert definitions["swim_threshold_repeats"].version == 2
+    assert definitions["swim_recovery_technique"].version == 2
+    assert definitions["walk_recovery"].version == 2
+    assert definitions["bike_race_pace"].version == 2
 
 
 def test_every_catalog_definition_is_exact_and_deterministic_at_feasible_bounds() -> None:

@@ -2101,6 +2101,7 @@ def materialize_day_sessions(
     from models.workout_catalog import materialize_brick_session, materialize_session_template
 
     def _finalize(sport: str, role: str, tss: float, catalog: Dict[str, Any]) -> Dict[str, Any]:
+        role = str(catalog.get("session_role") or role)
         effective_tss = round(
             float(
                 (catalog.get("parameter_snapshot") or {}).get("target_tss")
@@ -2249,6 +2250,7 @@ def build_daily_session_templates(
         # are never overwritten — they remain the immutable budget.
         if day_sessions:
             primary = dict(day_sessions[0])
+            session_role = str(primary.get("session_role") or session_role)
             sport = str(primary.get("sport") or dominant)
             session_focus = str(primary.get("session_focus") or session_focus)
             duration_minutes = int(primary.get("duration_minutes") or 0)
