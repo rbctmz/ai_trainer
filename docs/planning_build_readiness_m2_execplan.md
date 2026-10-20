@@ -25,7 +25,7 @@ M3 still owns final load consistency and the publication guard, M4 entry dose.
 - [x] (2026-10-20) Implemented eligibility, feasible rotation/replacement, explicit RPE and complete day-level role projection; 128 focused GREEN.
 - [x] (2026-10-20) No-growth/impossible/phase and whole-plan probes GREEN; old-context pending rejects, applied receipt and v1 snapshot restore remain unchanged; archived M1 oracle reproduced 6/6.
 - [x] (2026-10-20) Focused and broad regression, Ruff, TS contract freshness/inventory, links and independent two-round review complete; see evidence.
-- [ ] Draft publication and parent-issue readback (recorded after GitHub returns identity).
+- [x] (2026-10-20) Published [draft #706](https://github.com/rbctmz/ai_trainer/pull/706), stacked on #705; [parent #677 evidence](https://github.com/rbctmz/ai_trainer/issues/677#issuecomment-6284423409) posted and read back. CI started; native/human acceptance and merge remain separate.
 
 ## Surprises & Discoveries
 

@@ -134,7 +134,7 @@ files in the isolated checkout. The preceding sandbox rerun had 3,707 passed,
 are resolved in the final run, not suppressed or relabelled as successful tests.
 The one remaining full-run failure was run_web busy-port preflight: the child
 script could not find `python` on PATH. With the venv bin directory on PATH,
-all three unchanged preflight tests pass (3 passed in 0.13s). This is a focused
+all three unchanged preflight tests pass (3 passed in 0.16s). This is a focused
 environment rerun, not a claim the previous full command exited zero; no runtime
 source changed after the broad run.
 No athlete database was read or changed.
@@ -162,3 +162,14 @@ normalizes final effective load lineage and blocks incomplete/invalid candidates
 before pending creation and at confirm. Preserve deliberately refused pre-race
 fixtures and applied-receipt semantics. M4 remains recent-history entry dose;
 S4 consumes agreed DTOs. Human owns native review acceptance, merge and cleanup.
+
+## Publication checkpoint
+
+[draft PR #706](https://github.com/rbctmz/ai_trainer/pull/706) targets
+`codex/issue-677-s3-m1` (#705), not main directly. Runtime/review heads above are
+unchanged; final commits only record verification/publication.
+[Parent issue evidence](https://github.com/rbctmz/ai_trainer/issues/677#issuecomment-6284423409)
+posted and read back. CI started; no final CI, native review, human acceptance or
+merge is implied. No test DB files remain in the isolated checkout. Primary
+checkout remains unchanged on codex/issue-693-postmerge-record. Keep worktree and
+branches for review; cleanup belongs to the merge owner.
