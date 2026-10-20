@@ -305,10 +305,18 @@ def apply_preview(
         validate_response(preview_response(row))
         instant = now()  # expiry is evaluated after lock acquisition
         validate_pending(row, now=instant)
+        retained_plan = json.loads(row["checkpoint_json"]).get("goal_plan_snapshot")
+        if not isinstance(retained_plan, dict):
+            raise _corrupt()
+        if ("build_readiness" not in json.loads(row["response_json"])
+                and "build_readiness" not in retained_plan):
+            raise PlanningBuildPreviewError("preview_required", "Нужен новый предпросмотр с проверкой готовности.")
         if not recheck(conn, row):
             conn.execute("UPDATE planning_build_previews SET state='invalidated' WHERE preview_id=?", (preview_id,))
             conn.commit()
             raise PlanningBuildPreviewError("preview_stale", "Данные изменились — пересоберите предпросмотр.")
+        from models.planning_build_readiness import validate_retained_readiness
+        validate_retained_readiness(row)
         checkpoint = json.loads(row["checkpoint_json"])
         settings = json.loads(row["settings_write_json"])
         if set(settings) - {"planning_demand_level", "planning_profile"} or not checkpoint:

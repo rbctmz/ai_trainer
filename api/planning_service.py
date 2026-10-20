@@ -27,6 +27,10 @@ from models.planning_build_confirmation import fingerprint
 from data.planning_build_preview_store import apply_preview, preview_response, store_pending
 from config.settings import Settings
 from models import planning_build_confirmation as build_protocol
+from models.planning_build_readiness import (
+    READINESS_POLICY_VERSION, assess_plan_build_readiness, effective_build_totals,
+    forecast_build_input, historical_build_readiness, normalize_build_loads, require_prepared_readiness,
+)
 from models.planning_build_confirmation import (
     BuildInputSnapshot, BuildParameters, PreparedPlanBuild, PlanningBuildPreviewError, canonical_json,
     dependency_components,
@@ -1200,6 +1204,7 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
         "has_actionable_plan": actionable(context),
         "cycle_context": context,
         "last_week": context["last_week"],
+        "build_readiness": historical_build_readiness(goal_plan),
         "goal": goal,
         "timeline": timeline,
         "current_week": current_week,
@@ -1323,6 +1328,8 @@ def _capture_plan_build_inputs(
         "demand": normalize_demand_level(raw.get("demand") or settings.get(PLANNING_DEMAND_SETTING_KEY)),
         "base_checkpoint_id": latest_id,
     }
+    if values["available_hours"] < 0:
+        raise ValueError("available_hours must be nonnegative")
     events, _, _, weeks = _plan_build_calendar(values)
     values["events"] = events
     start = date.fromisoformat(values["start_week"])
@@ -1367,6 +1374,7 @@ def _capture_plan_build_inputs(
             "build": build_protocol.PLANNING_BUILD_RULE_VERSION, "catalog": CATALOG_VERSION,
             "selector": SELECTOR_RULE_VERSION, "materializer": MATERIALIZER_RULE_VERSION,
             "overlay": RACE_OVERLAY_RULE_VERSION, "science": SCIENCE_POLICY_VERSION,
+            "build_readiness": READINESS_POLICY_VERSION,
         },
     }
     if lifecycle:
@@ -1388,6 +1396,7 @@ def prepare_plan_build(
     try:
         snapshot = _capture_plan_build_inputs(db, parameters)
         prepared = _calculate_plan_build(snapshot)
+        require_prepared_readiness(prepared)
         values = snapshot.parameters.as_dict()
         writes = {}
         if origin == "planning_ui":
@@ -1512,8 +1521,14 @@ def build_plan(
     prepared = _calculate_plan_build(snapshot)
     response = json.loads(prepared.response_json)
     if persist:
+        # Legacy non-build writers keep their own CAS/confirmation boundary.
+        # Their checkpoint is not a publication through the assessed build protocol.
+        checkpoint = json.loads(prepared.checkpoint_json)
+        checkpoint["goal_plan_snapshot"].pop("build_readiness", None)
+        checkpoint["goal_plan_snapshot"].pop("forecast_input", None)
+        response["build_readiness"] = historical_build_readiness({})
         settings_write = {PLANNING_DEMAND_SETTING_KEY: snapshot.parameters.as_dict()["demand"]} if demand is not None else {}
-        saved = db.save_planning_checkpoint(json.loads(prepared.checkpoint_json), cycle_context=cycle_context,
+        saved = db.save_planning_checkpoint(checkpoint, cycle_context=cycle_context,
                                              settings_write=settings_write)
         response.update(plan_id=str(saved["id"]), confirmation_required=False)
     return response
@@ -1838,6 +1853,7 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
             list(goal_plan.get("weekly_summary") or []),
             list(goal_plan.get("session_templates") or []),
         )
+    goal_plan = normalize_build_loads(goal_plan, {**context, "parameters": params})
     goal_plan["science_audit"] = audit_training_plan(goal_plan, source="stored")
     goal_plan = with_checkpoint_provenance(
         goal_plan,
@@ -1864,9 +1880,10 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
         list(goal_plan.get("weekly_summary", []) or []),
         list(goal_plan.get("phases", []) or []),
     )
-    adjusted_weekly_tss_plan = list(goal_plan.get("weekly_tss_plan", []) or [])
-    total_tss = int(sum(int(w or 0) for w in adjusted_weekly_tss_plan))
-    peak_tss = int(max(adjusted_weekly_tss_plan) if adjusted_weekly_tss_plan else 0)
+    effective_totals = effective_build_totals(goal_plan)
+    total_tss, peak_tss = effective_totals["total_tss"], effective_totals["peak_tss"]
+    forecast_input = forecast_build_input(goal_plan, context, metrics)
+    forecast["input_fingerprint"] = fingerprint(forecast_input)
 
     response = {
         "plan_id": None,
@@ -1895,9 +1912,15 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
     if lifecycle:
         response["lifecycle"] = lifecycle
 
+    checkpoint = build_planning_checkpoint(goal_plan)
+    checkpoint.update(effective_totals)
+    final_plan = checkpoint["goal_plan_snapshot"]
+    final_plan["forecast_input"] = forecast_input
+    assessment = assess_plan_build_readiness(final_plan, response, {**context, "parameters": params})
+    final_plan["build_readiness"] = response["build_readiness"] = assessment
     return PreparedPlanBuild(
         snapshot=snapshot,
-        checkpoint_json=canonical_json(build_planning_checkpoint(goal_plan)),
+        checkpoint_json=canonical_json(checkpoint),
         response_json=canonical_json(response),
     )
 
@@ -1918,7 +1941,9 @@ def _build_plan_preview(
         "phases_after": after_phases,
         "weekly_tss_before": before_weekly,
         "weekly_tss_after": after_weekly,
-        "weekly_tss_delta": sum(after_weekly) - sum(before_weekly),
+        "total_tss_before": effective_build_totals(before)["total_tss"] if before and before.get("daily_plan") else sum(before_weekly),
+        "total_tss_after": effective_build_totals(after)["total_tss"],
+        "weekly_tss_delta": effective_build_totals(after)["total_tss"] - (effective_build_totals(before)["total_tss"] if before and before.get("daily_plan") else sum(before_weekly)),
         "microcycle_changes": [dict(row) for row in (after.get("microcycle_changes") or [])],
     }
 

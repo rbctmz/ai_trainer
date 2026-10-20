@@ -1,0 +1,63 @@
+{
+  "cases": {
+    "event_goal:existing": {
+      "checkpoint": "7a95b47ec488e1d7ba4707e78ea2769676b5cb81e92622c3facd93c7a7bf4024",
+      "daily_plan": "e9eacfcc976f22040712b16bd2ab810d9b023367f0608809c8a6af192bb5d09d",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "e16c92eb5a35a7761f05a092eec0ae885f6cbcb2dac0ad9973e14005df24ad1c",
+      "response": "90069a2eb20e4541178967cfbcb1960775e80ab87d4f630e5f3a38a435b30114",
+      "science_audit": "c016f8afcc22a7b35e0506272eebd84f869ab2aef4a9339fafab538ebd10d5a8",
+      "session_templates": "ffa35a6878c1a289c4b01aa8645e23050c07a96f98b3536d6d2583fd58db05a1"
+    },
+    "event_goal:first": {
+      "checkpoint": "c12dcf090d00500d3c7d98bd26f3cea35297062febe32681fe4bd3eecb984120",
+      "daily_plan": "e9eacfcc976f22040712b16bd2ab810d9b023367f0608809c8a6af192bb5d09d",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "e16c92eb5a35a7761f05a092eec0ae885f6cbcb2dac0ad9973e14005df24ad1c",
+      "response": "8cb866c3ff48ad70f3479bf204b4041698128b17bd87628749da202bdcfc1b44",
+      "science_audit": "c016f8afcc22a7b35e0506272eebd84f869ab2aef4a9339fafab538ebd10d5a8",
+      "session_templates": "b68ad465dbe1551e62750ad8a5815ebe4003037652bba5be0dfba77ba224b503"
+    },
+    "manual:existing": {
+      "checkpoint": "12006d1957b59528e427d370eb841b51a88ed0f3682e012b002287c5f624d0b2",
+      "daily_plan": "96ea6641b7770a56c92c646f428125e9b59585110bdb94d2f6cf7b15f490914b",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "43e7f75e0ed33e7004eae309c1f68af9dd9cbec5ed1a39024ec53373eea081f1",
+      "response": "3d9e71f2f34bf3ed27aea49d76decd7b4ac0a37a8074d7d2c9210f4394f1a463",
+      "science_audit": "201b764b345406b5e020b51f42eeb918a8560be6df02d7f255f281f2696da012",
+      "session_templates": "ee198c6ccaffbe16811d1a5b2d2d8d8928868935048cb8313f0bf3efc9aa2273"
+    },
+    "manual:first": {
+      "checkpoint": "e7ae8d588812d5326c53920587acb786049a7053706b79ed3e5b5c0af44d8ef2",
+      "daily_plan": "96ea6641b7770a56c92c646f428125e9b59585110bdb94d2f6cf7b15f490914b",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "43e7f75e0ed33e7004eae309c1f68af9dd9cbec5ed1a39024ec53373eea081f1",
+      "response": "ad87bc3713a5cfcd3482983a1ec3577b019b846285a893086d6dbbc4aad58029",
+      "science_audit": "201b764b345406b5e020b51f42eeb918a8560be6df02d7f255f281f2696da012",
+      "session_templates": "d8c10ea9a6c50bfd50de501d5cf2807349257a2c4077ef17309e6d8fe21f41b3"
+    },
+    "training_goal:existing": {
+      "checkpoint": "6565ed25bce03886bd865bc2a7c77c220acc113de668a328129e99d499b16493",
+      "daily_plan": "a4bcd43d059d0bdcda64d67820c3303391d0af7eb32bdcf8273a039d5de03de0",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "3c97ee1ff35c2ecb03bfc812a5c9231bd440c9967efe5e7a69ff1f2d7afb511b",
+      "response": "e7ddf6fcf6105f14218f034a3525eb1e758f962a0cb655101bbec80a6b389ece",
+      "science_audit": "505cf00a493a922f0ebf734abdb03f37aea60b367e3ee6f53d7950417044a69f",
+      "session_templates": "2d802c6f63c62904c35d5b8739f3ad138942cf8f3d2bb6eab424324b97636937"
+    },
+    "training_goal:first": {
+      "checkpoint": "0c9c25acb236af922b957ca8dca21aa4c2a458973fc47a3af16d189273067561",
+      "daily_plan": "a4bcd43d059d0bdcda64d67820c3303391d0af7eb32bdcf8273a039d5de03de0",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "3c97ee1ff35c2ecb03bfc812a5c9231bd440c9967efe5e7a69ff1f2d7afb511b",
+      "response": "28eabd56658c0053a9431b59d898fb0dcca707c9a9e74d04e6fef82d472178d2",
+      "science_audit": "505cf00a493a922f0ebf734abdb03f37aea60b367e3ee6f53d7950417044a69f",
+      "session_templates": "2d802c6f63c62904c35d5b8739f3ad138942cf8f3d2bb6eab424324b97636937"
+    }
+  },
+  "catalog_version": "workout_catalog_v4",
+  "description": "Synthetic whole-payload oracle for S3 M2 catalog v4. Historical pre-extraction oracle remains in planning_build_confirmation_baseline.json.",
+  "materializer_rule_version": "workout_materializer_v5",
+  "selector_rule_version": "workout_selector_v2",
+  "source_commit": "5f15c87ac562ea8af0095828dbbe72df88b158d1"
+}

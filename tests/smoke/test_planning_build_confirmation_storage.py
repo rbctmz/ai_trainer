@@ -1,9 +1,10 @@
-"""#685 M1: unchanged-calculation oracle before extracting prepared artifacts.
+"""#685 / #677 S3 M3: whole-payload oracle for final readiness.
 
 Baseline hashes cover every field of the complete checkpoint and legacy public
 response, not only TSS. The fixture is synthetic and clocks are pinned. It is
 not regenerated automatically: inspect any changed component before accepting
-new hashes. DB row creation time and assigned response plan ID are excluded;
+new hashes. The pre-extraction v3, catalog-v4 and readiness-v1 fixtures remain unchanged; S3 M3 uses a
+separate readiness-v2 oracle after reproducing all six old M3 cases before integration. DB row creation time and assigned response plan ID are excluded;
 plan_revision, prescriptions and all provenance inside checkpoint_data are not.
 """
 from __future__ import annotations
@@ -25,7 +26,7 @@ from tests.smoke._planning_build_confirmation import (
     seeded_db,
 )
 
-BASELINE = Path(__file__).resolve().parents[1] / "fixtures/planning_build_confirmation_baseline.json"
+BASELINE = Path(__file__).resolve().parents[1] / "fixtures/planning_build_readiness_v2_baseline.json"
 
 
 @pytest.fixture(autouse=True)
@@ -35,7 +36,7 @@ def pinned_clock(monkeypatch):
 
 @pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize("existing", [False, True], ids=["first-plan", "existing-plan"])
-def test_internal_build_complete_payload_matches_pre_extraction_baseline(tmp_path, mode, existing):
+def test_internal_build_complete_payload_matches_versioned_catalog_baseline(tmp_path, mode, existing):
     db = seeded_db(tmp_path, existing=existing, rested=True)
     before = protected_state(db)
     result = internal_build(db, parameters(mode))

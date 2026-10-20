@@ -19,7 +19,6 @@ from threading import Barrier
 import pytest
 
 from data.database import Database
-from tests.athlete_clock import athlete_today
 
 pytestmark = pytest.mark.smoke
 
@@ -493,6 +492,8 @@ def test_coach_chat_turn_records_trigger_scope_outcome_revisit(tmp_path, monkeyp
 
 
 def test_coach_proposal_turn_records_plan_scope_and_applies_outcome(tmp_path, monkeypatch):
+    from tests.smoke._planning_build_confirmation import pin_clock, seeded_db
+    pin_clock(monkeypatch)
     from config.settings import Settings
 
     monkeypatch.setattr(Settings, "CHATS_DIR", str(tmp_path / "chats"), raising=False)
@@ -511,8 +512,8 @@ def test_coach_proposal_turn_records_plan_scope_and_applies_outcome(tmp_path, mo
             if self.calls == 1:
                 return (
                     "[TOOL: propose_plan_build, goal_type=Триатлон, "
-                    f"distance=Olympic, event_date={_future_event_date()}, available_hours=10, "
-                    f"action=start_new, start_date={athlete_today().isoformat()}, base_selection_revision=0, "
+                    "distance=Olympic, event_date=2027-02-13, available_hours=10, "
+                    "action=start_new, start_date=2026-10-26, base_selection_revision=0, "
                     "base_checkpoint_id=0, replace_current_cycle=false]"
                 )
             return "Готово: я подготовил предложение плана, его нужно подтвердить."
@@ -521,7 +522,7 @@ def test_coach_proposal_turn_records_plan_scope_and_applies_outcome(tmp_path, mo
     monkeypatch.setattr(coach_mod, "resolve_provider", lambda provider_type=None: provider)
     monkeypatch.setattr(coach_mod, "supports_streaming", lambda _provider: False)
 
-    db = _seeded_db(tmp_path, "coach_proposal_v2.db")
+    db = seeded_db(tmp_path, rested=True)
     req = coach_mod.ChatRequest(
         message="Собери план на олимпийку.",
         provider="mock",

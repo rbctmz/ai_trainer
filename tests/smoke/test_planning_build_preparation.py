@@ -16,7 +16,7 @@ from data.planning_build_preview_store import get_preview, preview_response, sto
 from models import planning_build_confirmation as protocol
 from models.planning_build_confirmation import BuildParameters, PlanningBuildPreviewError
 from tests.smoke._planning_build_confirmation import (
-    MODES, TODAY, add_late_activity, characterization, cycle_fields, parameters, pin_clock, protected_state, seeded_db,
+    MODES, TODAY, add_late_activity, characterization, cycle_fields, parameters as legacy_parameters, ready_parameters as parameters, pin_clock, protected_state, seeded_db,
 )
 
 
@@ -27,14 +27,15 @@ def clock(monkeypatch):
 
 @pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize("existing", [False, True], ids=["first", "existing"])
-def test_prepared_payload_preserves_complete_m1_calculation(tmp_path, mode, existing):
+def test_prepared_payload_preserves_complete_versioned_calculation(tmp_path, mode, existing):
     from tests.smoke.test_planning_build_confirmation_storage import BASELINE
 
     db = seeded_db(tmp_path, existing=existing, rested=True)
     before = protected_state(db)
-    # Keep the frozen S1 calculation oracle byte-for-byte. This low-level v1
-    # fixture is readable but deliberately NOT eligible for confirmation in S2.
-    snapshot = ps._capture_plan_build_inputs(db, BuildParameters.from_mapping(parameters(mode)))
+    # Compare every field against the versioned catalog oracle; the original
+    # pre-extraction v3 oracle remains unchanged as historical evidence. This
+    # low-level v1 fixture is deliberately NOT eligible for confirmation in S2.
+    snapshot = ps._capture_plan_build_inputs(db, BuildParameters.from_mapping(legacy_parameters(mode)))
     prepared = ps._calculate_plan_build(snapshot)
     shown = preview_response(store_pending(db, prepared, origin="planning_ui", now=ps.datetime.now(ps.timezone.utc),
                                           recheck=lambda _conn: snapshot.dependency_digest))
@@ -42,7 +43,7 @@ def test_prepared_payload_preserves_complete_m1_calculation(tmp_path, mode, exis
     checkpoint = json.loads(retained["checkpoint_json"])
     public = json.loads(retained["response_json"])
     # Legacy persisted response differed only in these two publication fields;
-    # full prepared content must still match the pre-extraction M1 oracle.
+    # full prepared content must match the versioned calculation oracle.
     public["confirmation_required"] = False
     expected = json.loads(BASELINE.read_text())["cases"][f"{mode}:{'existing' if existing else 'first'}"]
     assert characterization(public, checkpoint) == expected
@@ -136,7 +137,7 @@ def test_frozen_calculation_never_reads_database_or_wall_clock(tmp_path, monkeyp
     from models import readiness
 
     db = seeded_db(tmp_path, rested=True)
-    raw = parameters()
+    raw = legacy_parameters()
     snapshot = ps._capture_plan_build_inputs(db, BuildParameters.from_mapping(raw))
     before = snapshot.dependency_digest
     raw["events"][0]["date"] = "2030-01-01"

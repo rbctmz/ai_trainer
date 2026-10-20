@@ -16,7 +16,7 @@ from api.routers.planning_cycles import router as cycles_router
 from tests.smoke._planning_build_confirmation import (
     add_late_activity,
     cycle_fields,
-    parameters,
+    ready_parameters as parameters,
     pin_clock,
     protected_state,
     seeded_db,

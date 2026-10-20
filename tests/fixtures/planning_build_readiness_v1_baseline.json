@@ -1,0 +1,61 @@
+{
+  "cases": {
+    "event_goal:first": {
+      "checkpoint": "be91ec047be510db2607db5eff0e052207425f3dc1b175a68095a7229dda4267",
+      "response": "fe77d4c2f983c418b71912aba2d4a46e0f875877f3b6952cb4114dd82a0f0a7d",
+      "session_templates": "f2932ba66d8a914090579ad5b31228ab590ff341a32156c5b348380c6f0a16b8",
+      "daily_plan": "5bf611d49adf6c7ad7951bfb914a5cbb230250e0c73098e3f5099385e644143f",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "science_audit": "c016f8afcc22a7b35e0506272eebd84f869ab2aef4a9339fafab538ebd10d5a8",
+      "forecast": "68930cc5741a89c4a1dd4abb637fdadc677ff6d5193fb95f135b064d07474a78"
+    },
+    "event_goal:existing": {
+      "checkpoint": "bf4234410866359ea5e7cfa1afcffced85f39931441e205665ec575089fb89e6",
+      "response": "1a7a94778a95563555cfc3463030378f9ba553cb8ee7aac64208791ac5fd2264",
+      "session_templates": "aa670cc1f9cc50388b936385f82bf656902323a2b884c4e85bbe16d12410589e",
+      "daily_plan": "5bf611d49adf6c7ad7951bfb914a5cbb230250e0c73098e3f5099385e644143f",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "science_audit": "c016f8afcc22a7b35e0506272eebd84f869ab2aef4a9339fafab538ebd10d5a8",
+      "forecast": "68930cc5741a89c4a1dd4abb637fdadc677ff6d5193fb95f135b064d07474a78"
+    },
+    "training_goal:first": {
+      "checkpoint": "84bb4346138d0ad077a453210648facb58be8e7963a9a928fcd651df37189763",
+      "response": "39b7c7b4ef0116df98105b7e897e224d26809ea758542ad3e37dbecdefe22cd0",
+      "session_templates": "9cf44bad4f1b14c834b671aadca16dfe534c7ef2f62eafed8ba73db05140eb6a",
+      "daily_plan": "5d7d58f0c9a758021b8d3cb3ac623f9903bd5da31eaecf2791b7ce0c5a240065",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "science_audit": "505cf00a493a922f0ebf734abdb03f37aea60b367e3ee6f53d7950417044a69f",
+      "forecast": "2a2055355ef840c3be6f4fa114e81060fd4a5e8dc830bf269183fa43064a8a90"
+    },
+    "training_goal:existing": {
+      "checkpoint": "17b50e4ae11c8613b5a39ca9cac0a8e36e7b95cac24c9694dee0ec1a42ebd80f",
+      "response": "6172ed421d7a78e7c35ce9c1508e53d0c2d156e8417499c254355d94646bbbe4",
+      "session_templates": "9cf44bad4f1b14c834b671aadca16dfe534c7ef2f62eafed8ba73db05140eb6a",
+      "daily_plan": "5d7d58f0c9a758021b8d3cb3ac623f9903bd5da31eaecf2791b7ce0c5a240065",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "science_audit": "505cf00a493a922f0ebf734abdb03f37aea60b367e3ee6f53d7950417044a69f",
+      "forecast": "2a2055355ef840c3be6f4fa114e81060fd4a5e8dc830bf269183fa43064a8a90"
+    },
+    "manual:first": {
+      "checkpoint": "46ec23adf8ff3420d1b1a43b7530b8dfbb0ec92d1895fdd294f50c65d4b0ede1",
+      "response": "e2b21f3dcf707d1107c398f9c851eed45bbec6ed55c59707065091eac56690d8",
+      "session_templates": "0808b681aeacbbcecea406d419a9c5f42e0bef51b3137cdb12526bdbab037f89",
+      "daily_plan": "40e79d3a8f43256807ebc794713b42e76c85b92baa87ee30c3b22af0bd8f84cb",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "science_audit": "201b764b345406b5e020b51f42eeb918a8560be6df02d7f255f281f2696da012",
+      "forecast": "6a529318ff55e3abf51f2342fa10d44e9f364549db754a03b5604b2d5a6f8139"
+    },
+    "manual:existing": {
+      "checkpoint": "4bf759d544edb94424a36bf781d3282eb7a1fdc5712688a543a13c0340a341d9",
+      "response": "7e80640dc2a5c1a779ff4bb8caaa87071690d3bb17d7fa9c34436e610f2df9d2",
+      "session_templates": "5f6630dd1ae3614238cbda8b5ffd0e5fd61553d74af96fadcf8723e6735ea877",
+      "daily_plan": "40e79d3a8f43256807ebc794713b42e76c85b92baa87ee30c3b22af0bd8f84cb",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "science_audit": "201b764b345406b5e020b51f42eeb918a8560be6df02d7f255f281f2696da012",
+      "forecast": "6a529318ff55e3abf51f2342fa10d44e9f364549db754a03b5604b2d5a6f8139"
+    }
+  },
+  "description": "Final readiness-v1 full-payload oracle with pinned SQL source timestamps. Separate from preserved original v3/v4 calculation evidence. Legacy calculation fixtures may be blocked; they are never public success controls.",
+  "materializer_rule_version": "workout_materializer_v6",
+  "policy_version": "plan-build-readiness-v1"
+}

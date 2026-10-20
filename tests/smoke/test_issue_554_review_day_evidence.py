@@ -29,7 +29,7 @@ GOAL = "Триатлон"
 
 def _fail_closed_session() -> dict:
     session = materialize_session_template(
-        phase="Build",
+        phase="Peak",
         session_role="quality",
         sport="bike",
         target_tss=20.0,
@@ -45,7 +45,7 @@ def _fail_closed_session() -> dict:
 def _day_template(session: dict) -> dict:
     return {
         "date": "2026-08-21",
-        "phase": "Build",
+        "phase": "Peak",
         "sessions": [session],
         "total_tss": float(session.get("total_tss") or 0.0),
     }

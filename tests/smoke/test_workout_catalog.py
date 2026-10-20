@@ -82,9 +82,9 @@ def _selection_context(**overrides):
 def test_catalog_is_exact_versioned_and_immutable():
     definitions = catalog_definitions()
 
-    assert CATALOG_VERSION == "workout_catalog_v3"
-    assert SELECTOR_RULE_VERSION == "workout_selector_v1"
-    assert MATERIALIZER_RULE_VERSION == "workout_materializer_v4"
+    assert CATALOG_VERSION == "workout_catalog_v4"
+    assert SELECTOR_RULE_VERSION == "workout_selector_v2"
+    assert MATERIALIZER_RULE_VERSION == "workout_materializer_v8"
     assert len(definitions) == 23
     assert {item.template_key for item in definitions} == EXPECTED_TEMPLATE_KEYS
     assert len({(item.template_key, item.version) for item in definitions}) == 23
@@ -332,8 +332,8 @@ def test_session_templates_store_phase_specific_materialized_prescriptions():
     base, build = templates[0], templates[7]
     assert base["template_key"] == "bike_aerobic_progression"
     assert build["template_key"] == "bike_threshold_intervals"
-    assert base["template_version"] == 2
-    assert build["template_version"] == 2
+    assert base["template_version"] == 3
+    assert build["template_version"] == 3
     assert base["catalog_version"] == CATALOG_VERSION
     assert base["kind"] == "single"
     assert build["kind"] == "single"

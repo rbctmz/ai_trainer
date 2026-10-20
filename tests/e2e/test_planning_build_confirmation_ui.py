@@ -14,15 +14,19 @@ def step3(web_stack):
     page.goto(f"{web_stack.web_base}/planning", wait_until="domcontentloaded")
     page.get_by_text("Текущий статус нагрузки", exact=True).wait_for(timeout=60000)
     page.get_by_role("button", name="Изменить план", exact=True).click()
-    page.get_by_role("button", name="Развивать форму Без выдуманной даты гонки", exact=True).click()
+    page.get_by_role("button", name="Ручные фазы Фазы задаёте вы", exact=True).click()
     page.get_by_role("button", name="Далее", exact=True).click()
+    # Reuse the declared executable manual demo; separate API tests cover refusals.
+    page.get_by_role("slider").fill("8")
     page.get_by_role("button", name="Далее", exact=True).click()
     return page
 
 
 def ready(web_stack):
     page = step3(web_stack)
-    page.get_by_role("button", name="🧭 Предпросмотр плана", exact=True).click()
+    with page.expect_response("**/api/planning/build?*") as built:
+        page.get_by_role("button", name="🧭 Предпросмотр плана", exact=True).click()
+    assert built.value.status == 200, built.value.text()
     page.get_by_text(re.compile("План собран: изменение нагрузки")).wait_for(timeout=60000)
     page.get_by_role("button", name="Далее", exact=True).click()
     expect(page.get_by_role("heading",name="Настройка плана — шаг 4: Подтверждение",exact=True)).to_be_focused()
@@ -62,7 +66,7 @@ def test_lost_response_locks_reset_and_retries_same_identity(web_stack):
     expect(page.get_by_role("button", name="Назад", exact=True)).to_be_disabled()
     expect(page.get_by_role("button", name="Изменить план", exact=True)).to_be_disabled()
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
-    artifact = Path(__file__).parents[2] / "docs/design/evidence/issue-693/s1-regression"
+    artifact = Path(__file__).parents[2] / "docs/reports/2026-10-20-planning-readiness-m3/browser"
     artifact.mkdir(parents=True,exist_ok=True)
     page.screenshot(path=str(artifact/"planning-uncertain-390.png"),full_page=True)
     page.unroute("**/api/planning/build/confirm*", lose)
@@ -126,7 +130,7 @@ def test_confirmation_controls_keyboard_and_viewport(web_stack, width, theme):
     expect(button).to_be_focused()
     expect(page.get_by_text("Предпросмотр · План ещё не сохранён", exact=False)).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
-    artifact = Path(__file__).parents[2] / "docs/design/evidence/issue-693/s1-regression"
+    artifact = Path(__file__).parents[2] / "docs/reports/2026-10-20-planning-readiness-m3/browser"
     artifact.mkdir(parents=True,exist_ok=True)
     page.screenshot(path=str(artifact/f"planning-confirm-{width}-{theme}.png"),full_page=True)
     page.get_by_role("button", name="Отменить", exact=True).click()
@@ -191,20 +195,28 @@ def test_historical_retry_does_not_claim_active_plan(web_stack):
 @pytest.mark.parametrize("outcome",["success","lost","stale"])
 def test_coach_card_uses_bound_approval_and_safe_retry(web_stack,outcome):
     import json
-    from datetime import timedelta
     from data.database import Database
-    from models.ai_tools import AITools
+    from api import planning_service as ps
+    from models.planning_build_confirmation import BuildParameters
     from tests.athlete_clock import athlete_today
 
     db = Database(str(web_stack.tmp_dir / "demo.db"))
     from services.planning_cycles import current_cycle_context
     context = current_cycle_context(db)
-    raw = AITools(db).propose_plan_build(action="start_new", base_cycle_id=context["cycle_id"],
-            base_cycle_revision=context["cycle_revision"], base_selection_revision=context["selection_revision"],
-            base_checkpoint_id=context["checkpoint_id"] or 0, replace_current_cycle=context["cycle_id"] is not None,
-            start_date=context["athlete_day"], goal_type="triathlon",distance="olympic",
-            event_date=(athlete_today()+timedelta(weeks=8)).isoformat())
-    assert raw.get("is_proposal"),raw
+    # This scenario verifies the UI approval/replay adapter; real AITools builds
+    # have separate synthetic HTTP/tool tests, including unsupported event refusal.
+    shown = ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping({
+        "action": "start_new", "base_cycle_id": context["cycle_id"],
+        "base_cycle_revision": context["cycle_revision"], "base_selection_revision": context["selection_revision"],
+        "base_checkpoint_id": context["checkpoint_id"] or 0, "replace_current_cycle": context["cycle_id"] is not None,
+        "start_date": context["athlete_day"], "goal_type": "triathlon", "distance": "olympic",
+        "planning_mode": "manual", "horizon_weeks": 8, "events": [],
+        "manual_phases": ["Recovery", "Base", "Build", "Recovery", "Base", "Base", "Build", "Recovery"],
+        "available_hours": 8, "available_days": ["mon", "tue", "wed", "thu", "sat", "sun"],
+    }), origin="coach")
+    raw = {"action": "build_plan", "params": {"preview_id": shown["confirmation"]["preview_id"],
+        "base_checkpoint_id": shown["preview"]["base_checkpoint_id"]},
+        "preview": {"goal": shown["goal"], "confirmation": shown["confirmation"]}}
     proposal = db.save_coach_proposal(action=raw["action"],params=raw["params"],preview=raw["preview"])
     event = {"type":"proposal","proposal_id":proposal["id"],"action":proposal["action"],
              "status":"pending","params":proposal["params"],"preview":proposal["preview"]}
@@ -241,7 +253,7 @@ def test_coach_card_uses_bound_approval_and_safe_retry(web_stack,outcome):
             expect(page.get_by_role("button",name="Отменить",exact=True)).to_be_disabled()
             expect(page.get_by_role("button",name="+ Новый",exact=True)).to_be_disabled()
             expect(page.get_by_role("button",name="Отправить",exact=True)).to_be_disabled()
-            artifact = Path(__file__).parents[2] / "docs/design/evidence/issue-693/s1-regression"
+            artifact = Path(__file__).parents[2] / "docs/reports/2026-10-20-planning-readiness-m3/browser"
             artifact.mkdir(parents=True,exist_ok=True)
             page.screenshot(path=str(artifact/"coach-uncertain.png"),full_page=True)
             page.unroute(approve,lose)

@@ -701,3 +701,43 @@ UI-контракт) и браузерная приёмка `tests/e2e/test_reco
 readback (менеджер job'ов process-local); вне объёма — backfill, polling-надстройки
 и автоматическая коррекция плана. Полное разделение проверенного и непроверенного —
 в evidence bundle [`../recovery_snapshot_capture_parity_evidence.md`](../recovery_snapshot_capture_parity_evidence.md).
+
+## Planning build readiness (specification only; #677 S3 M1)
+
+Статус на 2026-10-20: Class A, контракт и синтетические RED; runtime GREEN —
+NOT YET. [Spec](../planning_build_readiness_slice_spec.md),
+[ExecPlan](../planning_build_readiness_execplan.md). Техническая готовность
+заданий не доказывает медицинскую безопасность или достижение тренировочной цели.
+
+ASR-REL-1/2: planned shared prepare/confirm guard для incomplete/infeasible
+assignments, без потери истории и без публикации при отказе. ASR-MOD-2/3:
+Python-owned assessment, additive frozen payload, old applied receipt replay.
+ASR-PERF-4: bounded pure validation, без provider/rebuild под writer lock.
+ASR-DEP-2: новые таблицы, backfill и отдельное retention ownership не вводятся.
+Проверки M1: tests/smoke/test_planning_build_readiness_spec.py (--runxfail) и
+docs/reports/2026-10-20-planning-readiness-m1/probe.py; результаты в report README.
+Это planned раздел, он не повышает статус доставленных механизмов S1/S2.
+
+## Planning prescription repair (verified draft; #677 S3 M2)
+
+2026-10-20: [ExecPlan](../planning_build_readiness_m2_execplan.md),
+[evidence](../reports/2026-10-20-planning-readiness-m2/README.md). Shared Python
+catalog adds light Recovery eligibility, feasibility-first rotation, bounded
+explicit quality downgrade and versioned RPE stage policy. ASR-REL-1/2: no
+historical rewrite or silent impossible-request success; ASR-MOD-2/3: additive
+immutable provenance, existing DTOs; ASR-PERF-4: 16-week synthetic prepare 0.321s.
+No training-suitability validation or M3 publication guard is claimed.
+
+## Final build readiness (draft implementation; #677 S3 M3)
+
+2026-10-20: [ExecPlan](../planning_build_readiness_m3_execplan.md),
+[slice](../planning_build_readiness_m3_slice_spec.md),
+[evidence](../reports/2026-10-20-planning-readiness-m3/README.md).
+Pure final candidate assessment binds effective load, time, known target policy,
+forecast input and immutable snapshot. Shared UI/Coach prepare refuses incomplete
+plans before retaining a token; pending confirm validates before active writes,
+while old applied receipts replay first. ASR-REL-1/2, ASR-MOD-2/3, ASR-PERF-4 and
+ASR-DEP-2 reuse existing transaction/reset ownership. No new table, provider I/O,
+Banister under lock, personal suitability approval or UI layout change. Independent
+review2/2 READY at3eafc7b; contributor3816 and browser58passed. Generator
+limitations owned in #707; no native acceptance, merge or rollout implied.

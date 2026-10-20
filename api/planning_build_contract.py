@@ -1,4 +1,5 @@
 """HTTP models for the reviewed, server-owned build confirmation protocol."""
+
 from typing import Any, Literal
 from uuid import UUID
 
@@ -47,6 +48,56 @@ class BuildConfirmation(BaseModel):
     is_current: bool | None
 
 
+class BuildReadinessScope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    start_date: str
+    end_date: str
+
+
+class BuildReadinessReason(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: Literal[
+        "prescription_missing",
+        "prescription_infeasible",
+        "target_semantics_unverified",
+        "load_inconsistent",
+        "duration_inconsistent",
+        "availability_exceeded",
+    ]
+    date: str | None
+    session_id: str | None
+    leg_index: int | None
+    field: str
+    expected: Any
+    observed: Any
+
+
+class BuildReadiness(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    policy_version: Literal["plan-build-readiness-v1"] | None
+    status: Literal["ready", "blocked", "unassessed"]
+    can_confirm: bool
+    scope: BuildReadinessScope | None
+    assessed_session_count: int
+    candidate_fingerprint: str | None
+    blockers: list[BuildReadinessReason]
+    warnings: list[BuildReadinessReason]
+    training_suitability: Literal["not_assessed"]
+
+
+class BuildProtocolError(BaseModel):
+    detail: str
+    code: str
+    retryable: bool
+
+
+class BuildReadinessError(BaseModel):
+    detail: str
+    code: Literal["plan_not_ready"]
+    retryable: bool
+    build_readiness: BuildReadiness
+
+
 class BuiltPlanResponse(BaseModel):
     # Legacy nested payloads stay complete: this protocol adds identity without
     # redefining or stripping existing prescriptions, audits or future additions.
@@ -62,6 +113,8 @@ class BuiltPlanResponse(BaseModel):
     totals: dict[str, Any]
     weeks: list[dict[str, Any]]
     forecast: dict[str, Any]
+    # Optional only for historical applied receipts; new pending is guarded.
+    build_readiness: BuildReadiness | None = None
 
 
 class BuildPreviewResponse(BuiltPlanResponse):

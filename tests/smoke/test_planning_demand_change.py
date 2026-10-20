@@ -114,6 +114,8 @@ def test_demand_confirm_writes_new_checkpoint_with_provenance(tmp_path):
     latest = db.get_latest_planning_checkpoint()
     assert int(latest["id"]) == applied_id
     snapshot = latest["goal_plan_snapshot"]
+    assert "build_readiness" not in snapshot
+    assert "forecast_input" not in snapshot
     assert snapshot["checkpoint_source"] == "demand_change"
     assert int(snapshot["checkpoint_parent_id"]) == base_id
     assert snapshot["demand_level"] == "aggressive"

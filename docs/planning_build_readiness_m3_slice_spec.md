@@ -1,0 +1,173 @@
+# S3 M3 final load/readiness: implementation and review record
+
+Issue [#677](https://github.com/rbctmz/ai_trainer/issues/677), M2 base `5aa8f6e`
+([#706](https://github.com/rbctmz/ai_trainer/pull/706)). Date 2026-10-20.
+Author: Domain/API Implementer. Independent checker: read-only exact diff, no
+posting or edits. Human owns merge and cleanup. M1 AC1–AC7 remain the authority:
+[approved contract](planning_build_readiness_slice_spec.md).
+[ExecPlan](planning_build_readiness_m3_execplan.md),
+[evidence](reports/2026-10-20-planning-readiness-m3/README.md).
+
+## Change Class / review
+
+Class A: persistent artifact provenance and transactional publication gate.
+Manual trigger. Independent rounds 2/2 (full + scoped delta), native rounds 1/2 (one P2 fixed; verification pending). Independent READY at
+3eafc7bf6070904c3c97b2265b6ca6bbd8223e41; later evidence-only commits do not
+change the reviewed runtime60c2343.
+No merge acceptance or review-budget exception is implied.
+
+## Scope / non-goals
+
+Final build normalization, pure readiness, shared UI/Coach prepare/confirm guard,
+additive DTOs and historical unassessed read projection. Recovery at larger doses
+has a demonstrated missing-materialization boundary; cap a light prescription
+within original load/time rather than waive the guard. Bike activation now uses
+the existing NP TSS method; every new composite leg records its status.
+
+M4 personal entry dose, clinical suitability, #703 threshold sources, #668 daily
+sport availability, S4 layout/interaction and provider delivery are excluded.
+Other mutation writers are not newly guarded: their new checkpoints do not inherit
+build-ready provenance. Existing saved assignments/receipts remain unchanged.
+
+## Definition of Done
+
+- [x] Observable valid and blocked paths, both origins and all-table state checks.
+- [x] Pure/HTTP, replay/rollback/CAS, target/time/load/identity/rounding/performance tests named below.
+- [x] Contributor3816, full browser58, contracts/Ruff/web build and independent READY.
+- [x] Merge/cleanup owner remains human; no merge/native acceptance implied.
+
+## Public contract
+
+HTTP/TS compatibly adds BuildReadiness, reasons, scope and error DTO. Successful
+new builds always carry ready; old applied v1/v2 responses may omit the field.
+Pydantic optional field plus response_model_exclude_unset preserves their original
+HTTP shape. Pending compatibility is enforced server-side, never by a client flag.
+POST registry roots include the typed error union and a real blocked manual Peak
+scenario. GET PlanningOverview adds stored readiness or explicit unassessed.
+No DB table/schema/config/CLI change. TS extractor artifact is regenerated.
+
+Assessment policy: plan-build-readiness-v1. New materializer v6 makes leg status
+explicit, adds bounded Recovery dose handling and derives activation bike TSS;
+absolute intensity and physiological dose formulas stay unchanged.
+
+Candidate fingerprint covers final serialized snapshot, public result and frozen
+parameters/context; excludes assessment, assigned plan ID and receipt decoration.
+Capture versions include readiness policy. It is an integrity/freshness binding,
+not a client-supplied security signature.
+
+## Final load/time semantics
+
+Effective single/leg TSS must agree with parameters, steps and defined power
+method. Bike FTP is derived via prescription_np_tss_v1. Run/swim/relative targets
+retain catalog_budget_estimate_v1 with explicit estimated provenance, not a power
+conversion. Composite load is sum_leg_tss_v1; transition contributes time only.
+Daily rows sum each session/leg once. Primary day mirror is not a second session.
+
+Future rows are projected from assignments; past edit_current rows/assignments are
+preserved. Weekly summaries are grouped by calendar date, not clipped list index.
+Use math.fsum and one display rounding at each final field. Total is round(sum raw
+daily), not sum(integer weeks). Per-sport week displays round independently;
+response weeks round to their existing integer display. Preview before/after raw
+whole totals and delta use the same lineage. Budgets/base/allocated_parts are not
+asserted equal to effective delivered load.
+
+Frozen forecast_input includes exact final planned load and separate forecast-only
+race TSS plus initial metrics. Response forecast binds that input by fingerprint.
+Assessor validates the sequence and finite points/final TSB without recalculating
+Banister under writer lock. Race days are empty export assignments, race effort is
+never included again in weekly training totals.
+
+## State, failure and compatibility
+
+Prepare rejects blocked before store_pending/cleanup, status 422 plan_not_ready,
+no token/settings/profile/cycle/ledger writes. Confirmation replays valid applied
+receipts first. Pending shape/expiry/current dependencies remain guarded; missing
+old readiness asks for fresh preview, honest blocked yields 409, false-ready or
+malformed/fingerprint/header mismatch yields 500 preview_corrupt. The existing
+BEGIN IMMEDIATE owner runs bounded pure retained checks before first active write;
+all later failures roll back. No second retention/reset owner, table or backfill.
+Existing reset/restart/backup tests run against the new ready artifacts.
+
+Future assignments must have unique parent/leg identities, known immutable
+catalog definitions eligible for phase/role, materialized status, no failed_bounds,
+nonempty steps and complete finite target unit/range/reference semantics. RPE
+matches the known versioned catalog policy, not an arbitrary self-labelled map.
+Zero exercise stays exercise and is validated. Only explicit empty rest/event days
+are accepted with zero load. An unallocated activation remains blocked, not silently
+renamed to rest. Weekly hours/declared available days apply to the new future
+prescriptions; this request schema has no per-day minute ceiling to invent.
+
+## Boundary / RED matrix
+
+| Boundary | Test/evidence | Expected |
+| --- | --- | --- |
+| M1 new/replacement prepare/confirm | four original --runxfail RED, now actual GREEN without marks | ready or explicit blocked; replay safe |
+| Light Recovery dose 46.6/115 | new pure RED -> cap inside catalog | concrete recovery, <= dose/time, requested recorded |
+| Bike activation | new RED requested24 vs derived12 | retain request, effective follows power |
+| Bad single/leg, unknown status/kind, zero exercise | M3 mutation matrix | addressed blocker, not hidden rest |
+| Missing transition / duration / primary mirror | M3 composite and day tests | exact legs + transition, primary not doubled |
+| NaN, unit, range, missing reference, forged RPE policy | M3 target/immutable-definition tests | explicit semantic rejection |
+| Every aggregate / forecast / whole rounding | M3 matrix + valid 16-week event | no duplicate counting or per-child tolerance growth |
+| Past legacy / last-day inclusion / old applied | M3 bounds and old HTTP receipt test | no retroactive prescription upgrade or GET write |
+| Stale/current, both origins, corrupt/honest blocked | S1/S2 + M3 all-table cases | no bypass or partial write |
+| Large step numeric string | bounded power test | reject without allocating an arbitrary profile |
+
+## Evidence and review bundle
+
+Six original M1/Recovery/activation behavioral RED reproduced. Current new M3
+suite and storage/preparation contour: 117 passed; earlier protocol/Coach/HTTP
+contour: 172 passed; S2+M3: 89 passed at that checkpoint. Latest full regression,
+contracts and review results are appended to evidence, not inferred from counts.
+Original v3/v4 golden files stay byte-identical; archived M2 reproduced 6/6 before
+new oracle. New oracle pins SQL source timestamps (activities.created_at,
+athlete_profile.synced_at, constraints.created_at and checkpoint row time) as well
+as athlete/revision clocks. Two independently built fixture sets match 6/6.
+This freezes test input; production dependency timestamps remain significant.
+
+Demo now uses a declared manual eight-week synthetic example beginning with
+Recovery and no invented A event; the ordinary guard remains active. First normal
+training-goal demo request had an unsupported short long-bike assignment and was
+correctly blocked. Manual demo was reproduced ready; no general planner or
+personal training policy was changed to make a demo pass.
+
+ASR-REL-1/2, ASR-MOD-2/3, ASR-PERF-4, ASR-DEP-2; ADR-0001 reused. Scientific
+suitability remains not_assessed. Final verdict / finding dispositions / CI / native
+rounds and publication identity live in the evidence report. Human merges only
+following separate current-head acceptance.
+
+## Review findings and final verdict
+
+| Round | Exact reviewed head | Mode | Disposition |
+| --- | --- | --- | --- |
+| 1 | d8d516fffe4ec28c7f1793a719df27d5712ba446 | manual full diff from5aa8f6e | BLOCK,3 reproduced P2 |
+| 2 | 3eafc7bf6070904c3c97b2265b6ca6bbd8223e41 | scoped delta since d8d516f | READY,199 independent tests,zero open blockers |
+
+P2 sport mismatch single/leg:fixed-in60c2343. P2 unsupported per-definition target
+kind:fixed-in60c2343. P2 missing/reversed required composite leg:fixed-in60c2343.
+Author independently reproduced ready[] with resynchronized arithmetic, then5
+exact regressions GREEN. No public HTTP integrity exploit is claimed.
+
+Final implementation verdict:READY for the agreed M3 scope, with owned generator
+follow-up [#707](https://github.com/rbctmz/ai_trainer/issues/707). Full contributor
+3816passed/16skipped/82deselected, full E2E58passed; Ruff, TS freshness/inventory,
+web lint/build and diffcheck GREEN. No runtime/API/TS changes after reviewed head.
+Native review rounds0; no native acceptance label or merge requested. Human owns
+current-head CI/native review acceptance, parent stack merge, post-merge outcome
+record and eventual worktree cleanup. Keep #677 open for M4 and S4.
+
+M4 handoff: personal entry-dose specification using actual sport-specific recent
+history/completeness, then implementation only when separately assigned. S4 UI
+consumes the shared readiness/error DTO, including comprehensible reasons; it must
+not infer readiness in the browser. #707 remains generation behavior and does not
+become a medical/personal suitability rule.
+
+## Native round1 follow-up
+
+Reviewed head73aaab8, one blocking P2:
+[reserve preserved identities](https://github.com/rbctmz/ai_trainer/pull/708#discussion_r4323327788).
+Author4 exact RED→GREEN plus legacy-only control: future parent/leg cannot reuse
+any preserved parent/leg ID; old history is neither reassessed nor rewritten.
+207 target and69 compatibility tests GREEN, no DTO/schema change. Full contributor
+and current-head remote checks are required before scoped native round2. Earlier
+independent READY remains evidence of its reviewed head, not native acceptance of
+this later fix. No acceptance label or merge authorized.

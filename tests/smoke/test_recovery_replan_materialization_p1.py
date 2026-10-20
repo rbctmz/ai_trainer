@@ -192,7 +192,7 @@ def test_medium_recovery_downgrade_cannot_materialize_a_harder_stimulus(
     )
     assert (
         _primary_for_index(generic_plan, target_index)["template_key"]
-        == "bike_neuromuscular_sprints"
+        == "bike_aerobic_endurance"
     )
 
     variant = build_recovery_replan_variant(plan, report, today=today)

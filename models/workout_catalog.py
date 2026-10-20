@@ -9,9 +9,9 @@ import math
 from typing import Any, Mapping, Sequence
 
 
-CATALOG_VERSION = "workout_catalog_v3"
-SELECTOR_RULE_VERSION = "workout_selector_v1"
-MATERIALIZER_RULE_VERSION = "workout_materializer_v4"
+CATALOG_VERSION = "workout_catalog_v4"
+SELECTOR_RULE_VERSION = "workout_selector_v2"
+MATERIALIZER_RULE_VERSION = "workout_materializer_v8"
 PRESCRIPTION_NP_TSS_RULE_VERSION = "prescription_np_tss_v1"
 STRUCTURE_RULE_VERSION = "workout_structure_v2"
 
@@ -39,6 +39,8 @@ class WorkoutTemplateDefinition:
     requirements: tuple[str, ...]
     contraindications: tuple[str, ...]
     step_builder_key: str
+    rpe_policy_version: str
+    rpe_stage_targets: tuple[tuple[str, int, int], ...]
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,29 @@ class _RepeatTier:
 
 _ALL_TRAINING_PHASES = ("Base", "Build", "Peak", "Taper", "Race Week", "Maintenance")
 _TRIATHLON_GOALS = ("triathlon", "триатлон")
+
+# Explicit coaching defaults on the application's 1-10 perceived-effort scale;
+# these are not a numerical conversion from FTP/CSS or an individual calibration.
+RPE_POLICY_VERSION = "catalog-rpe-v1"
+_RPE_WORK_RANGES = {
+    "recovery": (2, 3), "technique": (2, 3), "endurance": (3, 4),
+    "progression": (5, 6), "tempo": (5, 6), "threshold": (7, 8),
+    "vo2": (8, 9), "neuromuscular": (9, 10), "race_pace": (6, 7),
+    "activation": (6, 7), "brick_endurance": (3, 4), "brick_race_pace": (6, 7),
+}
+
+
+def _catalog_rpe_policy(builder: str) -> tuple[tuple[str, int, int], ...]:
+    work = _RPE_WORK_RANGES[builder]
+    stage = (2, 3) if builder in {"recovery", "technique"} else (3, 4)
+    return (("warmup", 1, 2), ("cooldown", 1, 2), ("recovery", 1, 2),
+            ("stage", *stage), ("work", *work))
+
+
+def _selection_roles(phase: str, role: str) -> tuple[str, ...]:
+    if phase == "Recovery" and role in {"easy", "quality", "long", "recovery"}:
+        return ("recovery",)
+    return (role,)
 
 
 def _definition(
@@ -90,13 +115,15 @@ def _definition(
         resolved_version = 2 if sport in {"bike", "run"} or kind == "composite" else 1
     return WorkoutTemplateDefinition(
         template_key=template_key,
-        version=resolved_version,
+        version=resolved_version + 1,
         display_name=display_name,
         kind=kind,
         sport=sport,
         roles=roles,
         stimulus=stimulus,
-        phase_eligibility=phases,
+        phase_eligibility=(phases + ("Recovery",)
+            if kind == "single" and builder in {"recovery", "technique", "endurance"}
+            and "Recovery" not in phases else phases),
         goal_eligibility=goals,
         min_duration_minutes=duration[0],
         max_duration_minutes=duration[1],
@@ -110,6 +137,8 @@ def _definition(
         requirements=requirements,
         contraindications=contraindications,
         step_builder_key=builder,
+        rpe_policy_version=RPE_POLICY_VERSION,
+        rpe_stage_targets=_catalog_rpe_policy(builder),
     )
 
 
@@ -147,7 +176,7 @@ _CATALOG = (
         (35, 90), (30, 125), (70, 120), (3, 1, 2), 42, ("ftp", "relative_rpe"), "vo2",
     ),
     _definition(
-        "bike_neuromuscular_sprints", "Neuromuscular Sprints", "bike", ("quality", "easy"),
+        "bike_neuromuscular_sprints", "Neuromuscular Sprints", "bike", ("quality",),
         "neuromuscular recruitment", ("Base", "Build", "Peak", "Taper", "Race Week", "Maintenance"),
         (30, 75), (20, 85), (40, 90), (1, 1, 3), 30, ("ftp", "relative_rpe"), "neuromuscular",
     ),
@@ -307,7 +336,7 @@ def select_workout_template(context: Mapping[str, Any]) -> dict[str, Any]:
     for definition in _CATALOG:
         if definition.kind != "single" or definition.sport != sport:
             continue
-        if role not in definition.roles or phase not in definition.phase_eligibility:
+        if not any(item in definition.roles for item in _selection_roles(phase, role)) or phase not in definition.phase_eligibility:
             continue
         if not _goal_matches(definition, goal_type):
             continue
@@ -352,16 +381,16 @@ def select_workout_template(context: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-_STEP_PATTERNS: dict[str, tuple[tuple[str, str, float, float], ...]] = {
-    "recovery": (("Warm-up", "easy", 0.15, 0.35), ("Recovery", "steady", 0.70, 0.50), ("Cool-down", "easy", 0.15, 0.30)),
-    "endurance": (("Warm-up", "easy", 0.15, 0.45), ("Aerobic endurance", "steady", 0.70, 0.68), ("Cool-down", "easy", 0.15, 0.35)),
-    "progression": (("Warm-up", "easy", 0.15, 0.45), ("Aerobic", "steady", 0.40, 0.68), ("Progression", "work", 0.30, 0.82), ("Cool-down", "easy", 0.15, 0.35)),
-    "tempo": (("Warm-up", "easy", 0.20, 0.45), ("Tempo blocks", "work", 0.50, 0.88), ("Easy reset", "easy", 0.10, 0.45), ("Cool-down", "easy", 0.20, 0.35)),
-    "threshold": (("Warm-up", "easy", 0.20, 0.45), ("Threshold intervals", "work", 0.45, 1.00), ("Recoveries", "easy", 0.15, 0.45), ("Cool-down", "easy", 0.20, 0.35)),
-    "vo2": (("Warm-up", "easy", 0.25, 0.45), ("VO2 intervals", "work", 0.30, 1.15), ("Recoveries", "easy", 0.20, 0.40), ("Cool-down", "easy", 0.25, 0.35)),
-    "neuromuscular": (("Warm-up", "easy", 0.30, 0.45), ("Sprints", "work", 0.15, 1.30), ("Full recoveries", "easy", 0.30, 0.35), ("Cool-down", "easy", 0.25, 0.30)),
-    "technique": (("Easy warm-up", "easy", 0.20, 0.45), ("Technique drills", "steady", 0.45, 0.55), ("Aerobic swim", "work", 0.20, 0.70), ("Easy cool-down", "easy", 0.15, 0.40)),
-    "race_pace": (("Warm-up", "easy", 0.20, 0.45), ("Race-pace blocks", "work", 0.50, 0.95), ("Easy reset", "easy", 0.10, 0.45), ("Cool-down", "easy", 0.20, 0.35)),
+_STEP_PATTERNS: dict[str, tuple[tuple[str, str, float, float, str], ...]] = {
+    "recovery": (("Warm-up", "easy", 0.15, 0.35, "warmup"), ("Recovery", "steady", 0.7, 0.5, "stage"), ("Cool-down", "easy", 0.15, 0.3, "cooldown")),
+    "endurance": (("Warm-up", "easy", 0.15, 0.45, "warmup"), ("Aerobic endurance", "steady", 0.7, 0.68, "stage"), ("Cool-down", "easy", 0.15, 0.35, "cooldown")),
+    "progression": (("Warm-up", "easy", 0.15, 0.45, "warmup"), ("Aerobic", "steady", 0.4, 0.68, "stage"), ("Progression", "work", 0.3, 0.82, "work"), ("Cool-down", "easy", 0.15, 0.35, "cooldown")),
+    "tempo": (("Warm-up", "easy", 0.2, 0.45, "warmup"), ("Tempo blocks", "work", 0.5, 0.88, "work"), ("Easy reset", "easy", 0.1, 0.45, "recovery"), ("Cool-down", "easy", 0.2, 0.35, "cooldown")),
+    "threshold": (("Warm-up", "easy", 0.2, 0.45, "warmup"), ("Threshold intervals", "work", 0.45, 1.0, "work"), ("Recoveries", "easy", 0.15, 0.45, "recovery"), ("Cool-down", "easy", 0.2, 0.35, "cooldown")),
+    "vo2": (("Warm-up", "easy", 0.25, 0.45, "warmup"), ("VO2 intervals", "work", 0.3, 1.15, "work"), ("Recoveries", "easy", 0.2, 0.4, "recovery"), ("Cool-down", "easy", 0.25, 0.35, "cooldown")),
+    "neuromuscular": (("Warm-up", "easy", 0.3, 0.45, "warmup"), ("Sprints", "work", 0.15, 1.3, "work"), ("Full recoveries", "easy", 0.3, 0.35, "recovery"), ("Cool-down", "easy", 0.25, 0.3, "cooldown")),
+    "technique": (("Easy warm-up", "easy", 0.2, 0.45, "warmup"), ("Technique drills", "steady", 0.45, 0.55, "stage"), ("Aerobic swim", "work", 0.2, 0.7, "work"), ("Easy cool-down", "easy", 0.15, 0.4, "cooldown")),
+    "race_pace": (("Warm-up", "easy", 0.2, 0.45, "warmup"), ("Race-pace blocks", "work", 0.5, 0.95, "work"), ("Easy reset", "easy", 0.1, 0.45, "recovery"), ("Cool-down", "easy", 0.2, 0.35, "cooldown")),
 }
 
 
@@ -739,9 +768,9 @@ def _legacy_specs(
             intensity,
             seconds[index],
             target_fraction,
-            "work" if intensity == "work" else "stage",
+            segment_kind,
         )
-        for index, (name, intensity, _share, target_fraction) in enumerate(pattern)
+        for index, (name, intensity, _share, target_fraction, segment_kind) in enumerate(pattern)
     ]
     return specs, {
         "rule_version": STRUCTURE_RULE_VERSION,
@@ -806,7 +835,9 @@ def _resolve_provenance(
     missing = [item for item in definition.target_preference if item != "relative_rpe"]
     return {
         "kind": "relative_rpe",
-        "source": "catalog.relative_rpe",
+        "source": "catalog.rpe_policy",
+        "policy_version": definition.rpe_policy_version,
+        "policy_key": definition.template_key,
         "value": None,
         "fallback": True,
         "missing": missing,
@@ -814,7 +845,8 @@ def _resolve_provenance(
     }
 
 
-def _target_for_step(provenance: Mapping[str, Any], intensity: str, fraction: float) -> dict[str, Any]:
+def _target_for_step(provenance: Mapping[str, Any], intensity: str, fraction: float,
+                     *, rpe_range: tuple[int, int] | None = None) -> dict[str, Any]:
     kind = str(provenance.get("kind") or "relative_rpe")
     value = provenance.get("value")
     low_fraction = max(0.2, fraction - (0.03 if intensity == "work" else 0.08))
@@ -848,12 +880,11 @@ def _target_for_step(provenance: Mapping[str, Any], intensity: str, fraction: fl
             "relative_low": round(low_fraction, 2),
             "relative_high": round(high_fraction, 2),
         }
-    rpe = max(1, min(10, int(round(fraction * 10))))
+    if rpe_range is None:
+        raise ValueError("explicit catalog RPE policy required")
     return {
-        "type": "relative_rpe",
-        "unit": "rpe_1_10",
-        "low": max(1, rpe - 1),
-        "high": min(10, rpe + (1 if intensity == "work" else 0)),
+        "type": "relative_rpe", "unit": "rpe_1_10",
+        "low": rpe_range[0], "high": rpe_range[1],
     }
 
 
@@ -1015,8 +1046,28 @@ _POWER_DERIVED_BIKE_BUILDERS = frozenset(
         "vo2",
         "neuromuscular",
         "race_pace",
+        "activation",
     }
 )
+
+
+def _validated_rpe_targets(definition: WorkoutTemplateDefinition) -> dict[str, tuple[int, int]]:
+    """Validate the raw stage policy before unpacking or collapsing its entries."""
+    raw = definition.rpe_stage_targets
+    required = {"warmup", "cooldown", "recovery", "stage", "work"}
+    if not definition.rpe_policy_version or not isinstance(raw, (tuple, list)):
+        return {}
+    targets: dict[str, tuple[int, int]] = {}
+    for entry in raw:
+        if not isinstance(entry, (tuple, list)) or len(entry) != 3:
+            return {}
+        key, low, high = entry
+        if (not isinstance(key, str) or key not in required or key in targets
+            or type(low) is not int or type(high) is not int
+            or not 1 <= low <= high <= 10):
+            return {}
+        targets[key] = (low, high)
+    return targets if set(targets) == required else {}
 
 
 def materialize_workout(
@@ -1055,6 +1106,11 @@ def materialize_workout(
         for spec in specs
     ]
     provenance = _resolve_provenance(definition, zone_snapshot)
+    rpe_targets = (_validated_rpe_targets(definition)
+                   if provenance["kind"] == "relative_rpe" else {})
+    if provenance["kind"] == "relative_rpe" and not rpe_targets:
+        return {**base, "materialization_status": "infeasible",
+                "failed_bounds": ["target_semantics_unverified"], "target_provenance": provenance}
     tss_values = _exact_distribution(target_tss, duration_shares, 1)
     steps = []
     for index, spec in enumerate(specs):
@@ -1068,6 +1124,7 @@ def materialize_workout(
                 provenance,
                 spec.intensity,
                 spec.target_fraction,
+                rpe_range=rpe_targets.get(spec.segment_kind),
             ),
             "segment_kind": spec.segment_kind,
         }
@@ -1206,7 +1263,7 @@ def _single_candidates(
             and any(role in definition.roles for role in ("quality", "easy"))
         )
         if (
-            session_role not in definition.roles and not sharpening_override
+            not any(role in definition.roles for role in _selection_roles(phase, session_role)) and not sharpening_override
         ) or phase not in definition.phase_eligibility:
             continue
         if not _goal_matches(definition, goal_type):
@@ -1223,11 +1280,9 @@ def _single_candidates(
             duration = cap if not _failed_bounds(definition, cap, target_tss) else None
         if duration is not None:
             candidates.append((definition, duration))
-    fresh = [item for item in candidates if item[0].template_key not in recent]
-    if fresh:
-        candidates = fresh
     candidates.sort(
         key=lambda item: (
+            item[0].template_key in recent,
             preference_rank.get(item[0].step_builder_key, len(preferences)),
             item[0].fatigue_cost,
             item[0].template_key,
@@ -1359,67 +1414,93 @@ def materialize_session_template(
         load_state=load_state,
         recent_template_keys=recent_template_keys,
     )
-    if not candidates:
-        return {
-            "kind": "single",
-            "materialization_status": "legacy_role_fallback",
-            "catalog_version": CATALOG_VERSION,
-            "selection_evidence": {
-                "rule_version": SELECTOR_RULE_VERSION,
-                "phase": phase,
-                "role": session_role,
-                "sport": sport,
-                "load_state": load_state,
-                "reason": "no_feasible_catalog_definition",
-            },
-        }
-
-    # Issue #554 review: ranking expresses preference, not deliverability, and
-    # the band mismatch is a (candidate × duration) property: the derived
-    # prescription of the top-ranked pair can break its own catalog bounds (a
-    # 40-minute bike_vo2max_intervals delivers 59.7 TSS/h against its [70, 120]
-    # band, while 50 minutes delivers 72.6 TSS/h inside it), and persisting it
-    # makes a deliverable day undeliverable. The retry therefore searches the
-    # duration grid of each candidate, closest to the duration the selector
-    # already picked first, but only inside the session's intent: a Taper/Race
-    # Week long day stays a bounded sharpening, never a longer endurance
-    # substitute. When no intent-preserving pair is executable, the top-ranked
-    # definition stays selected and the session keeps its fail-closed shape.
     constraint = _session_intent_constraint(phase, session_role)
-    probe_order = [candidates[0]]
-    probe_order.extend(
-        item
-        for item in candidates[1:]
-        if _keeps_session_intent(item[0], constraint=constraint)
-    )
+    probe_order = candidates[:1] + [item for item in candidates[1:]
+        if _keeps_session_intent(item[0], constraint=constraint)]
     attempts: list[dict[str, Any]] = []
+    fallback_rejections: list[dict[str, Any]] = []
+    replacement_loads: dict[str, float] = {}
     executable_index: int | None = None
-    for definition, duration in probe_order:
-        for candidate_duration in _retry_durations(
-            definition,
-            preferred=duration,
-            phase=phase,
-        ):
-            if _failed_bounds(definition, candidate_duration, target_tss):
+
+    def attempt_pairs(pairs, *, light_fallback: bool = False) -> int | None:
+        for definition, duration in pairs:
+            for candidate_duration in _retry_durations(definition, preferred=duration, phase=phase):
+                requested = replacement_loads.get(definition.template_key, target_tss) if light_fallback else target_tss
+                if _failed_bounds(definition, candidate_duration, requested):
+                    continue
+                materialized = materialize_workout(
+                    definition, {"duration_minutes": candidate_duration,
+                        "target_tss": replacement_loads.get(definition.template_key, target_tss) if light_fallback else target_tss},
+                    zone_snapshot)
+                if light_fallback and (
+                    materialized["materialization_status"] != "materialized"
+                    or float(materialized["parameter_snapshot"]["target_tss"]) > target_tss
+                ):
+                    fallback_rejections.append({"template_key": definition.template_key,
+                        "reason": "light_fallback_not_feasible_or_load_increased"})
+                    continue
+                attempts.append({"definition": definition, "preferred_duration_minutes": duration,
+                    "duration_minutes": candidate_duration, "materialized": materialized,
+                    "light_fallback": light_fallback})
+                if materialized["materialization_status"] == "materialized":
+                    return len(attempts) - 1
+        return None
+
+    executable_index = attempt_pairs(probe_order)
+    quality_load_ceiling = max((d.max_tss for d in _CATALOG
+        if d.kind == "single" and d.sport == sport and "quality" in d.roles
+        and phase in d.phase_eligibility and _goal_matches(d, goal_type)), default=0)
+    recovery_request = phase == "Recovery" and session_role in {"easy", "quality", "long", "recovery"}
+    recovery_load_ceiling = max((d.max_tss for d in _CATALOG
+        if d.kind == "single" and d.sport == sport and "Recovery" in d.phase_eligibility
+        and d.step_builder_key in {"recovery", "endurance", "technique"}
+        and _goal_matches(d, goal_type)), default=0)
+    allow_light_replacement = (
+        (session_role == "quality" and phase in {"Base", "Build", "Maintenance"}
+         and 0 < target_tss <= quality_load_ceiling)
+        or (recovery_request and 0 < target_tss <= recovery_load_ceiling)
+    )
+    if executable_index is None and allow_light_replacement and estimated_duration_minutes > 0:
+        # A concrete light replacement is explicit in role/evidence, bounded by
+        # both the original duration and requested load. Never substitute a
+        # long endurance session for a pre-race sharpening.
+        # A failed power pair may already have been assigned a shorter
+        # duration than the schedule estimate. A replacement must fit both,
+        # otherwise a blind hours projection could grow after zones resolve.
+        duration_cap = min([estimated_duration_minutes] + [a["duration_minutes"] for a in attempts])
+        preferences = _PHASE_PREFERENCE.get(phase, _PHASE_PREFERENCE["Base"])
+        recent = set(recent_template_keys)
+        light = []
+        for definition in _CATALOG:
+            if (definition.kind != "single" or definition.sport != sport
+                or ("recovery" if recovery_request else "easy") not in definition.roles
+                or phase not in definition.phase_eligibility
+                or definition.step_builder_key not in ({"recovery", "technique"} if recovery_request else {"recovery", "endurance", "technique"})
+                or not _goal_matches(definition, goal_type)
+                or (load_state == "deep_fatigue" and max(definition.fatigue_cost) >= 3)):
                 continue
-            materialized = materialize_workout(
-                definition,
-                {"duration_minutes": candidate_duration, "target_tss": target_tss},
-                zone_snapshot,
-            )
-            attempts.append(
-                {
-                    "definition": definition,
-                    "preferred_duration_minutes": duration,
-                    "duration_minutes": candidate_duration,
-                    "materialized": materialized,
-                }
-            )
-            if materialized["materialization_status"] == "materialized":
-                executable_index = len(attempts) - 1
-                break
-        if executable_index is not None:
-            break
+            duration = min(duration_cap, definition.max_duration_minutes)
+            if duration < definition.min_duration_minutes:
+                continue
+            reduced_request = min(target_tss, definition.max_tss,
+                                  definition.max_tss_per_hour * duration / 60.0)
+            # The persisted materializer uses tenths of TSS. Never round a
+            # raw upper density/load cap upward into an infeasible request.
+            reduced_request = math.floor(reduced_request * 10) / 10
+            if _failed_bounds(definition, duration, reduced_request):
+                continue
+            light.append((definition, duration))
+            replacement_loads[definition.template_key] = reduced_request
+        light.sort(key=lambda pair: (pair[0].template_key in recent,
+            preferences.index(pair[0].step_builder_key), pair[0].fatigue_cost, pair[0].template_key))
+        candidates.extend(light)
+        executable_index = attempt_pairs(light, light_fallback=True)
+    if not attempts:
+        return {"kind": "single", "materialization_status": "legacy_role_fallback",
+            "catalog_version": CATALOG_VERSION,
+            "selection_evidence": {"rule_version": SELECTOR_RULE_VERSION, "phase": phase,
+                "role": session_role, "sport": sport, "load_state": load_state,
+                "reason": "no_feasible_catalog_definition", "fallback_rejections": fallback_rejections}}
     selected_index = 0 if executable_index is None else executable_index
     selected = attempts[selected_index]
     definition = selected["definition"]
@@ -1439,10 +1520,19 @@ def materialize_session_template(
         for item in candidates[1:]
         if not _keeps_session_intent(item[0], constraint=constraint)
     ]
+    effective_role = ("recovery" if phase == "Recovery" else
+                      "easy" if selected["light_fallback"] else session_role)
+    role_override = (f"{session_role}_to_{effective_role}" if effective_role != session_role else
+                     "long_to_sharpening" if constraint == _TAPER_LONG_INTENT else None)
     evidence = {
         "rule_version": SELECTOR_RULE_VERSION,
         "phase": phase,
         "role": session_role,
+        "requested_role": session_role,
+        "requested_tss": target_tss,
+        "effective_role": effective_role,
+        "replacement_requested_tss": (materialized["parameter_snapshot"].get("requested_tss",
+            materialized["parameter_snapshot"].get("target_tss")) if selected["light_fallback"] else None),
         "sport": sport,
         "load_state": load_state,
         "recent_template_keys": [str(item) for item in recent_template_keys],
@@ -1460,7 +1550,8 @@ def materialize_session_template(
         # Taper long day), never a silent change.
         "preferred_duration_minutes": preferred_duration,
         "duration_retimed": duration != preferred_duration,
-        "role_override": "long_to_sharpening" if constraint == _TAPER_LONG_INTENT else None,
+        "role_override": role_override,
+        "fallback_rejections": fallback_rejections,
     }
     if executable_index is None:
         # Nothing the retry was allowed to consider survived its derived bounds;
@@ -1477,6 +1568,7 @@ def materialize_session_template(
     }
     return {
         "kind": "single",
+        "session_role": effective_role,
         "catalog_version": CATALOG_VERSION,
         "selector_rule_version": SELECTOR_RULE_VERSION,
         "materializer_rule_version": MATERIALIZER_RULE_VERSION,
@@ -1581,6 +1673,7 @@ def materialize_brick_session(
         legs.append(
             {
                 "leg_index": leg_index,
+                "materialization_status": materialized["materialization_status"],
                 "sport": sport,
                 "target_tss": round(
                     bike_effective_tss if sport == "bike" else run_effective_tss,
