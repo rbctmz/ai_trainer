@@ -14,7 +14,10 @@ Class A: versioned prescription/provenance and cross-module role projection.
 Automatic escalation: identity/provenance. Manual review; round 1/2 examined
 `7550d2e..5f15c87`, code READY, overall pending broad verification. Round 2 is a
 scoped test/fixture/evidence delta, not another runtime full-diff review.
-Native rounds: 0. No exception or human merge acceptance is implied.
+Native round 1 on 5aa8f6e found three P2 defects, now reproduced and corrected
+(raw RPE shape/duplicates, legacy stage identity, fallback quantization). Round 2
+will verify only this delta after stable CI. No exception or human merge
+acceptance is implied.
 
 ## Scope and non-goals
 

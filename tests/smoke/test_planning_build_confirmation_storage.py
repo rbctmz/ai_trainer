@@ -26,7 +26,7 @@ from tests.smoke._planning_build_confirmation import (
     seeded_db,
 )
 
-BASELINE = Path(__file__).resolve().parents[1] / "fixtures/planning_build_confirmation_catalog_v4_baseline.json"
+BASELINE = Path(__file__).resolve().parents[1] / "fixtures/planning_build_confirmation_catalog_v4_materializer_v7_baseline.json"
 
 
 @pytest.fixture(autouse=True)

@@ -173,3 +173,31 @@ posted and read back. CI started; no final CI, native review, human acceptance o
 merge is implied. No test DB files remain in the isolated checkout. Primary
 checkout remains unchanged on codex/issue-693-postmerge-record. Keep worktree and
 branches for review; cleanup belongs to the merge owner.
+
+
+## Native review correction evidence
+
+Native round1 on5aa8f6e reported three P2 findings: raw RPE policy validation,
+legacy recovery segment identity, and light fallback quantization. Exact targeted
+RED:6 failed,4 passed; exceptions ValueError/TypeError, duplicate accepted,
+legacy stage identity mismatch and25-minute feasible fallback refused.
+Implemented shape/uniqueness/type validation before mapping, explicit legacy
+segment identities with matching policy lookup, and downward tenth quantization
+before unchanged density bounds. Absolute CSS targets ignore unused malformed
+RPE policy. Added15 regression cases including complete invalid type maps and
+25/29/31-minute replacement controls. Materializer v7 invalidates stale pending
+inputs; it does not rematerialize existing snapshots/applied receipts.
+
+Full-payload oracle experiment used pinned clocks and separate synthetic DBs.
+Original M2 catalog source exactly reproduced6/6 old v4 cases. Full payload diff
+was inspected: only checkpoint/session-template hashes change; version/legacy
+segment identities propagate to fingerprints and session/leg/replacement IDs.
+Response/daily-plan/events/science/forecast hashes are unchanged6/6. Old v3/v4
+files stay intact; separate materializer-v7 baseline is selected explicitly.
+No clinical validity, live athlete delivery or main merge is implied.
+
+Targeted GREEN:203 passed in10.73s, including15 added regression cases,
+all6 whole-payload oracle cases and coherent preparation/storage checks. Separate
+synthetic matrix checked1458 Base/Build/Maintenance quality requests across
+sports/doses/durations/zone availability:486 light replacements, zero executable
+status/time/load/bounds violations. Repository Ruff and whitespace GREEN.

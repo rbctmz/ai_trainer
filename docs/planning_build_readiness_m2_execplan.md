@@ -168,3 +168,30 @@ verification; native and human acceptance remain separate.
 
 Revision 2026-10-20: explicit human handoff from M1 to Domain/API M2; no implicit
 extension into M3 publication or S4 UI.
+
+
+## Native round-one corrections (2026-10-20)
+
+Role handoff: M1 doc corrections are pushed separately at d13d013. Resume
+Domain/API Implementer for the three native P2 findings on M2 5aa8f6e.
+Observed: malformed RPE entries raise before validation, duplicate stages collapse,
+legacy swim interval recoveries persist as generic stages, and a 25-minute bike
+replacement rounds 18.75 up to18.8 TSS then fails its unchanged45 TSS/hour cap.
+Verified by: exact synthetic regression,6 failures /4 passing boundary controls.
+No athlete records or provider calls are involved.
+
+Validate raw policy shape, unique known stage keys and integer1-10 bounds before
+constructing its mapping; only RPE fallback requires that policy. Legacy patterns
+now explicitly carry warmup/work/recovery/cooldown identity, and target lookup
+uses that same persisted identity. Floor replacement requests to tenths before
+checking original bounds. Materializer v7 supersedes v5 (v6 was allocated by the
+stacked M3); catalog and selector policy versions remain unchanged. Stale pending
+artifacts must refresh; applied receipts and historical JSON remain immutable.
+
+Original v3 and v4 golden files remain unchanged. Reproduced the original v4 six
+cases using exact pre-fix catalog source. Inspected full before/after payloads:
+only checkpoint/session-template hashes change due to materializer version,
+legacy segment kinds and consequent identity/fingerprint lineage; response,
+daily loads, events, science and forecast hashes stay identical in all six.
+The new explicit materializer-v7 oracle preserves every field comparison.
+Validation and the final scoped native round are recorded in the M2 report.
