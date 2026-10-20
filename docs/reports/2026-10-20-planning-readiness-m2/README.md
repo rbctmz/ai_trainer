@@ -80,9 +80,8 @@ start_week/start_date and correctly got invalid_start_date; fixing the fixture
 removed that false alarm. training_goal caps to 8 weeks by existing contract;
 the 16-week performance case therefore uses a real 16-week event calendar.
 
-Broad contributor contour: running; no GREEN claimed yet. Independent review:
-pending, native rounds 0. Final failures/triage/verification are appended before
-publishing. Four M1 readiness acceptance cases remain M3 obligations.
+Broad contributor and independent review final results follow below. Four M1
+readiness acceptance cases remain M3 obligations; native rounds 0.
 
 ## Broad regression / oracle investigation
 
@@ -91,8 +90,10 @@ Breakdown: 27 default SQLite path permission failures; 12 exact v3 oracle hashes
 intentionally changed; 4 M1 acceptance tests reached absent M3 readiness keys
 once generation passed; 7 #554 fixtures depended on now-repaired assignments;
 1 recovery-replan assertion expected easy bike to select sprints. A fresh
-`DATABASE_PATH` / `DEMO_DATABASE_PATH` / `CHATS_DIR` under temporary storage fixes
-the environment, without opening an athlete DB. Assertions are updated narrowly,
+`DATABASE_PATH` / `DEMO_DATABASE_PATH` / `CHATS_DIR` under temporary storage
+removes default-path failures without opening an athlete DB. Seven legacy tests
+also hard-code relative test_*.db files; they need a writable test checkout.
+Assertions are updated narrowly,
 not marked skipped; four M3 tests retain strict AssertionError-only XFAIL, with
 an explicit missing-assessment assertion before accessing future DTO fields.
 
@@ -117,4 +118,47 @@ Independent round 1: READY for code at 5f15c87, zero confirmed P1/blocking P2.
 Checker independently passed 128 tests and examined 2,268 quality requests across
 phase/sport/dose/time/threshold combinations: 84 explicit fallbacks, no load/time
 cap, allowed phase, light-family or role violations. P3 E401 in report probe fixed.
-Overall readiness awaits completed broad run and scoped verification delta.
+Scoped round 2 below and final broad verification complete the author gate.
+
+## Final verification and handoff
+
+Final contributor command from the isolated worktree, with fresh temporary
+DATABASE_PATH / DEMO_DATABASE_PATH / CHATS_DIR and existing TypeScript dependencies
+linked read-only for contract tooling:
+
+    python -m pytest -m "not live and not debug and not e2e" tests/ -q -p no:cacheprovider -W error::pytest.PytestReturnNotNoneWarning --tb=short
+
+Result: **1 failed, 3738 passed, 16 skipped, 82 deselected, 4 xfailed, 7 warnings in 328.34s (0:05:28)**. The runner was permitted to write its own legacy test_*.db
+files in the isolated checkout. The preceding sandbox rerun had 3,707 passed,
+41 skipped, 4 xfailed and seven relative-test-path permission failures; those
+are resolved in the final run, not suppressed or relabelled as successful tests.
+The one remaining full-run failure was run_web busy-port preflight: the child
+script could not find `python` on PATH. With the venv bin directory on PATH,
+all three unchanged preflight tests pass (3 passed in 0.13s). This is a focused
+environment rerun, not a claim the previous full command exited zero; no runtime
+source changed after the broad run.
+No athlete database was read or changed.
+
+Ruff repository and explicit report probe, whitespace, five local Markdown links,
+`npm --prefix web run contract:extract -- --check` and contract call inventory
+exit 0. No TS artifact changed. UI lint/build/browser acceptance are N/A: no web
+source or top-level HTTP model changed. Broad-suite skips are reported rather
+than treated as successful feature coverage; strict M3 XFAIL remain explicit.
+
+Independent read-only scoped round 2 READY at
+52b2f3fd398834ffef176b70d076874c0e3fc295: 139 passed, 4 expected strict XFAIL in
+21.12s; changed-file Ruff and whitespace GREEN; status clean before/after. Runtime
+diff from round-1 5f15c87 is empty. Original bounds, effective-load assertions and
+v3 fixture preserved. No confirmed P1/blocking P2; P3 probe import fixed-in 52b2f3f.
+Review budget 2/2 (round 2 scoped delta), native rounds 0. Later edits only finish
+this evidence and publication record.
+
+Final public-HTTP probe again returned 58/58, 62/62, 62/62, 115/115 materialized;
+max week minutes 240/335/335/415, times 0.356/0.207/0.186/0.363s. These are fixture
+measurements, not a universal feasibility/suitability claim.
+
+Handoff: M3 consumes the M1 contract and the repaired immutable prescriptions,
+normalizes final effective load lineage and blocks incomplete/invalid candidates
+before pending creation and at confirm. Preserve deliberately refused pre-race
+fixtures and applied-receipt semantics. M4 remains recent-history entry dose;
+S4 consumes agreed DTOs. Human owns native review acceptance, merge and cleanup.

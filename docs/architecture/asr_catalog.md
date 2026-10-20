@@ -718,7 +718,7 @@ ASR-DEP-2: новые таблицы, backfill и отдельное retention o
 docs/reports/2026-10-20-planning-readiness-m1/probe.py; результаты в report README.
 Это planned раздел, он не повышает статус доставленных механизмов S1/S2.
 
-## Planning prescription repair (in progress; #677 S3 M2)
+## Planning prescription repair (verified draft; #677 S3 M2)
 
 2026-10-20: [ExecPlan](../planning_build_readiness_m2_execplan.md),
 [evidence](../reports/2026-10-20-planning-readiness-m2/README.md). Shared Python

@@ -23,8 +23,9 @@ M3 still owns final load consistency and the publication guard, M4 entry dose.
 - [x] (2026-10-20) Refreshed M1 contract, ADD3/ASR, ADR-0001, role/workflow boundaries and prior template intent/duration constraints.
 - [x] (2026-10-20) Added 48 targeted cases: baseline 45 failed, 3 passed. Includes preliminary missing policy-field/provenance RED, not 45 independent behavioral reproductions.
 - [x] (2026-10-20) Implemented eligibility, feasible rotation/replacement, explicit RPE and complete day-level role projection; 128 focused GREEN.
-- [ ] No-growth/impossible/phase and whole-plan probes GREEN; stale-pending and historical preservation evidence being completed.
-- [ ] Focused/broad regression, Ruff, contracts as applicable, independent bounded review and draft publication.
+- [x] (2026-10-20) No-growth/impossible/phase and whole-plan probes GREEN; old-context pending rejects, applied receipt and v1 snapshot restore remain unchanged; archived M1 oracle reproduced 6/6.
+- [x] (2026-10-20) Focused and broad regression, Ruff, TS contract freshness/inventory, links and independent two-round review complete; see evidence.
+- [ ] Draft publication and parent-issue readback (recorded after GitHub returns identity).
 
 ## Surprises & Discoveries
 
@@ -157,9 +158,13 @@ applied receipts retain their original versions/content until an explicit new ed
 
 ## Outcomes & Retrospective
 
-In progress. Final evidence and reviewer verdict go in
-`docs/reports/2026-10-20-planning-readiness-m2/README.md`. The next handoff is M3;
-no final readiness or individualized training suitability is claimed by M2.
+M2 implementation complete at runtime 5f15c87 and regression checkpoint 52b2f3f.
+Contributor result: 3,738 passed, 16 skipped, 82 deselected, 4 strict M3 XFAIL; one subprocess PATH failure resolved by all 3 run_web preflight tests passing with the venv on PATH.
+Independent round 1 code READY and scoped round 2 READY, zero open P1/blocking P2.
+Report records initial failures, unchanged v3 oracle and the final environment.
+The next handoff is M3 aggregate consistency/publication guard; no final readiness
+or individualized training suitability is claimed by M2. Draft publication follows
+verification; native and human acceptance remain separate.
 
 Revision 2026-10-20: explicit human handoff from M1 to Domain/API M2; no implicit
 extension into M3 publication or S4 UI.
