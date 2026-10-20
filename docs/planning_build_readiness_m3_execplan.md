@@ -191,8 +191,8 @@ selection/version and must invalidate the older proposal.
 Demo empty-history matrix:10h manual fixture blocked at75.6TSS/100min swim quality;
 8h and6h ready for both empty and seeded activity histories. Choose8h synthetic demo;
 do not bypass guard or expand catalog just for a fixture. Standard training-goal
-E2E edit initially blocked at20.2TSS/50min long-bike; success protocol control uses
-explicit12h/all-seven-days availability. Browser refusal response is now asserted
+E2E edit initially blocked at20.2TSS/50min long-bike; explicit12h/all-seven-days availability still blocks. Final success protocol control
+uses the existing executable manual8h demo; guard is never weakened. Browser refusal response is now asserted
 before waiting for success text. No browser CSS or product interactions changed.
 
 Oracle regeneration inspected complete six-case plans: only build_readiness
@@ -204,3 +204,14 @@ unchanged. Current oracle remains full-payload, not TSS-only or field-stripped.
 Second full run and targeted Planning E2E are pending at this commit. First broad
 E2E was stopped after repeated timeouts; temporary process groups were identified
 and stopped explicitly, primary8000/3000 untouched. It is not counted as a pass.
+
+## Final runtime verification snapshot
+
+Contributor run2:3816passed/16skipped/82deselected,246.11s, command with normal
+not-live/not-debug/not-e2e selection and return-value warnings as errors. Ruff
+--no-cache GREEN. Python runtime has not changed since60c2343. Review fixes5 GREEN.
+Planning confirmation + Coach card + lifecycle browser scenarios:36passed52.90s.
+Coach UI fixtures now use actual origin=coach prepare/confirm on declared manual
+inputs; AITools adapter remains covered by the separate true tool tests. No mocked
+successful readiness/artifact is inserted. Existing screenshot fixtures are restored;
+M3 screenshots live in its own evidence folder. Complete E2E is still pending.

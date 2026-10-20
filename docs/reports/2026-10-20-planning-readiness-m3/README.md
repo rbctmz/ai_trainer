@@ -90,3 +90,20 @@ build HTTP assertion and feasible availability in protocol success controls. Fir
 broad E2E was interrupted, not passed; temporary servers were stopped without
 touching the user's primary stack. Remaining unsupported low-dose Base-long/event
 activation arrangements must be tracked for a generation follow-up, not waived.
+
+
+## Post-fix checks
+
+Contributor-safe suite:3816passed,16skipped,82deselected,7warnings in246.11s.
+Command: venv PATH + temporary DATABASE_PATH/DEMO_DATABASE_PATH/CHATS_DIR;
+`python -m pytest -m "not live and not debug and not e2e" tests/ -q
+-p no:cacheprovider -W error::pytest.PytestReturnNotNoneWarning --tb=short`.
+Existing FastAPI/httpx deprecation and six wrapped-SQLite/pandas warnings remain;
+no returned-non-None test warnings suppressed. Ruff --no-cache and diffcheck GREEN.
+
+Browser Planning+Coach+lifecycle:36passed in52.90s on isolated temporary servers.
+Unsupported ordinary training-goal remained blocked even with12h/all-seven-days;
+success protocol controls explicitly choose executable manual8h inputs. Coach card
+control uses real origin=coach prepare and real bound approval/replay, while true
+AITools generation is separately exercised by tool tests. No UI/CSS implementation
+or browser-local business rule was introduced. Full browser suite still pending.
