@@ -131,3 +131,15 @@ Generator gaps and paired falsifying checks tracked/read back in [#707](https://
 [Coach retry screenshot](browser/coach-uncertain.png) are synthetic M3 evidence.
 Worktree is retained for review. Human owns merge and cleanup. CI/native acceptance
 will be reported separately; local GREEN is not a remote CI or deployment claim.
+
+
+## Publication
+
+[Draft PR #708](https://github.com/rbctmz/ai_trainer/pull/708), stacked on M2#706;
+attached. Initial head56d1b8b0c18501226558440dcfa731aedfb206f4; subsequent publication
+record only changes docs. [Parent evidence](https://github.com/rbctmz/ai_trainer/issues/677#issuecomment-6286793899)
+posted/read back; #677 remains open. #707 read back. No accepted labels or merge.
+Initial remote checks: Gitleaks and Web contract SUCCESS, contributor/E2E running;
+Review gate FAIL with verified reason `no submitted native review for the current
+head` (run39393549722). Current-head CI/native acceptance remains a separate
+merge gate; local58 browser and3816 contributor results do not replace it.

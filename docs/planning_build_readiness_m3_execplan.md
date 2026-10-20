@@ -24,7 +24,7 @@ confirmation refuses before active writes. Historical receipts replay as before.
 - [x] (2026-10-20) Implement pure normalization/assessment and frozen input binding; prepare/confirm and historical compatibility.
 - [x] (2026-10-20) API/TS/contracts, targeted/rollback/replay/performance tests; 117 latest focused GREEN.
 - [x] Full contributor3816, full browser58, final contracts/Ruff/web lint/build and independent READY.
-- [ ] Independent bounded review, stacked draft PR and parent evidence readback.
+- [x] Independent2/2 READY; stacked draft #708 attached, #677 evidence posted and read back.
 
 ## Surprises & Discoveries
 
@@ -237,3 +237,21 @@ M3 is implemented/verified, without personal suitability assessment. Remaining
 publication step: stacked draft on codex/issue-677-s3-m2, attach it, record/read back
 #677 evidence. No merge, approval label, working athlete DB change, personalized
 entry dose or S4 UI work is authorized by this completion record.
+
+## Publication / handoff
+
+Draft [#708](https://github.com/rbctmz/ai_trainer/pull/708) targets
+codex/issue-677-s3-m2 (M2 #706), attached to the current task. Initial publication
+head56d1b8b0c18501226558440dcfa731aedfb206f4, runtime60c2343, independent reviewed
+head3eafc7b. Later publication record is docs-only. Parent evidence:
+[#677 comment](https://github.com/rbctmz/ai_trainer/issues/677#issuecomment-6286793899).
+Generator follow-up #707 body read back. #677 stays open. No label acceptance,
+merge, rollout or cleanup claimed.
+
+Initial remote snapshot: Gitleaks/Web contract/link successful; contributor and
+Playwright CI in progress. Review gate failure reason verified from run39393549722:
+`no submitted native review for the current head`. This is a missing native-review
+gate, not a functional-test verdict. Do not bypass it with an acceptance label.
+Final local tests remain green; remote current-head status must be checked again
+by the merge owner. Worktree retained; unrelated primary-checkout changes were
+observed during final read-only status and left untouched.
