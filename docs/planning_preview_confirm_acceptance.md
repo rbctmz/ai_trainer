@@ -6,6 +6,34 @@ Codex as Supervisor / Integrator. The [specification](planning_preview_confirm_s
 owns AC1–AC8 and the [ExecPlan](planning_preview_confirm_execplan.md) records
 the implementation and independent checks of M1–M4.
 
+## Post-merge outcome — 2026-10-17
+
+[PR #691](https://github.com/rbctmz/ai_trainer/pull/691) merged as
+`93fa4f4d8d41c9e392093538900f471903b6c331` at 17:26:00 UTC. Human owner explicitly
+accepted the current review and authorized merge; the acceptance label triggered
+fresh green Review gate/readiness checks and `mergeStateStatus=CLEAN` was verified
+before `--match-head-commit 4201a953f53393e4038f4bf013bbc42439eedc28` merge.
+No admin bypass, waiver or budget exception was used.
+
+The [native clean receipt](https://github.com/rbctmz/ai_trainer/pull/691#issuecomment-6237446682)
+names the current head, 1/2 native rounds with zero findings and zero threads.
+Current-head contributor-safe CI passed 3342 cases (38 skipped, 64 deselected,
+187.03s); complete browser CI passed 40 cases (222.38s), and contracts/secret scan
+passed. Exact check URLs and human acceptance are in
+[the final issue record](https://github.com/rbctmz/ai_trainer/issues/685#issuecomment-6237675432).
+
+Local main was fast-forward synced and its tree equals the reviewed head.
+Post-merge confirmation HTTP and lost-response/restart/backup replay checks:
+**51 passed, 2 known warnings in 5.42s**. No need to rerun the entire unchanged
+tree locally. #685 is closed; #677 remains open for S2–S4. #686 was automatically
+marked merged by GitHub with the same final merge; #687–#690 were closed as
+superseded without separate merges. Their commits remain in main.
+
+AC1–AC8, including human acceptance, are complete for S1. Live rollout, personal
+database migration and providers were not operated. The rest of this document
+is the pre-merge evidence snapshot; its pending-gate language records that
+earlier stage rather than the current merged status.
+
 ## Candidate and scope
 
 The final candidate branch is `codex/issue-685-s1-acceptance`, based on M4
