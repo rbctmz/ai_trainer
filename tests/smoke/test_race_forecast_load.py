@@ -9,6 +9,8 @@ overwritten. The forecast lives OUTSIDE the discipline budget chain
 `race_forecast_tss` on the race week's summary row.
 """
 from __future__ import annotations
+from tests.planning_fixtures import write_context
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 from datetime import date, datetime, timedelta
 
@@ -85,11 +87,10 @@ def test_overlay_emits_bounded_race_forecast_for_a_and_b_only():
 
 
 def _built_plan(db):
-    from api import planning_service as ps
 
     today = datetime.now().date()
     b_date, a_date = pinned_reference_events(today)
-    return ps.build_plan(
+    return fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -188,9 +189,9 @@ def test_forecast_after_execution_adjustment_still_anticipates_races(tmp_path, m
                 patched.setattr(
                     tp, "RACE_FORECAST_TSS_POLICY", {"A": 0.0, "B": 0.0}, raising=True
                 )
-                result = ps.apply_adjustment(db, rows=rows, weeks=1, persist=False)
+                result = ps.apply_adjustment(db, rows=rows, weeks=1, persist=False, cycle_context=write_context(db))
         else:
-            result = ps.apply_adjustment(db, rows=rows, weeks=1, persist=False)
+            result = ps.apply_adjustment(db, rows=rows, weeks=1, persist=False, cycle_context=write_context(db))
         return float(result["forecast"]["final_tsb"])
 
     with_races = _adjusted_final_tsb(tmp_path / "adj-with.db", zero_policy=False)

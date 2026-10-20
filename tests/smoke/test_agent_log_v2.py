@@ -19,6 +19,7 @@ from threading import Barrier
 import pytest
 
 from data.database import Database
+from tests.athlete_clock import athlete_today
 
 pytestmark = pytest.mark.smoke
 
@@ -510,7 +511,9 @@ def test_coach_proposal_turn_records_plan_scope_and_applies_outcome(tmp_path, mo
             if self.calls == 1:
                 return (
                     "[TOOL: propose_plan_build, goal_type=Триатлон, "
-                    f"distance=Olympic, event_date={_future_event_date()}, available_hours=10]"
+                    f"distance=Olympic, event_date={_future_event_date()}, available_hours=10, "
+                    f"action=start_new, start_date={athlete_today().isoformat()}, base_selection_revision=0, "
+                    "base_checkpoint_id=0, replace_current_cycle=false]"
                 )
             return "Готово: я подготовил предложение плана, его нужно подтвердить."
 

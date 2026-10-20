@@ -6,6 +6,7 @@ from typing import Any, Sequence
 
 from config.settings import Settings
 from data.database import Database
+from services.planning_cycles import current_plan_snapshot, actionable
 from models.intervals_workout_delivery import (
     build_delivery_events,
     provider_event_is_executable,
@@ -86,7 +87,7 @@ def deliver_active_plan(
 ) -> dict[str, Any]:
     """Converge a bounded provider window on the active local checkpoint."""
     selected = _selected_dates(days=days, dates=dates, today=today)
-    checkpoint = db.get_latest_planning_checkpoint()
+    context, checkpoint = current_plan_snapshot(db)
     checkpoint_id = int(checkpoint["id"]) if checkpoint and checkpoint.get("id") else None
     result = _base_result(
         status="pending",
@@ -96,6 +97,8 @@ def deliver_active_plan(
     )
     if not selected:
         return {**result, "status": "skipped"}
+    if not actionable(context) or not checkpoint:
+        return {**result, "status": "no_plan", "cycle_context": context}
     resolved_client = client or get_client()
     if not resolved_client.is_configured():
         return {**result, "status": "not_configured"}
@@ -236,7 +239,7 @@ def safe_deliver_active_plan(
             **_base_result(
                 status="failed",
                 source=str(source),
-                checkpoint_id=(db.get_latest_planning_checkpoint() or {}).get("id"),
+                checkpoint_id=(db.get_current_planning_checkpoint() or {}).get("id"),
                 dates=selected,
             ),
             "status": "failed",

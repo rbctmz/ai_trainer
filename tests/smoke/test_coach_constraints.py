@@ -46,6 +46,7 @@ def test_database_persists_and_filters_active_coach_constraints(tmp_path):
         plan_id="plan-1",
         session_id="session-1",
         metadata={"severity": "high"},
+        cycle_scope="athlete",
     )
     unavailable = db.save_coach_constraint(
         date=tomorrow,
@@ -90,13 +91,17 @@ def test_planning_constraint_api_create_list_and_deactivate(tmp_path):
     from api.routers import planning as planning_router
 
     db = Database(str(tmp_path / "api_constraints.db"))
+    from tests.planning_fixtures import seed_checkpoint, restore_fields
+    from models.planning_checkpoints import build_planning_checkpoint
+    base = seed_checkpoint(db, build_planning_checkpoint(_goal_plan()))
     req = planning_router.ConstraintRequest(
+        **restore_fields(db), base_checkpoint_id=base["id"],
         date=_date(),
         kind="manual_delete",
         source="user",
         note="Убрал тренировку вручную",
-        plan_id="plan-42",
-        session_id="day-0",
+        plan_id=str(base["id"]),
+        session_id=base["goal_plan_snapshot"]["session_templates"][0]["session_id"],
         metadata={"origin": "calendar"},
     )
 
@@ -463,8 +468,12 @@ def test_constraint_request_validates_sport_at_api_layer():
 
     from api.routers import planning as planning_router
 
+    fields = {"expected_cycle_id": None, "expected_cycle_revision": None,
+              "expected_selection_revision": 0, "base_checkpoint_id": 0}
+
     try:
         planning_router.ConstraintRequest(
+            **fields,
             date=_date(), kind="sick", source="user", sport="flying"
         )
     except pydantic.ValidationError:
@@ -473,8 +482,9 @@ def test_constraint_request_validates_sport_at_api_layer():
         raise AssertionError("unknown sport must fail request validation (422)")
 
     aliased = planning_router.ConstraintRequest(
+        **fields,
         date=_date(), kind="unavailable", source="user", sport="плавание"
     )
     assert aliased.sport == "swim"
-    whole = planning_router.ConstraintRequest(date=_date(), kind="sick", source="user")
+    whole = planning_router.ConstraintRequest(**fields, date=_date(), kind="sick", source="user")
     assert whole.sport is None

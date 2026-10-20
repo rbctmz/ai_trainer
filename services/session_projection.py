@@ -5,7 +5,8 @@ from datetime import date, datetime
 from typing import Any, Mapping
 
 from data.database import Database
-from models.session_projection import build_session_projection
+from services.planning_cycles import session_checkpoint
+from models.session_projection import build_session_projection, SessionProjectionNotFoundError
 from models.plan_actual_reconciliation import (
     iter_parent_sessions,
     resolve_confirmed_replacement_ledger,
@@ -24,9 +25,9 @@ def _date_text(value: Any) -> str | None:
     return text or None
 
 
-def _planned_session_date(db: Database, session_id: str) -> str | None:
+def _planned_session_date(db: Database, session_id: str, *, checkpoint: Mapping[str, Any]) -> str | None:
     """Resolve a session's plan date without widening the evidence window."""
-    plan = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+    plan = restore_goal_plan_from_checkpoint(checkpoint)
     if not plan:
         return None
     plan = ensure_session_identities(plan)
@@ -58,16 +59,21 @@ def session_projection_at(
     session_id: str,
     as_of: date | str | None = None,
     weeks: int = 1,
+    checkpoint_id: int | None = None,
 ) -> dict[str, Any]:
     """Read one session projection strictly from bounded local evidence."""
+    checkpoint = session_checkpoint(db, session_id, checkpoint_id=checkpoint_id)
+    if checkpoint is None:
+        raise SessionProjectionNotFoundError(session_id)
     resolved_as_of = as_of
     if resolved_as_of is None:
-        resolved_as_of = _planned_session_date(db, session_id)
+        resolved_as_of = _planned_session_date(db, session_id, checkpoint=checkpoint)
     reconciliation = reconciliation_at(
         db,
         weeks=weeks,
         as_of=resolved_as_of,
         include_provider=False,
+        checkpoint=checkpoint,
     )
     return session_projection_from_reconciliation(
         db,
@@ -83,7 +89,7 @@ def session_projection_from_reconciliation(
     session_id: str,
 ) -> dict[str, Any]:
     """Compose one DTO from an already-bounded local reconciliation snapshot."""
-    match_revision = _effective_match_revision(db, session_id)
+    match_revision = _effective_match_revision(db, session_id, checkpoint_id=reconciliation.get("base_checkpoint_id"))
     feedback = db.get_latest_session_feedback(session_id)
     return build_session_projection(
         reconciliation,
@@ -116,8 +122,9 @@ def session_projection_revision_heads(
 def _effective_match_revision(
     db: Database,
     session_id: str,
+    *, checkpoint_id: int | None = None,
 ) -> Mapping[str, Any] | None:
-    """Return the match revision reconciliation uses for this active session.
+    """Return the match revision from the reconciliation checkpoint context.
 
     Reconciliation may inherit an explicit confirmation from a uniquely
     claimed replacement predecessor. Preserve that same ledger provenance in
@@ -127,7 +134,7 @@ def _effective_match_revision(
     if current is not None:
         return current
 
-    checkpoint = db.get_latest_planning_checkpoint()
+    checkpoint = db.get_planning_checkpoint(checkpoint_id) if checkpoint_id is not None else session_checkpoint(db, session_id)
     plan = restore_goal_plan_from_checkpoint(checkpoint)
     if not plan:
         return None

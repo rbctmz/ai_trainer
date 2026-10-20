@@ -3,6 +3,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, StrictBool, field_validator
+from api.planning_cycle_contract import BuildLifecycle
 
 
 class BuildConfirmRequest(BaseModel):
@@ -70,3 +71,16 @@ class BuildPreviewResponse(BuiltPlanResponse):
 
 class BuildConfirmResponse(BuildPreviewResponse):
     pass
+
+
+class BuildConfirmationV2(BuildConfirmation):
+    protocol_version: Literal[2]
+
+
+class BuildPreviewResponseV2(BuiltPlanResponse):
+    parameters: BuildParametersResponse
+    confirmation: BuildConfirmationV2
+    lifecycle: BuildLifecycle
+
+
+BuildConfirmResponseVersioned = BuildConfirmResponse | BuildPreviewResponseV2

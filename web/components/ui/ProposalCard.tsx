@@ -486,6 +486,7 @@ export function ProposalCard({
       ? "Снять ограничение"
       : "Восстановить день плана";
 
+  const lifecycle = asRecord(preview.lifecycle);
   const goal = (preview.goal as Record<string, unknown> | undefined) ?? {};
   const buildParams = action === "build_plan" ? buildPlanParams(params) : null;
   const adjustParams = action === "adjust_plan" ? adjustPlanParams(params) : null;
@@ -550,6 +551,7 @@ export function ProposalCard({
         await Promise.allSettled([
           mutate("/api/planning/status"), mutate("/api/planning/overview"),
           mutate("/api/planning/history?limit=8"), mutate("/api/onboarding/planning"),
+          mutate("/api/planning/cycles/current"), mutate("/api/planning/cycles"),
         ]);
         onConfirmed(buildConfirmedMessage(result));
         return;
@@ -658,6 +660,7 @@ export function ProposalCard({
 
       {action === "build_plan" ? (
         <>
+          {lifecycle.action ? <p className="mt-3 text-sm text-ink">{lifecycle.action === "start_new" ? "Новый цикл" : "Изменение выбранного цикла"}: {asString(lifecycle.start_date)} — {asString(lifecycle.end_date)}.{lifecycle.closes_cycle_id ? " При подтверждении прежний цикл закроется. История сохранится; участие не определяется автоматически." : ""}</p> : null}
           <ul className="mt-3 space-y-1 text-sm text-ink-soft">
             <li>
               Цель: {asString(goal.goal_type || buildParams?.goal_type)} •{" "}

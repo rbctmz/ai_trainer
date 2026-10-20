@@ -23,6 +23,8 @@ confirms through) → reconciliation → feedback vertical. No provider or live
 DB access; `Database` is only ever a local sqlite tmp file.
 """
 from __future__ import annotations
+from tests.planning_fixtures import write_context
+from tests.planning_fixtures import seed_checkpoint
 
 from datetime import date, datetime, timedelta, timezone
 
@@ -44,6 +46,12 @@ from tests.smoke.test_recovery_transfer import (
 
 
 pytestmark = pytest.mark.smoke
+
+
+@pytest.fixture(autouse=True)
+def active_cycle_day(monkeypatch):
+    from tests.planning_fixtures import pin_day
+    pin_day(monkeypatch, _TODAY)
 
 
 def _activity(activity_id: str, day_iso: str, sport: str, tss: float, duration: float = 60.0) -> dict:
@@ -309,14 +317,14 @@ def test_record_plan_actual_match_persists_nested_session_ledger_row_after_trans
     target_date = (_TODAY + timedelta(days=2)).isoformat()
 
     db = Database(str(tmp_path / "m5-ledger-nested.db"))
-    base = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    base = seed_checkpoint(db, build_planning_checkpoint(plan))
 
     applied = apply_recovery_replan_transfer(
         db,
         base_checkpoint_id=base["id"],
         session_id=old_id,
         target_date=target_date,
-    )
+    cycle_context=write_context(db))
     new_id = applied["new_session_id"]
     new_checkpoint_id = applied["applied_checkpoint_id"]
 
@@ -448,14 +456,14 @@ def test_feedback_submit_and_history_target_new_session_after_transfer_and_fail_
     target_date = (_TODAY + timedelta(days=2)).isoformat()
 
     db = Database(str(tmp_path / "m5-feedback-handoff.db"))
-    base = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    base = seed_checkpoint(db, build_planning_checkpoint(plan))
 
     applied = apply_recovery_replan_transfer(
         db,
         base_checkpoint_id=base["id"],
         session_id=old_id,
         target_date=target_date,
-    )
+    cycle_context=write_context(db))
     new_id = applied["new_session_id"]
 
     db.save_activities(
@@ -547,7 +555,7 @@ def test_historical_feedback_stays_isolated_across_transfer_identity_handoff(tmp
     target_date = (_TODAY + timedelta(days=2)).isoformat()
 
     db = Database(str(tmp_path / "m5-feedback-isolation.db"))
-    base = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    base = seed_checkpoint(db, build_planning_checkpoint(plan))
 
     db.save_activities(
         [
@@ -583,7 +591,7 @@ def test_historical_feedback_stays_isolated_across_transfer_identity_handoff(tmp
         base_checkpoint_id=base["id"],
         session_id=old_id,
         target_date=target_date,
-    )
+    cycle_context=write_context(db))
     new_id = applied["new_session_id"]
 
     db.save_activities(
@@ -732,14 +740,14 @@ def test_apply_recovery_replan_transfer_returns_human_readable_session_label(tmp
     target_date = (_TODAY + timedelta(days=2)).isoformat()
 
     db = Database(str(tmp_path / "m6-transfer-label.db"))
-    base = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    base = seed_checkpoint(db, build_planning_checkpoint(plan))
 
     applied = apply_recovery_replan_transfer(
         db,
         base_checkpoint_id=base["id"],
         session_id=old_id,
         target_date=target_date,
-    )
+    cycle_context=write_context(db))
 
     label = applied.get("new_session_label")
     assert label

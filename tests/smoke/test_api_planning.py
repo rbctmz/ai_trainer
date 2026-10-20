@@ -3,6 +3,9 @@
 Contributor-safe: temp SQLite seeded with a little history, no network/AI.
 """
 from __future__ import annotations
+from tests.planning_fixtures import write_context
+from tests.planning_fixtures import build_plan as fixture_build_plan
+from tests.planning_fixtures import seed_checkpoint
 
 import importlib
 from datetime import timedelta
@@ -55,7 +58,7 @@ def test_planning_routes_registered():
 
 
 def test_training_goal_builds_rolling_horizon_without_race(tmp_path):
-    from api.planning_service import build_plan
+    from tests.planning_fixtures import build_plan
 
     plan = build_plan(
         _seeded_db(tmp_path),
@@ -84,7 +87,7 @@ def test_later_a_anchors_plan_while_earlier_b_is_local_overlay(tmp_path):
     today = athlete_now().date()
     b_date, a_date = pinned_reference_events(today)
     db = _seeded_db(tmp_path)
-    result = ps.build_plan(
+    result = fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -120,11 +123,10 @@ def test_later_a_anchors_plan_while_earlier_b_is_local_overlay(tmp_path):
 
 
 def test_event_goal_without_confirmed_a_is_rejected_without_checkpoint(tmp_path):
-    from api import planning_service as ps
 
     db = _seeded_db(tmp_path)
     with pytest.raises(ValueError, match="confirmed A event"):
-        ps.build_plan(
+        fixture_build_plan(
             db,
             goal_type="triathlon",
             distance="olympic",
@@ -153,7 +155,7 @@ def test_build_persists_catalog_prescriptions_and_one_brick_per_eligible_week(tm
     # seeded fixture intentionally creates deep fatigue, where bricks are banned.
     db = Database(str(tmp_path / "catalog-plan.db"))
     db.save_athlete_profile({"ftp": 200, "lthr": 165, "weight_kg": 80, "source": "test"})
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -247,7 +249,7 @@ def test_explicit_plan_build_prefers_running_pace_then_lthr_then_rpe(
         }
     )
 
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="run",
         distance="10k",
@@ -294,7 +296,7 @@ def test_b_overlay_persists_protected_days_and_resumes(tmp_path):
     db = _seeded_db(tmp_path)
     today = athlete_now().date()
     b_date, _a_date = pinned_reference_events(today)
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -321,6 +323,7 @@ def test_b_overlay_persists_protected_days_and_resumes(tmp_path):
 def test_api_build_requires_preview_before_confirm(tmp_path):
     from api.routers.planning import BuildRequest, planning_build, planning_build_confirm
     from api.planning_build_contract import BuildConfirmRequest
+    from tests.smoke._planning_build_confirmation import cycle_fields
 
     db = _seeded_db(tmp_path)
     request = BuildRequest(
@@ -332,6 +335,7 @@ def test_api_build_requires_preview_before_confirm(tmp_path):
         horizon_weeks=4,
         available_hours=10,
         persist=False,
+        **cycle_fields(db),
     )
     preview = planning_build(request, db=db)
     assert preview["plan_id"] is None
@@ -349,9 +353,10 @@ def test_api_build_requires_preview_before_confirm(tmp_path):
 def test_preview_is_read_only_and_stale_confirmation_is_rejected(tmp_path):
     from models.planning_build_confirmation import PlanningBuildPreviewError
 
-    from api.planning_service import PLANNING_DEMAND_SETTING_KEY, build_plan
+    from api.planning_service import PLANNING_DEMAND_SETTING_KEY
     from api.routers.planning import BuildRequest, planning_build, planning_build_confirm
     from api.planning_build_contract import BuildConfirmRequest
+    from tests.smoke._planning_build_confirmation import cycle_fields
 
     db = _seeded_db(tmp_path)
     request = BuildRequest(
@@ -363,6 +368,7 @@ def test_preview_is_read_only_and_stale_confirmation_is_rejected(tmp_path):
         available_hours=10,
         demand="aggressive",
         persist=False,
+        **cycle_fields(db),
     )
 
     preview = planning_build(request, db=db)
@@ -370,18 +376,11 @@ def test_preview_is_read_only_and_stale_confirmation_is_rejected(tmp_path):
     assert db.get_user_setting(PLANNING_DEMAND_SETTING_KEY, None) is None
     assert db.get_latest_planning_checkpoint() is None
 
-    # Another actor appends a checkpoint after the preview was shown.
-    build_plan(
-        db,
-        goal_type="triathlon",
-        distance="olympic",
-        event_date=None,
-        planning_mode="training_goal",
-        intent="maintain",
-        horizon_weeks=4,
-        available_hours=8,
-        persist=True,
-    )
+    # Another actor confirms a competing cycle; a raw history append no longer
+    # selects/reopens a cycle and is deliberately not a current-state change.
+    competing = planning_build(BuildRequest(**{**request.model_dump(mode="json"),
+        "intent": "maintain", "available_hours": 8, "demand": "moderate"}), db=db)
+    planning_build_confirm(BuildConfirmRequest(preview_id=competing["confirmation"]["preview_id"], confirm=True), db=db)
 
     with pytest.raises(PlanningBuildPreviewError) as exc_info:
         planning_build_confirm(BuildConfirmRequest(
@@ -453,7 +452,7 @@ def test_status_form_matches_canonical_zone_through_consumer_path(tmp_path):
 
 
 def test_build_plan_contract(tmp_path):
-    from api.planning_service import build_plan
+    from tests.planning_fixtures import build_plan
 
     db = _seeded_db(tmp_path)
     event = (athlete_now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
@@ -490,7 +489,7 @@ def test_build_plan_contract(tmp_path):
 
 
 def test_sixteen_week_preview_meets_planning_latency_asr(tmp_path):
-    from api.planning_service import build_plan
+    from tests.planning_fixtures import build_plan
 
     db = Database(str(tmp_path / "planning-latency.db"))
     event = (athlete_now().date() + timedelta(weeks=16)).isoformat()
@@ -526,7 +525,7 @@ def test_build_plan_applies_active_coach_constraints(tmp_path):
     )
 
     event = (athlete_now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
-    result = ps.build_plan(
+    result = fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -599,7 +598,7 @@ def _reconciliation_db(tmp_path) -> tuple[Database, dict]:
 
     db = Database(str(tmp_path / "reconciliation.db"))
     plan = ensure_session_identities(_goal_plan())
-    db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    seed_checkpoint(db, build_planning_checkpoint(plan))
     actuals = [
         ("2026-07-07", "cycling", 40.0),
         ("2026-07-08", "cycling", 42.0),
@@ -623,7 +622,10 @@ def _reconciliation_db(tmp_path) -> tuple[Database, dict]:
     return db, plan
 
 
-def test_reconciliation_preview_confirm_is_future_only_and_stale_safe(tmp_path):
+def test_reconciliation_preview_confirm_is_future_only_and_stale_safe(tmp_path, monkeypatch):
+    from datetime import date
+    from tests.planning_fixtures import pin_day
+    pin_day(monkeypatch, date(2026, 7, 13))
     from api import planning_service as ps
 
     db, base_plan = _reconciliation_db(tmp_path)
@@ -664,7 +666,7 @@ def test_reconciliation_preview_confirm_is_future_only_and_stale_safe(tmp_path):
         weeks=1,
         include_provider=False,
     )["preview"]
-    db.save_planning_checkpoint(latest)
+    seed_checkpoint(db, latest)
     with pytest.raises(ps.StalePlanningCheckpointError):
         ps.confirm_weekly_rebalance(
             db,
@@ -678,6 +680,9 @@ def test_reconciliation_preview_confirm_is_future_only_and_stale_safe(tmp_path):
 
 
 def test_provider_failure_blocks_rebalance_without_hiding_local_evidence(tmp_path, monkeypatch):
+    from datetime import date
+    from tests.planning_fixtures import pin_day
+    pin_day(monkeypatch, date(2026, 7, 13))
     from api import planning_service as ps
     from services import reconciliation as reconciliation_service
 
@@ -1193,7 +1198,7 @@ def test_export_and_adjust_active_plan(tmp_path):
 
     db = _seeded_db(tmp_path)
     event = (athlete_now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -1227,7 +1232,7 @@ def test_export_and_adjust_active_plan(tmp_path):
     for r in rows[:1]:
         r["outcome"] = "skipped"
         r["actual_total_tss"] = 0
-    adjusted = ps.apply_adjustment(db, rows=rows, weeks=1, persist=False)
+    adjusted = ps.apply_adjustment(db, rows=rows, weeks=1, persist=False, cycle_context=write_context(db))
     assert "status" in adjusted["adjustment"]
     assert len(adjusted["weeks"]) >= 1
     assert len(adjusted["forecast"]["points"]) >= 2
@@ -1238,7 +1243,7 @@ def test_apply_adjustment_preserves_active_coach_constraints(tmp_path):
 
     db = _seeded_db(tmp_path)
     event = (athlete_now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -1265,7 +1270,7 @@ def test_apply_adjustment_preserves_active_coach_constraints(tmp_path):
     )
 
     rec = ps.reconciliation(db, weeks=1)
-    adjusted = ps.apply_adjustment(db, rows=rec["rows"], weeks=1, persist=True)
+    adjusted = ps.apply_adjustment(db, rows=rec["rows"], weeks=1, persist=True, cycle_context=write_context(db))
 
     assert adjusted["constraint_application"]["applied_count"] == 1
     assert adjusted["constraint_application"]["protected_dates"] == [protected_date]
@@ -1282,7 +1287,7 @@ def test_apply_adjustment_preserves_active_coach_constraints(tmp_path):
 
 
 def test_build_run_goal_maps_distance(tmp_path):
-    from api.planning_service import build_plan
+    from tests.planning_fixtures import build_plan
 
     db = _seeded_db(tmp_path)
     event = (athlete_now() + timedelta(weeks=6)).strftime("%Y-%m-%d")

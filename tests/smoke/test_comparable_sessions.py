@@ -462,7 +462,7 @@ def test_service_includes_stable_auto_reconciled_history_without_ledger() -> Non
             assert end_date == "2026-08-24"
             return []
 
-        def get_latest_planning_checkpoint(self):
+        def get_current_planning_checkpoint(self):
             return self.get_planning_checkpoint(3)
 
         def get_latest_session_feedbacks(self):
@@ -491,7 +491,7 @@ def test_service_restores_auto_match_stimulus_after_plan_rollover() -> None:
         def get_latest_plan_actual_matches(self, *, start_date, end_date):
             return []
 
-        def get_latest_planning_checkpoint(self):
+        def get_current_planning_checkpoint(self):
             return {
                 "id": 4,
                 "goal_plan_snapshot": {
@@ -573,7 +573,7 @@ def test_service_restores_rollover_auto_match_without_feedback() -> None:
         def get_latest_plan_actual_matches(self, *, start_date, end_date):
             return []
 
-        def get_latest_planning_checkpoint(self):
+        def get_current_planning_checkpoint(self):
             return {
                 "id": 4,
                 "goal_plan_snapshot": {
@@ -639,7 +639,7 @@ def test_historical_rollover_recovery_fails_closed_on_same_day_ambiguity() -> No
         def get_latest_plan_actual_matches(self, *, start_date, end_date):
             return []
 
-        def get_latest_planning_checkpoint(self):
+        def get_current_planning_checkpoint(self):
             return {
                 "id": 4,
                 "goal_plan_snapshot": {
@@ -721,7 +721,7 @@ def test_service_suppresses_legacy_auto_feedback_after_manual_rematch() -> None:
                 }
             ]
 
-        def get_latest_planning_checkpoint(self):
+        def get_current_planning_checkpoint(self):
             return self.get_planning_checkpoint(3)
 
         def get_latest_session_feedbacks(self):
@@ -1585,7 +1585,7 @@ def test_saved_feedback_restores_target_from_immutable_match_checkpoint() -> Non
                 },
             }
 
-        def get_latest_planning_checkpoint(self):
+        def get_current_planning_checkpoint(self):
             raise AssertionError("latest checkpoint must not be used")
 
     evidence = _evidence_from_saved_feedback(
@@ -1611,7 +1611,7 @@ def test_explicit_target_without_feedback_accepts_datetime_as_of(monkeypatch) ->
     from api import session_feedback
 
     class ActiveTargetDb:
-        def get_latest_planning_checkpoint(self):
+        def get_current_planning_checkpoint(self):
             return {
                 "id": 9,
                 "goal_plan_snapshot": {
@@ -1644,7 +1644,7 @@ def test_explicit_target_without_feedback_accepts_datetime_as_of(monkeypatch) ->
             assert end_date == "2026-08-01"
             return []
 
-    def reconcile(_db, *, weeks, as_of, include_provider):
+    def reconcile(_db, *, weeks, as_of, include_provider, checkpoint):
         assert weeks == 1
         assert as_of.isoformat() == "2026-08-01"
         assert include_provider is False
@@ -1716,7 +1716,7 @@ def test_saved_auto_feedback_finds_historical_checkpoint_after_rollover() -> Non
     }
 
     class RolledOverFeedbackDb:
-        def get_latest_planning_checkpoint(self):
+        def get_current_planning_checkpoint(self):
             return {
                 "id": 8,
                 "goal_plan_snapshot": {
@@ -1820,7 +1820,7 @@ def test_saved_feedback_restores_rebound_session_through_match_lineage() -> None
                 },
             }
 
-        def get_latest_planning_checkpoint(self):
+        def get_current_planning_checkpoint(self):
             raise AssertionError("latest checkpoint must not be used")
 
     evidence = _evidence_from_saved_feedback(
@@ -2174,7 +2174,7 @@ def test_service_batches_historical_checkpoint_recovery() -> None:
         def get_latest_plan_actual_matches(self, *, start_date, end_date):
             return []
 
-        def get_latest_planning_checkpoint(self):
+        def get_current_planning_checkpoint(self):
             return {
                 "id": 8,
                 "goal_plan_snapshot": {
@@ -2606,7 +2606,7 @@ def test_explicit_historical_target_without_feedback_uses_match_checkpoint(
             assert session_id == "historical-session"
             return None
 
-        def get_latest_planning_checkpoint(self):
+        def get_current_planning_checkpoint(self):
             return {
                 "id": 4,
                 "goal_plan_snapshot": {

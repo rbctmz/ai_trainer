@@ -1,0 +1,974 @@
+{
+  "issue": 693,
+  "milestone": "M1",
+  "baseline": "93fa4f4d8d41c9e392093538900f471903b6c331",
+  "meaning": "Frozen source inventory, not proof that any caller is cycle-safe. Lines refer to baseline.",
+  "scan_roots": [
+    "api",
+    "models",
+    "services",
+    "data",
+    "utils",
+    "state",
+    "ui",
+    "scripts",
+    "app.py"
+  ],
+  "excluded": [
+    "tests (legacy fixture builders adapt explicitly in M2/M3)",
+    "archived",
+    "backups",
+    "spikes",
+    "debug",
+    "examples",
+    "research",
+    "output"
+  ],
+  "obligations": {
+    "planning": "Use selected cycle for status/edit/overview/build; guard every child write and explicit restore. Raw history stays raw.",
+    "storage_and_confirmation": "Keep history primitives; add coherent selected read/CAS. Atomic v2 confirm and v1 receipt replay must not reselect history. Reset includes new tables.",
+    "current_and_historical_facts": "Split selected views from explicit checkpoint/session history; preserve ledger bytes and historical corrections.",
+    "provider_delivery": "Resolve/guard selected actionable cycle before any provider call. No old-cycle export on ended/null selection.",
+    "today_and_recovery": "Use shared selection; no obsolete assignment/intervention; retain factual load/readiness.",
+    "coach": "Use frozen cycle context and guarded proposals; no cached checkpoint authority.",
+    "legacy_compatibility": "Bridge shared selectors/guards only. Legacy cached goal_plan cannot reopen or select. No new Streamlit product logic.",
+    "admin_and_synthetic": "Explicit internal initialization or genuine pre-migration fixtures; no public source-flag bypass."
+  },
+  "callers": [
+    {
+      "path": "api/planning_service.py",
+      "function": "demand_preview",
+      "line": 205,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "planning_edit_context",
+      "line": 298,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "confirm_demand_change",
+      "line": 370,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "current_status",
+      "line": 507,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "active_plan_overview",
+      "line": 1042,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "_capture_plan_build_inputs",
+      "line": 1259,
+      "callee": "_get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "build_plan",
+      "line": 1431,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "get_active_plan",
+      "line": 1914,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "_recovery_replan_session_ids_from_history",
+      "line": 1975,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "repair_active_plan_materialization",
+      "line": 1986,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "repair_active_plan_materialization",
+      "line": 2014,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "preview_weekly_rebalance",
+      "line": 2583,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "confirm_weekly_rebalance",
+      "line": 2605,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "confirm_weekly_rebalance",
+      "line": 2630,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "preview_bike_tss_rebalance",
+      "line": 2646,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "confirm_bike_tss_rebalance",
+      "line": 2669,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "confirm_bike_tss_rebalance",
+      "line": 2689,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "record_plan_actual_match",
+      "line": 2762,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "apply_adjustment",
+      "line": 3014,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "apply_recovery_replan",
+      "line": 3064,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "apply_recovery_replan",
+      "line": 3145,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "apply_recovery_replan_transfer",
+      "line": 3203,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "apply_recovery_replan_transfer",
+      "line": 3248,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "rollback_recovery_replan",
+      "line": 3281,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "rollback_recovery_replan",
+      "line": 3288,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "rollback_recovery_replan",
+      "line": 3302,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "planning_history",
+      "line": 3331,
+      "callee": "get_recent_planning_checkpoints",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "restore_history_version",
+      "line": 3390,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "restore_history_version",
+      "line": 3400,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "restore_history_version",
+      "line": 3412,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "recover_day_after_constraint_retraction",
+      "line": 3534,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "recover_day_after_constraint_retraction",
+      "line": 3540,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "recover_day_after_constraint_retraction",
+      "line": 3632,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "recover_day_after_constraint_retraction",
+      "line": 3638,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "preview_coach_constraint_mutation",
+      "line": 3728,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "confirm_coach_constraint_mutation",
+      "line": 3900,
+      "callee": "commit_coach_plan_mutation",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "api/planning_service.py",
+      "function": "_find_day_donor",
+      "line": 4028,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/recovery_replan_loop.py",
+      "function": "run_recovery_replan_loop",
+      "line": 346,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "today_and_recovery",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/routers/activities.py",
+      "function": "get_activity_card",
+      "line": 312,
+      "callee": "get_checkpoint_data",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/routers/activities.py",
+      "function": "get_activity_card",
+      "line": 366,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/routers/decisions.py",
+      "function": "list_decisions",
+      "line": 151,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "callback_or_bound_reference",
+      "family": "coach",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/routers/planning.py",
+      "function": "_active_checkpoint_id",
+      "line": 288,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "planning",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/session_feedback.py",
+      "function": "_evidence_from_saved_feedback",
+      "line": 344,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/session_feedback.py",
+      "function": "_evidence_from_saved_feedback",
+      "line": 356,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/session_feedback.py",
+      "function": "_evidence_from_saved_feedback",
+      "line": 359,
+      "callee": "get_planning_checkpoints_for_session",
+      "reference_kind": "dynamic_lookup",
+      "family": "current_and_historical_facts",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/session_feedback.py",
+      "function": "_match_revision_id_for_prompt",
+      "line": 595,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/session_feedback.py",
+      "function": "_feedback_evidence_for_session",
+      "line": 674,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/session_feedback.py",
+      "function": "_session_id_for_prediction",
+      "line": 1048,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/session_feedback.py",
+      "function": "_admin_match_evidence",
+      "line": 1235,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "api/session_feedback.py",
+      "function": "list_feedback_prompts",
+      "line": 1333,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/session_quality_forecast.py",
+      "function": "record_shadow_session_quality_forecast",
+      "line": 245,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "today_and_recovery",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/today_snapshot.py",
+      "function": "_build_parent_story_from_sources",
+      "line": 404,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "today_and_recovery",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/today_snapshot.py",
+      "function": "_latest_checkpoint",
+      "line": 422,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "today_and_recovery",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "api/today_snapshot.py",
+      "function": "_resolve_forecast.lifecycle_reason",
+      "line": 676,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "today_and_recovery",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database.save_planning_checkpoint",
+      "line": 1468,
+      "callee": "_insert_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "storage_and_confirmation",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database.get_latest_planning_checkpoint",
+      "line": 1669,
+      "callee": "_get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "storage_and_confirmation",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "data/planning_build_preview_store.py",
+      "function": "apply_preview",
+      "line": 295,
+      "callee": "_insert_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "storage_and_confirmation",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "models/ai_tools.py",
+      "function": "AITools._active_checkpoint_id_or_zero",
+      "line": 1823,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "coach",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "models/ai_tools.py",
+      "function": "AITools.get_active_plan",
+      "line": 2255,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "coach",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "models/ai_tools.py",
+      "function": "AITools.get_upcoming_workouts",
+      "line": 2377,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "coach",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "models/ai_tools.py",
+      "function": "AITools.get_workout_structure",
+      "line": 2539,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "coach",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "scripts/api_parity_capture.py",
+      "function": "_seed",
+      "line": 106,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "admin_and_synthetic",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "scripts/repair_planning_materialization.py",
+      "function": "_ReadOnlyPlanningStore.get_latest_planning_checkpoint",
+      "line": 72,
+      "callee": "_get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "admin_and_synthetic",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "scripts/repair_planning_materialization.py",
+      "function": "_ReadOnlyPlanningStore.get_planning_checkpoint",
+      "line": 78,
+      "callee": "_get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "admin_and_synthetic",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "services/acceptance_mode.py",
+      "function": "_has_existing_isolated_data",
+      "line": 69,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "admin_and_synthetic",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "services/coach_runtime_eval.py",
+      "function": "run_trial",
+      "line": 276,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "admin_and_synthetic",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "services/coach_synthetic_eval.py",
+      "function": "build_synthetic_coach_database",
+      "line": 218,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "admin_and_synthetic",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "services/comparable_sessions.py",
+      "function": "_stimulus_for_match",
+      "line": 234,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "services/comparable_sessions.py",
+      "function": "_auto_matches_by_activity",
+      "line": 351,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "dynamic_lookup",
+      "family": "current_and_historical_facts",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "services/comparable_sessions.py",
+      "function": "_historical_auto_matches_by_activity",
+      "line": 449,
+      "callee": "get_latest_planning_checkpoints_for_dates",
+      "reference_kind": "dynamic_lookup",
+      "family": "current_and_historical_facts",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "services/comparable_sessions.py",
+      "function": "_auto_reconciled_stimulus",
+      "line": 581,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "dynamic_lookup",
+      "family": "current_and_historical_facts",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "services/comparable_sessions.py",
+      "function": "_auto_reconciled_stimulus",
+      "line": 619,
+      "callee": "get_planning_checkpoints_for_session",
+      "reference_kind": "dynamic_lookup",
+      "family": "current_and_historical_facts",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "services/comparable_sessions.py",
+      "function": "_preload_historical_checkpoints",
+      "line": 661,
+      "callee": "get_planning_checkpoints_for_sessions",
+      "reference_kind": "dynamic_lookup",
+      "family": "current_and_historical_facts",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "services/intervals_plan_delivery.py",
+      "function": "deliver_active_plan",
+      "line": 89,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "provider_delivery",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "services/intervals_plan_delivery.py",
+      "function": "safe_deliver_active_plan",
+      "line": 239,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "provider_delivery",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "services/reconciliation.py",
+      "function": "reconciliation_at",
+      "line": 70,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "services/recovery_analytics.py",
+      "function": "_refresh_bounded_sync_episodes",
+      "line": 466,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "services/recovery_analytics.py",
+      "function": "_refresh_targeted_episodes",
+      "line": 811,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "services/session_projection.py",
+      "function": "_planned_session_date",
+      "line": 29,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "services/session_projection.py",
+      "function": "_effective_match_revision",
+      "line": 130,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "current_and_historical_facts",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "ui/pages/dashboard.py",
+      "function": "_render_execution_feedback_loop",
+      "line": 579,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "legacy_compatibility",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "ui/pages/dashboard.py",
+      "function": "_render_execution_feedback_loop",
+      "line": 583,
+      "callee": "get_recent_planning_checkpoints",
+      "reference_kind": "call",
+      "family": "legacy_compatibility",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "ui/pages/planning.py",
+      "function": "render_planning_page",
+      "line": 2632,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "legacy_compatibility",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "ui/pages/planning.py",
+      "function": "render_planning_page",
+      "line": 2636,
+      "callee": "get_recent_planning_checkpoints",
+      "reference_kind": "call",
+      "family": "legacy_compatibility",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "ui/pages/planning.py",
+      "function": "render_planning_page",
+      "line": 2757,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "legacy_compatibility",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "ui/pages/planning.py",
+      "function": "render_planning_page",
+      "line": 2761,
+      "callee": "get_recent_planning_checkpoints",
+      "reference_kind": "call",
+      "family": "legacy_compatibility",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "ui/pages/planning.py",
+      "function": "render_planning_page",
+      "line": 2830,
+      "callee": "get_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "legacy_compatibility",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "ui/pages/planning.py",
+      "function": "render_planning_page",
+      "line": 2884,
+      "callee": "save_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "legacy_compatibility",
+      "semantics": "guarded_writer"
+    },
+    {
+      "path": "ui/pages/planning.py",
+      "function": "render_planning_page",
+      "line": 2888,
+      "callee": "get_recent_planning_checkpoints",
+      "reference_kind": "call",
+      "family": "legacy_compatibility",
+      "semantics": "explicit_history"
+    },
+    {
+      "path": "utils/app_state.py",
+      "function": "HeadlessState.refresh_planning_checkpoint_cache",
+      "line": 395,
+      "callee": "get_latest_planning_checkpoint",
+      "reference_kind": "call",
+      "family": "legacy_compatibility",
+      "semantics": "current_or_history_split_required"
+    },
+    {
+      "path": "utils/app_state.py",
+      "function": "HeadlessState.refresh_planning_checkpoint_cache",
+      "line": 396,
+      "callee": "get_recent_planning_checkpoints",
+      "reference_kind": "call",
+      "family": "legacy_compatibility",
+      "semantics": "explicit_history"
+    }
+  ],
+  "direct_sql_sites": [
+    {
+      "path": "data/database.py",
+      "function": "Database.init_tables",
+      "line": 482,
+      "sql": "CREATE TABLE IF NOT EXISTS planning_checkpoints ( id INTEGER PRIMARY KEY AUTOINCREMENT, goal_type TEXT, distance TEXT, weeks_to_race INTEGER, checkpoint_data TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP )"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database._insert_planning_checkpoint",
+      "line": 1482,
+      "sql": "INSERT INTO planning_checkpoints (goal_type, distance, weeks_to_race, checkpoint_data) VALUES (?, ?, ?, ?)"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database._insert_planning_checkpoint",
+      "line": 1489,
+      "sql": "SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at FROM planning_checkpoints WHERE id = ?"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database.commit_coach_plan_mutation",
+      "line": 1528,
+      "sql": "SELECT id FROM planning_checkpoints ORDER BY id DESC LIMIT 1"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database.commit_coach_plan_mutation",
+      "line": 1625,
+      "sql": "INSERT INTO planning_checkpoints (goal_type, distance, weeks_to_race, checkpoint_data) VALUES (?, ?, ?, ?)"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database.commit_coach_plan_mutation",
+      "line": 1638,
+      "sql": "SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at FROM planning_checkpoints WHERE id = ?"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database._get_latest_planning_checkpoint",
+      "line": 1677,
+      "sql": "SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at FROM planning_checkpoints ORDER BY id DESC LIMIT 1"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database.get_planning_checkpoint",
+      "line": 1695,
+      "sql": "SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at FROM planning_checkpoints WHERE id = ? LIMIT 1"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database.get_recent_planning_checkpoints",
+      "line": 1712,
+      "sql": "SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at FROM planning_checkpoints ORDER BY id DESC LIMIT ?"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database.get_planning_checkpoints_for_session",
+      "line": 1732,
+      "sql": "SELECT pc.id, pc.goal_type, pc.distance, pc.weeks_to_race, pc.checkpoint_data, pc.created_at FROM planning_checkpoints AS pc WHERE json_valid(pc.checkpoint_data) AND EXISTS ( SELECT 1 FROM json_tree(pc.checkpoint_data) AS node WHERE node.key = 'session_id' AND CAST(node.value AS TEXT) = ? ) ORDER BY pc.id DESC"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database.get_planning_checkpoints_for_sessions",
+      "line": 1772,
+      "sql": "SELECT DISTINCT CAST(node.value AS TEXT) AS matched_session_id, pc.id, pc.goal_type, pc.distance, pc.weeks_to_race, pc.checkpoint_data, pc.created_at FROM planning_checkpoints AS pc JOIN json_tree( CASE WHEN json_valid(pc.checkpoint_data) THEN pc.checkpoint_data ELSE '{}' END ) AS node ON node.key = 'session_id' WHERE CAST(node.value AS TEXT) IN ( SELECT CAST(value AS TEXT) FROM json_each(?) ) ORDER BY pc.id DESC"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database.get_latest_planning_checkpoints_for_dates",
+      "line": 1843,
+      "sql": "SELECT DISTINCT CAST(node.value AS TEXT) AS session_date, pc.id, pc.goal_type, pc.distance, pc.weeks_to_race, pc.checkpoint_data, pc.created_at FROM planning_checkpoints AS pc JOIN json_tree( CASE WHEN json_valid(pc.checkpoint_data) THEN pc.checkpoint_data ELSE '{}' END ) AS node ON node.key = 'date' JOIN json_each(?) AS requested ON CAST(node.value AS TEXT) = CAST(requested.key AS TEXT) WHERE node.fullkey LIKE '%session_templates%' AND datetime(pc.created_at) <= datetime( CAST(requested.value AS TEXT) ) ORDER BY datetime(pc.created_at) DESC, pc.id DESC"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database.get_latest_planning_checkpoints_for_dates",
+      "line": 1866,
+      "sql": "SELECT DISTINCT CAST(node.value AS TEXT) AS session_date, pc.id, pc.goal_type, pc.distance, pc.weeks_to_race, pc.checkpoint_data, pc.created_at FROM planning_checkpoints AS pc JOIN json_tree( CASE WHEN json_valid(pc.checkpoint_data) THEN pc.checkpoint_data ELSE '{}' END ) AS node ON node.key = 'date' WHERE CAST(node.value AS TEXT) IN ( SELECT CAST(value AS TEXT) FROM json_each(?) ) AND node.fullkey LIKE '%session_templates%' ORDER BY pc.id DESC"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database.get_checkpoint_data",
+      "line": 2901,
+      "sql": "SELECT checkpoint_data FROM planning_checkpoints WHERE id = ?"
+    },
+    {
+      "path": "data/database.py",
+      "function": "Database.clear_all_data",
+      "line": 5642,
+      "sql": "DELETE FROM planning_checkpoints"
+    },
+    {
+      "path": "data/planning_build_preview_store.py",
+      "function": "_read_receipt",
+      "line": 209,
+      "sql": "SELECT id FROM planning_checkpoints WHERE id=?"
+    },
+    {
+      "path": "data/planning_build_preview_store.py",
+      "function": "_read_receipt",
+      "line": 211,
+      "sql": "SELECT id FROM planning_checkpoints ORDER BY id DESC LIMIT 1"
+    },
+    {
+      "path": "scripts/repair_planning_materialization.py",
+      "function": "_ReadOnlyPlanningStore._get_planning_checkpoint",
+      "line": 33,
+      "sql": "SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at FROM planning_checkpoints ORDER BY id DESC LIMIT 1"
+    },
+    {
+      "path": "scripts/repair_planning_materialization.py",
+      "function": "_ReadOnlyPlanningStore._get_planning_checkpoint",
+      "line": 42,
+      "sql": "SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at FROM planning_checkpoints WHERE id = ? LIMIT 1"
+    }
+  ]
+}

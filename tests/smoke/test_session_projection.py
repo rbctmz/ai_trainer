@@ -6,6 +6,7 @@ The composer and service do not exist at the RED checkpoint, so each test
 fails at its local import without preventing collection of the other cases.
 """
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from copy import deepcopy
 
@@ -627,7 +628,7 @@ def test_projection_reports_inherited_confirmed_predecessor_revision(tmp_path) -
     assert current_session["replaces_session_id"] == predecessor_id
 
     db = Database(str(tmp_path / "replacement-projection.db"))
-    original_checkpoint = db.save_planning_checkpoint(
+    original_checkpoint = seed_checkpoint(db,
         build_planning_checkpoint(original)
     )
     db.save_activities([_replacement_activity()])
@@ -637,7 +638,7 @@ def test_projection_reports_inherited_confirmed_predecessor_revision(tmp_path) -
             "base_checkpoint_id": int(original_checkpoint["id"]),
         }
     )
-    db.save_planning_checkpoint(build_planning_checkpoint(current))
+    seed_checkpoint(db, build_planning_checkpoint(current))
 
     projection = session_projection_at(
         db,

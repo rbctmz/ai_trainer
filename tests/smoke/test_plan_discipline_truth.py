@@ -9,6 +9,7 @@ the multi-session (`day.sessions[]`) distribution work lands, then stay green as
 a regression guard.
 """
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 from datetime import datetime, timedelta
 
@@ -70,7 +71,7 @@ def test_weekly_discipline_summary_equals_exported_sessions(tmp_path):
     db = Database(str(tmp_path / "discipline-truth.db"))
     event = pinned_reference_events(datetime.now().date())[1].isoformat()
 
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -143,7 +144,7 @@ def test_each_training_day_has_sessions_with_projected_stable_ids(tmp_path):
     rest/race days carry no deliverable session."""
     db = Database(str(tmp_path / "session-ids.db"))
     event = pinned_reference_events(datetime.now().date())[1].isoformat()
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",

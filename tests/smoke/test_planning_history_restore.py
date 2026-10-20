@@ -6,6 +6,8 @@ checkpoint on top of the active one (nothing is overwritten), keep provenance
 against stale checkpoints. Tests use temporary SQLite only.
 """
 from __future__ import annotations
+from tests.planning_fixtures import restore_fields
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 import importlib
 from datetime import datetime, timedelta
@@ -27,7 +29,7 @@ def _plan_with_history(tmp_path):
     """Two checkpoints: initial moderate plan, then an aggressive demand change."""
     db = _seeded_db(tmp_path)
     event_date = (datetime.now().date() + timedelta(weeks=9)).isoformat()
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -65,7 +67,7 @@ def test_restore_creates_new_checkpoint_with_provenance(tmp_path):
         db,
         checkpoint_id=first_id,
         base_checkpoint_id=second_id,
-    )
+    **restore_fields(db))
 
     assert int(result["base_checkpoint_id"]) == second_id
     assert int(result["restored_from_checkpoint_id"]) == first_id
@@ -102,7 +104,7 @@ def test_restore_rejects_stale_base(tmp_path):
             db,
             checkpoint_id=first_id,
             base_checkpoint_id=second_id + 100,
-        )
+        **restore_fields(db))
     assert int(db.get_latest_planning_checkpoint()["id"]) == second_id
 
 
@@ -114,13 +116,13 @@ def test_restore_rejects_active_and_unknown_checkpoints(tmp_path):
             db,
             checkpoint_id=second_id,
             base_checkpoint_id=second_id,
-        )
+        **restore_fields(db))
     with pytest.raises(ValueError):
         ps.restore_history_version(
             db,
             checkpoint_id=999999,
             base_checkpoint_id=second_id,
-        )
+        **restore_fields(db))
     assert int(db.get_latest_planning_checkpoint()["id"]) == second_id
 
 

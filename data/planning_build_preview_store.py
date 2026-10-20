@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from config.settings import Settings
 from models.planning_build_confirmation import (
-    PROTOCOL_VERSION, STORAGE_SCHEMA_VERSION, PlanningBuildPreviewError,
+    PlanningBuildPreviewError,
     PreparedPlanBuild, canonical_json, fingerprint, utc_text,
 )
 
@@ -51,10 +51,14 @@ def create_planning_build_previews_table(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_planning_preview_cleanup "
                  "ON planning_build_previews(state, expires_at)")
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(planning_build_previews)")}
+    if "cycle_context_json" not in columns:
+        conn.execute("ALTER TABLE planning_build_previews ADD COLUMN cycle_context_json TEXT")
 
 
 def _payload_digest(row: dict[str, Any]) -> str:
-    return fingerprint({key: row[key] for key in _PREPARED_FIELDS})
+    fields = (*_PREPARED_FIELDS, "cycle_context_json") if row["schema_version"] == 2 else _PREPARED_FIELDS
+    return fingerprint({key: row[key] for key in fields})
 
 
 def _corrupt() -> PlanningBuildPreviewError:
@@ -71,7 +75,7 @@ def read_preview(conn: sqlite3.Connection, preview_id: str, *, origin: str) -> d
     if row["origin"] != origin:
         raise PlanningBuildPreviewError("preview_not_found", "Предпросмотр не найден.", status=404)
     try:
-        if (row["schema_version"] != STORAGE_SCHEMA_VERSION or row["protocol_version"] != PROTOCOL_VERSION
+        if ((row["schema_version"], row["protocol_version"]) not in {(1, 1), (2, 2)}
                 or row["state"] not in {"pending", "applied", "invalidated"}
                 or (origin == "planning_ui" and row["coach_proposal_id"] is not None)
                 or row["payload_digest"] != _payload_digest(row)):
@@ -88,6 +92,15 @@ def read_preview(conn: sqlite3.Connection, preview_id: str, *, origin: str) -> d
             if not isinstance(decoded, dict):
                 raise _corrupt()
             canonical_json(decoded)
+        if row["schema_version"] == 2:
+            lifecycle = json.loads(row["cycle_context_json"])
+            if (not isinstance(lifecycle, dict)
+                    or lifecycle != json.loads(row["dependency_context_json"]).get("lifecycle")
+                    or lifecycle != json.loads(row["response_json"]).get("lifecycle")):
+                raise _corrupt()
+            canonical_json(lifecycle)
+        elif row["cycle_context_json"] is not None:
+            raise _corrupt()
         for name in ("created_at", "expires_at"):
             value = datetime.fromisoformat(row[name].replace("Z", "+00:00"))
             if value.tzinfo is None:
@@ -109,6 +122,8 @@ def get_preview(db: Database, preview_id: str, *, origin: str) -> dict[str, Any]
 
 def validate_pending(row: dict[str, Any], *, now: datetime) -> None:
     """Pending eligibility only; successful receipts are not subject to expiry."""
+    if row["protocol_version"] == 1:
+        raise PlanningBuildPreviewError("preview_required", "Нужен новый предпросмотр с контекстом цикла.")
     if row["state"] != "pending":
         raise PlanningBuildPreviewError("preview_invalidated", "Пересоберите предпросмотр.")
     expiry = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
@@ -134,9 +149,11 @@ def store_pending(
     retention = int(Settings.PLANNING_BUILD_PREVIEW_RETENTION_DAYS)
     if ttl <= 0 or retention <= 0:
         raise ValueError("planning preview TTL/retention must be positive")
+    lifecycle = prepared.snapshot.context().get("lifecycle")
+    version = 2 if lifecycle else 1
     row = {
-        "preview_id": str(uuid4()), "schema_version": STORAGE_SCHEMA_VERSION,
-        "protocol_version": PROTOCOL_VERSION, "origin": origin, "state": "pending",
+        "preview_id": str(uuid4()), "schema_version": version,
+        "protocol_version": version, "origin": origin, "state": "pending",
         "created_at": utc_text(now), "expires_at": utc_text(now + timedelta(seconds=ttl)),
         "base_checkpoint_id": prepared.snapshot.parameters.as_dict()["base_checkpoint_id"],
         "parameters_json": prepared.snapshot.parameters.payload_json,
@@ -145,6 +162,7 @@ def store_pending(
         "checkpoint_json": prepared.checkpoint_json, "response_json": prepared.response_json,
         "settings_write_json": prepared.settings_write_json,
     }
+    row["cycle_context_json"] = canonical_json(lifecycle) if lifecycle else None
     row["payload_digest"] = _payload_digest(row)
     conn = db._connect()
     try:
@@ -208,9 +226,12 @@ def _read_receipt(conn: sqlite3.Connection, row: dict[str, Any]) -> dict[str, An
         raise _corrupt() from exc
     if conn.execute("SELECT id FROM planning_checkpoints WHERE id=?", (row["applied_checkpoint_id"],)).fetchone() is None:
         raise PlanningBuildPreviewError("preview_checkpoint_missing", "Сохранённый план не найден; требуется проверка.")
-    latest = conn.execute("SELECT id FROM planning_checkpoints ORDER BY id DESC LIMIT 1").fetchone()
+    selected = conn.execute("""SELECT c.current_checkpoint_id FROM planning_cycle_state s
+        JOIN planning_cycles c ON c.id=s.current_cycle_id
+        JOIN planning_cycle_versions v ON v.checkpoint_id=c.current_checkpoint_id AND v.cycle_id=c.id
+        WHERE s.id=1 AND c.status='open'""").fetchone()
     result["confirmation"] = {**result["confirmation"], "replayed": True,
-                              "is_current": latest[0] == row["applied_checkpoint_id"]}
+                              "is_current": selected is not None and selected[0] == row["applied_checkpoint_id"]}
     return result
 
 
@@ -293,6 +314,10 @@ def apply_preview(
         if set(settings) - {"planning_demand_level", "planning_profile"} or not checkpoint:
             raise _corrupt()
         saved = db._insert_planning_checkpoint(conn, checkpoint, payload=row["checkpoint_json"])
+        if row["schema_version"] == 2:
+            from data.planning_cycles import publish_cycle_checkpoint
+            publish_cycle_checkpoint(conn, json.loads(row["cycle_context_json"]), checkpoint,
+                                     saved["id"], utc_text(instant))
         result = _applied_response(row, saved["id"])
         validate_response(result)  # serialization/schema failure must precede commit
         for key, value in settings.items():

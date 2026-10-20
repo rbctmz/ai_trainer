@@ -1,5 +1,6 @@
 """Regression coverage for issue #529 parent-session identity handoff."""
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from copy import deepcopy
 from datetime import date, datetime, timedelta
@@ -153,13 +154,17 @@ def _replacement_plan() -> tuple[dict, str, str]:
 
 def test_sport_scoped_constraint_persistence_keeps_confirmed_survivor_matched(
     tmp_path,
+    monkeypatch,
 ) -> None:
+    from tests.planning_fixtures import pin_day
+    from datetime import date
+    pin_day(monkeypatch, date.fromisoformat(DAY_ISO))
     db = Database(str(tmp_path / "issue-529-writer.db"))
     original = _plan(
         _session("bike", "quality", 60.0),
         _session("swim", "easy", 30.0),
     )
-    first = db.save_planning_checkpoint(build_planning_checkpoint(original))
+    first = seed_checkpoint(db, build_planning_checkpoint(original))
     restored = restore_goal_plan_from_checkpoint(first)
     assert restored is not None
     bike_id = restored["session_templates"][0]["sessions"][0]["session_id"]
@@ -297,7 +302,7 @@ def test_current_replacement_decision_can_reselect_predecessor_activity(tmp_path
 
     db = Database(str(tmp_path / "issue-529-reselect.db"))
     current, old_id, new_id = _replacement_plan()
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(current))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(current))
     db.save_activities([_activity()])
     predecessor = db.save_plan_actual_match(
         {
@@ -361,7 +366,7 @@ def test_inherited_revision_reaches_feedback_and_recovery_evidence(tmp_path) -> 
 
     db = Database(str(tmp_path / "issue-529-revision.db"))
     current, old_id, new_id = _replacement_plan()
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(current))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(current))
     db.save_activities([_activity()])
     predecessor = db.save_plan_actual_match(
         {

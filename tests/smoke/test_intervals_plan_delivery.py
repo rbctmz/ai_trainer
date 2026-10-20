@@ -1,5 +1,7 @@
 """Contract-first tests for deterministic Intervals.icu plan delivery."""
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
+from tests.planning_fixtures import seed_checkpoint, pin_day
 
 from datetime import date, datetime, timezone
 
@@ -8,6 +10,11 @@ import pytest
 from data.database import Database
 from models.planning_checkpoints import build_planning_checkpoint
 from models.session_identity import ensure_session_identities
+
+
+@pytest.fixture(autouse=True)
+def delivery_athlete_day(monkeypatch):
+    pin_day(monkeypatch, date(2026, 7, 15))
 
 
 def _single_plan() -> dict:
@@ -300,7 +307,7 @@ def test_explicit_plan_build_round_trips_running_pace_to_intervals_description(
             "source": "intervals_icu",
         }
     )
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="run",
         distance="10k",
@@ -349,7 +356,7 @@ def test_delivery_fails_closed_when_provider_drops_or_changes_pace_targets(
     from services.intervals_plan_delivery import deliver_active_plan
 
     db = Database(str(tmp_path / "pace-mismatch.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_pace_run_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_pace_run_plan()))
     stale_owned = {
         "id": 2,
         "uid": "old-ai-slot",
@@ -393,7 +400,7 @@ def test_delivery_accepts_equivalent_pace_targets_from_bounded_readback(
     from services.intervals_plan_delivery import deliver_active_plan
 
     db = Database(str(tmp_path / "pace-match.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_pace_run_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_pace_run_plan()))
     client = _PaceReadBackClient(
         pace_steps=[
             {
@@ -446,7 +453,7 @@ def test_transferred_pace_run_keeps_targets_through_delivery_readback(
     )
 
     db = Database(str(tmp_path / "pace-transfer.db"))
-    db.save_planning_checkpoint(
+    seed_checkpoint(db,
         build_planning_checkpoint(transferred["goal_plan"])
     )
     client = _PaceReadBackClient(
@@ -485,7 +492,7 @@ def test_power_target_delivery_keeps_existing_single_read_contract(tmp_path) -> 
     from services.intervals_plan_delivery import deliver_active_plan
 
     db = Database(str(tmp_path / "power-regression.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_brick_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_brick_plan()))
     client = _FakeClient()
 
     result = deliver_active_plan(
@@ -535,7 +542,7 @@ def test_delivery_upserts_desired_slots_and_deletes_only_owned_stale_events(tmp_
     from services.intervals_plan_delivery import deliver_active_plan
 
     db = Database(str(tmp_path / "delivery.db"))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_single_plan()))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(_single_plan()))
     foreign = {
         "id": 1,
         "uid": "foreign-slot",
@@ -591,7 +598,7 @@ def test_explicit_dates_do_not_delete_owned_events_on_unselected_days(tmp_path) 
         }
     )
     db = Database(str(tmp_path / "explicit-dates.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    seed_checkpoint(db, build_planning_checkpoint(plan))
     unselected_owned = {
         "id": 22,
         "uid": "owned-middle-day",
@@ -617,7 +624,7 @@ def test_partial_upsert_never_deletes_previous_owned_slots(tmp_path) -> None:
     from services.intervals_plan_delivery import deliver_active_plan
 
     db = Database(str(tmp_path / "partial-upsert.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_brick_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_brick_plan()))
     previous_single = {
         "id": 31,
         "uid": "previous-single-slot",
@@ -644,7 +651,7 @@ def test_delivery_reports_calendar_only_and_missing_configuration_without_writes
     from services.intervals_plan_delivery import deliver_active_plan
 
     db = Database(str(tmp_path / "delivery-status.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_single_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_single_plan()))
     calendar_client = _FakeClient(executable=False)
 
     calendar_only = deliver_active_plan(
@@ -673,7 +680,7 @@ def test_empty_explicit_delivery_dates_are_skipped_without_provider_access(tmp_p
     from services.intervals_plan_delivery import safe_deliver_active_plan
 
     db = Database(str(tmp_path / "empty-dates.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_single_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_single_plan()))
     client = _FakeClient()
 
     result = safe_deliver_active_plan(
@@ -711,7 +718,7 @@ def test_safe_delivery_sanitizes_provider_failure(tmp_path) -> None:
             raise IntervalsICUError("HTTP 429: retry later secret-token")
 
     db = Database(str(tmp_path / "failed-delivery.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_single_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_single_plan()))
 
     result = safe_deliver_active_plan(
         db,
@@ -732,7 +739,7 @@ def test_safe_delivery_marks_history_failure_as_retryable(
     from services.intervals_plan_delivery import safe_deliver_active_plan
 
     db = Database(str(tmp_path / "history-failure.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_single_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_single_plan()))
 
     def fail_history(_payload):
         raise RuntimeError("ledger unavailable secret-token")
@@ -764,7 +771,7 @@ def test_safe_delivery_keeps_provider_and_history_failures_distinct(
             raise IntervalsICUError("provider unavailable")
 
     db = Database(str(tmp_path / "double-failure.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_single_plan()))
+    seed_checkpoint(db, build_planning_checkpoint(_single_plan()))
     monkeypatch.setattr(
         db,
         "save_intervals_plan_delivery",
@@ -806,7 +813,7 @@ def test_manual_safe_delivery_is_persisted_idempotently(tmp_path) -> None:
     from services.intervals_plan_delivery import safe_deliver_active_plan
 
     db = Database(str(tmp_path / "manual-delivery-ledger.db"))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_single_plan()))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(_single_plan()))
     client = _FakeClient()
 
     first = safe_deliver_active_plan(

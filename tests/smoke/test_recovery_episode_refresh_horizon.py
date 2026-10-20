@@ -20,6 +20,7 @@ Decision Log. All fixtures use real temporary SQLite files (`tmp_path`) and
 frozen dates; no live Garmin/Intervals.icu access.
 """
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 from datetime import date, datetime, timedelta, timezone
 
@@ -134,7 +135,7 @@ def _build_old_matched_session(
     Returns (checkpoint, session_id).
     """
     plan = _old_session_plan(session_date, sport=sport)
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(plan))
     session_id = checkpoint["goal_plan_snapshot"]["session_templates"][0]["session_id"]
     db.save_activities(
         [
@@ -432,7 +433,7 @@ def test_targeted_refresh_leaves_sibling_old_session_byte_unchanged(tmp_path):
             },
         }
     )
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(plan))
     templates = checkpoint["goal_plan_snapshot"]["session_templates"]
     session_a = next(item for item in templates if item["date"] == OLD_DATE.isoformat())["session_id"]
     session_b = next(item for item in templates if item["date"] == other_date.isoformat())["session_id"]
@@ -517,7 +518,7 @@ def test_duplicate_targets_dedup_with_stable_order_and_one_probe_per_distinct_da
         db, session_date=OLD_DATE, activity_id="ride-a"
     )
     plan_b = _old_session_plan(other_date, sport="run")
-    checkpoint_b = db.save_planning_checkpoint(build_planning_checkpoint(plan_b))
+    checkpoint_b = seed_checkpoint(db, build_planning_checkpoint(plan_b))
     session_b = checkpoint_b["goal_plan_snapshot"]["session_templates"][0]["session_id"]
     db.save_activities(
         [
@@ -562,7 +563,7 @@ def test_duplicate_targets_dedup_with_stable_order_and_one_probe_per_distinct_da
         (datetime.combine(other_date, datetime.min.time()), 60.0, {"run": 60.0})
     )
     merged_plan["session_templates"].append(dict(plan_b["session_templates"][0]))
-    merged_checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(merged_plan))
+    merged_checkpoint = seed_checkpoint(db, build_planning_checkpoint(merged_plan))
     merged_templates = merged_checkpoint["goal_plan_snapshot"]["session_templates"]
     merged_a = next(t for t in merged_templates if t["date"] == OLD_DATE.isoformat())["session_id"]
     merged_b = next(t for t in merged_templates if t["date"] == other_date.isoformat())["session_id"]
@@ -586,7 +587,7 @@ def test_duplicate_targets_dedup_with_stable_order_and_one_probe_per_distinct_da
 # ---------------------------------------------------------------------------
 
 
-def test_unknown_absent_and_future_dated_targets_fail_closed(tmp_path, monkeypatch):
+def test_unknown_future_refuse_but_explicit_matched_history_remains_available(tmp_path, monkeypatch):
     from services import reconciliation as reconciliation_service
 
     db = Database(str(tmp_path / "fail-closed.db"))
@@ -596,14 +597,14 @@ def test_unknown_absent_and_future_dated_targets_fail_closed(tmp_path, monkeypat
     # Replan: save a new, unrelated active checkpoint that does not carry
     # the old session's template at all.
     replan = _old_session_plan(AS_OF - timedelta(days=1), sport="swim")
-    db.save_planning_checkpoint(build_planning_checkpoint(replan))
+    seed_checkpoint(db, build_planning_checkpoint(replan))
 
     future_date = AS_OF + timedelta(days=5)
     future_plan = _old_session_plan(future_date, sport="run")
     # Becomes the new active checkpoint: its one session is present (so
     # identity resolution succeeds) but dated after as_of, exercising the
     # "target_date_after_as_of" reason distinct from "not found at all".
-    future_checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(future_plan))
+    future_checkpoint = seed_checkpoint(db, build_planning_checkpoint(future_plan))
     future_session_id = future_checkpoint["goal_plan_snapshot"]["session_templates"][0]["session_id"]
 
     calls = _spy(monkeypatch, reconciliation_service, "reconciliation_at")
@@ -619,17 +620,14 @@ def test_unknown_absent_and_future_dated_targets_fail_closed(tmp_path, monkeypat
     assert by_id[future_session_id]["status"] == "not_found"
     assert by_id[future_session_id]["reason"] == "target_date_after_as_of"
 
-    # stale_session_id belongs to a superseded (non-active) checkpoint, so it
-    # is also absent from the currently active checkpoint's templates.
-    assert by_id[stale_session_id]["status"] == "not_found"
-    assert by_id[stale_session_id]["reason"] == "session_not_found_in_active_checkpoint"
-
-    assert result["created"] == 0
-    assert sorted(result["not_found"]) == sorted(
-        ["totally-unknown-id", stale_session_id, future_session_id]
-    )
-    assert calls == []  # no probe attempted for any failed-closed target
-    assert db.get_recovery_episodes(latest_only=True) == []
+    # S2: an explicit matched historical session remains factual context. It
+    # can refresh its episode without selecting its superseded checkpoint.
+    assert by_id[stale_session_id]["status"] == "created"
+    assert result["created"] == 1
+    assert sorted(result["not_found"]) == sorted(["totally-unknown-id", future_session_id])
+    assert len(calls) == 1
+    assert db.get_current_planning_checkpoint()["id"] == future_checkpoint["id"]
+    assert len(db.get_recovery_episodes(latest_only=True)) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -670,7 +668,7 @@ def test_record_plan_actual_match_call_site_targets_old_session(tmp_path, monkey
 
     db = Database(str(tmp_path / "match-call-site.db"))
     plan = _old_session_plan(OLD_DATE, sport="bike")
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(plan))
     session_id = checkpoint["goal_plan_snapshot"]["session_templates"][0]["session_id"]
     db.save_activities(
         [
@@ -722,7 +720,7 @@ def test_admin_resolve_of_old_session_creates_exactly_one_episode_revision(tmp_p
 
     db = Database(str(tmp_path / "admin-resolve.db"))
     plan = _old_session_plan(OLD_DATE, sport="bike")
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(plan))
     session_id = checkpoint["goal_plan_snapshot"]["session_templates"][0]["session_id"]
     prediction = db.save_session_quality_prediction(
         fingerprint="admin-forecast-old",
@@ -787,7 +785,7 @@ def test_targeted_refresh_of_secondary_session_on_multi_session_day_keeps_its_ow
 ):
     db = Database(str(tmp_path / "multi-session.db"))
     plan = _multi_session_old_plan(OLD_DATE)
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(plan))
     sessions = checkpoint["goal_plan_snapshot"]["session_templates"][0]["sessions"]
     primary_id = sessions[0]["session_id"]
     secondary_id = sessions[1]["session_id"]
@@ -855,7 +853,7 @@ def test_reject_of_previously_confirmed_match_invalidates_the_stale_episode(tmp_
 
     db = Database(str(tmp_path / "reject-invalidate.db"))
     plan = _old_session_plan(OLD_DATE, sport="bike")
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(plan))
     session_id = checkpoint["goal_plan_snapshot"]["session_templates"][0]["session_id"]
     db.save_activities(
         [
@@ -923,7 +921,7 @@ def test_reject_of_never_matched_session_creates_no_episode(tmp_path):
 
     db = Database(str(tmp_path / "reject-never-matched.db"))
     plan = _old_session_plan(OLD_DATE, sport="bike")
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(plan))
     session_id = checkpoint["goal_plan_snapshot"]["session_templates"][0]["session_id"]
 
     rejected = ps.record_plan_actual_match(

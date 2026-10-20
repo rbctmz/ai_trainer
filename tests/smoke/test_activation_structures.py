@@ -8,6 +8,7 @@ warm-up/cool-down floor, with the explicit exception of very short activation
 sessions.
 """
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 from datetime import datetime
 
@@ -156,7 +157,7 @@ def test_reference_plan_has_no_unstructured_sessions(tmp_path):
     db = Database(str(tmp_path / "m4-audit.db"))
     today = datetime.now().date()
     b_date, a_date = pinned_reference_events(today)
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",

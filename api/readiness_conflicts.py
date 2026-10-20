@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Any
+from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 
 from api.planning_service import get_active_plan
 from data.database import Database
@@ -26,12 +27,16 @@ from models.readiness_conflicts import (
 )
 
 
+_CHECKPOINT_UNSET = object()
+
+
 def build_readiness_conflict_report(
     db: Database,
     *,
     horizon_days: int = DEFAULT_HORIZON_DAYS,
     max_quality_lookahead_days: int = MAX_QUALITY_LOOKAHEAD_DAYS,
     today: date | None = None,
+    checkpoint: Any = _CHECKPOINT_UNSET,
 ) -> dict[str, Any]:
     today = today or athlete_local_date()
 
@@ -58,7 +63,7 @@ def build_readiness_conflict_report(
 
     goal_plan = None
     try:
-        goal_plan = get_active_plan(db)
+        goal_plan = get_active_plan(db) if checkpoint is _CHECKPOINT_UNSET else restore_goal_plan_from_checkpoint(checkpoint)
     except Exception:
         goal_plan = None
 

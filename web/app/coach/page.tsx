@@ -1,5 +1,6 @@
 "use client";
 
+import { CycleState } from "@/components/planning/CyclePanel";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
@@ -47,6 +48,7 @@ function CoachContent() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const {data: cycleContext, mutate: refreshCycle} = useSWR<import("@/lib/types").CycleContext>("/api/planning/cycles/current", fetcher);
   const [streaming, setStreaming] = useState(false);
   const [partial, setPartial] = useState("");
   const [tools, setTools] = useState<ToolFlash[]>([]);
@@ -104,6 +106,7 @@ function CoachContent() {
         { message, chat_id: activeChatId },
         (e) => {
           if (e.type === "meta") {
+            if (e.cycle_context) void refreshCycle(e.cycle_context, {revalidate: false});
             setActiveChatId(e.chat_id);
             router.replace(`/coach?chat=${e.chat_id}`);
           }
@@ -196,6 +199,7 @@ function CoachContent() {
   return (
     <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
       <fieldset disabled={proposalLocked} className="min-w-0">
+      {cycleContext ? <div className="mb-3 rounded-card border border-surface-border bg-surface p-3"><CycleState context={cycleContext} /></div> : null}
       <ContextSidebar
         today={today}
         history={history?.chats ?? []}

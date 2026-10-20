@@ -6,6 +6,8 @@ traversal), explicit 404/422 contracts, and lifecycle UI in the Coach page.
 Tests use a temporary CHATS_DIR and no live AI provider.
 """
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
+from tests.planning_fixtures import seed_checkpoint
 
 import importlib
 from pathlib import Path
@@ -161,7 +163,6 @@ def test_coach_planning_page_has_lifecycle_ui():
 def test_coach_upcoming_workouts_lists_leaf_sessions(tmp_path):
     from datetime import timedelta
 
-    from api import planning_service as ps
     from models.ai_tools import AITools
     from models.planning_checkpoints import (
         build_planning_checkpoint,
@@ -171,7 +172,7 @@ def test_coach_upcoming_workouts_lists_leaf_sessions(tmp_path):
 
     db = _seeded_db(tmp_path)
     event_date = (athlete_now().date() + timedelta(weeks=9)).isoformat()
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
@@ -225,7 +226,7 @@ def test_coach_upcoming_workouts_lists_leaf_sessions(tmp_path):
     daily_plan[today_index] = (today, 100.0, {"bike": 60.0, "run": 40.0})
     goal_plan["daily_plan"] = daily_plan
     goal_plan["session_templates"] = templates
-    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    seed_checkpoint(db, build_planning_checkpoint(goal_plan))
 
     tools = AITools(db)
     result = tools.get_upcoming_workouts(days=0)

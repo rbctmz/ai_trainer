@@ -1,4 +1,5 @@
 """#673: real saved evidence, parent identity and canonical freshness."""
+from tests.planning_fixtures import seed_checkpoint, pin_day
 from copy import deepcopy
 from datetime import timedelta
 
@@ -22,7 +23,7 @@ pytestmark = pytest.mark.smoke
 def _database(tmp_path, *, actual=True):
     db = Database(str(tmp_path / "daily.db"))
     plan = _plan(_session("bike", "easy", 60), _session("run", "easy", 30))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    checkpoint = seed_checkpoint(db, build_planning_checkpoint(plan))
     _seed_dated_night(db, DAY_ISO)
     if actual:
         db.save_activities([_activity()])
@@ -63,7 +64,8 @@ def test_two_parent_day_preserves_completed_bike_and_unobserved_run(tmp_path):
         assert fact["evidence_revision"] == projection["evidence_revision"]
 
 
-def test_real_today_snapshot_uses_independent_parents(tmp_path):
+def test_real_today_snapshot_uses_independent_parents(tmp_path, monkeypatch):
+    pin_day(monkeypatch, DAY)
     db, _, _, ids = _database(tmp_path)
     today = build_today_decision_snapshot(db, today=DAY)
     assert today["decision_story"]["next_action"]["kind"] == "follow_plan"

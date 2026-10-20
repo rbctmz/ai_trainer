@@ -19,6 +19,11 @@ import pandas as pd
 
 from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
+from services.planning_cycles import current_plan_snapshot, actionable, checkpoint_history
+from data.planning_cycles import PlanningCycleStore
+from services.planning_cycle_build import capture_lifecycle, scoped_constraints, bound_prescriptions
+from data.planning_cycle_writes import write_token, check_restore_owner
+from models.planning_build_confirmation import fingerprint
 from data.planning_build_preview_store import apply_preview, preview_response, store_pending
 from config.settings import Settings
 from models import planning_build_confirmation as build_protocol
@@ -26,6 +31,7 @@ from models.planning_build_confirmation import (
     BuildInputSnapshot, BuildParameters, PreparedPlanBuild, PlanningBuildPreviewError, canonical_json,
     dependency_components,
 )
+from models.planning_cycle import CycleStateCorrupt
 from models.banister import BanisterModel, tsb_zone
 from models.coach_constraints import apply_constraints_to_goal_plan, normalize_constraint_sport, recalc_goal_plan_weekly_totals
 from models.fit_export import build_steps_for_sport, generate_fit_csv
@@ -132,6 +138,33 @@ class StalePlanningCheckpointError(ValueError):
 class NoDonorCheckpointError(ValueError):
     """No checkpoint in the lineage carries an executable version of the day (#473)."""
 
+
+def _write_snapshot(db: Database, *, base: int | None = None, expected: dict | None = None,
+                    allow_inactive: bool = False) -> tuple[dict, dict | None]:
+    context = db.planning_write_context(allow_inactive=allow_inactive)
+    if base is not None and int(base) != int(context["checkpoint_id"] or 0):
+        raise StalePlanningCheckpointError("active checkpoint no longer matches request base")
+    if expected is not None:
+        if any(key not in expected for key in ("cycle_id", "cycle_revision", "selection_revision", "checkpoint_id", "athlete_day")):
+            raise PlanningBuildPreviewError("cycle_context_required", "Нужен актуальный контекст предложения.")
+        if write_token(context) != write_token({**context, **expected}):
+            raise PlanningBuildPreviewError("cycle_stale", "Цикл изменился — обновите предложение.")
+    return context, context.pop("_checkpoint")
+
+
+def _bind_cycle_fingerprint(preview: dict, context: dict) -> dict:
+    return {**preview, "preview_fingerprint": fingerprint({
+        "preview": preview.get("preview_fingerprint"), "cycle": write_token(context)})}
+
+
+def _checkpoint_session_ids(value: Any) -> set[str]:
+    if isinstance(value, dict):
+        return {str(item) for key, item in value.items() if key in {"session_id", "leg_id"} and item} | set().union(
+            *(_checkpoint_session_ids(item) for item in value.values()))
+    if isinstance(value, list):
+        return set().union(*(_checkpoint_session_ids(item) for item in value))
+    return set()
+
 def _internal_goal_type(value: str) -> str:
     return GOAL_TYPE_MAP.get((value or "").strip().lower(), value)
 
@@ -202,7 +235,7 @@ def demand_preview(db: Database, level: str) -> Dict[str, Any]:
     provider, never fabricates a target when the checkpoint lacks the saved
     weekly-target breakdown.
     """
-    latest = db.get_latest_planning_checkpoint()
+    write_context, latest = _write_snapshot(db, allow_inactive=True)
     if not isinstance(latest, dict) or not latest.get("goal_plan_snapshot"):
         return _demand_preview_data_gap(reason="Активного плана нет.", has_plan=False)
     goal_plan = restore_goal_plan_from_checkpoint(latest)
@@ -241,7 +274,7 @@ def demand_preview(db: Database, level: str) -> Dict[str, Any]:
     current_final = int(breakdown.get("final_target_weekly_tss") or 0)
     new_final = int(new_breakdown.get("final_target_weekly_tss") or 0)
     availability_cap = int((new_breakdown.get("availability") or {}).get("weekly_capacity_tss") or 0)
-    fingerprint = _demand_preview_fingerprint(latest, demand_level, new_final)
+    fingerprint = _bind_cycle_fingerprint({"preview_fingerprint": _demand_preview_fingerprint(latest, demand_level, new_final)}, write_context)["preview_fingerprint"]
 
     return {
         "has_plan": True,
@@ -295,15 +328,18 @@ def planning_edit_context(db: Database) -> Dict[str, Any]:
     saved availability, events, demand), so the browser never maps domain
     labels itself. No writes, no provider I/O; missing data is an explicit gap.
     """
-    latest = db.get_latest_planning_checkpoint()
+    context, latest = current_plan_snapshot(db)
+    if not actionable(context):
+        return {"has_plan": latest is not None, "state": "data_gap", "reason": "Редактирование выбранного цикла недоступно.", "inputs": None, "cycle_context": context}
     if not isinstance(latest, dict) or not latest.get("goal_plan_snapshot"):
-        return {"has_plan": False, "state": "data_gap", "reason": "Активного плана нет.", "inputs": None}
+        return {"has_plan": False, "state": "data_gap", "reason": "Активного плана нет.", "inputs": None, "cycle_context": context}
     goal_plan = restore_goal_plan_from_checkpoint(latest)
     if goal_plan is None:
         return {
             "has_plan": True,
             "state": "data_gap",
             "reason": "Активный checkpoint не удаётся восстановить.",
+            "cycle_context": context,
             "inputs": None,
         }
 
@@ -325,6 +361,7 @@ def planning_edit_context(db: Database) -> Dict[str, Any]:
             "has_plan": True,
             "state": "data_gap",
             "reason": "В checkpoint нет достаточных входов для редактирования.",
+            "cycle_context": context,
             "inputs": None,
         }
 
@@ -332,6 +369,7 @@ def planning_edit_context(db: Database) -> Dict[str, Any]:
         "has_plan": True,
         "state": "available",
         "reason": None,
+        "cycle_context": context,
         "inputs": {
             "goal_type": goal_type,
             "distance": distance,
@@ -367,7 +405,7 @@ def confirm_demand_change(
     normalized = str(level or "").strip().lower()
     if normalized not in DEMAND_PROFILES:
         raise ValueError("unknown demand level")
-    latest = db.get_latest_planning_checkpoint()
+    write_context, latest = _write_snapshot(db, base=base_checkpoint_id)
     latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") is not None else 0
     if latest_id != int(base_checkpoint_id):
         raise StalePlanningCheckpointError(
@@ -410,6 +448,7 @@ def confirm_demand_change(
         expected_base_checkpoint_id=int(base_checkpoint_id),
         start_week=goal_plan.get("start_week"),
         checkpoint_source="demand_change",
+        cycle_context=write_context,
     )
     return {
         "applied_checkpoint_id": int(built.get("plan_id") or 0),
@@ -487,6 +526,7 @@ def _goal_plan_date_bounds(goal_plan: Dict[str, Any]) -> tuple[str | None, str |
 def _apply_active_coach_constraints(
     db: Database,
     goal_plan: Dict[str, Any],
+    cycle_context: dict,
 ) -> tuple[Dict[str, Any], Dict[str, Any]]:
     start_date, end_date = _goal_plan_date_bounds(goal_plan)
     if not start_date or not end_date:
@@ -498,14 +538,21 @@ def _apply_active_coach_constraints(
         active_only=True,
         limit=500,
     )
-    return apply_constraints_to_goal_plan(goal_plan, constraints)
+    conn = db._connect()
+    try:
+        store = PlanningCycleStore(conn)
+        owners = {row["cycle_id"] for row in constraints if row.get("cycle_id") and store.cycle(row["cycle_id"])}
+    finally:
+        conn.close()
+    return apply_constraints_to_goal_plan(goal_plan, scoped_constraints(constraints, cycle_context["cycle_id"], owners))
 
 
 def current_status(db: Database) -> Dict[str, Any]:
     signals, _df = _current_signals(db)
     metrics = _metrics_from_signals(signals)
-    checkpoint = summarize_planning_checkpoint(db.get_latest_planning_checkpoint())
-    today = athlete_local_date()
+    context, selected_checkpoint = current_plan_snapshot(db)
+    checkpoint = summarize_planning_checkpoint(selected_checkpoint)
+    today = date.fromisoformat(context["athlete_day"])
     active_constraints = db.get_coach_constraints(
         start_date=today.isoformat(),
         end_date=(today + timedelta(days=30)).isoformat(),
@@ -524,6 +571,8 @@ def current_status(db: Database) -> Dict[str, Any]:
         "active_constraint_count": len(active_constraints),
         "active_constraints": active_constraints,
         "has_plan": checkpoint is not None,
+        "has_actionable_plan": checkpoint is not None and actionable(context),
+        "cycle_context": context,
         "checkpoint": checkpoint,
         "demand": demand_profile(_persisted_demand_level(db)),
         "demand_options": demand_options(),
@@ -1039,12 +1088,12 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
     This is deliberately a checkpoint-only read. In particular it does not
     discover events or ask an activity provider for new execution evidence.
     """
-    checkpoint = db.get_latest_planning_checkpoint()
+    context, checkpoint = current_plan_snapshot(db)
     goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
     if not checkpoint or not goal_plan:
-        return {"has_plan": False}
+        return {"has_plan": False, "has_actionable_plan": False, "cycle_context": context}
 
-    today = athlete_local_date()
+    today = date.fromisoformat(context["athlete_day"])
     planning_mode = str(goal_plan.get("planning_mode") or "").strip() or "training_goal"
     events = [dict(item) for item in list(goal_plan.get("events") or []) if isinstance(item, dict)]
     confirmed_a_event = next(
@@ -1072,31 +1121,9 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
         for row in list(goal_plan.get("weekly_summary") or [])
         if isinstance(row, dict)
     ]
-    current_index: int | None = None
     parsed_week_starts = [_overview_date(row.get("week_start")) for row in weekly_rows]
-    for index, week_start in enumerate(parsed_week_starts):
-        if week_start and week_start <= today < week_start + timedelta(days=7):
-            current_index = index
-            break
-    if current_index is None:
-        future_indexes = [
-            index for index, week_start in enumerate(parsed_week_starts) if week_start and week_start > today
-        ]
-        if future_indexes:
-            current_index = future_indexes[0]
-        elif weekly_rows:
-            current_index = len(weekly_rows) - 1
-
-    current_week: Dict[str, Any] | None = None
-    if current_index is not None:
-        row = weekly_rows[current_index]
-        week_start = parsed_week_starts[current_index]
-        current_week = {
-            "number": current_index + 1,
-            "phase": str(row.get("phase") or "").strip() or None,
-            "week_start": week_start.isoformat() if week_start else None,
-            "weekly_tss": _overview_int(row.get("weekly_tss")),
-        }
+    current_week = context["current_week"]
+    current_index = current_week["number"] - 1 if current_week else None
 
     completed_weeks = sum(
         1
@@ -1170,6 +1197,9 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
 
     return {
         "has_plan": True,
+        "has_actionable_plan": actionable(context),
+        "cycle_context": context,
+        "last_week": context["last_week"],
         "goal": goal,
         "timeline": timeline,
         "current_week": current_week,
@@ -1177,7 +1207,7 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
             "completed_weeks": min(completed_weeks, total_weeks),
             "total_weeks": total_weeks,
             "status": progress_status,
-            "status_label": "План завершён" if progress_status == "completed" else "Активный план",
+            "status_label": {"period_ended": "Период закончился", "scheduled": "Цикл запланирован", "in_progress": "Подготовка идёт", "indeterminate": "Состояние цикла не определено"}.get(context["state"], "Текущего цикла нет"),
         },
         "execution": execution,
         "roadmap": roadmap,
@@ -1242,13 +1272,15 @@ def _build_activities_frame(payload: Mapping[str, Any]) -> pd.DataFrame:
 def _capture_plan_build_inputs(
     db: Database, parameters: BuildParameters, *, conn: sqlite3.Connection | None = None,
     checkpoint_source: str = "initial_plan",
+    lifecycle_context: dict[str, Any] | None = None,
 ) -> BuildInputSnapshot:
     """Capture all calculation dependencies on exactly one explicit read transaction."""
     if conn is None:
         own = db._connect()
         try:
             own.execute("BEGIN")
-            return _capture_plan_build_inputs(db, parameters, conn=own, checkpoint_source=checkpoint_source)
+            return _capture_plan_build_inputs(db, parameters, conn=own, checkpoint_source=checkpoint_source,
+                                              lifecycle_context=lifecycle_context)
         finally:
             own.rollback()
             own.close()
@@ -1256,9 +1288,16 @@ def _capture_plan_build_inputs(
     as_of = athlete_local_date()
     cutoff = db._cutoff_date(90)
     revision_time = datetime.now().isoformat()
-    latest = db._get_latest_planning_checkpoint(conn)
-    latest_id = int((latest or {}).get("id") or 0)
     raw = parameters.as_dict()
+    lifecycle, ownership = None, None
+    if raw.get("action") or lifecycle_context is not None:
+        lifecycle, ownership = capture_lifecycle(PlanningCycleStore(conn), raw, as_of, frozen=lifecycle_context)
+        raw["start_week"] = ownership["calendar_week_start"]
+        latest = db._get_current_planning_checkpoint(conn)
+        latest_id = lifecycle["base_checkpoint_id"]
+    else:
+        latest = db._get_latest_planning_checkpoint(conn)
+        latest_id = int((latest or {}).get("id") or 0)
     expected = raw.get("base_checkpoint_id")
     if expected is not None and int(expected) != latest_id:
         raise StalePlanningCheckpointError("Активный план изменился — пересоберите предпросмотр.")
@@ -1288,6 +1327,22 @@ def _capture_plan_build_inputs(
     values["events"] = events
     start = date.fromisoformat(values["start_week"])
     end = start + timedelta(days=weeks * 7 - 1)
+    if lifecycle is not None:
+        actual_start = date.fromisoformat(lifecycle["start_date"])
+        if lifecycle["action"] == "start_new":
+            if any(date.fromisoformat(event["date"]) < actual_start for event in events):
+                raise PlanningBuildPreviewError("invalid_start_date", "В новом цикле есть старт раньше даты начала.", status=422)
+        else:
+            end = min(end, date.fromisoformat(ownership["cycle"]["end_date"]))
+            if end < max(actual_start, as_of):
+                raise PlanningBuildPreviewError("invalid_start_date", "В изменении не осталось будущего периода.", status=422)
+        lifecycle["end_date"] = end.isoformat()
+        if lifecycle_context is not None and lifecycle != lifecycle_context:
+            raise PlanningBuildPreviewError("cycle_stale", "Контекст цикла изменился.")
+    constraint_start = max(as_of, date.fromisoformat(lifecycle["start_date"])) if lifecycle else start
+    constraint_rows = db._get_coach_constraints(conn, constraint_start.isoformat(), end.isoformat(), True, 500)
+    known_owners = {row["cycle_id"] for row in constraint_rows
+                    if row.get("cycle_id") and PlanningCycleStore(conn).cycle(row["cycle_id"])} if lifecycle else set()
     activities = db._get_activities(conn, cutoff)
     # SQL/pandas missing values are absent evidence. Infinity is not missing
     # and canonical serialization rejects it instead of publishing a bad plan.
@@ -1296,13 +1351,15 @@ def _capture_plan_build_inputs(
         "activities": {"columns": list(frame.columns), "data": frame.values.tolist()},
         "latest_checkpoint": latest,
         "athlete_profile": db._get_athlete_profile(conn) or {},
-        "constraints": db._get_coach_constraints(conn, start.isoformat(), end.isoformat(), True, 500),
+        "constraints": scoped_constraints(constraint_rows, lifecycle["target_cycle_id"], known_owners) if lifecycle else constraint_rows,
         "settings": settings,
     }
+    if lifecycle:
+        sources["constraint_ownership"] = constraint_rows
     sources_json = canonical_json(sources)
     context = {
         "athlete_day": as_of.isoformat(), "athlete_timezone": Settings.ATHLETE_TIMEZONE,
-        "activity_cutoff": cutoff, "constraint_start": start.isoformat(), "constraint_end": end.isoformat(),
+        "activity_cutoff": cutoff, "constraint_start": constraint_start.isoformat(), "constraint_end": end.isoformat(),
         "effective_horizon_weeks": weeks,
         "components": dependency_components(sources_json),
         "versions": {
@@ -1312,6 +1369,10 @@ def _capture_plan_build_inputs(
             "overlay": RACE_OVERLAY_RULE_VERSION, "science": SCIENCE_POLICY_VERSION,
         },
     }
+    if lifecycle:
+        context.update(lifecycle=lifecycle, cycle_ownership=ownership)
+        context["versions"]["protocol"] = 2
+        context["versions"]["cycle_build"] = "cycle-build-v2"
     return BuildInputSnapshot(BuildParameters.from_mapping(values), sources_json,
                               canonical_json(context), revision_time, checkpoint_source)
 
@@ -1322,6 +1383,8 @@ def prepare_plan_build(
     """Retain a complete, current preview without changing the active plan/settings."""
     if origin not in {"planning_ui", "coach"}:
         raise ValueError("unsupported planning preview origin")
+    if parameters.as_dict().get("action") not in {"start_new", "edit_current"}:
+        raise PlanningBuildPreviewError("cycle_context_required", "Выберите новый цикл или изменение текущего.")
     try:
         snapshot = _capture_plan_build_inputs(db, parameters)
         prepared = _calculate_plan_build(snapshot)
@@ -1333,10 +1396,20 @@ def prepare_plan_build(
         if origin == "planning_ui" or parameters.as_dict().get("demand") is not None:
             writes[PLANNING_DEMAND_SETTING_KEY] = values["demand"]
         prepared = replace(prepared, settings_write_json=canonical_json(writes))
+
+        def dependency_recheck(conn):
+            try:
+                return _capture_plan_build_inputs(db, snapshot.parameters, conn=conn,
+                    lifecycle_context=snapshot.context().get("lifecycle")).dependency_digest
+            except (ValueError, TypeError, KeyError):
+                return ""  # changed/unusable dependencies, not a second initial request
+
         row = store_pending(
             db, prepared, origin=origin, now=datetime.now(timezone.utc),
-            recheck=lambda conn: _capture_plan_build_inputs(db, snapshot.parameters, conn=conn).dependency_digest,
+            recheck=dependency_recheck,
         )
+    except CycleStateCorrupt as exc:
+        raise PlanningBuildPreviewError("cycle_corrupt", "Состояние цикла повреждено; требуется проверка.", status=500) from exc
     except StalePlanningCheckpointError as exc:
         raise PlanningBuildPreviewError("preview_stale", "Данные изменились — пересоберите предпросмотр.") from exc
     except sqlite3.Error as exc:
@@ -1354,12 +1427,13 @@ def confirm_plan_build(
     proposal_id: int | None = None,
 ) -> dict[str, Any]:
     """Apply the retained result once; retry returns its durable receipt."""
-    from api.planning_build_contract import BuildConfirmResponse
+    from api.planning_build_contract import BuildConfirmResponse, BuildPreviewResponseV2
     from pydantic import ValidationError
 
     def recheck(conn: sqlite3.Connection, row: dict[str, Any]) -> bool:
         try:
-            captured = _capture_plan_build_inputs(db, BuildParameters(row["parameters_json"]), conn=conn)
+            captured = _capture_plan_build_inputs(db, BuildParameters(row["parameters_json"]), conn=conn,
+                lifecycle_context=json.loads(row["cycle_context_json"]) if row["schema_version"] == 2 else None)
             return captured.dependency_digest == row["dependency_digest"]
         except (ValueError, TypeError, KeyError):
             # Current dependencies may have become unusable since preparation.
@@ -1367,7 +1441,8 @@ def confirm_plan_build(
 
     def validate_response(result: dict[str, Any]) -> None:
         try:
-            BuildConfirmResponse.model_validate(result)
+            model = BuildPreviewResponseV2 if result["confirmation"]["protocol_version"] == 2 else BuildConfirmResponse
+            model.model_validate(result)
             canonical_json(result)
         except (ValidationError, ValueError, TypeError) as exc:
             raise PlanningBuildPreviewError("preview_corrupt", "Предпросмотр повреждён; требуется проверка.", status=500) from exc
@@ -1412,8 +1487,18 @@ def build_plan(
     expected_base_checkpoint_id: int | None = None,
     start_week: Optional[date] = None,
     checkpoint_source: str = "initial_plan",
+    cycle_context: dict | None = None,
 ) -> Dict[str, Any]:
     """Trusted/internal facade. Public confirmation moves to the new protocol in M3."""
+    if persist and cycle_context is None:
+        raise PlanningBuildPreviewError("preview_required", "Сохранение требует подтверждённого предпросмотра с контекстом цикла.")
+    cycle_fields = {}
+    if cycle_context is not None:
+        cycle_fields = {"action": "edit_current", "base_cycle_id": cycle_context["cycle_id"],
+                        "base_cycle_revision": cycle_context["cycle_revision"],
+                        "base_selection_revision": cycle_context["selection_revision"],
+                        "base_checkpoint_id": cycle_context["checkpoint_id"],
+                        "replace_current_cycle": False, "start_date": cycle_context["start_date"]}
     parameters = BuildParameters.from_mapping({
         "goal_type": goal_type, "distance": distance, "event_date": event_date,
         "available_hours": available_hours, "available_days": available_days,
@@ -1421,16 +1506,16 @@ def build_plan(
         "focus": focus, "horizon_weeks": horizon_weeks, "manual_phases": manual_phases,
         "events": events, "start_week": start_week,
         "base_checkpoint_id": expected_base_checkpoint_id,
+        **cycle_fields,
     })
     snapshot = _capture_plan_build_inputs(db, parameters, checkpoint_source=checkpoint_source)
     prepared = _calculate_plan_build(snapshot)
     response = json.loads(prepared.response_json)
     if persist:
-        if demand is not None:
-            db.set_user_setting(PLANNING_DEMAND_SETTING_KEY, snapshot.parameters.as_dict()["demand"])
-        saved = db.save_planning_checkpoint(json.loads(prepared.checkpoint_json))
-        response["plan_id"] = str((saved or {}).get("id") or (saved or {}).get("checkpoint_id") or "")
-        response["confirmation_required"] = False
+        settings_write = {PLANNING_DEMAND_SETTING_KEY: snapshot.parameters.as_dict()["demand"]} if demand is not None else {}
+        saved = db.save_planning_checkpoint(json.loads(prepared.checkpoint_json), cycle_context=cycle_context,
+                                             settings_write=settings_write)
+        response.update(plan_id=str(saved["id"]), confirmation_required=False)
     return response
 
 
@@ -1472,6 +1557,7 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
     params = snapshot.parameters.as_dict()
     inputs = snapshot.sources()
     context = snapshot.context()
+    lifecycle = context.get("lifecycle")
     activities_df = _build_activities_frame(inputs["activities"])
     # The unified assembler also runs readiness, which has its own live-day
     # fallback. This build consumes load only: use its existing canonical
@@ -1504,7 +1590,7 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
         raise ValueError("intent must be maintain or develop")
 
     latest_checkpoint = inputs["latest_checkpoint"]
-    latest_checkpoint_id = (
+    latest_checkpoint_id = lifecycle["base_checkpoint_id"] if lifecycle else (
         int(latest_checkpoint.get("id"))
         if isinstance(latest_checkpoint, dict) and latest_checkpoint.get("id") is not None
         else 0
@@ -1732,30 +1818,46 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
     }
     goal_plan = synchronize_goal_plan_events(goal_plan)
     existing_plan = restore_goal_plan_from_checkpoint(latest_checkpoint)
-    goal_plan = ensure_session_identities(goal_plan, previous_goal_plan=existing_plan)
+    if lifecycle:
+        if lifecycle["action"] == "start_new":
+            goal_plan["identity_namespace"] = lifecycle["target_cycle_id"]
+        elif (existing_plan or {}).get("identity_namespace") is not None:
+            goal_plan["identity_namespace"] = existing_plan["identity_namespace"]
+        goal_plan = bound_prescriptions(goal_plan, lifecycle, existing_plan,
+                                         date.fromisoformat(context["athlete_day"]))
+        event_overlay = {**event_overlay, "microcycle_changes": goal_plan["microcycle_changes"],
+                         "overlays": goal_plan["event_overlays"], "protected_dates": goal_plan["protected_dates"],
+                         "race_forecast_loads": goal_plan["race_forecast_loads"]}
+    donor = existing_plan if not lifecycle or lifecycle["action"] == "edit_current" else None
+    goal_plan = ensure_session_identities(goal_plan, previous_goal_plan=donor)
     # Issue #205: the product weekly table is a projection of the materialized
     # leaf sessions (parts → sessions → weekly), computed after constraints and
     # identity stamping so it reflects the final executable truth.
-    goal_plan["weekly_summary"] = derive_weekly_sport_buckets_from_sessions(
-        list(goal_plan.get("weekly_summary") or []),
-        list(goal_plan.get("session_templates") or []),
-    )
+    if not lifecycle:
+        goal_plan["weekly_summary"] = derive_weekly_sport_buckets_from_sessions(
+            list(goal_plan.get("weekly_summary") or []),
+            list(goal_plan.get("session_templates") or []),
+        )
     goal_plan["science_audit"] = audit_training_plan(goal_plan, source="stored")
     goal_plan = with_checkpoint_provenance(
         goal_plan,
         source=checkpoint_source,
-        parent_checkpoint_id=latest_checkpoint_id or None,
+        parent_checkpoint_id=(latest_checkpoint_id or None) if not lifecycle or lifecycle["action"] == "edit_current" else None,
     )
 
     preview = _build_plan_preview(existing_plan, goal_plan)
     preview["base_checkpoint_id"] = latest_checkpoint_id
 
 
+    forecast_days = goal_plan.get("daily_plan", [])
+    forecast_start = start_week
+    if lifecycle:
+        forecast_start, forecast_days = _cycle_forecast_input(forecast_days, context["athlete_day"], lifecycle["end_date"])
     forecast = _forecast(
         banister,
         metrics,
-        goal_plan.get("daily_plan", []),
-        start_week,
+        forecast_days,
+        forecast_start,
         race_forecast_loads=goal_plan.get("race_forecast_loads"),
     )
     weeks = _weeks_payload(
@@ -1790,6 +1892,8 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
         "weeks": weeks,
         "forecast": forecast,
     }
+    if lifecycle:
+        response["lifecycle"] = lifecycle
 
     return PreparedPlanBuild(
         snapshot=snapshot,
@@ -1854,6 +1958,14 @@ _TSB_TONE_TO_FORECAST_MESSAGE = {
 }
 
 
+def _cycle_forecast_input(daily_plan: list, athlete_day: str, end_date: str) -> tuple[date, list]:
+    start, end = date.fromisoformat(athlete_day), date.fromisoformat(end_date)
+    by_day = {row[0].date(): row for row in daily_plan if row[0].date() >= start}
+    days = [by_day.get(day, (datetime.combine(day, datetime.min.time()), 0.0, {}))
+            for day in (start + timedelta(days=i) for i in range((end - start).days + 1))]
+    return start, days
+
+
 def _forecast(
     banister,
     metrics,
@@ -1911,7 +2023,8 @@ def _forecast(
 # Active plan access (restored from the latest persisted checkpoint)
 # ---------------------------------------------------------------------------
 def get_active_plan(db: Database) -> Optional[Dict[str, Any]]:
-    plan = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+    context, checkpoint = current_plan_snapshot(db)
+    plan = restore_goal_plan_from_checkpoint(checkpoint) if actionable(context) else None
     return ensure_session_identities(plan) if plan else None
 
 
@@ -1972,7 +2085,7 @@ def _recovery_replan_session_ids_from_history(
             parent_id = int(parent_id) if parent_id is not None else None
         except (TypeError, ValueError):
             raise ValueError("planning checkpoint ancestry has an invalid parent id")
-        checkpoint = db.get_planning_checkpoint(parent_id) if parent_id is not None else None
+        checkpoint = db.get_planning_checkpoint(parent_id) if parent_id is not None and _same_cycle_checkpoint(db, latest["id"], parent_id) else None
 
     return recovery_session_ids
 
@@ -1981,9 +2094,10 @@ def repair_active_plan_materialization(
     db: Database,
     *,
     persist: bool = False,
+    cycle_context: dict | None = None,
 ) -> Dict[str, Any]:
     """Preview or append one checkpoint that repairs non-executable modern leaves."""
-    latest = db.get_latest_planning_checkpoint()
+    write_context, latest = _write_snapshot(db, expected=cycle_context)
     if not latest:
         raise ValueError("no active plan")
     base_checkpoint_id = int(latest["id"])
@@ -2011,7 +2125,7 @@ def repair_active_plan_materialization(
     )
     saved = None
     if persist:
-        saved = db.save_planning_checkpoint(build_planning_checkpoint(repaired))
+        saved = db.save_planning_checkpoint(build_planning_checkpoint(repaired), cycle_context=write_context)
     return {
         "plan_id": str(saved["id"]) if saved else None,
         "base_checkpoint_id": base_checkpoint_id,
@@ -2205,7 +2319,8 @@ def _week_by_week_window(
 
 def week_by_week_plan(db: Database) -> Dict[str, Any]:
     """Build one bounded plan/fact reader DTO from saved canonical projections."""
-    goal_plan = get_active_plan(db)
+    context, checkpoint = current_plan_snapshot(db)
+    goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
     if not goal_plan:
         return {"has_plan": False, "state": "no_plan", "weeks": [], "chart": []}
     if not list(goal_plan.get("daily_plan") or []):
@@ -2217,7 +2332,7 @@ def week_by_week_plan(db: Database) -> Dict[str, Any]:
             "chart": [],
         }
 
-    today = athlete_local_date()
+    today = date.fromisoformat(context["athlete_day"])
     weekly_rows: List[tuple[Dict[str, Any], date]] = []
     for raw_week in list(goal_plan.get("weekly_summary") or []):
         if not isinstance(raw_week, dict):
@@ -2247,7 +2362,7 @@ def week_by_week_plan(db: Database) -> Dict[str, Any]:
         db,
         weeks=_WEEK_BY_WEEK_RECONCILIATION_WEEKS,
         as_of=today,
-        include_provider=False,
+        include_provider=False, checkpoint=checkpoint,
     )
     matches = {
         str(row.get("session_id")): dict(row)
@@ -2279,6 +2394,10 @@ def week_by_week_plan(db: Database) -> Dict[str, Any]:
     for week, week_start in selected_weeks:
         week_end = week_start + timedelta(days=6)
         week_state = "past" if week_end < today else "future" if week_start > today else "current"
+        if context["state"] == "period_ended":
+            week_state = "past"
+        elif context["state"] == "scheduled":
+            week_state = "future"
         days: List[Dict[str, Any]] = []
         for offset in range(7):
             day_date = week_start + timedelta(days=offset)
@@ -2307,6 +2426,10 @@ def week_by_week_plan(db: Database) -> Dict[str, Any]:
                         }
                     )
             day_state = "past" if day_date < today else "future" if day_date > today else "current"
+            if context["state"] == "period_ended":
+                day_state = "past"
+            elif context["state"] == "scheduled":
+                day_state = "future"
             plan_state = "planned" if target_tss > 0 else "unplanned" if unplanned_tss > 0 else "rest"
             days.append(
                 {
@@ -2572,15 +2695,19 @@ def preview_weekly_rebalance(
     as_of: date | str | None = None,
     include_provider: bool = True,
 ) -> Dict[str, Any]:
+    write_context, latest = _write_snapshot(db, allow_inactive=True)
+    if write_context["state"] not in {"scheduled", "in_progress"}:
+        return {"has_plan": bool(latest), "reconciliation": {"has_plan": bool(latest)},
+                "preview": {"status": "no_change", "reason": "no_eligible_future_sessions", "changes": []}}
     reconciliation_payload = reconciliation_at(
         db,
         weeks=weeks,
         as_of=as_of,
         include_provider=include_provider,
+        checkpoint=latest,
     )
     if not reconciliation_payload.get("has_plan"):
         return {"has_plan": False, "reconciliation": reconciliation_payload, "preview": None}
-    latest = db.get_latest_planning_checkpoint()
     goal_plan = restore_goal_plan_from_checkpoint(latest)
     assert goal_plan is not None
     resolved_as_of = _parse_as_of(as_of)
@@ -2590,7 +2717,7 @@ def preview_weekly_rebalance(
         as_of=resolved_as_of,
         protected_dates=_rebalance_protected_dates(db, goal_plan, as_of=resolved_as_of),
     )
-    return {"has_plan": True, "reconciliation": reconciliation_payload, "preview": preview}
+    return {"has_plan": True, "reconciliation": reconciliation_payload, "preview": _bind_cycle_fingerprint(preview, write_context)}
 
 
 def confirm_weekly_rebalance(
@@ -2602,7 +2729,7 @@ def confirm_weekly_rebalance(
     as_of: date | str | None = None,
     include_provider: bool = True,
 ) -> Dict[str, Any]:
-    latest = db.get_latest_planning_checkpoint()
+    write_context, latest = _write_snapshot(db, base=base_checkpoint_id)
     latest_id = int(latest.get("id")) if latest and latest.get("id") is not None else 0
     if latest_id != int(base_checkpoint_id):
         raise StalePlanningCheckpointError(
@@ -2627,7 +2754,7 @@ def confirm_weekly_rebalance(
         source="weekly_rebalance",
         parent_checkpoint_id=latest_id,
     )
-    saved = db.save_planning_checkpoint(build_planning_checkpoint(updated))
+    saved = db.save_planning_checkpoint(build_planning_checkpoint(updated), cycle_context=write_context)
     return {
         "plan_id": str(saved.get("id")),
         "applied_checkpoint_id": int(saved.get("id")),
@@ -2643,7 +2770,7 @@ def preview_bike_tss_rebalance(
     as_of: date | str | None = None,
 ) -> Dict[str, Any]:
     """Preview future-only bike volume corrections without saving a checkpoint."""
-    latest = db.get_latest_planning_checkpoint()
+    write_context, latest = _write_snapshot(db)
     if not latest:
         return {"has_plan": False, "preview": None}
     goal_plan = restore_goal_plan_from_checkpoint(latest)
@@ -2655,7 +2782,7 @@ def preview_bike_tss_rebalance(
         as_of=resolved_as_of,
         base_checkpoint_id=int(latest.get("id") or 0),
     )
-    return {"has_plan": True, "preview": preview}
+    return {"has_plan": True, "preview": _bind_cycle_fingerprint(preview, write_context)}
 
 
 def confirm_bike_tss_rebalance(
@@ -2666,7 +2793,7 @@ def confirm_bike_tss_rebalance(
     as_of: date | str | None = None,
 ) -> Dict[str, Any]:
     """Apply a previously previewed future-only bike correction."""
-    latest = db.get_latest_planning_checkpoint()
+    write_context, latest = _write_snapshot(db, base=base_checkpoint_id)
     latest_id = int(latest.get("id")) if latest and latest.get("id") is not None else 0
     if latest_id != int(base_checkpoint_id):
         raise StalePlanningCheckpointError(
@@ -2686,7 +2813,7 @@ def confirm_bike_tss_rebalance(
         source="bike_tss_rebalance",
         parent_checkpoint_id=latest_id,
     )
-    saved = db.save_planning_checkpoint(build_planning_checkpoint(updated))
+    saved = db.save_planning_checkpoint(build_planning_checkpoint(updated), cycle_context=write_context)
     return {
         "plan_id": str(saved.get("id")),
         "applied_checkpoint_id": int(saved.get("id")),
@@ -2759,12 +2886,11 @@ def record_plan_actual_match(
     action: str,
     client_request_id: str | None = None,
 ) -> Dict[str, Any]:
-    latest = db.get_latest_planning_checkpoint()
-    latest_id = int(latest.get("id")) if latest and latest.get("id") is not None else 0
-    if latest_id != int(base_checkpoint_id):
-        raise StalePlanningCheckpointError(
-            f"active checkpoint #{latest_id or 'none'} no longer matches match base #{base_checkpoint_id}"
-        )
+    # A factual correction is explicitly checkpoint-bound, even after closing.
+    latest_id = int(base_checkpoint_id)
+    latest = db.get_planning_checkpoint(latest_id)
+    if latest is None:
+        raise ValueError("planning checkpoint not found")
     goal_plan = ensure_session_identities(restore_goal_plan_from_checkpoint(latest) or {})
     template, session = find_planned_session(goal_plan.get("session_templates", []) or [], session_id)
     if template is None or session is None:
@@ -2993,8 +3119,12 @@ def apply_adjustment(
     rows: List[Dict[str, Any]],
     weeks: int = 1,
     persist: bool = True,
+    cycle_context: dict | None = None,
 ) -> Dict[str, Any]:
-    goal_plan = get_active_plan(db)
+    if persist and cycle_context is None:
+        raise PlanningBuildPreviewError("cycle_context_required", "Обновите контекст корректировки.")
+    write_context, latest = _write_snapshot(db, expected=cycle_context)
+    goal_plan = restore_goal_plan_from_checkpoint(latest)
     if not goal_plan or not goal_plan.get("daily_plan"):
         raise ValueError("no active plan to adjust")
 
@@ -3006,20 +3136,28 @@ def apply_adjustment(
 
     adjustment = build_execution_plan_adjustment(goal_plan, rows, weeks=weeks)
     rebuilt_goal_plan = rebuild_goal_plan_with_adjustment(goal_plan, adjustment)
-    rebuilt_goal_plan, constraint_application = _apply_active_coach_constraints(db, rebuilt_goal_plan)
-    new_goal_plan = with_checkpoint_provenance(rebuilt_goal_plan, source="execution_adjustment")
+    rebuilt_goal_plan = bound_prescriptions(rebuilt_goal_plan, {
+        "action": "edit_current", "start_date": write_context["start_date"], "end_date": write_context["end_date"],
+    }, goal_plan, date.fromisoformat(write_context["athlete_day"]))
+    if goal_plan.get("identity_namespace") is not None:
+        rebuilt_goal_plan["identity_namespace"] = goal_plan["identity_namespace"]
+    rebuilt_goal_plan, constraint_application = _apply_active_coach_constraints(db, rebuilt_goal_plan, write_context)
+    rebuilt_goal_plan = ensure_session_identities(rebuilt_goal_plan, previous_goal_plan=goal_plan)
+    rebuilt_goal_plan["science_audit"] = audit_training_plan(rebuilt_goal_plan, source="stored")
+    new_goal_plan = with_checkpoint_provenance(rebuilt_goal_plan, source="execution_adjustment", parent_checkpoint_id=write_context["checkpoint_id"])
 
     plan_id: Optional[str] = None
     if persist:
-        saved = db.save_planning_checkpoint(build_planning_checkpoint(new_goal_plan))
+        saved = db.save_planning_checkpoint(build_planning_checkpoint(new_goal_plan), cycle_context=write_context)
         plan_id = str((saved or {}).get("id") or (saved or {}).get("checkpoint_id") or "")
 
     metrics, banister, _df = _current_metrics(db)
-    start_week = _start_week()
+    start_week, forecast_days = _cycle_forecast_input(list(new_goal_plan.get("daily_plan") or []),
+                                                       write_context["athlete_day"], write_context["end_date"])
     forecast = _forecast(
         banister,
         metrics,
-        new_goal_plan.get("daily_plan", []),
+        forecast_days,
         start_week,
         race_forecast_loads=new_goal_plan.get("race_forecast_loads"),
     )
@@ -3061,7 +3199,9 @@ def apply_recovery_replan(
     except (TypeError, ValueError):
         raise ValueError("recovery proposal base checkpoint is invalid")
 
-    latest = db.get_latest_planning_checkpoint()
+    if persist and not proposal_params.get("cycle_context"):
+        raise PlanningBuildPreviewError("cycle_context_required", "Нужен новый recovery-предпросмотр.")
+    write_context, latest = _write_snapshot(db, base=base_checkpoint_id, expected=proposal_params.get("cycle_context"))
     latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") else None
     if latest_id != base_checkpoint_id:
         raise StalePlanningCheckpointError(
@@ -3142,7 +3282,7 @@ def apply_recovery_replan(
     saved = None
     plan_id = None
     if persist:
-        saved = db.save_planning_checkpoint(build_planning_checkpoint(updated))
+        saved = db.save_planning_checkpoint(build_planning_checkpoint(updated), cycle_context=write_context)
         plan_id = str((saved or {}).get("id") or "")
 
     weekly_tss_plan = list(updated.get("weekly_tss_plan") or [])
@@ -3151,6 +3291,8 @@ def apply_recovery_replan(
         {str(value)[:10] for value in near_term_edit.get("edited_dates", []) or []}
     )
     return {
+        "cycle_context": write_token({**write_context, "checkpoint_id": int(plan_id) if plan_id else write_context["checkpoint_id"],
+                                      "cycle_revision": write_context["cycle_revision"] + (1 if plan_id else 0)}),
         "plan_id": plan_id,
         "applied_checkpoint_id": int(plan_id) if plan_id else None,
         "rollback_checkpoint_id": base_checkpoint_id,
@@ -3191,6 +3333,7 @@ def apply_recovery_replan_transfer(
     session_id: str,
     target_date: str,
     persist: bool = True,
+    cycle_context: dict | None = None,
 ) -> Dict[str, Any]:
     """Apply a confirmed `transfer_1_3d` variant against its exact base checkpoint.
 
@@ -3200,7 +3343,9 @@ def apply_recovery_replan_transfer(
     so the ranker's promise and the applied result cannot diverge (Issue
     #209 M4).
     """
-    latest = db.get_latest_planning_checkpoint()
+    if persist and not cycle_context:
+        raise PlanningBuildPreviewError("cycle_context_required", "Обновите контекст recovery-команды.")
+    write_context, latest = _write_snapshot(db, base=base_checkpoint_id, expected=cycle_context)
     latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") else None
     if latest_id != base_checkpoint_id:
         raise StalePlanningCheckpointError(
@@ -3245,11 +3390,13 @@ def apply_recovery_replan_transfer(
     saved = None
     plan_id = None
     if persist:
-        saved = db.save_planning_checkpoint(build_planning_checkpoint(moved_plan))
+        saved = db.save_planning_checkpoint(build_planning_checkpoint(moved_plan), cycle_context=write_context)
         plan_id = str((saved or {}).get("id") or "")
 
     affected_dates = sorted({d for d in (source_date, target_date_iso) if d})
     return {
+        "cycle_context": write_token({**write_context, "checkpoint_id": int(plan_id) if plan_id else write_context["checkpoint_id"],
+                                      "cycle_revision": write_context["cycle_revision"] + (1 if plan_id else 0)}),
         "plan_id": plan_id,
         "applied_checkpoint_id": int(plan_id) if plan_id else None,
         "rollback_checkpoint_id": base_checkpoint_id,
@@ -3278,7 +3425,10 @@ def rollback_recovery_replan(
     except (TypeError, ValueError):
         raise ValueError("recovery rollback checkpoint ids are invalid")
 
-    latest = db.get_latest_planning_checkpoint()
+    cycle_context = proposal_result.get("cycle_context")
+    if persist and not cycle_context:
+        raise PlanningBuildPreviewError("cycle_context_required", "Обновите контекст recovery-команды.")
+    write_context, latest = _write_snapshot(db, base=applied_checkpoint_id, expected=cycle_context)
     latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") else None
     if latest_id != applied_checkpoint_id:
         raise StalePlanningCheckpointError(
@@ -3286,6 +3436,11 @@ def rollback_recovery_replan(
         )
 
     rollback_checkpoint = db.get_planning_checkpoint(rollback_checkpoint_id)
+    conn = db._connect()
+    try:
+        check_restore_owner(conn, write_context, rollback_checkpoint_id)
+    finally:
+        conn.close()
     restored = restore_goal_plan_from_checkpoint(rollback_checkpoint)
     if not restored or not restored.get("daily_plan"):
         raise ValueError("recovery rollback checkpoint cannot be restored")
@@ -3299,7 +3454,7 @@ def rollback_recovery_replan(
     saved = None
     plan_id = None
     if persist:
-        saved = db.save_planning_checkpoint(build_planning_checkpoint(restored))
+        saved = db.save_planning_checkpoint(build_planning_checkpoint(restored), cycle_context=write_context, cycle_action="restore")
         plan_id = str((saved or {}).get("id") or "")
     return {
         "plan_id": plan_id,
@@ -3328,9 +3483,10 @@ def deliver_intervals_plan(
 
 
 def planning_history(db: Database, limit: int = 10) -> Dict[str, Any]:
-    checkpoints = db.get_recent_planning_checkpoints(limit=max(1, min(int(limit or 10), 50)))
+    context, rows = checkpoint_history(db, limit=max(1, min(int(limit or 10), 50)))
     items: List[Dict[str, Any]] = []
-    for checkpoint in checkpoints:
+    for row in rows:
+        checkpoint = row["checkpoint"]
         summary = summarize_planning_checkpoint(checkpoint)
         if not summary:
             continue
@@ -3353,6 +3509,9 @@ def planning_history(db: Database, limit: int = 10) -> Dict[str, Any]:
             outcome = str(summary.get("headline") or provenance.get("detail") or "План сохранён")
         items.append(
             {
+                "cycle_id": row["cycle_id"],
+                "can_restore": row["can_restore"],
+                "restore_action": row["restore_action"],
                 "checkpoint_id": summary.get("checkpoint_id"),
                 "date": str(checkpoint.get("created_at") or ""),
                 "date_label": summary.get("created_at_label") or "",
@@ -3370,7 +3529,7 @@ def planning_history(db: Database, limit: int = 10) -> Dict[str, Any]:
                 "peak_tss": summary.get("peak_tss"),
             }
         )
-    return {"has_history": bool(items), "items": items}
+    return {"has_history": bool(items), "items": items, "cycle_context": context}
 
 
 def restore_history_version(
@@ -3378,6 +3537,10 @@ def restore_history_version(
     *,
     checkpoint_id: int,
     base_checkpoint_id: int,
+    expected_cycle_id: str | None = None,
+    expected_cycle_revision: int | None = None,
+    expected_selection_revision: int | None = None,
+    action: str = "restore_version",
 ) -> Dict[str, Any]:
     """Restore a saved plan version as a NEW checkpoint on top of the active one.
 
@@ -3387,7 +3550,17 @@ def restore_history_version(
     Stale base raises :class:`StalePlanningCheckpointError` (HTTP 409);
     the active version itself or an unknown id raises ``ValueError`` (422).
     """
-    latest = db.get_latest_planning_checkpoint()
+    write_context, latest = _write_snapshot(db, base=base_checkpoint_id)
+    if (expected_cycle_id, expected_cycle_revision, expected_selection_revision) != (
+            write_context["cycle_id"], write_context["cycle_revision"], write_context["selection_revision"]):
+        raise PlanningBuildPreviewError("cycle_stale", "Обновите контекст цикла перед восстановлением.")
+    if action not in {"restore_version", "restore_legacy_version"}:
+        raise PlanningBuildPreviewError("invalid_cycle_request", "Проверьте действие восстановления.", status=422)
+    conn = db._connect()
+    try:
+        check_restore_owner(conn, write_context, int(checkpoint_id), legacy=action == "restore_legacy_version")
+    finally:
+        conn.close()
     latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") is not None else 0
     if latest_id != int(base_checkpoint_id):
         raise StalePlanningCheckpointError(
@@ -3409,7 +3582,8 @@ def restore_history_version(
         parent_checkpoint_id=latest_id,
         restored_from_checkpoint_id=wanted,
     )
-    saved = db.save_planning_checkpoint(build_planning_checkpoint(restored))
+    saved = db.save_planning_checkpoint(build_planning_checkpoint(restored), cycle_context=write_context,
+                                        cycle_action="restore", restore_legacy=action == "restore_legacy_version")
     saved_id = int(saved.get("id") or saved.get("checkpoint_id") or 0)
     return {
         "plan_id": str(saved_id or ""),
@@ -3531,7 +3705,7 @@ def recover_day_after_constraint_retraction(
 
     # Stale base FIRST (same order as restore_history_version): a request pinning
     # an outdated lineage must fail fast on its own terms, whatever else holds.
-    latest = db.get_latest_planning_checkpoint()
+    write_context, latest = _write_snapshot(db, base=base_checkpoint_id)
     latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") is not None else 0
     if latest_id != int(base_checkpoint_id):
         raise StalePlanningCheckpointError(
@@ -3629,7 +3803,7 @@ def recover_day_after_constraint_retraction(
     )
     updated["plan_revision"] = datetime.now().isoformat()
     checkpoint_data = build_planning_checkpoint(updated)
-    saved = db.save_planning_checkpoint(checkpoint_data) if persist else checkpoint_data
+    saved = db.save_planning_checkpoint(checkpoint_data, cycle_context=write_context) if persist else checkpoint_data
     saved_id = int((saved or {}).get("id") or (saved or {}).get("checkpoint_id") or 0) if persist else 0
 
     # Authoritative answer: the finally stamped identities, read back. The #205
@@ -3725,15 +3899,21 @@ def preview_coach_constraint_mutation(
     if action not in _COACH_MUTATION_ACTIONS:
         raise ValueError(f"unsupported coach mutation action: {action}")
     raw = dict(params or {})
-    latest = db.get_latest_planning_checkpoint()
-    latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") else 0
+    write_context, latest = _write_snapshot(db, expected=raw.get("cycle_context"), allow_inactive=True)
+    actionable = write_context["state"] in {"scheduled", "in_progress"}
+    if action == "repair_plan_day" and not actionable:
+        from data.planning_cycle_writes import require_actionable
+        require_actionable(write_context)
+    if not actionable:
+        latest = None
+    latest_id = int(write_context["checkpoint_id"] or 0)
     requested_base = raw.get("base_checkpoint_id")
     if requested_base is not None and int(requested_base or 0) != latest_id:
         raise StalePlanningCheckpointError(
             f"active checkpoint #{latest_id or 'none'} no longer matches request base "
             f"#{int(requested_base or 0) or 'none'}"
         )
-    base_checkpoint_id = latest_id
+    base_checkpoint_id = int(write_context["checkpoint_id"] or 0)
     checkpoint_data = None
     session_id_handoffs: Dict[str, str] = {}
 
@@ -3750,6 +3930,27 @@ def preview_coach_constraint_mutation(
             "plan_id": raw.get("plan_id"),
             "session_id": raw.get("session_id"),
         }
+        scope = raw.get("cycle_scope") or ("athlete" if constraint["kind"] in {"sick", "unavailable", "forced_rest"} else "cycle")
+        if scope not in {"athlete", "cycle"}:
+            raise PlanningBuildPreviewError("constraint_scope_required", "Укажите принадлежность ограничения.")
+        if scope == "cycle" and not actionable:
+            raise PlanningBuildPreviewError("cycle_not_current", "Нет цикла для этого ограничения.")
+        constraint.update(cycle_scope=scope, cycle_id=write_context["cycle_id"] if scope == "cycle" else None)
+        if raw.get("cycle_id") not in {None, constraint["cycle_id"]}:
+            raise PlanningBuildPreviewError("cycle_not_current", "Ограничение относится к другому циклу.")
+        if constraint["plan_id"] is not None:
+            conn = db._connect()
+            try:
+                try:
+                    bound_id = int(constraint["plan_id"])
+                except (ValueError, TypeError):
+                    raise PlanningBuildPreviewError("constraint_scope_required", "Не удалось проверить привязку ограничения.")
+                if PlanningCycleStore(conn).version_cycle(bound_id) != write_context["cycle_id"] or not actionable:
+                    raise PlanningBuildPreviewError("cycle_not_current", "Привязка относится к другому циклу.")
+            finally:
+                conn.close()
+        if constraint["session_id"] and (not latest or constraint["session_id"] not in _checkpoint_session_ids(latest)):
+            raise PlanningBuildPreviewError("constraint_scope_required", "Не удалось проверить тренировку ограничения.")
         if not constraint["date"]:
             raise ValueError("date must be non-empty")
         if constraint["kind"] not in {
@@ -3790,6 +3991,7 @@ def preview_coach_constraint_mutation(
             "plan_id": constraint["plan_id"],
             "session_id": constraint["session_id"],
             "base_checkpoint_id": base_checkpoint_id,
+            "cycle_scope": constraint["cycle_scope"], "cycle_id": constraint["cycle_id"],
         }
         preview = {
             "date": constraint["date"],
@@ -3808,6 +4010,8 @@ def preview_coach_constraint_mutation(
             constraint = db.get_coach_constraint(constraint_id) if constraint_id else None
             if not constraint or constraint.get("status") != "active":
                 raise ValueError("active constraint not found")
+            if constraint.get("cycle_scope") != "athlete" and (constraint.get("cycle_scope") != "cycle" or constraint.get("cycle_id") != write_context["cycle_id"]):
+                raise PlanningBuildPreviewError("constraint_scope_required", "Уточните принадлежность ограничения.")
             row_sport = str(constraint.get("sport") or "").strip().lower() or None
             requested_sport = normalize_constraint_sport(raw.get("sport"))
             excluded = [row_sport] if row_sport else ([requested_sport] if requested_sport else [])
@@ -3836,7 +4040,7 @@ def preview_coach_constraint_mutation(
                 "base_checkpoint_id": base_checkpoint_id,
             }
 
-        if base_checkpoint_id:
+        if actionable:
             recovery = recover_day_after_constraint_retraction(
                 db,
                 base_checkpoint_id=base_checkpoint_id,
@@ -3871,6 +4075,7 @@ def preview_coach_constraint_mutation(
                 "note": constraint.get("note"),
             }
 
+    normalized_params["cycle_context"] = write_token(write_context)
     fingerprint = _coach_mutation_fingerprint(action, normalized_params, preview)
     normalized_params["preview_fingerprint"] = fingerprint
     return {
@@ -3899,6 +4104,7 @@ def confirm_coach_constraint_mutation(
     try:
         committed = db.commit_coach_plan_mutation(
             action=action,
+            cycle_context=normalized["cycle_context"],
             base_checkpoint_id=int(normalized.get("base_checkpoint_id") or 0),
             checkpoint_data=proposal.get("_checkpoint_data"),
             constraint_payload=normalized if action == "create_plan_constraint" else None,
@@ -4015,6 +4221,16 @@ def _rebind_restored_leg_matches(
     return rebindings
 
 
+def _same_cycle_checkpoint(db: Database, base: int, target: int) -> bool:
+    conn = db._connect()
+    try:
+        store = PlanningCycleStore(conn)
+        owner = store.version_cycle(base)
+        return owner is not None and store.version_cycle(target) == owner
+    finally:
+        conn.close()
+
+
 def _find_day_donor(
     db: Database,
     base_row: Dict[str, Any],
@@ -4025,6 +4241,8 @@ def _find_day_donor(
     cursor_id = _coerce_base_parent(base_row)
     while cursor_id is not None and cursor_id not in seen:
         seen.add(cursor_id)
+        if not _same_cycle_checkpoint(db, base_row["id"], cursor_id):
+            return None
         candidate = db.get_planning_checkpoint(cursor_id)
         if not isinstance(candidate, dict) or not candidate.get("goal_plan_snapshot"):
             return None

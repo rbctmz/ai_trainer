@@ -391,6 +391,7 @@ export interface CoachNarrativeEvidenceGate {
 export type CoachEvent =
   | {
       type: "meta";
+      cycle_context?: CycleContext;
       chat_id: string;
       readiness_snapshot?: ReadinessSnapshot;
       readiness_conflicts?: Record<string, unknown>;
@@ -745,6 +746,111 @@ export interface SyncJobResponse {
 }
 
 // --- Planning ---
+export type EventOutcome = "unspecified" | "did_not_participate" | "participated";
+
+export interface CycleEvent {
+  event_key: string;
+  outcome: EventOutcome;
+  is_ambiguous: boolean;
+  date: string | null;
+  label: string | null;
+  priority: string | null;
+}
+
+export interface CycleWeek {
+  number: number;
+  phase: string | null;
+  week_start: string | null;
+  weekly_tss: number | null;
+  is_historical: boolean;
+}
+
+export interface CycleContext {
+  state: "no_current" | "scheduled" | "in_progress" | "period_ended" | "closed" | "indeterminate";
+  cycle_id: string | null;
+  is_selected: boolean;
+  current_cycle_id: string | null;
+  selection_revision: number;
+  cycle_revision: number | null;
+  checkpoint_id: number | null;
+  start_date: string | null;
+  end_date: string | null;
+  athlete_day: string;
+  athlete_timezone: string;
+  is_legacy: boolean;
+  has_history: boolean;
+  reason_code: string | null;
+  allowed_actions: Array<"start_new" | "browse_history" | "close" | "edit_current" | "inspect" | "set_event_outcome">;
+  events: CycleEvent[];
+  current_week: CycleWeek | null;
+  last_week: CycleWeek | null;
+}
+
+export interface CycleHistoryResponse {
+  cycles: CycleContext[];
+}
+
+export interface EventDeclaration {
+  event_key: string;
+  outcome: EventOutcome;
+}
+
+export interface CloseCycleRequest {
+  command_id: string;
+  confirm: true;
+  expected_selection_revision: number;
+  expected_cycle_revision: number;
+  expected_checkpoint_id: number | null;
+  event_outcomes?: EventDeclaration[];
+}
+
+export interface SetEventOutcomeRequest extends EventDeclaration {
+  command_id: string;
+  confirm: true;
+  expected_cycle_revision: number;
+}
+
+export type ResolveConstraintScopeRequest = {
+  command_id: string;
+  confirm: true;
+  constraint_id: number;
+  expected_constraint_fingerprint: string;
+} & ({ scope: "athlete"; cycle_id?: null } | { scope: "cycle"; cycle_id: string });
+
+export interface OutcomeChange {
+  event_key: string;
+  checkpoint_id: number;
+  event_snapshot: Record<string, unknown>;
+  before: EventOutcome;
+  after: EventOutcome;
+}
+
+export interface ConstraintScopeChange {
+  constraint_id: number;
+  before_fingerprint: string;
+  after_fingerprint: string;
+  scope: "athlete" | "cycle";
+  cycle_id: string | null;
+}
+
+export interface CycleCommandResult {
+  effect: "closed" | "event_outcome_set" | "constraint_scope_resolved";
+  cycle_id: string | null;
+  cycle_revision: number | null;
+  checkpoint_id: number | null;
+  selection_revision: number;
+  event_outcomes: OutcomeChange[];
+  constraint_scope: ConstraintScopeChange | null;
+}
+
+export interface CycleCommandResponse {
+  command_id: string;
+  kind: "close" | "set_event_outcome" | "resolve_constraint_scope";
+  replayed: boolean;
+  result: CycleCommandResult;
+  current_context: CycleContext;
+}
+
 export type CoachConstraintKind =
   | "sick"
   | "unavailable"
@@ -754,6 +860,9 @@ export type CoachConstraintKind =
   | string;
 
 export interface CoachConstraint {
+  cycle_scope?: "athlete" | "cycle" | "unknown" | null;
+  cycle_id?: string | null;
+  constraint_fingerprint?: string;
   id: number;
   date: string;
   kind: CoachConstraintKind;
@@ -765,6 +874,11 @@ export interface CoachConstraint {
   metadata: Record<string, unknown>;
   resolved_at?: string | null;
   created_at?: string | null;
+}
+
+export interface PlanningConstraintsResponse {
+  count: number;
+  constraints: CoachConstraint[];
 }
 
 export interface ConstraintApplication {
@@ -779,6 +893,8 @@ export interface ConstraintApplication {
 }
 
 export interface PlanningStatus {
+  cycle_context?: CycleContext;
+  has_actionable_plan?: boolean;
   metrics: { ctl: number; atl: number; tsb: number; form: string };
   readiness_snapshot?: ReadinessSnapshot;
   active_constraint_count?: number;
@@ -819,6 +935,8 @@ export interface PlanScienceAudit {
 
 /** Read-only projection of the persisted active checkpoint for Planning M1. */
 export interface PlanningOverview {
+  cycle_context?: CycleContext;
+  has_actionable_plan?: boolean;
   has_plan: boolean;
   goal?: {
     goal_type: string | null;
@@ -997,6 +1115,50 @@ export interface DemandConfirmResult {
   weekly_target?: PlanningWeeklyTarget;
 }
 
+/** Expected selected-cycle CAS for non-build mutations (S2 M3c). */
+export interface CycleExpectedRequest {
+  expected_cycle_id: string | null;
+  expected_cycle_revision: number | null;
+  expected_selection_revision: number;
+}
+
+export interface CycleRestoreRequest extends CycleExpectedRequest {
+  expected_cycle_id: string;
+  expected_cycle_revision: number;
+  checkpoint_id: number;
+  base_checkpoint_id: number;
+  action?: "restore_version" | "restore_legacy_version";
+}
+
+export interface CycleAdjustmentRequest extends CycleExpectedRequest {
+  expected_cycle_id: string;
+  expected_cycle_revision: number;
+  base_checkpoint_id: number;
+  rows: Record<string, unknown>[];
+  weeks?: number;
+  persist?: boolean;
+}
+
+export interface CycleConstraintRequest extends CycleExpectedRequest {
+  date: string;
+  kind: string;
+  base_checkpoint_id: number;
+  source?: string;
+  note?: string | null;
+  plan_id?: string | null;
+  session_id?: string | null;
+  cycle_scope?: "athlete" | "cycle" | null;
+  cycle_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+  sport?: string | null;
+}
+
+export interface CycleRepairDayRequest extends CycleExpectedRequest {
+  date: string;
+  base_checkpoint_id: number;
+  exclude_sports?: string[] | null;
+}
+
 /** Result of restoring a saved plan version from history (M4d). */
 export interface RestoreHistoryResult {
   plan_id: string;
@@ -1008,6 +1170,7 @@ export interface RestoreHistoryResult {
 
 /** Read-only build inputs of the active checkpoint for the edit stepper (M4c). */
 export interface PlanningEditContext {
+  cycle_context?: CycleContext;
   has_plan: boolean;
   state: "available" | "data_gap" | string;
   reason: string | null;
@@ -1202,12 +1365,74 @@ export interface BuildConfirmation {
   is_current: boolean | null;
 }
 
-export interface BuildPreviewResponse extends BuiltPlan {
+export interface LegacyBuildPreviewResponse extends BuiltPlan {
   parameters: BuildParameters;
   confirmation: BuildConfirmation;
 }
 
-export interface BuildConfirmResponse extends BuildPreviewResponse {}
+export interface BuildLifecycle {
+  action: "start_new" | "edit_current";
+  source_cycle_id: string | null;
+  target_cycle_id: string;
+  base_cycle_revision: number | null;
+  base_selection_revision: number;
+  base_checkpoint_id: number;
+  start_date: string;
+  end_date: string;
+  closes_cycle_id: string | null;
+}
+
+export interface CycleBuildPreviewResponse extends BuiltPlan {
+  parameters: BuildParameters;
+  confirmation: BuildConfirmationV2;
+  lifecycle: BuildLifecycle;
+}
+
+export interface BuildConfirmationV2 {
+  protocol_version: 2;
+  preview_id: string;
+  expires_at: string;
+  status: "pending" | "applied";
+  replayed: boolean;
+  is_current: boolean | null;
+}
+
+export type BuildPreviewResponse = LegacyBuildPreviewResponse | CycleBuildPreviewResponse;
+export type BuildConfirmResponse = BuildPreviewResponse;
+
+export interface CycleBuildInputs {
+  start_date: string;
+  calendar_week_start: string;
+  goal_type: string | null;
+  distance: string | null;
+  intent: string | null;
+  planning_mode: string | null;
+  focus: string | null;
+  horizon_weeks: number | null;
+  event_date: string | null;
+  events: RaceEvent[];
+  manual_phases: string[] | null;
+  available_hours: number | null;
+  available_days: string[];
+  demand: string | null;
+}
+
+export interface CycleBuildContext {
+  action: "start_new" | "edit_current";
+  inputs: CycleBuildInputs;
+  input_sources: Record<string, string>;
+  cycle_context: CycleContext;
+}
+
+export interface CycleBuildLifecycleRequest {
+  action: "start_new" | "edit_current";
+  base_cycle_id: string | null;
+  base_cycle_revision: number | null;
+  base_selection_revision: number;
+  base_checkpoint_id: number;
+  replace_current_cycle: boolean;
+  start_date: string;
+}
 
 // --- Planning: export ---
 export interface WorkoutTarget {
@@ -1712,6 +1937,9 @@ export interface AdjustResult {
 }
 
 export interface PlanningHistoryItem {
+  cycle_id?: string | null;
+  can_restore?: boolean;
+  restore_action?: "restore_version" | "restore_legacy_version";
   checkpoint_id: number | null;
   date: string;
   date_label: string;
@@ -1726,6 +1954,7 @@ export interface PlanningHistoryItem {
 }
 
 export interface PlanningHistory {
+  cycle_context?: CycleContext;
   has_history: boolean;
   items: PlanningHistoryItem[];
 }
@@ -2106,6 +2335,8 @@ export interface TodayDecisionStory {
 }
 
 export interface TodayResponse {
+  cycle_context?: CycleContext;
+  has_actionable_plan?: boolean;
   decision_story: TodayDecisionStory;
   subjective_wellness?: SubjectiveWellness | null;
   snapshot_version: "today_decision_snapshot_v2" | string;

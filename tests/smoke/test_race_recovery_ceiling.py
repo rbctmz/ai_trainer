@@ -8,6 +8,7 @@ found while diagnosing #233). Mirrors the `_ACTIVATION_TSS_CEILING` precedent
 from #206 M6: the label must match what the day honestly holds.
 """
 from __future__ import annotations
+from tests.planning_fixtures import build_plan as fixture_build_plan
 
 from datetime import datetime, timedelta
 
@@ -96,7 +97,7 @@ def test_monday_a_race_reference_has_no_unstructured_recovery(tmp_path):
     a_date = today + timedelta(days=((0 - today.weekday()) % 7) + 77)  # Monday ~12w
 
     db = Database(str(tmp_path / "recovery-ceiling.db"))
-    ps.build_plan(
+    fixture_build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",

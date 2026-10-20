@@ -16,6 +16,7 @@ from api.session_feedback import (
 )
 from api.session_quality_forecast import _forecast_lifecycle_reason
 from data.database import Database
+from services.planning_cycles import current_plan_snapshot, actionable
 from utils.athlete_time import athlete_local_date
 from models.planning_checkpoints import (
     restore_goal_plan_from_checkpoint,
@@ -106,10 +107,14 @@ def build_today_decision_snapshot(
     """Build one fail-open daily snapshot without delegating decisions to a UI."""
     generated_at_utc = datetime.now(timezone.utc).replace(microsecond=0)
     generated_at = generated_at_utc.isoformat()
-    checkpoint = _latest_checkpoint(db)
+    cycle_context, selected_checkpoint = current_plan_snapshot(db)
+    checkpoint = selected_checkpoint if actionable(cycle_context) else None
     goal_plan = restore_goal_plan_from_checkpoint(checkpoint) if checkpoint else None
     loop_result = _run_loop(db, today=today)
     report = dict(loop_result.get("readiness_conflicts") or {})
+    if checkpoint is None:
+        report.update(evaluated_sessions=[], conflicts=[])
+        loop_result = {**loop_result, "proposal": None}
 
     fallback_date = (today or athlete_local_date()).isoformat()
     as_of = str(report.get("as_of") or fallback_date)[:10]
@@ -173,6 +178,9 @@ def build_today_decision_snapshot(
     }
     return {
         "snapshot_version": TODAY_SNAPSHOT_VERSION,
+        "cycle_context": cycle_context,
+        "has_plan": selected_checkpoint is not None,
+        "has_actionable_plan": checkpoint is not None,
         "date": as_of,
         "state": state,
         "reason": reason,
@@ -401,7 +409,7 @@ def _build_parent_story_from_sources(
     # The service reads revision metadata separately; reject a changed plan boundary.
     if projections and expected_checkpoint_id is not None:
         try:
-            unchanged = (db.get_latest_planning_checkpoint() or {}).get("id") == expected_checkpoint_id
+            unchanged = (db.get_current_planning_checkpoint() or {}).get("id") == expected_checkpoint_id
         except Exception:
             unchanged = False
         if not unchanged:
@@ -419,7 +427,7 @@ def _build_parent_story_from_sources(
 
 def _latest_checkpoint(db: Database) -> dict[str, Any] | None:
     try:
-        checkpoint = db.get_latest_planning_checkpoint()
+        checkpoint = db.get_current_planning_checkpoint()
     except Exception:
         return None
     return checkpoint if isinstance(checkpoint, dict) and checkpoint.get("id") else None

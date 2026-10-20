@@ -5,6 +5,7 @@ Every path belongs to ``tmp_path``.  The suite never opens the maintainer's
 """
 
 from __future__ import annotations
+from tests.planning_fixtures import seed_checkpoint
 
 import hashlib
 import json
@@ -111,7 +112,7 @@ def _seed_domain_database(path: Path) -> str:
         "garmin",
     )
     ingest_provider_activity(db, candidate, primary_source="garmin")
-    db.save_planning_checkpoint(
+    seed_checkpoint(db,
         {
             "goal_type": "triathlon",
             "distance": 51.5,
