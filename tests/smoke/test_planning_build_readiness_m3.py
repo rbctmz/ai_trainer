@@ -772,3 +772,93 @@ def test_composite_requires_catalog_sports_in_order_even_after_resumming(candida
     result = assess(candidate)
     assert result["status"] == "blocked", result
     assert any(b["code"] == "prescription_missing" and b["field"].endswith("legs") for b in result["blockers"]), result
+
+
+@pytest.fixture
+def edit_scope_candidate(candidate):
+    """Future instructions plus preserved legacy identity detail outside edit scope."""
+    from models.planning_build_confirmation import fingerprint
+    from models.planning_build_readiness import forecast_build_input
+
+    plan, response, context = candidate[2:]
+    context["athlete_day"] = "2026-11-30"
+    # This plan has one generated brick, all in the future. Preserve an
+    # explicit historical brick identity fixture too. Its old dose/projection
+    # is intentionally outside this build's prescription-validation scope.
+    historical_day = next(day for day in plan["session_templates"] if day.get("sessions"))
+    historical = deepcopy(composite(plan))
+    historical["session_id"] = "preserved-brick"
+    for index, child in enumerate(historical["legs"], 1):
+        child["leg_id"] = f"preserved-brick:{index}"
+    historical_day["sessions"].append(historical)
+    context["parameters"]["action"] = "edit_current"
+    context["lifecycle"]["action"] = "edit_current"
+    response["lifecycle"] = deepcopy(context["lifecycle"])
+    metrics = plan["forecast_input"]["initial_metrics"]
+    # Use the actual forecast adapter, so an unrelated stale forecast cannot
+    # manufacture a blocked result when isolating the identity boundary.
+    rows = [(ps.datetime.fromisoformat(row["date"]), row["total_tss"], row["parts"])
+            for row in plan["daily_plan"]]
+    start, future = ps._cycle_forecast_input(rows, context["athlete_day"], context["lifecycle"]["end_date"])
+    response["forecast"] = ps._forecast(ps.BanisterModel(), metrics, future, start,
+                                       race_forecast_loads=plan.get("race_forecast_loads"))
+    plan["forecast_input"] = forecast_build_input(plan, context, metrics)
+    response["forecast"]["input_fingerprint"] = fingerprint(plan["forecast_input"])
+    assert assess(candidate)["status"] == "ready", assess(candidate)
+    return candidate
+
+
+def scoped_identity_rows(candidate, *, past, leg):
+    boundary = candidate[4]["athlete_day"]
+    rows = []
+    for day in candidate[2]["session_templates"]:
+        if (day["date"] < boundary) != past:
+            continue
+        for session in day.get("sessions", []):
+            if leg:
+                rows.extend((day, session, child) for child in session.get("legs", []))
+            else:
+                rows.append((day, session, session))
+    return rows
+
+
+@pytest.mark.parametrize("past_leg", [False, True])
+@pytest.mark.parametrize("future_leg", [False, True])
+def test_future_identity_cannot_reuse_preserved_parent_or_leg(edit_scope_candidate, past_leg, future_leg):
+    candidate = edit_scope_candidate
+    old_day, _, old = scoped_identity_rows(candidate, past=True, leg=past_leg)[0]
+    day, parent, assigned = scoped_identity_rows(candidate, past=False, leg=future_leg)[0]
+    old_identity = old["leg_id" if past_leg else "session_id"]
+    key = "leg_id" if future_leg else "session_id"
+    assigned[key] = old_identity
+    if day["sessions"][0] is parent:
+        if future_leg:
+            day["legs"] = deepcopy(parent["legs"])
+        else:
+            day["session_id"] = old_identity
+    if not past_leg and not future_leg:
+        from models.plan_actual_reconciliation import find_planned_session
+        selected_day, _ = find_planned_session(candidate[2]["session_templates"], old_identity)
+        assert selected_day["date"] == old_day["date"]
+    before = deepcopy(candidate[2:])
+    result = assess(candidate)
+    assert result["status"] == "blocked", result
+    reasons = [b for b in result["blockers"] if b["observed"] == old_identity]
+    assert any(b["code"] == "prescription_missing" and b["date"] == day["date"]
+               and b["leg_index"] == (assigned["leg_index"] if future_leg else None)
+               and b["field"].endswith(key) for b in reasons), result
+    assert not any(b["date"] == old_day["date"] for b in result["blockers"])
+    assert candidate[2:] == before
+
+
+def test_preserved_legacy_duplicates_and_invalid_instructions_are_not_reassessed(edit_scope_candidate):
+    candidate = edit_scope_candidate
+    history = scoped_identity_rows(candidate, past=True, leg=False)
+    history[1][2]["session_id"] = history[0][2]["session_id"]
+    for _, _, row in history:
+        row["materialization_status"] = "legacy_role_fallback"
+        row["materialized_steps"] = []
+    before = deepcopy(candidate[2:])
+    result = assess(candidate)
+    assert result["status"] == "ready", result
+    assert candidate[2:] == before

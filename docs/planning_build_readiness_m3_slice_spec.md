@@ -11,7 +11,7 @@ posting or edits. Human owns merge and cleanup. M1 AC1–AC7 remain the authorit
 ## Change Class / review
 
 Class A: persistent artifact provenance and transactional publication gate.
-Manual trigger. Independent rounds 2/2 (full + scoped delta), native rounds 0. READY at
+Manual trigger. Independent rounds 2/2 (full + scoped delta), native rounds 1/2 (one P2 fixed; verification pending). Independent READY at
 3eafc7bf6070904c3c97b2265b6ca6bbd8223e41; later evidence-only commits do not
 change the reviewed runtime60c2343.
 No merge acceptance or review-budget exception is implied.
@@ -160,3 +160,14 @@ history/completeness, then implementation only when separately assigned. S4 UI
 consumes the shared readiness/error DTO, including comprehensible reasons; it must
 not infer readiness in the browser. #707 remains generation behavior and does not
 become a medical/personal suitability rule.
+
+## Native round1 follow-up
+
+Reviewed head73aaab8, one blocking P2:
+[reserve preserved identities](https://github.com/rbctmz/ai_trainer/pull/708#discussion_r4323327788).
+Author4 exact RED→GREEN plus legacy-only control: future parent/leg cannot reuse
+any preserved parent/leg ID; old history is neither reassessed nor rewritten.
+207 target and69 compatibility tests GREEN, no DTO/schema change. Full contributor
+and current-head remote checks are required before scoped native round2. Earlier
+independent READY remains evidence of its reviewed head, not native acceptance of
+this later fix. No acceptance label or merge authorized.

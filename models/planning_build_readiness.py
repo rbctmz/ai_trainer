@@ -569,6 +569,21 @@ def assess_plan_build_readiness(
         )
     count = 0
     seen_ids: set[str] = set()
+    # Preserved assignments share the same identity namespace as new ones.
+    # Reserve their IDs without reassessing historical prescriptions or
+    # rejecting duplicates that already exist exclusively in preserved history.
+    for day, template in by_day.items():
+        if start <= day <= end:
+            continue
+        for raw_session in _list(template.get("sessions")):
+            session = _map(raw_session)
+            identity = session.get("session_id")
+            if isinstance(identity, str) and identity:
+                seen_ids.add(identity)
+            for raw_leg in _list(session.get("legs")):
+                identity = _map(raw_leg).get("leg_id")
+                if isinstance(identity, str) and identity:
+                    seen_ids.add(identity)
     current_phase = ""
     minutes_by_day = {}
     for day, total, parts in days:
@@ -597,6 +612,10 @@ def assess_plan_build_readiness(
             session = _map(raw)
             count += 1
             identity = session.get("session_id")
+            address.update(
+                session_id=identity if isinstance(identity, str) else None,
+                leg_index=None,
+            )
             if not isinstance(identity, str) or not identity or identity in seen_ids:
                 fail(
                     "prescription_missing",
@@ -606,7 +625,6 @@ def assess_plan_build_readiness(
                 )
             else:
                 seen_ids.add(identity)
-            address.update(session_id=session.get("session_id"), leg_index=None)
             field = f"sessions[{i}]"
             if session.get("kind") not in {"single", "composite"}:
                 fail(

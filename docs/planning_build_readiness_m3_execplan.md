@@ -255,3 +255,49 @@ gate, not a functional-test verdict. Do not bypass it with an acceptance label.
 Final local tests remain green; remote current-head status must be checked again
 by the merge owner. Worktree retained; unrelated primary-checkout changes were
 observed during final read-only status and left untouched.
+
+## Native round1: preserved identity collision (2026-10-20)
+
+Native review of73aaab8 found one blocking P2 at
+https://github.com/rbctmz/ai_trainer/pull/708#discussion_r4323327788.
+Observed: assessor skipped days outside future scope before adding their IDs to
+seen_ids. Author reproduced4 behavioral RED: future parent/leg reuses preserved
+parent/leg ID and is marked ready with empty blockers. A separate historical
+legacy/duplicate control remains ready. Initial test setup date parsing/missing
+past brick errors are fixture errors, not represented as behavioral RED.
+
+Inferred: reservation must cover preserved IDs without widening prescription
+assessment into history. Verified by: scope-correct serialized candidate, actual
+forecast adapter (no unrelated forecast blocker),4 ready[] assertions RED, then
+all5 controls GREEN after seeding seen_ids from preserved nested sessions and
+legs. Real find_planned_session on duplicate parent ID selects the old day, a
+cheap falsifying check of the downstream lookup concern. Pure validation leaves
+past plan/response/context unchanged, including old malformed prescriptions and
+history-only duplicate IDs. No consumer mutation or live write was executed.
+
+Fix only reserves nonempty string parent/leg IDs outside assessment scope before
+future validation; it neither rewrites IDs/history nor introduces historical
+prescription blockers. Future collision reports its date/parent/leg field, and
+parent blocker address now names the actual assigned parent. API/TS unchanged,
+no new version/backfill/medical or generator policy. Existing applied replay stays
+before pending assessment; no receipt reassessment is added.
+
+Targeted207passed51.22s (readiness/spec/commit/Coach/cycle), compatibility69passed
+11.01s (transfer/preparation/full-payload storage), exact5passed1.28s, Ruff,
+contract freshness and diffcheck GREEN. Full contributor run is pending. An initial
+run used a nonexistent temporary parent directory; an isolated dashboard control
+reproduced sqlite3 unable-to-open-file, unrelated to readiness. Create the test
+directory and rerun without product code changes; do not call that failed run GREEN.
+Native budget1/2, second verification must be scoped since73aaab8 after final CI.
+No new independent full review (previous2/2 used), no accepted labels/merge.
+
+
+Native-fix verification update: initial full run20failed/3804passed/13skipped,
+82deselected,239.72s; every failure is sqlite unable-to-open-file from the missing
+temporary parent. Same dashboard control without directory1failed; with created
+separate temp directory1passed, no product changes. Complete rerun uses pre-created
+/private/tmp/ai-trainer-m3-native-rerun/chats and DB siblings. This rerun is still
+pending at fix commit; exact result will be recorded in the native thread before
+verification request, without an extra documentation push after native review.
+Final small subset10passed after the optional parent blocker address remained
+nullable-string even for malformed IDs. Ruff/contract freshness/diffcheck GREEN.

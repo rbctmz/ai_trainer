@@ -143,3 +143,29 @@ Initial remote checks: Gitleaks and Web contract SUCCESS, contributor/E2E runnin
 Review gate FAIL with verified reason `no submitted native review for the current
 head` (run39393549722). Current-head CI/native acceptance remains a separate
 merge gate; local58 browser and3816 contributor results do not replace it.
+
+
+## Native review1: addressed identity namespace P2
+
+Native on73aaab8: [one P2](https://github.com/rbctmz/ai_trainer/pull/708#discussion_r4323327788).
+Observed skip-before-ID-registration;4 independent behavioral RED (all future/past
+parent/leg combinations returned ready[]). Real first-match resolver selects old
+day for duplicate parent ID. Fixed by reserving preserved nested parent/leg IDs,
+then validating future IDs normally; historical prescription validity/duplicates
+remain outside scope. Tests assert input history byte/value preservation. No live
+write or consumer rewrite. Initial date-parsing/missing-brick fixture errors are
+not counted as RED. Honest preserved-legacy brick is an explicit synthetic fixture.
+
+GREEN:207 readiness/protocol/cycle,69 transfer/prepare/oracle,5 exact regressions;
+Ruff/contract freshness/diffcheck. Full contributor pending; initial missing-temp-
+parent run reproduced sqlite unable-to-open-file on unrelated dashboard control;
+rerun must create directory first. Native1/2, current-head scoped verification
+pending. No merge/acceptance. Final code fix SHA and full run outcome follow below.
+
+
+Initial native-fix full run20failed/3804passed/13skipped/82deselected239.72s, all
+sqlite unable-to-open-file in unrelated default-Database paths. Paired dashboard
+probe1failed without directory→1passed with directory; product code unchanged.
+Complete rerun uses a pre-created private temp root. Final small subset10passed;
+Ruff/TS freshness/diffcheck GREEN. Current-head full/CI/native verification outcome
+will be added to the finding thread, avoiding a post-review docs-only head change.
