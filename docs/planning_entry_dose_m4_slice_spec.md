@@ -383,3 +383,12 @@ Author M4d local onf0650b5:3965 passed/16 skipped/87 deselected/7warnings
 Ruff, web lint/build, extraction freshness/inventory and diff check green.
 [UI evidence](design/evidence/issue-710/README.md). Final native receipt belongs
 on #711, bound to its reviewed SHA; no documentation-only post-review push.
+
+
+UI scoped round2/2 READY at6895cc0ef426b446b7009c5c8645fe7dcddad43e: no
+new blocking P1/P2. Independent5E2E passed/1existing warning10.78s, Ruff green.
+The reviewer confirmed stronger coverage, real keyboard activation and unchanged
+refusal assertions, with no product-code changes; the earlier failure cause
+remains inferred. HEAD unchanged, only three known synthetic PNG regenerations.
+Those generated differences were restored, not included as unrelated evidence.
+UI delta budget exhausted; native0/2 remains reserved for whole-delivery review.

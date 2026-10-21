@@ -33,7 +33,8 @@ M4b/c implement it and M4d hands the typed result to S4.
 - [x] (2026-10-21) Domain/API M4c complete at reviewed runtime3a28f99:3965 contributor-safe passed, independent scoped round2 READY/176passed; AC6 demand-writer P2 fixed-in3a28f99. Three explicit Coach browser approval fixtures pass. UI form gap is reproduced/tracked; whole M4/M4d/native/merge remain open.
 - [x] (2026-10-21) UI consumer handoff complete at f0650b5: explicit coverage/limits, typed refusal/provenance/adjustments, token-only confirmation. Independent UI round1 READY,5 real E2E passed; author41 focused then63 whole E2E passed. No browser dose derivation or API/AC change.
 - [x] (2026-10-21) M4d local acceptance on f0650b5:3965 passed/16 skipped/87 deselected/7 warnings in277.59s; Ruff, web lint/build, contract freshness/inventory green. Six isolated UI screenshots retained.
-- [ ] M4d stable final-head remote functional CI and native review (0/2 before request); owner acceptance and merge are separate. Exact native receipt/CI result will be recorded on #711 without a documentation push after review.
+- [x] (2026-10-21) Remote CI39669348958 SUCCESS on4e9efe9:3942 contributor passed/39skip/87deselected,63E2E and24contract passed. Prior CI one keyboard-test failure investigated; test-only6895cc0 synchronizes expected step focus and asserts checkbox activation, author5passed. Cause remains inferred; full account in UI evidence.
+- [ ] M4d final test-correction CI and native review (0/2 before request); owner acceptance and merge are separate. Exact native receipt/CI result will be recorded on #711 without a documentation push after review.
 
 ## Surprises & Discoveries
 

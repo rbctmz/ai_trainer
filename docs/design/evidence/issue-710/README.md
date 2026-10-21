@@ -100,3 +100,36 @@ screen-reader failure, no new source change or extra review loop. Owner usabilit
 without assistance, screen-reader acceptance and physiological safety remain
 unverified. Explicit handoff now returns to Supervisor/Integrator for final-head
 CI, native receipt and the owner's separate acceptance/merge decision.
+
+
+## Remote CI and keyboard-test synchronization
+
+Observed: earlier CI39668399073 onfebfbef had62E2E passes and one assertion
+failure at the keyboard-toggle test's Next-disabled check (line94). The later
+whole final-source CI39669348958 on4e9efe9 is **SUCCESS**:3942 contributor passed/
+39skipped/87deselected/6warnings438.56s;63E2E passed249.81s;24contract passed4.37s;
+Ruff and secret scan green. Local and CI skipped counts differ by installed
+optional dependencies/fixtures; they are separate executed results.
+
+Inferred: the existing requestAnimationFrame step-heading focus may occur between
+the test's checkbox.focus() and global Space. A deterministic checkbox-validation
+failure is falsified by the unchanged single local recheck (1passed/1warning,
+6.09s), but this does not prove the intermittent race's cause or frequency.
+The repeated same-node pytest CLI was deduplicated into one test, not five runs.
+No product bug or confirmed causal diagnosis is claimed.
+
+Test-only correction6895cc0 waits for the already-specified step-heading focus,
+then asserts that Space actually checks the checkbox before checking disabled
+navigation. It retains all input-validation/infeasible-refusal assertions, adds
+one observable check and changes no product code. Author focused5passed/1warning
+11.04s, Ruff/diff green. The exact correction receives only the remaining scoped
+UI review round2; final stable candidate CI/native remain separately SHA-bound.
+
+
+UI scoped round2/2 READY at6895cc0ef426b446b7009c5c8645fe7dcddad43e: no
+new blocking P1/P2. Independent5E2E passed/1existing warning10.78s, Ruff green.
+The reviewer confirmed stronger coverage, real keyboard activation and unchanged
+refusal assertions, with no product-code changes; the earlier failure cause
+remains inferred. HEAD unchanged, only three known synthetic PNG regenerations.
+Those generated differences were restored, not included as unrelated evidence.
+UI delta budget exhausted; native0/2 remains reserved for whole-delivery review.
