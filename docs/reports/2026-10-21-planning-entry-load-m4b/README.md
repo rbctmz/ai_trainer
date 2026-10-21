@@ -75,8 +75,17 @@ entry-capture-v1 fixture pins the new complete response/checkpoint hashes.
   Explicit declarations/coverage, policy stamp, lineage and duration changes
   alter the frozen digest. All-table M4c final refusal/tamper/reset/rollback is
   **NOT YET**, not implied by these narrower proofs.
-- Final broad contributor-safe verification and independent exact-head delta
-  review: pending at this initial implementation checkpoint. No merge acceptance.
+- Final contributor-safe contour on runtime `176b77e1bf48a39a6cf9d37d6f554a7472fc4c6f`:
+  **3921 passed / 16 skipped / 82 deselected / 4 strict XFAIL / 7 warnings in
+  238.78s**. The four XFAIL are the retained M4c build-integration RED, not new
+  implementation failures. Earlier pre-final-date-fix broad run: 3919 passed /
+  same skip/deselect/XFAIL counts in 240.99s; not substituted for the final run.
+- Independent M4b scoped review round 1 on `176b77e1bf48a39a6cf9d37d6f554a7472fc4c6f`:
+  **READY for M4c handoff; zero blocking P1/P2**. Checker reran 83 M4b tests
+  (3.63s), 145 storage/preparation/M3/multisport checks (26.91s, one existing
+  Starlette/httpx warning), and changed-Python Ruff. Clean tracked tree/head
+  before/after; parent push changed tracking only. Full broad and web checks
+  above are author evidence, not checker-run. No owner merge acceptance.
 
 Run with an activated repository environment and existing temporary parent paths
 for DATABASE_PATH, DEMO_DATABASE_PATH and CHATS_DIR:
@@ -96,7 +105,9 @@ clinical safety/effectiveness result is claimed.
 
 ## Review and handoff
 
-Independent M4b delta review pending; M4a spec source review remains READY.
+Independent M4b delta round 1 is READY on `176b77e`; M4a spec source review
+remains READY on `fb06cb8`. No blocking findings to dispose. This following
+documentation-only evidence record changes no runtime, tests or AC.
 Native review is not triggered per intermediate checkpoint (0/2 until M4d).
 M4c must integrate the pure profile/limits with constrained generation, trusted
 execution partition and bounded atomic validation; emit honest refusals before

@@ -780,4 +780,6 @@ validated/retained coverage and starting limits, frozen entry-load-v1 and additi
 API/TS shapes implemented. Existing authoritative aggregate-load projection is
 unchanged; zero-TSS physical legs remain duration evidence. Final assignments,
 can_publish and M4c atomic guard are NOT YET; no entry assessment is emitted
-by builds at this checkpoint. [M4b evidence](../reports/2026-10-21-planning-entry-load-m4b/README.md).
+by builds at this checkpoint. Independent delta review READY on `176b77e`
+(83 + 145 checks); author final contributor-safe 3921 passed, 4 expected M4c
+XFAIL; web lint/build/contracts green. [M4b evidence](../reports/2026-10-21-planning-entry-load-m4b/README.md).

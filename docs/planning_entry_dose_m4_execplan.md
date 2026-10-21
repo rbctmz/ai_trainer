@@ -27,8 +27,8 @@ M4b/c implement it and M4d hands the typed result to S4.
 - [x] (2026-10-21) Review primary scientific sources; freeze factual/proposed/unknown distinctions and reference rules in the separate spec.
 - [x] (2026-10-21) Strict spec contour: 1 passed / 4 XFAIL; --runxfail: 4 intended assertion failures / 1 passed. Compatibility contour: 134 passed / 4 XFAIL / 1 warning in 24.44s. Probe and Ruff passed; no runtime change.
 - [x] (2026-10-21) Candidate `fb06cb803a17891624f47254c0a6b2edef60a9ee` committed/pushed in draft #711; independent full spec review READY, no blocking findings. Reviewer reproduced 1 passed / 4 strict XFAIL and 4 intended RED failures / 1 passed, Ruff green. Documentation-only record follows; no acceptance of runtime or merge.
-- [x] (2026-10-21) M4b implementation: pure per-sport exposure/reference profile, validated coverage/declared limits, frozen parameters + policy digest, additive API/TS models and registry/extractor. 83 focused M4b tests pass after two reproduced lineage/date corrections; implementation review and final broad contour pending.
-- [ ] M4b final broad verification, exact-head independent delta review, pushed evidence and M4c handoff.
+- [x] (2026-10-21) M4b implementation: pure per-sport exposure/reference profile, validated coverage/declared limits, frozen parameters + policy digest, additive API/TS models and registry/extractor. 83 focused M4b tests pass after two reproduced lineage/date corrections; exact implementation `176b77e` independently reviewed READY. Final contributor-safe 3921 passed / 16 skipped / 82 deselected / 4 expected XFAIL / 7 warnings (238.78s).
+- [x] (2026-10-21) M4b independent delta review 1/2 READY on `176b77e`, no blocking P1/P2; checker 83 new + 145 compatibility passed, Ruff green. Author final broad/lint/build/contracts green; current documentation-only record preserves the runtime checkpoint. M4c handoff below; native 0/2 remains M4d.
 - [ ] Domain/API M4c: constrained generation and shared atomic publication/replay compatibility.
 - [ ] M4d: whole-delivery verification/native/owner gate; UI/Design S4 handoff.
 
@@ -148,6 +148,17 @@ TSS-method gaps; aliases; complete/partial/zero-TSS multisport; duplicates;
 window/today/future/timezone boundaries. Add contracts/extractor fixtures before
 public integration. Do not let the browser derive missing semantics.
 
+M4b to M4c clean handoff: Domain/API continues from implementation
+`176b77e1bf48a39a6cf9d37d6f554a7472fc4c6f` and the reviewed AC1–AC7. Required
+inputs now exist in models/planning_entry_load.py (pure profile/limits),
+api/planning_entry_contract.py (DTO), frozen normalized parameters/context in
+api/planning_service.py and the TS mirror/contract artifact. All-table malformed
+input and applied replay checks are green; final-builder M4a RED remains explicit.
+M4c must consume the captured frame/as-of/timezone and original cycle entry
+anchor; capture any additionally needed execution/reconciliation ownership facts
+in the same transaction; integrate generation and the final guard together before
+emitting supported/can_publish. No UI/math scope or clinical claim is transferred.
+
 At M4c, derive or retain scoped starting limits, allocate within each discipline's
 time/frequency/session limits, and run final effective prescription validation.
 Missing inputs or impossible catalog/phase intent gives structured refusal,
@@ -232,8 +243,10 @@ production signature is introduced by this M4a document.
 M4a specification/source review is complete. M4b pure evidence, input capture
 and typed shapes are implemented; final independent/broad evidence is recorded
 in the [M4b report](reports/2026-10-21-planning-entry-load-m4b/README.md).
-M4c generation/publication, numerical-policy clinical validation and final M4
-acceptance are NOT YET. The first paired falsifier was an evidence-discipline check, not a
+M4b is complete for its bounded handoff: independent 83 + 145 compatibility
+checks and author final 3921-test contributor contour are green; four final-build
+RED remain expected until M4c. M4c generation/publication, numerical-policy
+clinical validation and final M4 acceptance are NOT YET. The first paired falsifier was an evidence-discipline check, not a
 preregistered model-selection experiment. Further numerical experimentation must
 freeze cases/baselines/budget/exit rules before execution, as described in the
 report. A usable template fit does not promote a dose to scientifically safe.

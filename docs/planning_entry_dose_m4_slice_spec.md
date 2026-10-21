@@ -18,7 +18,7 @@ Class A: frozen history/intent provenance, new API↔TS shape, preview-confirm
 freshness and initial-dose behavior across planner/Coach. Automatic escalation
 checks: provenance and cross-module contracts apply; no live write, paid call,
 credential handling or destructive migration proposed. Manual review only.
-Independent spec budget1/2; M4b delta checker0/2; native0/2; no exception or accepted label.
+Independent spec budget1/2; M4b delta checker1/2; native0/2; no exception or accepted label.
 This M4a checkpoint specifies/characterizes behavior; it does not implement or
 validate personalized prescriptions. S3 technical readiness is already in main.
 
@@ -316,6 +316,16 @@ history envelope does not measure tolerance. No clinical safety verdict.
 
 ## Review Findings
 
+M4b delta round 1: reviewed `58d838b..176b77e1bf48a39a6cf9d37d6f554a7472fc4c6f`; **READY for M4c handoff,
+zero blocking P1/P2**. Independent tests: 83 passed in 3.63s; additional
+storage/preparation/M3/multisport 145 passed in 26.91s (one existing warning),
+changed-Python Ruff passed. HEAD unchanged and tracked tree clean before/after;
+parent push changed tracking only. No findings need disposition. Author separately
+ran final contributor-safe: 3921 passed / 16 skipped / 82 deselected / 4 expected
+XFAIL / 7 warnings in 238.78s; lint/build/extractor/inventory green. Native remains
+0/2 until stable M4d. Following documentation record changes no runtime/test/AC.
+
+
 Round 1: independent read-only checker reviewed full `99a6a1f..fb06cb8` plus
 relevant capture/readiness/lineage/confirm boundaries. **READY for M4a handoff;
 zero blocking P1/P2**, no findings to dispose. Independently reproduced 1 passed /
@@ -339,8 +349,9 @@ executed falsifier/NOT YET → AC/gate and fixed-in/follow-up/disputed dispositi
 
 ## Final Verdict
 
-READY for M4a Domain/API handoff on reviewed `fb06cb8`; BLOCK for runtime/merge:
-implementation and final/native/CI/owner gates NOT YET. M4a is not completion of
+READY for M4b→M4c handoff on independently reviewed runtime `176b77e`;
+M4a spec remains reviewed on `fb06cb8`. BLOCK for whole-M4 runtime/merge:
+M4c integration and final/native/CI/owner gates NOT YET. M4b is not completion of
 M4. Explicit task handoff: Domain / API Implementer consumes AC1–AC7 in M4b/c;
 Spec Owner retains scope/invariant decisions. Owner final gate remains explicit; cleanup retains worktree until the assigned delivery is
 reviewable. No owner exception, live write, UI authority or additional reviewer
