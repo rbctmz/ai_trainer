@@ -26,7 +26,7 @@ M4b/c implement it and M4d hands the typed result to S4.
 - [x] (2026-10-21) Cheap synthetic paired falsifier: run4 versus run1/bike2/swim1 at equal dates/time/TSS gives the same daily allocation and initial sport dose; both technical ready. No athlete DB/provider write.
 - [x] (2026-10-21) Review primary scientific sources; freeze factual/proposed/unknown distinctions and reference rules in the separate spec.
 - [x] (2026-10-21) Strict spec contour: 1 passed / 4 XFAIL; --runxfail: 4 intended assertion failures / 1 passed. Compatibility contour: 134 passed / 4 XFAIL / 1 warning in 24.44s. Probe and Ruff passed; no runtime change.
-- [ ] Commit pinned M4a candidate, independent full spec review then at most one scoped correction; publish draft/parent evidence.
+- [x] (2026-10-21) Candidate `fb06cb803a17891624f47254c0a6b2edef60a9ee` committed/pushed in draft #711; independent full spec review READY, no blocking findings. Reviewer reproduced 1 passed / 4 strict XFAIL and 4 intended RED failures / 1 passed, Ruff green. Documentation-only record follows; no acceptance of runtime or merge.
 - [ ] Domain/API M4b: frozen profile/limits/lineage, typed contracts and profile boundary matrix.
 - [ ] Domain/API M4c: constrained generation and shared atomic publication/replay compatibility.
 - [ ] M4d: whole-delivery verification/native/owner gate; UI/Design S4 handoff.
@@ -100,6 +100,13 @@ The tests use only temporary synthetic DBs and no runtime patches. A strict
 AssertionError-only XFAIL is a recorded missing feature, not a passing safety
 check; --runxfail must show the intended assertion, not an import/setup error.
 Do not relabel the already-green purity control as a new RED.
+
+Explicit role handoff after independent review of `fb06cb8`: Spec / Architecture
+Owner hands the AC1–AC7 contract and source evidence to Domain / API Implementer.
+The implementer may add the pure profile, typed contracts and subsequent guards
+within #710, but must not redefine the numerical policy, add UI, or claim safety.
+The same integrator may take that role under this recorded task handoff; human
+merge/live-write authority remains unchanged.
 
 At M4b, Domain/API implements a small pure profile in models/planning_entry_load.py
 from frozen rows and explicit date/coverage, then typed normalization/versioned

@@ -7,9 +7,10 @@ Domain/API owns implementation after the explicit handoff; UI/Design owns S4.
 [ExecPlan](planning_entry_dose_m4_execplan.md),
 [evidence](reports/2026-10-21-planning-entry-dose-m4/README.md).
 
-Candidate head: first committed spec checkpoint, then the exact immutable SHA
-in the independent review request/PR. No review or acceptance is claimed before
-that pin. Acceptance SHA: N/A, owner has not accepted this candidate.
+Reviewed specification checkpoint: `fb06cb803a17891624f47254c0a6b2edef60a9ee`,
+base `99a6a1f84f9e9f4d51a22796ab819238c516e3c2`; draft
+[#711](https://github.com/rbctmz/ai_trainer/pull/711). Independent spec review:
+READY; this following documentation-only record does not change AC1–AC7. Acceptance SHA: N/A, owner has not accepted this candidate.
 
 ## Change Class
 
@@ -17,7 +18,7 @@ Class A: frozen history/intent provenance, new API↔TS shape, preview-confirm
 freshness and initial-dose behavior across planner/Coach. Automatic escalation
 checks: provenance and cross-module contracts apply; no live write, paid call,
 credential handling or destructive migration proposed. Manual review only.
-Independent budget0/2; native0/2; no exception or accepted label.
+Independent budget1/2; native0/2; no exception or accepted label.
 This M4a checkpoint specifies/characterizes behavior; it does not implement or
 validate personalized prescriptions. S3 technical readiness is already in main.
 
@@ -53,7 +54,7 @@ sync or absence of rows is not proof of complete history.
 - [x] Observable entry-dose acceptance and scientific limits named below.
 - [x] Targeted RED, compatibility/state checks and future broad contour named.
 - [x] Human merge/cleanup owner assigned; independent checker required.
-- [ ] Independent spec review, exact pinned candidate and written dispositions.
+- [x] Independent spec review on exact `fb06cb8`, READY with no blocking findings; author and checker results distinguished below.
 - [ ] Domain/API implementation and runtime contract extraction: separate slices.
 
 ## Public Contracts
@@ -292,8 +293,19 @@ history envelope does not measure tolerance. No clinical safety verdict.
 
 ## Review Findings
 
-None submitted yet. Findings require severity → Observed → Inferred → executed
-falsifier/NOT YET → AC/gate and written fixed-in/follow-up/disputed disposition.
+Round 1: independent read-only checker reviewed full `99a6a1f..fb06cb8` plus
+relevant capture/readiness/lineage/confirm boundaries. **READY for M4a handoff;
+zero blocking P1/P2**, no findings to dispose. Independently reproduced 1 passed /
+4 strict XFAIL (1.28s), --runxfail 4 intended assertion failures / 1 passed
+(1.10s), and Ruff. Status clean before/after; only parent push changed upstream
+tracking. The 134-test compatibility contour was author-run, not checker-run.
+
+Author self-review record: add proposed M4 ASR status in the living catalog and
+pin this exact reviewed checkpoint. These documentation metadata corrections
+change no policy, runtime or tests; no extra full-diff round is requested for
+review bookkeeping. Future blocking changes require a scoped correction within
+the remaining independent budget. Findings use severity → Observed → Inferred →
+executed falsifier/NOT YET → AC/gate and fixed-in/follow-up/disputed disposition.
 
 ## Native Review Rounds
 
@@ -304,8 +316,9 @@ falsifier/NOT YET → AC/gate and written fixed-in/follow-up/disputed dispositio
 
 ## Final Verdict
 
-BLOCK for runtime/merge: specification checking and implementation NOT YET.
-M4a author evidence is a proposal for review, not completion of M4. Owner final
-gate remains explicit; cleanup retains worktree until the assigned delivery is
+READY for M4a Domain/API handoff on reviewed `fb06cb8`; BLOCK for runtime/merge:
+implementation and final/native/CI/owner gates NOT YET. M4a is not completion of
+M4. Explicit task handoff: Domain / API Implementer consumes AC1–AC7 in M4b/c;
+Spec Owner retains scope/invariant decisions. Owner final gate remains explicit; cleanup retains worktree until the assigned delivery is
 reviewable. No owner exception, live write, UI authority or additional reviewer
 round is implied by this spec.

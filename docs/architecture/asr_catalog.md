@@ -754,3 +754,22 @@ exception и head4c0c07c; GREEN Review gate/CLEAN предшествовал mer
 3813 Python/39 skipped/82 deselected,58 E2E и24 contract passed. Runtime/test tree
 merge равен принятому head. Generator limitations — #707; ledger follow-up — #709.
 Личный rollout, live provider writes и персональная тренировочная пригодность не заявлены.
+
+
+## Planning entry load (proposed S3 M4; #710, parent #677)
+
+2026-10-21: M4a spec/evidence only, independent review READY on `fb06cb8`;
+runtime M4b/c and acceptance NOT YET.
+[Spec](../planning_entry_dose_m4_slice_spec.md),
+[ExecPlan](../planning_entry_dose_m4_execplan.md),
+[evidence and strict RED](../reports/2026-10-21-planning-entry-dose-m4/README.md).
+ASR-REL-1/2: proposed per-sport observed exposure, explicit completeness/declared
+limits and entry constraints; no invented cross-sport capability or missing-data
+success. ASR-MOD-2/3: proposed additive frozen API/TS evidence, old applied replay
+and historical reads preserved. ASR-PERF-4 remains 16 weeks <10s; profile is bounded
+outside the write lock. ASR-DEP-2 reuses existing preview/checkpoint/reset ownership,
+no new table. Four strict XFAIL establish missing behavior, not runtime GREEN.
+M4b/c must verify the profile boundary matrix, successful constrained controls,
+all-table rejection/rollback, stale/replay/reset and typed contract extraction.
+Operational windows/medians are product heuristics, not validated safe doses;
+training_suitability remains not_assessed. ADR-0001/0002/0003/0006/0008/0009 reused.
