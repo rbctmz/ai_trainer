@@ -1342,6 +1342,100 @@ export interface BuiltPlan {
 }
 
 // Server-owned prepared build; unrelated BuiltPlan producers remain unchanged.
+// Recorded exposure and supplied limits; none of these types certify suitability.
+export type EntrySport = "bike" | "run" | "swim";
+export interface HistoryCoverage {
+  status: "unknown" | "partial" | "user_reported_complete";
+  start_date?: string | null;
+  end_date_exclusive?: string | null;
+}
+export interface DeclaredEntryDose {
+  source: "athlete_declared";
+  weekly_minutes: number;
+  weekly_sessions: number;
+  max_session_minutes: number;
+}
+export interface InitialDoseLimits {
+  bike?: DeclaredEntryDose;
+  run?: DeclaredEntryDose;
+  swim?: DeclaredEntryDose;
+}
+export interface EntryWindow {
+  start_date: string;
+  end_date_exclusive: string;
+}
+export interface EntryScope {
+  start_date: string;
+  end_date: string;
+}
+export interface EntryWeek extends EntryWindow {
+  session_count: number;
+  eligible_duration_session_count: number;
+  observed_minutes: number;
+  total_minutes: number | null;
+}
+export interface EntryTSS {
+  total: number | null;
+  known_session_count: number;
+  unknown_session_count: number;
+  methods: string[];
+  provenance: "estimated" | "measured" | "mixed" | "unverified";
+  coverage: "complete" | "partial" | "missing";
+}
+export interface SportEntryExposure {
+  session_count: number;
+  eligible_duration_session_count: number;
+  training_days: number;
+  observed_minutes: number;
+  total_minutes: number | null;
+  session_minutes: number[];
+  longest_minutes: number | null;
+  last_exposure_date: string | null;
+  days_since_last: number | null;
+  reference_complete: boolean;
+  bins: EntryWeek[];
+  context: { session_count: number; observed_minutes: number };
+  tss: EntryTSS;
+}
+export interface EntryExposureProfile {
+  as_of: string;
+  timezone: string;
+  window_start: string;
+  window_end_exclusive: string;
+  context_start: string;
+  completeness: {
+    status: "unknown" | "partial" | "user_reported_complete";
+    source: "unknown" | "user_report";
+    claimed_interval: EntryWindow | null;
+  };
+  sports: { bike: SportEntryExposure; run: SportEntryExposure; swim: SportEntryExposure };
+  quality_limits: { code: string; activity_id: string | null; sport: EntrySport | null; field: string | null }[];
+}
+export interface SourcedEntryLimit {
+  source: "observed_reference" | "athlete_declared";
+  weekly_minutes: number;
+  weekly_sessions: number;
+  max_session_minutes: number;
+  source_window: EntryWindow | null;
+  scope: EntryScope;
+  declared_ceiling: DeclaredEntryDose | null;
+}
+export interface EntryLimits {
+  bike?: SourcedEntryLimit;
+  run?: SourcedEntryLimit;
+  swim?: SourcedEntryLimit;
+}
+export interface EntryLoadAssessment {
+  policy_version: "entry-load-v1";
+  status: "supported" | "needs_baseline" | "blocked" | "unassessed";
+  can_publish: boolean;
+  scope: EntryScope;
+  profile: EntryExposureProfile;
+  limits: EntryLimits;
+  blockers: { code: string; sport: EntrySport | null; date: string | null; field: string; expected: unknown; observed: unknown }[];
+  warnings: { code: string; sport: EntrySport | null; field: string }[];
+}
+
 export interface BuildReadinessReason {
   code: "prescription_missing" | "prescription_infeasible" | "target_semantics_unverified" | "load_inconsistent" | "duration_inconsistent" | "availability_exceeded";
   date: string | null;
@@ -1386,6 +1480,8 @@ export interface BuildParameters {
   available_days: string[];
   demand: string;
   base_checkpoint_id: number;
+  history_coverage?: HistoryCoverage | null;
+  initial_dose_limits?: InitialDoseLimits | null;
 }
 
 export interface BuildConfirmation {
@@ -1399,6 +1495,7 @@ export interface BuildConfirmation {
 
 export interface LegacyBuildPreviewResponse extends BuiltPlan {
   build_readiness?: BuildReadiness | null;
+  entry_load?: EntryLoadAssessment | null;
   parameters: BuildParameters;
   confirmation: BuildConfirmation;
 }
@@ -1418,6 +1515,7 @@ export interface BuildLifecycle {
 export interface CycleBuildPreviewResponse extends BuiltPlan {
   /** Historical applied receipts may predate readiness; new pending always has it. */
   build_readiness?: BuildReadiness | null;
+  entry_load?: EntryLoadAssessment | null;
   parameters: BuildParameters;
   confirmation: BuildConfirmationV2;
   lifecycle: BuildLifecycle;

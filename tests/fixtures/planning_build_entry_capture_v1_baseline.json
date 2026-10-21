@@ -1,0 +1,60 @@
+{
+  "cases": {
+    "event_goal:existing": {
+      "checkpoint": "a6f35cab563df56041572d82dfe0cd711a47e7caacd22055a2cc4982fc580a5f",
+      "daily_plan": "5bf611d49adf6c7ad7951bfb914a5cbb230250e0c73098e3f5099385e644143f",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "68930cc5741a89c4a1dd4abb637fdadc677ff6d5193fb95f135b064d07474a78",
+      "response": "bcd87ac236b14061b91a5d18ec7386a0fef2ba6d7029921a305c8fd4d6f00ecb",
+      "science_audit": "c016f8afcc22a7b35e0506272eebd84f869ab2aef4a9339fafab538ebd10d5a8",
+      "session_templates": "fa4521314ab563a046878de7af1e604036b9bcc13b31c69216a05d921859feb0"
+    },
+    "event_goal:first": {
+      "checkpoint": "60d2a4d2c9dd50d74664c5cfa2cdf77df8ebdef511b495f3404669985074d42c",
+      "daily_plan": "5bf611d49adf6c7ad7951bfb914a5cbb230250e0c73098e3f5099385e644143f",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "68930cc5741a89c4a1dd4abb637fdadc677ff6d5193fb95f135b064d07474a78",
+      "response": "f8c81770e24329f3292d8647a1de412b4a008eaafbf9bb17a2cb9f226510a0e8",
+      "science_audit": "c016f8afcc22a7b35e0506272eebd84f869ab2aef4a9339fafab538ebd10d5a8",
+      "session_templates": "d2fd8c07d85e8ed761cac72a20ed6b57036642bd8526a4847bf4eef2b5875d37"
+    },
+    "manual:existing": {
+      "checkpoint": "7da331ca2cf985cb2fa4ef634a79662bbfb2adecd6353f0a007286d1d568f52a",
+      "daily_plan": "40e79d3a8f43256807ebc794713b42e76c85b92baa87ee30c3b22af0bd8f84cb",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "6a529318ff55e3abf51f2342fa10d44e9f364549db754a03b5604b2d5a6f8139",
+      "response": "50f7e696beffc5bfe681426905df7e1399ca02722ddf4f6055452a725602c346",
+      "science_audit": "201b764b345406b5e020b51f42eeb918a8560be6df02d7f255f281f2696da012",
+      "session_templates": "67b793cb304bec119167c2112cf302199f404e4558d2ae62bd8a378b845c9ef2"
+    },
+    "manual:first": {
+      "checkpoint": "dbdc1f52f2087dcc8ffd8cf315fc8da4c380d272d8b6b205b10f896a629cd4f7",
+      "daily_plan": "40e79d3a8f43256807ebc794713b42e76c85b92baa87ee30c3b22af0bd8f84cb",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "6a529318ff55e3abf51f2342fa10d44e9f364549db754a03b5604b2d5a6f8139",
+      "response": "9f8a3e8971c356569bcbabafad7772bd22d90e00841978e0b4cf918d6c41d148",
+      "science_audit": "201b764b345406b5e020b51f42eeb918a8560be6df02d7f255f281f2696da012",
+      "session_templates": "a16eea92fcdbc8da3ccac265aa203a78b12d74ce7174aa719230c045da073145"
+    },
+    "training_goal:existing": {
+      "checkpoint": "c0ea51757af1a5663dd272903ca6668fa691def842ad50d1d6f1f69103630b1a",
+      "daily_plan": "5d7d58f0c9a758021b8d3cb3ac623f9903bd5da31eaecf2791b7ce0c5a240065",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "2a2055355ef840c3be6f4fa114e81060fd4a5e8dc830bf269183fa43064a8a90",
+      "response": "eb79c140bd3656de49e2a1041f40c7138b7df64ab5e6ba865031b4ba90aaed82",
+      "science_audit": "505cf00a493a922f0ebf734abdb03f37aea60b367e3ee6f53d7950417044a69f",
+      "session_templates": "10c1a21222223edaeaecf527fbfbe41981d7666e3a1fb3338acc103a96e787c3"
+    },
+    "training_goal:first": {
+      "checkpoint": "1233eb57d562374aae80f4294654420279633932cc1be627e1983795ecef34b3",
+      "daily_plan": "5d7d58f0c9a758021b8d3cb3ac623f9903bd5da31eaecf2791b7ce0c5a240065",
+      "events": "095a09fbffc93d5b1920c9038955488dc4c23989ed3de6c1951a53d4ac77c5bc",
+      "forecast": "2a2055355ef840c3be6f4fa114e81060fd4a5e8dc830bf269183fa43064a8a90",
+      "response": "5f1cae245762fd6e04e0ff9ff03265c27c86651e2ef892053ab3446aa207142e",
+      "science_audit": "505cf00a493a922f0ebf734abdb03f37aea60b367e3ee6f53d7950417044a69f",
+      "session_templates": "10c1a21222223edaeaecf527fbfbe41981d7666e3a1fb3338acc103a96e787c3"
+    }
+  },
+  "description": "M4b entry-load-v1 frozen version stamp; changed readiness binding only, same prescriptions/load/forecast/science. Prior readiness-v2 oracle is retained unchanged.",
+  "prior_fixture": "planning_build_readiness_v2_baseline.json"
+}

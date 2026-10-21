@@ -773,3 +773,11 @@ M4b/c must verify the profile boundary matrix, successful constrained controls,
 all-table rejection/rollback, stale/replay/reset and typed contract extraction.
 Operational windows/medians are product heuristics, not validated safe doses;
 training_suitability remains not_assessed. ADR-0001/0002/0003/0006/0008/0009 reused.
+
+
+M4b checkpoint (2026-10-21, #711): pure sport-exposure/reference projection,
+validated/retained coverage and starting limits, frozen entry-load-v1 and additive
+API/TS shapes implemented. Existing authoritative aggregate-load projection is
+unchanged; zero-TSS physical legs remain duration evidence. Final assignments,
+can_publish and M4c atomic guard are NOT YET; no entry assessment is emitted
+by builds at this checkpoint. [M4b evidence](../reports/2026-10-21-planning-entry-load-m4b/README.md).

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, StrictBool, field_validator
 from api.planning_cycle_contract import BuildLifecycle
+from api.planning_entry_contract import DeclaredEntryDose, EntryLoadAssessment, EntrySport, HistoryCoverage
 
 
 class BuildConfirmRequest(BaseModel):
@@ -36,6 +37,8 @@ class BuildParametersResponse(BaseModel):
     available_days: list[str]
     demand: str
     base_checkpoint_id: int
+    history_coverage: HistoryCoverage | None = None
+    initial_dose_limits: dict[EntrySport, DeclaredEntryDose] | None = None
 
 
 class BuildConfirmation(BaseModel):
@@ -115,6 +118,8 @@ class BuiltPlanResponse(BaseModel):
     forecast: dict[str, Any]
     # Optional only for historical applied receipts; new pending is guarded.
     build_readiness: BuildReadiness | None = None
+    # Reserved for M4c final assignment validation; M4b never claims publication.
+    entry_load: EntryLoadAssessment | None = None
 
 
 class BuildPreviewResponse(BuiltPlanResponse):

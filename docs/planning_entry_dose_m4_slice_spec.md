@@ -18,7 +18,7 @@ Class A: frozen history/intent provenance, new API↔TS shape, preview-confirm
 freshness and initial-dose behavior across planner/Coach. Automatic escalation
 checks: provenance and cross-module contracts apply; no live write, paid call,
 credential handling or destructive migration proposed. Manual review only.
-Independent budget1/2; native0/2; no exception or accepted label.
+Independent spec budget1/2; M4b delta checker0/2; native0/2; no exception or accepted label.
 This M4a checkpoint specifies/characterizes behavior; it does not implement or
 validate personalized prescriptions. S3 technical readiness is already in main.
 
@@ -59,7 +59,10 @@ sync or absence of rows is not proof of complete history.
 
 ## Public Contracts
 
-These are **proposed compatible shape additions**, not currently shipped DTOs.
+M4b implements the additive typed shapes and normalized request/parameter
+capture below. It does not populate entry_load in build responses or enforce
+final assignments yet: M4c owns that integration. The DTO is a compatible shape
+addition; no early supported/can_publish claim is emitted.
 Behavior for a new preparation with unsupported initial dose changes deliberately
 and is NOT advertised as behavior-compatible: it requires an explicit baseline.
 
@@ -279,6 +282,26 @@ no new ADR required unless implementation changes source ownership.
    reuse/drop semantics for other mutations, all-table replay/reset/backup probes.
 4. M4d: full contributor/contract/browser acceptance and bounded native review;
    separate explicit UI/Design handoff for S4, human owns merge and rollout.
+
+## M4b implementation checkpoint
+
+Domain/API consumes the reviewed AC1–AC7 without changing their acceptance.
+models/planning_entry_load.py provides pure build_entry_exposure_profile and
+derive_entry_limits. The first returns factual sport exposure and explicit
+quality limits; the second returns needs_baseline or unassessed with
+can_publish=false until M4c checks final assignments. Valid observed limits may
+be lowered by an explicit declared ceiling, retained separately as provenance;
+declarations do not inflate the observed reference. Missing reference falls
+back only to a supplied athlete_declared dose. Target sports are explicit.
+
+api/planning_entry_contract.py owns typed input/profile/limit/assessment shapes;
+CycleBuildRequest and BuildParametersResponse accept/echo new fields. Shared
+capture validates them for HTTP and Coach/non-HTTP callers and binds their
+normalized bytes and entry-load-v1 in dependency_digest. web/lib/types.ts and
+registry/extractor mirror the shape; no component/UI behavior changes.
+M4b publishes no entry assessment in build responses; AC3/4/6 final-builder RED
+remains expected until M4c. Existing applied replay/read history are preserved.
+[Executed results and remaining gates](reports/2026-10-21-planning-entry-load-m4b/README.md).
 
 ## Evidence Bundle
 

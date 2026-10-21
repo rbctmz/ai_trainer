@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
+from api.planning_entry_contract import DeclaredEntryDose, EntrySport, HistoryCoverage
+
 EventOutcome = Literal["unspecified", "did_not_participate", "participated"]
 CycleScope = Literal["athlete", "cycle"]
 
@@ -107,6 +109,8 @@ class CycleBuildContext(BaseModel):
 
 
 class CycleBuildRequest(BaseModel):
+    history_coverage: HistoryCoverage | None = None
+    initial_dose_limits: dict[EntrySport, DeclaredEntryDose] | None = None
     action: Literal["start_new", "edit_current"] | None = None
     base_cycle_id: UUID | None = None
     base_cycle_revision: int | None = Field(default=None, ge=1, strict=True)

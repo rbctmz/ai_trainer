@@ -2,8 +2,8 @@
 
 This living ExecPlan follows `.agent/PLANS.md` and implements the bounded
 [issue#710](https://github.com/rbctmz/ai_trainer/issues/710), parent#677.
-Date2026-10-21, Europe/Moscow. Current role: Spec / Architecture Owner for M4a;
-Domain/API and UI/Design handoffs are explicit below. Class A.
+Date2026-10-21, Europe/Moscow. Current role: Domain / API Implementer for M4b, following the explicit
+reviewed M4a handoff and owner request. UI/Design remains a separate S4 handoff. Class A.
 [Instantiated spec/review record](planning_entry_dose_m4_slice_spec.md),
 [scientific/evidence report](reports/2026-10-21-planning-entry-dose-m4/README.md).
 Runtime baseline main `9d679b3410cc7b34c9a3a554b050edaebf8ccd23` includes S3 M1–M3.
@@ -27,11 +27,29 @@ M4b/c implement it and M4d hands the typed result to S4.
 - [x] (2026-10-21) Review primary scientific sources; freeze factual/proposed/unknown distinctions and reference rules in the separate spec.
 - [x] (2026-10-21) Strict spec contour: 1 passed / 4 XFAIL; --runxfail: 4 intended assertion failures / 1 passed. Compatibility contour: 134 passed / 4 XFAIL / 1 warning in 24.44s. Probe and Ruff passed; no runtime change.
 - [x] (2026-10-21) Candidate `fb06cb803a17891624f47254c0a6b2edef60a9ee` committed/pushed in draft #711; independent full spec review READY, no blocking findings. Reviewer reproduced 1 passed / 4 strict XFAIL and 4 intended RED failures / 1 passed, Ruff green. Documentation-only record follows; no acceptance of runtime or merge.
-- [ ] Domain/API M4b: frozen profile/limits/lineage, typed contracts and profile boundary matrix.
+- [x] (2026-10-21) M4b implementation: pure per-sport exposure/reference profile, validated coverage/declared limits, frozen parameters + policy digest, additive API/TS models and registry/extractor. 83 focused M4b tests pass after two reproduced lineage/date corrections; implementation review and final broad contour pending.
+- [ ] M4b final broad verification, exact-head independent delta review, pushed evidence and M4c handoff.
 - [ ] Domain/API M4c: constrained generation and shared atomic publication/replay compatibility.
 - [ ] M4d: whole-delivery verification/native/owner gate; UI/Design S4 handoff.
 
 ## Surprises & Discoveries
+
+Observed: adding the entry policy stamp changed six existing full-payload golden
+checks. Inferred: the only observable delta may be the M3 readiness binding,
+which intentionally includes the frozen context. Verified by: six executed
+paired complete-payload calculations with/without only that stamp; after removing
+candidate_fingerprint both checkpoint/response objects are equal. All five
+prescription/daily/event/forecast/science component hashes remain unchanged in
+six historical cases; the three first-plan old-context whole hashes reproduce
+the historical oracle. The old fixture is retained; entry-capture-v1 is separate.
+
+Observed: the first physical-lineage projection treated future/today stages as
+proof of a complete past multisport event. Inferred: date eligibility must also
+bind group completeness, not only the final row sum. Verified by: two new
+assertion REDs (today and future linked swim stage), then GREEN when completeness
+requires completed context-day legs. Known actual legs remain visible; no global
+CTL authority logic was changed.
+
 
 Observed: current capture freezes90days and uses aggregate CTL plus a weekly
 TSS target/mix; source sport labels affect evidence identity but not the initial
@@ -55,6 +73,21 @@ weekly observations are55TSS; a new reference must use explicit covered bins,
 without changing the historical summary's meaning in place.
 
 ## Decision Log
+
+M4b implementation note (2026-10-21, Domain/API): resolved reference limits stay
+unassessed/can_publish=false until final assignment validation in M4c. Build
+responses reserve the optional typed entry_load shape but do not populate it;
+new declarations are accepted, validated, retained and echoed without claiming
+that generation already enforces them. No XFAIL is removed from M4a's final-build
+RED. This stages the agreed contract without a premature supported badge.
+
+M4b implementation note: a supplied ceiling binds even with a usable recorded
+reference; take the smaller value per unit and retain declared_ceiling provenance.
+For absent/unusable history, use explicit declared limits with source_window=null.
+This consumes AC2/AC3 (observed envelope and supplied limits remain distinct),
+not a new capability conversion or an efficacy/safety guarantee. Catalog/time
+feasibility and rolling-window assignment checks remain M4c.
+
 
 Decision: keep training_suitability=not_assessed; expose a separate entry_load
 historical/intention check. Rationale: the reviewed sources do not establish
@@ -196,9 +229,11 @@ production signature is introduced by this M4a document.
 
 ## Outcomes & Retrospective
 
-M4a proposal/source review and first cheap paired falsifier are prepared; runtime
-implementation, numerical-policy clinical validation and final acceptance are
-NOT YET. The first paired falsifier was an evidence-discipline check, not a
+M4a specification/source review is complete. M4b pure evidence, input capture
+and typed shapes are implemented; final independent/broad evidence is recorded
+in the [M4b report](reports/2026-10-21-planning-entry-load-m4b/README.md).
+M4c generation/publication, numerical-policy clinical validation and final M4
+acceptance are NOT YET. The first paired falsifier was an evidence-discipline check, not a
 preregistered model-selection experiment. Further numerical experimentation must
 freeze cases/baselines/budget/exit rules before execution, as described in the
 report. A usable template fit does not promote a dose to scientifically safe.

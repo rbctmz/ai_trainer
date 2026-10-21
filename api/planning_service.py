@@ -31,6 +31,7 @@ from models.planning_build_readiness import (
     READINESS_POLICY_VERSION, assess_plan_build_readiness, effective_build_totals,
     forecast_build_input, historical_build_readiness, normalize_build_loads, require_prepared_readiness,
 )
+from models.planning_entry_load import ENTRY_LOAD_POLICY_VERSION, normalize_entry_inputs
 from models.planning_build_confirmation import (
     BuildInputSnapshot, BuildParameters, PreparedPlanBuild, PlanningBuildPreviewError, canonical_json,
     dependency_components,
@@ -1328,6 +1329,7 @@ def _capture_plan_build_inputs(
         "demand": normalize_demand_level(raw.get("demand") or settings.get(PLANNING_DEMAND_SETTING_KEY)),
         "base_checkpoint_id": latest_id,
     }
+    values.update(normalize_entry_inputs(raw.get("history_coverage"), raw.get("initial_dose_limits"), as_of=as_of))
     if values["available_hours"] < 0:
         raise ValueError("available_hours must be nonnegative")
     events, _, _, weeks = _plan_build_calendar(values)
@@ -1375,6 +1377,7 @@ def _capture_plan_build_inputs(
             "selector": SELECTOR_RULE_VERSION, "materializer": MATERIALIZER_RULE_VERSION,
             "overlay": RACE_OVERLAY_RULE_VERSION, "science": SCIENCE_POLICY_VERSION,
             "build_readiness": READINESS_POLICY_VERSION,
+            "entry_load": ENTRY_LOAD_POLICY_VERSION,
         },
     }
     if lifecycle:
