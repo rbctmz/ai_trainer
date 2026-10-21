@@ -15,7 +15,7 @@ from api.main import app
 from data.database import Database
 from services.activity_ingest import ingest_provider_activity, normalize_provider_activity
 from services import planning_onboarding as onboarding_service
-from tests.smoke._planning_build_confirmation import cycle_fields
+from tests.smoke._planning_build_confirmation import cycle_fields, declared_entry_limits
 
 
 pytestmark = pytest.mark.smoke
@@ -66,7 +66,8 @@ def test_m2_t7_t8_first_plan_vertical_is_persisted_and_visible(tmp_path, monkeyp
 
             build_payload = {
                 **profile_payload,
-                **cycle_fields(db),
+                **cycle_fields(db), "initial_dose_limits": declared_entry_limits(),
+                "start_date": (datetime.now().date() + timedelta(days=7)).isoformat(),
                 "event_date": None,
                 "events": [],
                 "focus": "balanced_triathlon",

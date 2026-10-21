@@ -1,0 +1,1052 @@
+{
+  "protocol": "frozen-m4c-30-v1",
+  "as_of": "2026-10-16",
+  "cases": [
+    {
+      "case": "run_only",
+      "start": "2026-10-26",
+      "status": "supported",
+      "first_week_minutes": {
+        "swim": 20.0,
+        "bike": 40.0,
+        "run": 30.0
+      },
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "athlete_declared",
+          "source_window": null,
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "run": {
+          "declared_ceiling": null,
+          "max_session_minutes": 40.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 40.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "athlete_declared",
+          "source_window": null,
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [],
+      "total_tss": 378,
+      "elapsed_seconds": 0.1132
+    },
+    {
+      "case": "mixed",
+      "start": "2026-10-26",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {},
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1194,
+      "elapsed_seconds": 0.1196
+    },
+    {
+      "case": "steady",
+      "start": "2026-10-26",
+      "status": "supported",
+      "first_week_minutes": {
+        "bike": 30.0,
+        "swim": 20.0,
+        "run": 30.0
+      },
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "run": {
+          "declared_ceiling": null,
+          "max_session_minutes": 40.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 40.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [],
+      "total_tss": 452,
+      "elapsed_seconds": 0.1114
+    },
+    {
+      "case": "empty_complete",
+      "start": "2026-10-26",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {},
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1104,
+      "elapsed_seconds": 0.1041
+    },
+    {
+      "case": "empty_unknown",
+      "start": "2026-10-26",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {},
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1104,
+      "elapsed_seconds": 0.1073
+    },
+    {
+      "case": "sparse",
+      "start": "2026-10-26",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {},
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1130,
+      "elapsed_seconds": 0.1063
+    },
+    {
+      "case": "missing_duration",
+      "start": "2026-10-26",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1421,
+      "elapsed_seconds": 0.1242
+    },
+    {
+      "case": "partial",
+      "start": "2026-10-26",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {},
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1421,
+      "elapsed_seconds": 0.1134
+    },
+    {
+      "case": "multi",
+      "start": "2026-10-26",
+      "status": "supported",
+      "first_week_minutes": {
+        "bike": 30.0,
+        "swim": 20.0,
+        "run": 30.0
+      },
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "run": {
+          "declared_ceiling": null,
+          "max_session_minutes": 40.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 40.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [],
+      "total_tss": 452,
+      "elapsed_seconds": 0.1179
+    },
+    {
+      "case": "partial_multi",
+      "start": "2026-10-26",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {},
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1421,
+      "elapsed_seconds": 0.1245
+    },
+    {
+      "case": "duplicate",
+      "start": "2026-10-26",
+      "status": "supported",
+      "first_week_minutes": {
+        "bike": 30.0,
+        "swim": 20.0,
+        "run": 30.0
+      },
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "run": {
+          "declared_ceiling": null,
+          "max_session_minutes": 40.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 40.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [],
+      "total_tss": 512,
+      "elapsed_seconds": 0.1115
+    },
+    {
+      "case": "conflict",
+      "start": "2026-10-26",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-08",
+            "start_date": "2026-10-26"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1499,
+      "elapsed_seconds": 0.126
+    },
+    {
+      "case": "run_only",
+      "start": "2026-10-28",
+      "status": "supported",
+      "first_week_minutes": {
+        "run": 30.0,
+        "bike": 40.0,
+        "swim": 20.0
+      },
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "athlete_declared",
+          "source_window": null,
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "run": {
+          "declared_ceiling": null,
+          "max_session_minutes": 40.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 40.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "athlete_declared",
+          "source_window": null,
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [],
+      "total_tss": 496,
+      "elapsed_seconds": 0.104
+    },
+    {
+      "case": "mixed",
+      "start": "2026-10-28",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {},
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1146,
+      "elapsed_seconds": 0.1061
+    },
+    {
+      "case": "steady",
+      "start": "2026-10-28",
+      "status": "supported",
+      "first_week_minutes": {
+        "run": 30.0,
+        "bike": 50.0,
+        "swim": 20.0
+      },
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "run": {
+          "declared_ceiling": null,
+          "max_session_minutes": 40.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 40.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [],
+      "total_tss": 581,
+      "elapsed_seconds": 0.1099
+    },
+    {
+      "case": "empty_complete",
+      "start": "2026-10-28",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {},
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1059,
+      "elapsed_seconds": 0.1051
+    },
+    {
+      "case": "empty_unknown",
+      "start": "2026-10-28",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {},
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1059,
+      "elapsed_seconds": 0.1023
+    },
+    {
+      "case": "sparse",
+      "start": "2026-10-28",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {},
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1085,
+      "elapsed_seconds": 0.1164
+    },
+    {
+      "case": "missing_duration",
+      "start": "2026-10-28",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1371,
+      "elapsed_seconds": 0.1112
+    },
+    {
+      "case": "partial",
+      "start": "2026-10-28",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {},
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1371,
+      "elapsed_seconds": 0.1109
+    },
+    {
+      "case": "multi",
+      "start": "2026-10-28",
+      "status": "supported",
+      "first_week_minutes": {
+        "run": 30.0,
+        "bike": 50.0,
+        "swim": 20.0
+      },
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "run": {
+          "declared_ceiling": null,
+          "max_session_minutes": 40.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 40.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [],
+      "total_tss": 581,
+      "elapsed_seconds": 0.1149
+    },
+    {
+      "case": "partial_multi",
+      "start": "2026-10-28",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {},
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1371,
+      "elapsed_seconds": 0.1166
+    },
+    {
+      "case": "duplicate",
+      "start": "2026-10-28",
+      "status": "supported",
+      "first_week_minutes": {
+        "run": 30.0,
+        "bike": 50.0,
+        "swim": 20.0
+      },
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "run": {
+          "declared_ceiling": null,
+          "max_session_minutes": 40.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 40.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [],
+      "total_tss": 590,
+      "elapsed_seconds": 0.1213
+    },
+    {
+      "case": "conflict",
+      "start": "2026-10-28",
+      "status": "needs_baseline",
+      "first_week_minutes": null,
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [
+        "entry_dose_required"
+      ],
+      "total_tss": 1448,
+      "elapsed_seconds": 0.1146
+    },
+    {
+      "case": "future",
+      "start": "2026-10-28",
+      "status": "supported",
+      "first_week_minutes": {
+        "run": 30.0,
+        "bike": 50.0,
+        "swim": 20.0
+      },
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "run": {
+          "declared_ceiling": null,
+          "max_session_minutes": 40.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 40.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [],
+      "total_tss": 581,
+      "elapsed_seconds": 0.1134
+    },
+    {
+      "case": "today",
+      "start": "2026-10-28",
+      "status": "supported",
+      "first_week_minutes": {
+        "run": 30.0,
+        "bike": 45.0,
+        "swim": 20.0
+      },
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "run": {
+          "declared_ceiling": null,
+          "max_session_minutes": 40.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 40.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [],
+      "total_tss": 590,
+      "elapsed_seconds": 0.1177
+    },
+    {
+      "case": "zero_tss_multi",
+      "start": "2026-10-28",
+      "status": "supported",
+      "first_week_minutes": {
+        "run": 30.0,
+        "bike": 50.0,
+        "swim": 20.0
+      },
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "run": {
+          "declared_ceiling": null,
+          "max_session_minutes": 40.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 40.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [],
+      "total_tss": 581,
+      "elapsed_seconds": 0.1242
+    },
+    {
+      "case": "nonfinite_duration",
+      "start": "2026-10-28",
+      "status": "invalid_input",
+      "error": "ValueError",
+      "elapsed_seconds": 0.0041
+    },
+    {
+      "case": "nonfinite_limit",
+      "start": "2026-10-28",
+      "status": "invalid_input",
+      "error": "ValueError",
+      "elapsed_seconds": 0.0
+    },
+    {
+      "case": "edit",
+      "start": "2026-10-28",
+      "status": "supported",
+      "first_week_minutes": {
+        "run": 30.0,
+        "bike": 50.0,
+        "swim": 20.0
+      },
+      "limits": {
+        "bike": {
+          "declared_ceiling": null,
+          "max_session_minutes": 60.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 60.0,
+          "weekly_sessions": 1
+        },
+        "run": {
+          "declared_ceiling": null,
+          "max_session_minutes": 40.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 40.0,
+          "weekly_sessions": 1
+        },
+        "swim": {
+          "declared_ceiling": null,
+          "max_session_minutes": 20.0,
+          "scope": {
+            "end_date": "2026-11-10",
+            "start_date": "2026-10-28"
+          },
+          "source": "observed_reference",
+          "source_window": {
+            "end_date_exclusive": "2026-10-16",
+            "start_date": "2026-09-18"
+          },
+          "weekly_minutes": 20.0,
+          "weekly_sessions": 1
+        }
+      },
+      "blocker_codes": [],
+      "total_tss": 581,
+      "elapsed_seconds": 0.5919
+    }
+  ],
+  "counts": {
+    "supported": 12,
+    "needs_baseline": 16,
+    "invalid_input": 2
+  },
+  "elapsed_seconds": 4.2692,
+  "invariant_violations": 0,
+  "claim": "technical feasibility only; training suitability not assessed"
+}

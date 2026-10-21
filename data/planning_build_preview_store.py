@@ -305,6 +305,8 @@ def apply_preview(
         validate_response(preview_response(row))
         instant = now()  # expiry is evaluated after lock acquisition
         validate_pending(row, now=instant)
+        from models.planning_entry_publication import validate_retained_entry
+        validate_retained_entry(row)
         retained_plan = json.loads(row["checkpoint_json"]).get("goal_plan_snapshot")
         if not isinstance(retained_plan, dict):
             raise _corrupt()

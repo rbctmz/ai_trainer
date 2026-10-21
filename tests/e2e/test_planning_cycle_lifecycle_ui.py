@@ -5,6 +5,7 @@ import re
 
 import pytest
 from playwright.sync_api import expect
+from tests.e2e.planning_entry_helpers import declare_entry_limits
 
 pytestmark = pytest.mark.e2e
 
@@ -41,6 +42,7 @@ def new_preview(page):
     page.get_by_role('button', name='Развивать форму Без выдуманной даты гонки', exact=True).click()
     page.get_by_role('checkbox', name=re.compile('Выбираю эту цель')).check()
     page.get_by_role('button', name='Далее', exact=True).click()
+    declare_entry_limits(page)
     page.get_by_role('button', name='Далее', exact=True).click()
     with page.expect_response('**/api/planning/build?*') as response:
         page.get_by_role('button', name='🧭 Предпросмотр плана', exact=True).click()
@@ -67,6 +69,7 @@ def test_expired_close_unknown_new_cancel_confirm_and_history(web_stack):
     assert db.get_latest_planning_checkpoint()['id'] == old['id']
     # Cancellation preserves form choices but requires a new retained preview.
     page.get_by_role('button', name='Далее', exact=True).click()
+    declare_entry_limits(page)
     page.get_by_role('button', name='Далее', exact=True).click()
     page.get_by_role('button', name='🧭 Предпросмотр плана', exact=True).click()
     page.get_by_text(re.compile('План собран: изменение нагрузки')).wait_for()
@@ -153,6 +156,7 @@ def test_replacement_requires_ack_and_cancel_keeps_old_selected(web_stack):
     expect(page.get_by_role('button', name='Далее', exact=True)).to_be_disabled()
     page.get_by_role('checkbox', name=re.compile('При сохранении нового плана')).check()
     page.get_by_role('button', name='Далее', exact=True).click()
+    declare_entry_limits(page)
     page.get_by_role('button', name='Далее', exact=True).click()
     with page.expect_response('**/api/planning/build?*') as response:
         page.get_by_role('button', name='🧭 Предпросмотр плана', exact=True).click()
@@ -211,6 +215,7 @@ def test_repeated_new_cycle_requires_fresh_choices_and_replacement_ack(web_stack
     page.get_by_role('checkbox', name=re.compile('Выбираю эту цель')).check()
     page.get_by_role('checkbox', name=re.compile('При сохранении нового плана')).check()
     page.get_by_role('button', name='Далее', exact=True).click()
+    declare_entry_limits(page)
     page.get_by_role('button', name='Далее', exact=True).click()
     page.get_by_role('button', name='🧭 Предпросмотр плана', exact=True).click()
     page.get_by_text(re.compile('План собран: изменение нагрузки')).wait_for()

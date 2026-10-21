@@ -1,5 +1,4 @@
 """S2 M1 preliminary protocol RED; transaction proofs belong to M2/M3."""
-from dataclasses import replace
 import json
 from uuid import uuid4
 
@@ -7,32 +6,21 @@ import pytest
 
 from api import planning_service as ps
 from models.planning_build_confirmation import BuildParameters
-from tests.smoke._planning_build_confirmation import parameters
+from tests.smoke._planning_build_confirmation import cycle_fields, declared_entry_limits, parameters
 from tests.smoke._planning_cycle_regressions import (
-    CYCLE_B, TODAY, client_for, evidence_bytes, legacy_db,
+    TODAY, client_for, evidence_bytes, legacy_db,
 )
 
 pytestmark = pytest.mark.smoke
 
 
 def test_behavior_actual_start_clips_canonical_prescriptions_not_just_week_label(tmp_path, monkeypatch):
-    """Exercise the real pure calculator with the approved frozen lifecycle.
-
-    M3 still has to capture/validate this context through HTTP. Injecting it at
-    the existing pure calculation seam avoids inventing a public request field
-    for the lifecycle action before M3 freezes its Pydantic contract.
-    """
+    """Actual-cycle start clipping through the now-public frozen capture seam."""
     db = legacy_db(tmp_path, monkeypatch, payloads=[])
-    request = {**parameters(), "events": [], "start_week": "2026-10-12"}
+    request = {**parameters(), **cycle_fields(db), "initial_dose_limits": declared_entry_limits(),
+               "events": [], "start_week": "2026-10-12"}
     snapshot = ps._capture_plan_build_inputs(db, BuildParameters.from_mapping(request))
-    context = snapshot.context()
-    context["lifecycle"] = {
-        "action": "start_new", "source_cycle_id": None, "target_cycle_id": CYCLE_B,
-        "base_cycle_revision": None, "base_selection_revision": 0,
-        "base_checkpoint_id": 0, "start_date": TODAY.isoformat(),
-        "end_date": "2026-12-06", "closes_cycle_id": None,
-    }
-    prepared = ps._calculate_plan_build(replace(snapshot, context_json=json.dumps(context)))
+    prepared = ps._calculate_plan_build(snapshot)
     daily = json.loads(prepared.checkpoint_json)["goal_plan_snapshot"]["daily_plan"]
     executable = [row["date"][:10] for row in daily if row["total_tss"] > 0]
     assert executable, "A vacuous empty preview does not satisfy start_new"

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import json
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, Optional
 
@@ -835,7 +836,25 @@ def _parse_tool_params(params_str: str) -> Dict[str, Any]:
     if not params_str:
         return params
 
-    param_pairs = [part.strip() for part in params_str.split(",")]
+    # Entry coverage/dose are nested objects. Splitting inside them would lose
+    # the athlete's explicit limits on the legacy marker tool-call path.
+    param_pairs, start, depth, quoted, escaped = [], 0, 0, False, False
+    for index, char in enumerate(params_str):
+        if escaped:
+            escaped = False
+        elif char == "\\" and quoted:
+            escaped = True
+        elif char == '"':
+            quoted = not quoted
+        elif not quoted:
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+            elif char == "," and depth == 0:
+                param_pairs.append(params_str[start:index].strip())
+                start = index + 1
+    param_pairs.append(params_str[start:].strip())
     for pair in param_pairs:
         if "=" not in pair:
             continue
@@ -844,7 +863,12 @@ def _parse_tool_params(params_str: str) -> Dict[str, Any]:
         key = key.strip()
         value = value.strip()
 
-        if value.lower() in {"true", "false", "null"}:
+        if value.startswith("{"):
+            try:
+                params[key] = json.loads(value)
+            except ValueError:
+                params[key] = value  # shared input validation rejects malformed intent
+        elif value.lower() in {"true", "false", "null"}:
             params[key] = {"true": True, "false": False, "null": None}[value.lower()]
         elif value.isdigit():
             params[key] = int(value)

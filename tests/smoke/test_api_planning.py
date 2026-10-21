@@ -323,7 +323,7 @@ def test_b_overlay_persists_protected_days_and_resumes(tmp_path):
 def test_api_build_requires_preview_before_confirm(tmp_path):
     from api.routers.planning import BuildRequest, planning_build, planning_build_confirm
     from api.planning_build_contract import BuildConfirmRequest
-    from tests.smoke._planning_build_confirmation import cycle_fields
+    from tests.smoke._planning_build_confirmation import cycle_fields, declared_entry_limits
 
     db = _seeded_db(tmp_path)
     request = BuildRequest(
@@ -335,7 +335,8 @@ def test_api_build_requires_preview_before_confirm(tmp_path):
         horizon_weeks=4,
         available_hours=10,
         persist=False,
-        **cycle_fields(db),
+        initial_dose_limits=declared_entry_limits(),
+        **{**cycle_fields(db), "start_date": (athlete_today() + timedelta(days=7)).isoformat()},
     )
     preview = planning_build(request, db=db)
     assert preview["plan_id"] is None
@@ -356,7 +357,7 @@ def test_preview_is_read_only_and_stale_confirmation_is_rejected(tmp_path):
     from api.planning_service import PLANNING_DEMAND_SETTING_KEY
     from api.routers.planning import BuildRequest, planning_build, planning_build_confirm
     from api.planning_build_contract import BuildConfirmRequest
-    from tests.smoke._planning_build_confirmation import cycle_fields
+    from tests.smoke._planning_build_confirmation import cycle_fields, declared_entry_limits
 
     db = _seeded_db(tmp_path)
     request = BuildRequest(
@@ -368,7 +369,8 @@ def test_preview_is_read_only_and_stale_confirmation_is_rejected(tmp_path):
         available_hours=10,
         demand="aggressive",
         persist=False,
-        **cycle_fields(db),
+        initial_dose_limits=declared_entry_limits(),
+        **{**cycle_fields(db), "start_date": (athlete_today() + timedelta(days=7)).isoformat()},
     )
 
     preview = planning_build(request, db=db)

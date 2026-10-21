@@ -22,7 +22,7 @@ from models.planning_build_readiness import (
 )
 from tests.smoke._planning_build_confirmation import (
     seeded_db,
-    parameters,
+    ready_parameters as parameters,
     cycle_fields,
     pin_clock,
 )

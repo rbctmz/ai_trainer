@@ -13,7 +13,7 @@ import pytest
 
 from data.planning_build_preview_store import get_preview
 from tests.smoke._planning_build_confirmation import (
-    cycle_fields, parameters, pin_clock, seeded_db,
+    cycle_fields, ready_parameters as parameters, pin_clock, seeded_db,
 )
 from tests.smoke._planning_cycle_regressions import client_for
 from tests.smoke.test_planning_cycle_writer_guards import writer_state

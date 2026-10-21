@@ -64,6 +64,17 @@ def parameters(mode: str = "training_goal") -> dict[str, Any]:
     }
 
 
+def declared_entry_limits(hours: float = 10.0) -> dict[str, dict[str, Any]]:
+    """Explicit generous test intent, never a production/user default.
+
+    Protocol/CAS tests need an independently feasible entry dose; absence is
+    exercised by M4 tests that deliberately omit this declaration.
+    """
+    return {sport: {"source": "athlete_declared", "weekly_minutes": hours * 60 * share,
+                    "weekly_sessions": 7, "max_session_minutes": hours * 60 * share}
+            for sport, share in (("bike", 1), ("run", 1), ("swim", 1))}
+
+
 def ready_parameters(mode: str = "training_goal") -> dict[str, Any]:
     """Protocol controls use feasible assignments; original oracle inputs stay intact.
 
@@ -77,6 +88,7 @@ def ready_parameters(mode: str = "training_goal") -> dict[str, Any]:
         values["available_hours"] = 10
     if mode == "manual":
         values["manual_phases"] = ["Base", "Base", "Build", "Recovery"] * 2
+    values["initial_dose_limits"] = declared_entry_limits(values["available_hours"])
     return values
 
 

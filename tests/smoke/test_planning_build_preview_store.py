@@ -199,7 +199,7 @@ def test_retained_context_has_component_hashes_not_copied_activity_history(artif
     db, prepared = artifact
     row = retain(db, prepared)
     context = json.loads(row["dependency_context_json"])
-    assert set(context["components"]) == {"activities", "athlete_profile", "constraints", "constraint_ownership", "latest_checkpoint", "settings"}
+    assert set(context["components"]) == {"activities", "athlete_profile", "constraints", "constraint_ownership", "latest_checkpoint", "settings", "entry_inputs"}
     assert all(len(value) == 64 for value in context["components"].values())
     assert "sources_json" not in row
     assert canonical_json(context) == row["dependency_context_json"]

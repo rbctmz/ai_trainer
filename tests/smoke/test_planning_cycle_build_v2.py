@@ -12,7 +12,7 @@ import pytest
 from api import planning_service as ps
 from data.planning_build_preview_store import get_preview, store_pending, _applied_response, _receipt_digest
 from models.planning_build_confirmation import BuildParameters, PlanningBuildPreviewError, canonical_json, fingerprint
-from tests.smoke._planning_build_confirmation import parameters
+from tests.smoke._planning_build_confirmation import declared_entry_limits, parameters
 from tests.smoke._planning_cycle_regressions import TODAY, client_for, evidence_bytes, legacy_db, pin_clock
 from tests.smoke.test_planning_cycle_storage import cycle_rows, rows
 
@@ -23,7 +23,7 @@ def request_for(db, *, action="start_new", **overrides):
     from services.planning_cycles import current_cycle_context
     context = current_cycle_context(db)
     start = TODAY.isoformat() if action == "start_new" else context["start_date"]
-    return {**parameters(), "start_week": None, "events": [], "action": action,
+    return {**parameters(), "initial_dose_limits": declared_entry_limits(), "start_week": None, "events": [], "action": action,
             "base_cycle_id": context["cycle_id"], "base_cycle_revision": context["cycle_revision"],
             "base_selection_revision": context["selection_revision"],
             "base_checkpoint_id": context["checkpoint_id"] or 0,
@@ -192,7 +192,8 @@ def test_partial_week_totals_and_forecast_follow_actual_calendar(tmp_path, monke
         start = date.fromisoformat(week["week_start"][:10])
         load = sum(item["total_tss"] for item in daily if start <= date.fromisoformat(item["date"][:10]) < start + timedelta(days=7))
         assert week["weekly_tss"] == round(load)
-    assert shown["totals"]["total_tss"] == sum(week["weekly_tss"] for week in shown["weeks"])
+    # Whole-plan total rounds the raw effective sum once, not weekly displays.
+    assert shown["totals"]["total_tss"] == round(sum(float(item["total_tss"]) for item in snapshot["daily_plan"]))
     assert shown["forecast"]["points"][0]["date"] == TODAY.isoformat()
     assert shown["forecast"]["points"][-1]["date"] == shown["lifecycle"]["end_date"]
     assert shown["science_audit"] == snapshot["science_audit"]

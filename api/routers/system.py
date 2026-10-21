@@ -271,6 +271,7 @@ def _seed_demo_plan(db) -> int:
     (test_api_architecture::test_services_modules_do_not_depend_on_api, #194).
     Returns the number of planned days (0 if no plan was produced).
     """
+    from datetime import timedelta
     from api import planning_service
     from models.planning_build_confirmation import BuildParameters
     from services.planning_cycles import current_cycle_context
@@ -290,7 +291,11 @@ def _seed_demo_plan(db) -> int:
         "action": "start_new", "base_cycle_id": context["cycle_id"],
         "base_cycle_revision": context["cycle_revision"], "base_selection_revision": context["selection_revision"],
         "base_checkpoint_id": context["checkpoint_id"] or 0, "replace_current_cycle": context["cycle_id"] is not None,
-        "start_date": athlete_local_date().isoformat(),
+        "start_date": (athlete_local_date() + timedelta(days=1)).isoformat(),
+        # Synthetic demo intent only; real athletes must supply their own limits.
+        "history_coverage": {"status": "unknown"},
+        "initial_dose_limits": {sport: {"source": "athlete_declared", "weekly_minutes": 480.0,
+            "weekly_sessions": 7, "max_session_minutes": 480.0} for sport in ("bike", "run", "swim")},
     }), origin="planning_ui")
     planning_service.confirm_plan_build(db, preview_id=preview["confirmation"]["preview_id"], origin="planning_ui")
     active = planning_service.get_active_plan(db)

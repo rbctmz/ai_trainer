@@ -3,9 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { readCycleBuildContext } from "@/lib/planningCycles";
+import { EntryDoseFields, EntryLoadSummary, declaredEntryPayload, entryFieldsValid, type EntryDraft } from "./EntryLoad";
 import { ApiError, fetcher, postJSON } from "@/lib/api";
 import {
   BuiltPlan,
+  EntryLoadAssessment,
+  EntrySport,
+  HistoryCoverage,
   BuildPreviewResponse,
   BuildConfirmResponse,
   ForecastPoint,
@@ -136,6 +140,11 @@ export function PlanBuilder({
   const [demand, setDemand] = useState("moderate");
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [entryError, setEntryError] = useState<EntryLoadAssessment | null>(null);
+  const [coverage, setCoverage] = useState<HistoryCoverage | null>(null);
+  const [entryDraft, setEntryDraft] = useState<EntryDraft>({});
+  const entrySports: EntrySport[] = goalType === "triathlon" ? ["bike", "run", "swim"] : [goalType as EntrySport];
+  const entryValid = entryFieldsValid(coverage, entryDraft, entrySports);
   const [plan, setPlan] = useState<BuildPreviewResponse | BuildConfirmResponse | null>(null);
   const [selectedEvents, setSelectedEvents] = useState<RaceEvent[]>([]);
   const [flow, setFlow] = useState<"editing" | "previewing" | "ready" | "confirming" | "uncertain" | "applied" | "needs_preview">("editing");
@@ -212,6 +221,7 @@ export function PlanBuilder({
     setFlow("editing");
     setBuilding(false);
     setError(null);
+    setEntryError(null);
   }
   function onGoalChange(v: string) {
     setGoalType(v);
@@ -248,6 +258,8 @@ export function PlanBuilder({
   function requestPayload(): Record<string, unknown> {
     const parsedManual = manualPhases.split(",").map((value) => value.trim()).filter(Boolean);
     return {
+      ...(coverage ? { history_coverage: coverage } : {}),
+      ...(declaredEntryPayload(entryDraft, entrySports) ? { initial_dose_limits: declaredEntryPayload(entryDraft, entrySports) } : {}),
       goal_type: goalType,
       distance,
       event_date: planningMode === "event_goal" && !hasSelectedARace ? eventDate : null,
@@ -271,12 +283,13 @@ export function PlanBuilder({
     };
   }
   async function build() {
-    if (attempt.current || !buildContext) return;
+    if (attempt.current || !buildContext || !entryValid) return;
     const current = ++generation.current;
     setFlow("previewing");
     setPlan(null);
     setBuilding(true);
     setError(null);
+    setEntryError(null);
     try {
       const prepared = await postJSON<BuildPreviewResponse>("/api/planning/build", requestPayload());
       if (current !== generation.current) return;
@@ -285,6 +298,7 @@ export function PlanBuilder({
     } catch (e) {
       if (current !== generation.current) return;
       setFlow("editing");
+      if (e instanceof ApiError && ["entry_dose_required", "entry_dose_infeasible"].includes(e.code ?? "") && e.data?.entry_load) setEntryError(e.data.entry_load as EntryLoadAssessment);
       setError(e instanceof ApiError ? e.message : "Не удалось собрать план");
     } finally {
       if (current === generation.current) setBuilding(false);
@@ -299,6 +313,7 @@ export function PlanBuilder({
     setFlow("confirming");
     setBuilding(true);
     setError(null);
+    setEntryError(null);
     try {
       const confirmed = await postJSON<BuildConfirmResponse>("/api/planning/build/confirm", {
         preview_id: token, confirm: true,
@@ -323,7 +338,7 @@ export function PlanBuilder({
         mutate("/api/planning/cycles/current"),
       ]);
     } catch (e) {
-      const terminal = e instanceof ApiError && ["preview_stale", "preview_invalidated", "preview_expired", "preview_required", "proposal_not_pending", "cycle_stale", "cycle_not_current", "cycle_period_ended", "cycle_closed", "cycle_context_required"].includes(e.code ?? "");
+      const terminal = e instanceof ApiError && ["preview_stale", "preview_invalidated", "preview_expired", "preview_required", "proposal_not_pending", "cycle_stale", "cycle_not_current", "cycle_period_ended", "cycle_closed", "cycle_context_required", "entry_dose_required", "entry_dose_infeasible"].includes(e.code ?? "");
       if (terminal) {
         attempt.current = null;
         generation.current += 1;
@@ -344,7 +359,7 @@ export function PlanBuilder({
   const needsEventDate = planningMode === "event_goal" && !eventDate && !hasSelectedARace;
   const canProceedFromStep =
 (step === 1 && !needsEventDate && !!buildContext && choiceConfirmed && !!startDate && (!buildContext.cycle_context.cycle_id || action !== "start_new" || replaceConfirmed)) ||
-    (step === 2 && days.length > 0) ||
+    (step === 2 && days.length > 0 && entryValid) ||
     (step === 3 && plan !== null) ||
     step === 4;
 
@@ -356,6 +371,8 @@ export function PlanBuilder({
   function resetBuilder() {
     if (attempt.current) return;
     invalidatePlan();
+    setCoverage(null);
+    setEntryDraft({});
     if (flow === "applied" || flow === "needs_preview") {
       setBuildContext(null);
       void reloadContext().then(value => {
@@ -552,6 +569,7 @@ export function PlanBuilder({
         ) : null}
 
         {step === 2 ? (
+          <>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             {action === "start_new" ? <p className="text-sm text-ink-soft sm:col-span-2">{buildContext?.input_sources.available_hours === "profile_suggestion" || buildContext?.input_sources.available_days === "profile_suggestion" ? "Доступность предложена из сохранённого профиля. Проверьте её для нового цикла." : "Укажите доступность для нового цикла."} Это потолок времени, а не цель заполнения.</p> : null}
             <Field label={`Часов в неделю: ${hours}`}>
@@ -587,6 +605,9 @@ export function PlanBuilder({
               </div>
             </Field>
           </div>
+          <EntryDoseFields coverage={coverage} draft={entryDraft} sports={entrySports} editing={action === "edit_current"}
+            onCoverage={value => { setCoverage(value); invalidatePlan(); }} onDraft={value => { setEntryDraft(value); invalidatePlan(); }} />
+          </>
         ) : null}
 
         {step === 3 ? (
@@ -620,7 +641,7 @@ export function PlanBuilder({
             <button
               type="button"
               onClick={build}
-              disabled={building || !buildContext || !choiceConfirmed || days.length === 0 || needsEventDate || (action === "start_new" && !!buildContext.cycle_context.cycle_id && !replaceConfirmed)}
+              disabled={building || !entryValid || !buildContext || !choiceConfirmed || days.length === 0 || needsEventDate || (action === "start_new" && !!buildContext.cycle_context.cycle_id && !replaceConfirmed)}
               className="mt-5 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40 sm:w-auto sm:px-8"
             >
               {building ? "Собираю план…" : "🧭 Предпросмотр плана"}
@@ -652,7 +673,8 @@ export function PlanBuilder({
           </div>
         ) : null}
         {flow === "needs_preview" ? <button type="button" onClick={() => { setError(null); goToStep(3); }} className="mt-3 rounded-lg border border-surface-border px-4 py-2 text-sm">Вернуться к предпросмотру</button> : null}
-        {error ? (
+        {entryError ? <EntryLoadSummary assessment={entryError} onEdit={() => goToStep(2)} /> : null}
+        {error && !entryError ? (
           <div role="alert" className="mt-3 rounded-lg bg-tone-danger/10 px-3 py-2 text-sm text-tone-danger">
             {error}
           </div>
@@ -745,7 +767,7 @@ export function PlanBuilder({
                   <button
                     type="button"
                     onClick={confirmPlan}
-                    disabled={building || confirmationLocked || flow !== "ready"}
+                    disabled={building || confirmationLocked || flow !== "ready" || plan.entry_load?.can_publish !== true}
                     className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground disabled:opacity-40"
                   >
                     Подтвердить и сохранить
@@ -754,6 +776,7 @@ export function PlanBuilder({
               </div>
             )}
           </section>
+          {plan.entry_load ? <EntryLoadSummary assessment={plan.entry_load} adjustments={plan.entry_adjustments} /> : null}
           {plan.preview.microcycle_changes.length ? (
             <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
               <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">

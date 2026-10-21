@@ -70,7 +70,7 @@ def execute(db, sql, values=()):
 
 
 def test_capture_and_prepare_use_coherent_connection_bound_reads(tmp_path, monkeypatch):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     request = {**parameters(), **cycle_fields(db)}
     traces = []
     connect = db._connect
@@ -97,7 +97,7 @@ def test_capture_and_prepare_use_coherent_connection_bound_reads(tmp_path, monke
 
 
 def test_read_snapshot_cannot_mix_a_concurrent_sync(tmp_path, monkeypatch):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     started, done = Event(), Event()
     read_latest = db._get_latest_planning_checkpoint
 
@@ -168,7 +168,7 @@ def test_frozen_calculation_never_reads_database_or_wall_clock(tmp_path, monkeyp
 
 @pytest.mark.parametrize("direction", ["absent-to-null", "null-to-absent"])
 def test_setting_row_presence_is_a_dependency(tmp_path, direction):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     key = "planning_profile"
     if direction == "absent-to-null":
         db.delete_user_setting(key)
@@ -186,7 +186,7 @@ def test_setting_row_presence_is_a_dependency(tmp_path, direction):
 
 @pytest.mark.parametrize("change", ["activity", "base", "day", "rule"])
 def test_change_during_calculation_never_publishes_token(tmp_path, monkeypatch, change):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     before = protected_state(db)
     calculate = ps._calculate_plan_build
 
@@ -265,7 +265,7 @@ def test_dependency_contract_includes_only_named_read_views(tmp_path, monkeypatc
 
 
 def test_failure_before_storage_keeps_active_state_and_leaves_no_token(tmp_path, monkeypatch):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     before = protected_state(db)
 
     def fail(*_args, **_kwargs):
@@ -279,7 +279,7 @@ def test_failure_before_storage_keeps_active_state_and_leaves_no_token(tmp_path,
 
 
 def test_nonfinite_source_is_not_turned_into_a_plausible_preview(tmp_path):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     execute(db, "UPDATE activities SET tss = ? WHERE activity_id = 's0'", (float("inf"),))
     before = protected_state(db)
     with pytest.raises(ValueError):
@@ -290,7 +290,7 @@ def test_nonfinite_source_is_not_turned_into_a_plausible_preview(tmp_path):
 
 @pytest.mark.parametrize("origin", ["planning_ui", "coach"])
 def test_retained_settings_are_normalized_intentions_not_live_writes(tmp_path, origin):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     before = protected_state(db)
     request = parameters()
     request["demand"] = None

@@ -14,7 +14,7 @@ from api.routers import decisions
 from data.planning_build_preview_store import get_preview
 from models.ai_tools import AITools
 from models.planning_build_confirmation import BuildParameters, PlanningBuildPreviewError
-from tests.smoke._planning_build_confirmation import add_late_activity, checkpoint_payload, cycle_fields, ready_parameters as parameters, pin_clock, protected_state, seeded_db
+from tests.smoke._planning_build_confirmation import add_late_activity, checkpoint_payload, cycle_fields, declared_entry_limits, ready_parameters as parameters, pin_clock, protected_state, seeded_db
 from tests.smoke.test_planning_build_preparation import execute
 
 
@@ -38,7 +38,7 @@ def save(db, shown, **kwargs):
 def test_tool_prepares_identity_summary_and_actual_base(tmp_path):
     db = seeded_db(tmp_path, existing=True, rested=True)
     before = protected_state(db)
-    raw = AITools(db).propose_plan_build(goal_type="triathlon", distance="olympic", event_date="2027-02-13", **{**cycle_fields(db), "start_date": "2026-10-26"})
+    raw = AITools(db).propose_plan_build(goal_type="triathlon", distance="olympic", event_date="2027-02-13", initial_dose_limits=declared_entry_limits(), **{**cycle_fields(db), "start_date": "2026-10-26"})
     assert raw["is_proposal"]
     token = raw["params"]["preview_id"]
     row = get_preview(db, token, origin="coach")
@@ -51,7 +51,7 @@ def test_tool_prepares_identity_summary_and_actual_base(tmp_path):
 
 @pytest.mark.parametrize("existing", [False, True])
 def test_approval_publishes_frozen_coach_result_and_replays(tmp_path, monkeypatch, existing):
-    db = seeded_db(tmp_path, existing=existing)
+    db = seeded_db(tmp_path, existing=existing, rested=True)
     shown = prepared(db)
     proposal = save(db, shown)
     row = get_preview(db, shown["confirmation"]["preview_id"], origin="coach")
@@ -74,7 +74,7 @@ def test_approval_publishes_frozen_coach_result_and_replays(tmp_path, monkeypatc
 
 
 def test_dedup_reuses_bound_identity_and_saved_summary(tmp_path):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     one, two = prepared(db), prepared(db)
     first = save(db, one, source_key="same-turn")
     second = save(db, two, source_key="same-turn")
@@ -84,7 +84,7 @@ def test_dedup_reuses_bound_identity_and_saved_summary(tmp_path):
 
 
 def test_binding_cannot_attach_one_preview_to_two_proposals(tmp_path):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepared(db)
     first = save(db, shown)
     with pytest.raises(PlanningBuildPreviewError):
@@ -94,7 +94,7 @@ def test_binding_cannot_attach_one_preview_to_two_proposals(tmp_path):
 
 
 def test_binding_failure_rolls_back_proposal_insert(tmp_path):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepared(db)
     execute(db, "CREATE TRIGGER fail_bind BEFORE UPDATE OF coach_proposal_id ON planning_build_previews "
                 "BEGIN SELECT RAISE(ABORT,'synthetic bind failure'); END")
@@ -105,7 +105,7 @@ def test_binding_failure_rolls_back_proposal_insert(tmp_path):
 
 @pytest.mark.parametrize("stage", ["receipt", "proposal"])
 def test_failure_rolls_back_plan_settings_receipt_and_proposal(tmp_path, stage):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepared(db)
     proposal = save(db, shown)
     table = "coach_proposals" if stage == "proposal" else "planning_build_previews"
@@ -120,7 +120,7 @@ def test_failure_rolls_back_plan_settings_receipt_and_proposal(tmp_path, stage):
 
 
 def test_stale_does_not_claim_or_fail_proposal(tmp_path):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepared(db)
     proposal = save(db, shown)
     add_late_activity(db)
@@ -134,7 +134,7 @@ def test_stale_does_not_claim_or_fail_proposal(tmp_path):
 
 @pytest.mark.parametrize("tamper", ["rejected", "failed", "superseded", "wrong-id", "wrong-origin", "corrupt-params"])
 def test_rejected_or_mismatched_proposal_never_applies(tmp_path, tamper):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepared(db)
     proposal = save(db, shown)
     if tamper in {"rejected", "failed", "superseded"}:
@@ -156,7 +156,7 @@ def test_rejected_or_mismatched_proposal_never_applies(tmp_path, tamper):
 
 
 def test_legacy_unbound_build_is_rejected_with_safe_http_code(tmp_path):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     proposal = db.save_coach_proposal(action="build_plan", params=parameters(), preview={})
     app = FastAPI()
     app.include_router(decisions.router)
@@ -170,14 +170,14 @@ def test_legacy_unbound_build_is_rejected_with_safe_http_code(tmp_path):
 
 
 def test_best_effort_audit_failure_cannot_fail_committed_build(tmp_path, monkeypatch):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     proposal = save(db, prepared(db))
     monkeypatch.setattr(decisions, "record_agent_decision", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("synthetic audit failure")))
     assert decisions.approve_proposal(proposal["id"], db=db)["proposal"]["status"] == "approved"
 
 
 def test_approve_reject_race_has_one_ordered_winner(tmp_path):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     proposal = save(db, prepared(db))
     barrier = Barrier(2)
 
@@ -199,7 +199,7 @@ def test_approve_reject_race_has_one_ordered_winner(tmp_path):
 
 @pytest.mark.parametrize("level",["moderate","aggressive"])
 def test_explicit_coach_demand_is_applied_once_without_profile_write(tmp_path,monkeypatch,level):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     execute(db,"UPDATE user_settings SET updated_at='synthetic-old' WHERE key='planning_demand_level'")
     before = protected_state(db)
     shown = ps.prepare_plan_build(db,parameters=BuildParameters.from_mapping({**parameters(),**cycle_fields(db),"demand":level}),origin="coach")

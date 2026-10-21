@@ -492,7 +492,7 @@ def test_coach_chat_turn_records_trigger_scope_outcome_revisit(tmp_path, monkeyp
 
 
 def test_coach_proposal_turn_records_plan_scope_and_applies_outcome(tmp_path, monkeypatch):
-    from tests.smoke._planning_build_confirmation import pin_clock, seeded_db
+    from tests.smoke._planning_build_confirmation import declared_entry_limits, pin_clock, seeded_db
     pin_clock(monkeypatch)
     from config.settings import Settings
 
@@ -514,7 +514,8 @@ def test_coach_proposal_turn_records_plan_scope_and_applies_outcome(tmp_path, mo
                     "[TOOL: propose_plan_build, goal_type=Триатлон, "
                     "distance=Olympic, event_date=2027-02-13, available_hours=10, "
                     "action=start_new, start_date=2026-10-26, base_selection_revision=0, "
-                    "base_checkpoint_id=0, replace_current_cycle=false]"
+                    "base_checkpoint_id=0, replace_current_cycle=false, "
+                    f"initial_dose_limits={json.dumps(declared_entry_limits())}]"
                 )
             return "Готово: я подготовил предложение плана, его нужно подтвердить."
 
