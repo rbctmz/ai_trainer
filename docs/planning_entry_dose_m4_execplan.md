@@ -29,7 +29,7 @@ M4b/c implement it and M4d hands the typed result to S4.
 - [x] (2026-10-21) Candidate `fb06cb803a17891624f47254c0a6b2edef60a9ee` committed/pushed in draft #711; independent full spec review READY, no blocking findings. Reviewer reproduced 1 passed / 4 strict XFAIL and 4 intended RED failures / 1 passed, Ruff green. Documentation-only record follows; no acceptance of runtime or merge.
 - [x] (2026-10-21) M4b implementation: pure per-sport exposure/reference profile, validated coverage/declared limits, frozen parameters + policy digest, additive API/TS models and registry/extractor. 83 focused M4b tests pass after two reproduced lineage/date corrections; exact implementation `176b77e` independently reviewed READY. Final contributor-safe 3921 passed / 16 skipped / 82 deselected / 4 expected XFAIL / 7 warnings (238.78s).
 - [x] (2026-10-21) M4b independent delta review 1/2 READY on `176b77e`, no blocking P1/P2; checker 83 new + 145 compatibility passed, Ruff green. Author final broad/lint/build/contracts green; current documentation-only record preserves the runtime checkpoint. M4c handoff below; native 0/2 remains M4d.
-- [ ] Domain/API M4c: generation/shared publication implemented;186 focused +135 transaction/cycle tests pass. Stable-head broad and independent delta review pending; see M4c report.
+- [x] (2026-10-21) Domain/API M4c complete at reviewed runtime3a28f99:3965 contributor-safe passed, independent scoped round2 READY/176passed; AC6 demand-writer P2 fixed-in3a28f99. Three explicit Coach browser approval fixtures pass. UI form gap is reproduced/tracked; whole M4/M4d/native/merge remain open.
 - [ ] M4d: whole-delivery verification/native/owner gate; UI/Design S4 handoff.
 
 ## Surprises & Discoveries
@@ -253,8 +253,11 @@ and typed shapes are implemented; final independent/broad evidence is recorded
 in the [M4b report](reports/2026-10-21-planning-entry-load-m4b/README.md).
 M4b is complete for its bounded handoff: independent 83 + 145 compatibility
 checks and author final 3921-test contributor contour are green; four final-build
-RED remain expected until M4c. M4c generation/publication, numerical-policy
-clinical validation and final M4 acceptance are NOT YET. The first paired falsifier was an evidence-discipline check, not a
+RED are now GREEN in M4c. Runtime3a28f99 generation/publication is independently
+READY for bounded backend handoff with3965 local contributor passes. The current
+form still cannot submit entry coverage/dose, so whole M4d/browser/native/merge
+acceptance remains open under the UI/Design handoff. Clinical validation is not
+claimed. The first paired falsifier was an evidence-discipline check, not a
 preregistered model-selection experiment. Further numerical experimentation must
 freeze cases/baselines/budget/exit rules before execution, as described in the
 report. A usable template fit does not promote a dose to scientifically safe.

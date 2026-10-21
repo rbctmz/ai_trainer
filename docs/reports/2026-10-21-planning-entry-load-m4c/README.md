@@ -168,3 +168,40 @@ The same30 frozen experiment conditions replayed on149dbf5 in4.6554s. Status,
 limits, executable first-week dose and horizon total-TSS outputs equal the first
 run exactly (elapsed time excluded). No new conditions or threshold tuning.
 
+
+### Final bounded backend acceptance
+
+Runtime `3a28f99d22e45005e868546367a2cec6449dc54a`: **READY for M4c backend handoff**.
+AC6 P2: **fixed-in3a28f99**. Independent scoped delta round2 ran176 tests,
+all passed /1 existing warning in42.17s; changed-file Ruff passed. HEAD unchanged,
+tracked tree clean before/after. Two M4c delta rounds used; no additional full-diff
+round, native0/2 unchanged. This is not native acceptance or owner merge approval.
+
+Author stable contributor-safe command (PATH uses the main checkout's venv;
+DATABASE_PATH/DEMO_DATABASE_PATH/CHATS_DIR all point to private temporary synthetic
+paths): `python -m pytest -m "not live and not debug and not e2e" tests/ -q -p no:cacheprovider --tb=short`.
+Result on3a28f99: **3965 passed /16 skipped /82 deselected /7 warnings,265.45s**.
+No XFAIL remains in the original M4a final-assignment tests. Whole-repo Ruff,
+`git diff --check`, extraction freshness and relative Markdown links passed.
+Web lint/build/inventory passed on the identical reviewed TypeScript/web tree;
+the scoped correction changed no API/TS/public schema or components.
+
+Remote run39597418839 on149dbf5 had3939pass/1rounding-test failure/39skip in
+contributor-safe pytest and51pass/7fail E2E. The rounding assertion is corrected;
+three Coach E2E failures were positive fixtures missing explicit starting limits.
+Only those fixtures now declare their synthetic8hour ceilings and use a future
+start to avoid inventing ownership for today's completed activities. The actual
+Coach browser approval/success/lost-response/stale cases reran **3passed /17deselected,
+10.10s**, using the real backend approval endpoint; their existing transport
+simulations remain unchanged. No current Planning form request was intercepted
+or supplied with fake athlete declarations. These setup changes occur after the
+backend review; runtime3a28f99 and contributor-safe sources are unchanged.
+
+The other four failures are existing new-cycle UI journeys using the missing-dose
+form path (including the independently reproduced local case). Full E2E has not
+been rerun or declared green after the fixture correction. This is the explicit
+UI/Design input/refusal handoff and keeps whole M4/native/merge acceptance open.
+Final documentation/Coach-fixture commit publishes the reviewed runtime without
+claiming final-head functional CI or native acceptance. #710 and#677 remain open;
+#711 remains draft/unaccepted. Primary checkout's unrelated research edits and
+live athlete cache remain untouched.

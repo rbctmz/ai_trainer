@@ -55,7 +55,7 @@ sync or absence of rows is not proof of complete history.
 - [x] Targeted RED, compatibility/state checks and future broad contour named.
 - [x] Human merge/cleanup owner assigned; independent checker required.
 - [x] Independent spec review on exact `fb06cb8`, READY with no blocking findings; author and checker results distinguished below.
-- [ ] Domain/API implementation and runtime contract extraction: separate slices.
+- [x] Domain/API implementation and runtime contract extraction complete at reviewed3a28f99; whole M4 UI/M4d/native/owner gates remain separate.
 
 ## Public Contracts
 
@@ -360,3 +360,10 @@ reviewable. No owner exception, live write, UI authority or additional reviewer
 round is implied by this spec.
 
 M4c implementation evidence (AC unchanged): [report](reports/2026-10-21-planning-entry-load-m4c/README.md). Stable-head independent review and final M4d/native/owner acceptance remain separate.
+
+M4c delta round1 BLOCK on149dbf5 (real demand writer retained supported evidence),
+**fixed-in3a28f99**. Scoped round2 READY on3a28f99:176passed/1warning42.17s,
+Ruff green, tracked clean. Author stable contributor-safe3965passed/16skip/
+82deselected/7warnings265.45s. Operational thresholds and AC1–AC7 unchanged.
+Original M4a REDs are GREEN. Native0/2 remains unused; current form cannot collect
+entry inputs, so whole M4 UI/browser/native/merge acceptance is explicitly open.

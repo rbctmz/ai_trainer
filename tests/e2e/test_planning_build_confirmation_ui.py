@@ -199,6 +199,8 @@ def test_coach_card_uses_bound_approval_and_safe_retry(web_stack,outcome):
     from api import planning_service as ps
     from models.planning_build_confirmation import BuildParameters
     from tests.athlete_clock import athlete_today
+    from datetime import timedelta
+    from tests.smoke._planning_build_confirmation import declared_entry_limits
 
     db = Database(str(web_stack.tmp_dir / "demo.db"))
     from services.planning_cycles import current_cycle_context
@@ -209,7 +211,8 @@ def test_coach_card_uses_bound_approval_and_safe_retry(web_stack,outcome):
         "action": "start_new", "base_cycle_id": context["cycle_id"],
         "base_cycle_revision": context["cycle_revision"], "base_selection_revision": context["selection_revision"],
         "base_checkpoint_id": context["checkpoint_id"] or 0, "replace_current_cycle": context["cycle_id"] is not None,
-        "start_date": context["athlete_day"], "goal_type": "triathlon", "distance": "olympic",
+        "start_date": (athlete_today() + timedelta(days=1)).isoformat(), "goal_type": "triathlon", "distance": "olympic",
+        "initial_dose_limits": declared_entry_limits(8),
         "planning_mode": "manual", "horizon_weeks": 8, "events": [],
         "manual_phases": ["Recovery", "Base", "Build", "Recovery", "Base", "Base", "Build", "Recovery"],
         "available_hours": 8, "available_days": ["mon", "tue", "wed", "thu", "sat", "sun"],
