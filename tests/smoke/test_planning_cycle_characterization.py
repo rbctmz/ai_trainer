@@ -9,7 +9,7 @@ from data.planning_build_preview_store import get_preview
 from models.planning_build_confirmation import BuildParameters
 from models.planning_checkpoints import build_planning_checkpoint
 from scripts.sqlite_backup_restore import backup_database, restore_database
-from tests.smoke._planning_build_confirmation import cycle_fields, ready_parameters as parameters
+from tests.smoke._planning_build_confirmation import cycle_fields, declared_entry_limits, ready_parameters as parameters
 from tests.smoke._planning_cycle_regressions import (
     client_for, evidence_bytes, first_session_id, legacy_db, plan, seed_evidence,
 )
@@ -43,7 +43,7 @@ def test_characterization_s1_preview_is_not_an_active_write(tmp_path, monkeypatc
     db = legacy_db(tmp_path, monkeypatch)
     seed_evidence(db, first_session_id(plan()))
     before = evidence_bytes(db)
-    result = ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping({**parameters(), **cycle_fields(db)}),
+    result = ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping({**parameters(), **cycle_fields(db), "initial_dose_limits": declared_entry_limits()}),
                                    origin="planning_ui")
     preview_id = result["confirmation"]["preview_id"]
     retained = get_preview(db, preview_id, origin="planning_ui")

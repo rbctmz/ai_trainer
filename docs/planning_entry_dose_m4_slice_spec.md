@@ -60,9 +60,11 @@ sync or absence of rows is not proof of complete history.
 ## Public Contracts
 
 M4b implements the additive typed shapes and normalized request/parameter
-capture below. It does not populate entry_load in build responses or enforce
-final assignments yet: M4c owns that integration. The DTO is a compatible shape
-addition; no early supported/can_publish claim is emitted.
+capture below. M4c now populates entry_load only after final prescription
+validation, constrains generation and guards prepare/confirm. Typed optional
+entry_adjustments records retiming, removals at the cap and retirement of completed
+assignments. Historical receipts may omit both additions. M4b alone emitted no
+supported/can_publish claim; M4c evidence and UI handoff are recorded in its report.
 Behavior for a new preparation with unsupported initial dose changes deliberately
 and is NOT advertised as behavior-compatible: it requires an explicit baseline.
 
@@ -356,3 +358,5 @@ M4. Explicit task handoff: Domain / API Implementer consumes AC1–AC7 in M4b/c;
 Spec Owner retains scope/invariant decisions. Owner final gate remains explicit; cleanup retains worktree until the assigned delivery is
 reviewable. No owner exception, live write, UI authority or additional reviewer
 round is implied by this spec.
+
+M4c implementation evidence (AC unchanged): [report](reports/2026-10-21-planning-entry-load-m4c/README.md). Stable-head independent review and final M4d/native/owner acceptance remain separate.

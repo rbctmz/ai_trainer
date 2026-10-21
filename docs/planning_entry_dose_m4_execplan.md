@@ -29,10 +29,18 @@ M4b/c implement it and M4d hands the typed result to S4.
 - [x] (2026-10-21) Candidate `fb06cb803a17891624f47254c0a6b2edef60a9ee` committed/pushed in draft #711; independent full spec review READY, no blocking findings. Reviewer reproduced 1 passed / 4 strict XFAIL and 4 intended RED failures / 1 passed, Ruff green. Documentation-only record follows; no acceptance of runtime or merge.
 - [x] (2026-10-21) M4b implementation: pure per-sport exposure/reference profile, validated coverage/declared limits, frozen parameters + policy digest, additive API/TS models and registry/extractor. 83 focused M4b tests pass after two reproduced lineage/date corrections; exact implementation `176b77e` independently reviewed READY. Final contributor-safe 3921 passed / 16 skipped / 82 deselected / 4 expected XFAIL / 7 warnings (238.78s).
 - [x] (2026-10-21) M4b independent delta review 1/2 READY on `176b77e`, no blocking P1/P2; checker 83 new + 145 compatibility passed, Ruff green. Author final broad/lint/build/contracts green; current documentation-only record preserves the runtime checkpoint. M4c handoff below; native 0/2 remains M4d.
-- [ ] Domain/API M4c: constrained generation and shared atomic publication/replay compatibility.
+- [ ] Domain/API M4c: generation/shared publication implemented;186 focused +135 transaction/cycle tests pass. Stable-head broad and independent delta review pending; see M4c report.
 - [ ] M4d: whole-delivery verification/native/owner gate; UI/Design S4 handoff.
 
 ## Surprises & Discoveries
+
+Observed (M4c): the real new-cycle browser journey returns422 entry_dose_required
+because the form does not transmit coverage/dose. Verified by the existing
+isolated lifecycle E2E (1 failed,7.71s), without API mocking. This is an explicit
+UI/Design consumer handoff, not a reason to bypass the backend guard. M4d final
+acceptance/native and merge remain blocked on that consumer work; no UI scope
+is transferred to Domain/API. Details and typed inputs are in the M4c report.
+
 
 Observed: adding the entry policy stamp changed six existing full-payload golden
 checks. Inferred: the only observable delta may be the M3 readiness binding,
@@ -250,3 +258,5 @@ clinical validation and final M4 acceptance are NOT YET. The first paired falsif
 preregistered model-selection experiment. Further numerical experimentation must
 freeze cases/baselines/budget/exit rules before execution, as described in the
 report. A usable template fit does not promote a dose to scientifically safe.
+
+M4c implementation/evidence and UI handoff: [report](reports/2026-10-21-planning-entry-load-m4c/README.md). No acceptance criteria or numerical thresholds changed.

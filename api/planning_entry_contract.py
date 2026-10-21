@@ -132,11 +132,29 @@ class EntryLoadWarning(EntryModel):
 
 
 class EntryLoadAssessment(EntryModel):
-    policy_version: Literal["entry-load-v1"]
+    policy_version: Literal["entry-load-v1"] | None
     status: Literal["supported", "needs_baseline", "blocked", "unassessed"]
     can_publish: bool
-    scope: EntryScope
-    profile: EntryExposureProfile
+    scope: EntryScope | None
+    profile: EntryExposureProfile | None
     limits: dict[EntrySport, SourcedEntryLimit]
     blockers: list[EntryLoadReason]
     warnings: list[EntryLoadWarning]
+
+
+class EntryLoadError(EntryModel):
+    detail: str
+    code: Literal["entry_dose_required", "entry_dose_infeasible"]
+    retryable: bool
+    entry_load: EntryLoadAssessment
+
+
+class EntryDoseAdjustment(EntryModel):
+    date: str
+    kind: Literal["retimed", "removed_at_entry_limit", "completed_assignment_retired"]
+    sport: Literal["bike", "run", "swim", "brick"] | None = None
+    session_id: str | None = None
+    from_minutes: float | None = None
+    to_minutes: float | None = None
+    from_role: str | None = None
+    to_role: str | None = None

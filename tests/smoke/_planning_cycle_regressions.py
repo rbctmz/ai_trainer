@@ -100,8 +100,9 @@ def legacy_db(tmp_path, monkeypatch, *, payloads=None, start=date(2026, 9, 28), 
             before_init(conn)
     db = Database(str(tmp_path / "plan.db"))
     rows = []
+    # Completed history only; today would require explicit execution matching.
     for offset in range(28):
-        activity = {"activity_id": f"s{offset}", "date": (TODAY - timedelta(days=offset)).isoformat(),
+        activity = {"activity_id": f"s{offset}", "date": (TODAY - timedelta(days=offset + 1)).isoformat(),
                     "sport": "running" if offset % 2 == 0 else "cycling",
                     "duration_minutes": 60, "distance_km": 25.0}
         # Seed already-resolved synthetic loads: Database initialization has an

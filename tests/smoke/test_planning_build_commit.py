@@ -76,7 +76,7 @@ def test_commit_is_complete_frozen_payload_without_calculation(tmp_path, monkeyp
 
 @pytest.mark.parametrize("change", ["activity", "profile", "constraint", "demand", "planning_profile", "base", "day", "timezone", "rules"])
 def test_stale_invalidates_only_preview(tmp_path, monkeypatch, change):
-    db = seeded_db(tmp_path, existing=True)
+    db = seeded_db(tmp_path, existing=True, rested=True)
     shown = prepare(db)
     if change == "activity":
         add_late_activity(db)
@@ -101,7 +101,7 @@ def test_stale_invalidates_only_preview(tmp_path, monkeypatch, change):
 
 
 def test_replay_survives_restart_expiry_rules_and_later_plan(tmp_path, monkeypatch):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepare(db)
     applied = confirm(db, shown)
     later = prepare(db)
@@ -119,7 +119,7 @@ def test_replay_survives_restart_expiry_rules_and_later_plan(tmp_path, monkeypat
 
 @pytest.mark.parametrize("field", ["checkpoint_json", "response_json", "parameters_json", "schema_version", "applied_response_json", "receipt_digest", "missing_checkpoint"])
 def test_corrupt_or_missing_receipt_never_rebuilds(tmp_path, field):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepare(db)
     applied = confirm(db, shown)
     token = shown["confirmation"]["preview_id"]
@@ -134,7 +134,7 @@ def test_corrupt_or_missing_receipt_never_rebuilds(tmp_path, field):
 
 
 def test_unknown_wrong_database_and_origin_fail_closed(tmp_path):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepare(db, origin="coach")
     before = protected_state(db)
     error_code(db, shown, "preview_not_found")
@@ -166,7 +166,7 @@ class ConnectionProxy:
 @pytest.mark.parametrize("existing", [False, True], ids=["first-insert", "existing-update"])
 @pytest.mark.parametrize("stage", ["checkpoint", "demand", "profile", "receipt", "commit", "invalidation"])
 def test_each_write_failure_rolls_back(tmp_path, monkeypatch, stage, existing):
-    db = seeded_db(tmp_path, existing=existing)
+    db = seeded_db(tmp_path, existing=existing, rested=True)
     if not existing:
         db.delete_user_setting("planning_demand_level")
         db.delete_user_setting("planning_profile")
@@ -199,7 +199,7 @@ def test_each_write_failure_rolls_back(tmp_path, monkeypatch, stage, existing):
 
 
 def test_lost_post_commit_result_retries_same_receipt(tmp_path, monkeypatch):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepare(db)
     connect = db._connect
 
@@ -219,7 +219,7 @@ def test_lost_post_commit_result_retries_same_receipt(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("same_preview", [False, True])
 def test_two_real_confirm_connections_serialize(tmp_path, monkeypatch, same_preview):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     first = prepare(db)
     second = first if same_preview else prepare(db)
     barrier = Barrier(2)
@@ -245,7 +245,7 @@ def test_two_real_confirm_connections_serialize(tmp_path, monkeypatch, same_prev
 
 
 def test_dependency_writer_blocked_until_after_confirm_is_later_event(tmp_path, monkeypatch):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepare(db)
     checking, blocked, committed = Event(), Event(), Event()
     read_latest = db._get_current_planning_checkpoint
@@ -282,7 +282,7 @@ def test_dependency_writer_blocked_until_after_confirm_is_later_event(tmp_path, 
 
 
 def test_busy_keeps_identity_pending_and_retry_succeeds(tmp_path, monkeypatch):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepare(db)
     connect = db._connect
 
@@ -307,7 +307,7 @@ def test_busy_keeps_identity_pending_and_retry_succeeds(tmp_path, monkeypatch):
 def test_confirmation_expiry_boundary_is_checked_under_lock(tmp_path, monkeypatch, delta):
     from datetime import datetime
 
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepare(db)
     expiry = datetime.fromisoformat(shown["confirmation"]["expires_at"].replace("Z", "+00:00"))
     instant = expiry + timedelta(microseconds=delta)
@@ -332,7 +332,7 @@ def test_expired_successful_receipt_replays_after_restart_and_backup(tmp_path, m
     from datetime import datetime
     from scripts.sqlite_backup_restore import backup_database, restore_database
 
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepare(db)
     applied = confirm(db, shown)
     expiry = datetime.fromisoformat(shown["confirmation"]["expires_at"].replace("Z", "+00:00"))
@@ -355,7 +355,7 @@ def test_expired_successful_receipt_replays_after_restart_and_backup(tmp_path, m
 
 
 def test_confirm_owns_one_closed_connection_and_one_transaction(tmp_path, monkeypatch):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepare(db)
     connect = db._connect
     opened = []
@@ -385,7 +385,7 @@ def test_confirm_owns_one_closed_connection_and_one_transaction(tmp_path, monkey
     ("outside_constraint", False), ("identical_values", False),
 ])
 def test_full_dependency_contract_at_confirmation(tmp_path, monkeypatch, change, stale):
-    db = seeded_db(tmp_path, existing=True)
+    db = seeded_db(tmp_path, existing=True, rested=True)
     if change == "deactivate_constraint":
         execute(db, "UPDATE coach_constraints SET date='2026-11-10' WHERE id=1")
     if change == "absent_to_null":
@@ -425,7 +425,7 @@ def test_full_dependency_contract_at_confirmation(tmp_path, monkeypatch, change,
 
 
 def test_writer_committed_before_confirm_lock_is_visible(tmp_path, monkeypatch):
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepare(db)
     writer_ready, confirm_started = Event(), Event()
     connect = db._connect
@@ -453,7 +453,7 @@ def test_writer_committed_before_confirm_lock_is_visible(tmp_path, monkeypatch):
 def test_precommit_response_validation_failure_rolls_back(tmp_path, monkeypatch):
     from data import planning_build_preview_store as store
 
-    db = seeded_db(tmp_path)
+    db = seeded_db(tmp_path, rested=True)
     shown = prepare(db)
     response = store._applied_response
 

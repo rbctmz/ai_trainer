@@ -78,13 +78,38 @@
             "distance": "olympic",
             "planning_mode": "manual",
             "horizon_weeks": 4,
-            "manual_phases": ["Peak", "Peak", "Peak", "Peak"],
-            "available_hours": 4
+            "manual_phases": [
+              "Peak",
+              "Peak",
+              "Peak",
+              "Peak"
+            ],
+            "available_hours": 4,
+            "initial_dose_limits": {
+              "bike": {
+                "source": "athlete_declared",
+                "weekly_minutes": 120,
+                "weekly_sessions": 2,
+                "max_session_minutes": 60.0
+              },
+              "run": {
+                "source": "athlete_declared",
+                "weekly_minutes": 90,
+                "weekly_sessions": 2,
+                "max_session_minutes": 45.0
+              },
+              "swim": {
+                "source": "athlete_declared",
+                "weekly_minutes": 60,
+                "weekly_sessions": 2,
+                "max_session_minutes": 30.0
+              }
+            }
           }
         },
         {
           "state": "empty",
-          "expect": 200,
+          "expect": 422,
           "prepare_cycle_build": true,
           "json": {
             "goal_type": "triathlon",
@@ -143,7 +168,27 @@
             "distance": "olympic",
             "planning_mode": "training_goal",
             "horizon_weeks": 4,
-            "available_hours": 10
+            "available_hours": 10,
+            "initial_dose_limits": {
+              "bike": {
+                "source": "athlete_declared",
+                "weekly_minutes": 120,
+                "weekly_sessions": 2,
+                "max_session_minutes": 60.0
+              },
+              "run": {
+                "source": "athlete_declared",
+                "weekly_minutes": 90,
+                "weekly_sessions": 2,
+                "max_session_minutes": 45.0
+              },
+              "swim": {
+                "source": "athlete_declared",
+                "weekly_minutes": 60,
+                "weekly_sessions": 2,
+                "max_session_minutes": 30.0
+              }
+            }
           },
           "json": {
             "confirm": true

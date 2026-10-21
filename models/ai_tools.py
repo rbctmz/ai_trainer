@@ -624,6 +624,15 @@ class AITools:
                 ),
                 "parameters": _params(
                     {
+                        "history_coverage": {"type": "object", "description": "Только явно сообщённое покрытие истории; отсутствие занятий не доказывает полноту.",
+                            "properties": {"status": {"type": "string", "enum": ["unknown", "partial", "user_reported_complete"]},
+                                "start_date": {"type": "string"}, "end_date_exclusive": {"type": "string"}}, "required": ["status"]},
+                        "initial_dose_limits": {"type": "object", "description": "Начальные лимиты bike/run/swim только из явного выбора пользователя, без выдуманных значений.",
+                            "additionalProperties": {"type": "object", "properties": {
+                                "source": {"type": "string", "enum": ["athlete_declared"]},
+                                "weekly_minutes": {"type": "number"}, "weekly_sessions": {"type": "integer"},
+                                "max_session_minutes": {"type": "number"}},
+                                "required": ["source", "weekly_minutes", "weekly_sessions", "max_session_minutes"]}},
                         "goal_type": {
                             "type": "string",
                             "description": "Триатлон/Бег/Вело/Плавание",
@@ -1594,6 +1603,8 @@ class AITools:
         base_checkpoint_id: int | None = None,
         replace_current_cycle: bool | None = None,
         start_date: str | None = None,
+        history_coverage: dict | None = None,
+        initial_dose_limits: dict | None = None,
     ) -> Dict[str, Any]:
         """Построить preview нового плана без сохранения в БД."""
         if not str(event_date or "").strip():
@@ -1614,7 +1625,8 @@ class AITools:
                     "action": action, "base_cycle_id": base_cycle_id,
                     "base_cycle_revision": base_cycle_revision, "base_selection_revision": base_selection_revision,
                     "base_checkpoint_id": base_checkpoint_id, "replace_current_cycle": replace_current_cycle,
-                    "start_date": start_date,
+                    "start_date": start_date, "history_coverage": history_coverage,
+                    "initial_dose_limits": initial_dose_limits,
                 }), origin="coach",
             )
         except Exception as exc:
@@ -1634,6 +1646,8 @@ class AITools:
                 "base_checkpoint_id": preview["preview"]["base_checkpoint_id"],
             },
             "preview": {
+                "entry_load": preview["entry_load"],
+                "entry_adjustments": preview.get("entry_adjustments", []),
                 "lifecycle": preview["lifecycle"],
                 "confirmation": preview["confirmation"],
                 "goal": preview.get("goal", {}),

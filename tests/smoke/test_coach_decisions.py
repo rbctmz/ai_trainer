@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from data.database import Database
-from tests.smoke._planning_build_confirmation import cycle_fields
+from tests.smoke._planning_build_confirmation import cycle_fields, declared_entry_limits
 
 
 def _events(streaming_response) -> list[dict]:
@@ -430,7 +430,7 @@ def test_approve_build_plan_proposal_persists_checkpoint(tmp_path, monkeypatch):
     raw = AITools(db).propose_plan_build(
         goal_type="Триатлон", distance="Olympic", event_date=event_date,
         available_hours=10, available_days="mon,tue,wed,thu,fri,sat,sun",
-        **{**cycle_fields(db), "start_date": "2026-10-26"},
+        **{**cycle_fields(db), "start_date": "2026-10-26", "initial_dose_limits": declared_entry_limits()},
     )
     proposal = db.save_coach_proposal(action=raw["action"], params=raw["params"], preview=raw["preview"])
 
@@ -464,7 +464,7 @@ def test_coach_build_proposal_records_and_guards_its_preview_base(tmp_path, monk
     def build_cycle(event_date):
         shown = planning_service.prepare_plan_build(db, parameters=BuildParameters.from_mapping({
             "goal_type": "Триатлон", "distance": "Olympic", "event_date": event_date,
-            "available_hours": 10, "available_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], **{**cycle_fields(db), "start_date": "2026-10-26"},
+            "available_hours": 10, "available_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], **{**cycle_fields(db), "start_date": "2026-10-26", "initial_dose_limits": declared_entry_limits()},
         }), origin="planning_ui")
         return planning_service.confirm_plan_build(db, preview_id=shown["confirmation"]["preview_id"], origin="planning_ui")
 
@@ -475,7 +475,7 @@ def test_coach_build_proposal_records_and_guards_its_preview_base(tmp_path, monk
         event_date="2027-02-13",
         available_hours=10,
         available_days="mon,tue,wed,thu,fri,sat,sun",
-        **{**cycle_fields(db), "start_date": "2026-10-26"},
+        **{**cycle_fields(db), "start_date": "2026-10-26", "initial_dose_limits": declared_entry_limits()},
     )
     assert raw["params"]["base_checkpoint_id"] == int(initial["plan_id"])
     proposal = db.save_coach_proposal(
@@ -602,7 +602,8 @@ def test_coach_stream_persists_proposal_and_emits_id(tmp_path, monkeypatch):
                     "[TOOL: propose_plan_build, goal_type=Триатлон, "
                     f"distance=Olympic, event_date={event_date}, available_hours=10, "
                     "action=start_new, start_date=2026-10-26, base_selection_revision=0, "
-                    "base_checkpoint_id=0, replace_current_cycle=false]"
+                    "base_checkpoint_id=0, replace_current_cycle=false, "
+                    f"initial_dose_limits={json.dumps(declared_entry_limits())}]"
                 )
             return "Готово: я подготовил предложение плана, его нужно подтвердить."
 

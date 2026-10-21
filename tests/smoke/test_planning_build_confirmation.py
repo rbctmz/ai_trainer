@@ -29,7 +29,7 @@ CONFIRM = "/api/planning/build/confirm"
 @pytest.fixture(params=[False, True], ids=["first-plan", "existing-plan"])
 def scenario(tmp_path, monkeypatch, request):
     pin_clock(monkeypatch)
-    db = seeded_db(tmp_path, existing=request.param)
+    db = seeded_db(tmp_path, existing=request.param, rested=True)
     app = FastAPI()
     app.include_router(router)
     app.include_router(cycles_router)

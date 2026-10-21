@@ -71,6 +71,8 @@ def build_plan(db, **kwargs):
     """Seed the original v1 calculation, preserving complete golden payloads."""
     from api import planning_service as ps
     from models.planning_build_confirmation import BuildParameters
+    # This fixture seeds the historical v1 calculation, never a public M4 build.
+    kwargs = {key: value for key, value in kwargs.items() if key not in {"history_coverage", "initial_dose_limits"}}
     bound = inspect.signature(ps.build_plan).bind(db, **kwargs)
     bound.apply_defaults()
     values = bound.arguments

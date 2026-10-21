@@ -12,7 +12,7 @@ import pytest
 from api import planning_service as ps
 from data.planning_build_preview_store import get_preview, store_pending, _applied_response, _receipt_digest
 from models.planning_build_confirmation import BuildParameters, PlanningBuildPreviewError, canonical_json, fingerprint
-from tests.smoke._planning_build_confirmation import parameters
+from tests.smoke._planning_build_confirmation import declared_entry_limits, parameters
 from tests.smoke._planning_cycle_regressions import TODAY, client_for, evidence_bytes, legacy_db, pin_clock
 from tests.smoke.test_planning_cycle_storage import cycle_rows, rows
 
@@ -23,7 +23,7 @@ def request_for(db, *, action="start_new", **overrides):
     from services.planning_cycles import current_cycle_context
     context = current_cycle_context(db)
     start = TODAY.isoformat() if action == "start_new" else context["start_date"]
-    return {**parameters(), "start_week": None, "events": [], "action": action,
+    return {**parameters(), "initial_dose_limits": declared_entry_limits(), "start_week": None, "events": [], "action": action,
             "base_cycle_id": context["cycle_id"], "base_cycle_revision": context["cycle_revision"],
             "base_selection_revision": context["selection_revision"],
             "base_checkpoint_id": context["checkpoint_id"] or 0,

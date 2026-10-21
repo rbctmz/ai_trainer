@@ -15,6 +15,7 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from api.planning_build_contract import BuildConfirmRequest, BuildConfirmResponseVersioned, BuildPreviewResponseV2, BuildReadinessError, BuildProtocolError
+from api.planning_entry_contract import EntryLoadError
 from api.planning_cycle_contract import CycleBuildRequest, CycleRestoreRequest, CycleExpectedRequest
 from models.planning_build_confirmation import BuildParameters, PlanningBuildPreviewError
 from utils.athlete_time import athlete_local_date
@@ -387,7 +388,7 @@ def planning_demand_confirm(
         raise HTTPException(status_code=422, detail=str(exc))
 
 
-@router.post("/build", response_model=BuildPreviewResponseV2, response_model_exclude_unset=True, responses={422: {"model": BuildReadinessError | BuildProtocolError}})
+@router.post("/build", response_model=BuildPreviewResponseV2, response_model_exclude_unset=True, responses={422: {"model": BuildReadinessError | EntryLoadError | BuildProtocolError}})
 def planning_build(req: BuildRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
     if req.persist:
         raise PlanningBuildPreviewError("preview_required", "Сначала создайте предпросмотр, затем подтвердите его.")
@@ -404,7 +405,7 @@ def planning_build(req: BuildRequest, db: Database = Depends(get_database)) -> d
         raise PlanningBuildPreviewError("invalid_build_request", "Проверьте параметры плана.", status=422) from exc
 
 
-@router.post("/build/confirm", response_model=BuildConfirmResponseVersioned, response_model_exclude_unset=True, responses={409: {"model": BuildReadinessError | BuildProtocolError}})
+@router.post("/build/confirm", response_model=BuildConfirmResponseVersioned, response_model_exclude_unset=True, responses={409: {"model": BuildReadinessError | EntryLoadError | BuildProtocolError}})
 def planning_build_confirm(req: BuildConfirmRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
     return planning_service.confirm_plan_build(db, preview_id=str(req.preview_id), origin="planning_ui")
 

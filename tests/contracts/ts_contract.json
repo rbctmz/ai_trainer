@@ -1,9 +1,9 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "35db62e0ff6435bdebb2ce680b44ff363b2cca2df76039b53d269c3250c2446f",
+    "source_sha256": "a2db377cb798443368df574db3cc72844885fc7b68dc2568493929db5a6c8de5",
     "registry": "tests/contracts/registry.json",
-    "registry_sha256": "e3412d84a34f61eacd97cb3e95d5e93e7e18024d5433da31faba70f5013b2f42"
+    "registry_sha256": "fa1b59a216c5967472c6d242cd09b1a9abc24037681acc741101aa6db5982ea1"
   },
   "roots": [
     "ActivitiesResponse",
@@ -2606,6 +2606,20 @@
           "variants": null,
           "record_values": null,
           "array_length": null
+        },
+        {
+          "kinds": [
+            "object"
+          ],
+          "literals": [],
+          "widened": false,
+          "items": null,
+          "fields": null,
+          "ref": "EntryLoadError",
+          "wildcard": false,
+          "variants": null,
+          "record_values": null,
+          "array_length": null
         }
       ],
       "record_values": null,
@@ -3403,6 +3417,20 @@
           "variants": null,
           "record_values": null,
           "array_length": null
+        },
+        {
+          "kinds": [
+            "object"
+          ],
+          "literals": [],
+          "widened": false,
+          "items": null,
+          "fields": null,
+          "ref": "EntryLoadError",
+          "wildcard": false,
+          "variants": null,
+          "record_values": null,
+          "array_length": null
         }
       ],
       "record_values": null,
@@ -3952,6 +3980,37 @@
             "items": null,
             "fields": null,
             "ref": "ConstraintApplication",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "entry_adjustments": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "array",
+              "null"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "EntryDoseAdjustment",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
             "wildcard": false,
             "variants": null,
             "record_values": null,
@@ -8717,6 +8776,37 @@
             "array_length": null
           }
         },
+        "entry_adjustments": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "array",
+              "null"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "EntryDoseAdjustment",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
         "entry_load": {
           "optional": true,
           "spec": {
@@ -11966,6 +12056,172 @@
       "record_values": null,
       "array_length": null
     },
+    "EntryDoseAdjustment": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "date": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "from_minutes": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "from_role": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "kind": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "completed_assignment_retired",
+              "removed_at_entry_limit",
+              "retimed"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "session_id": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "sport": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [
+              "bike",
+              "brick",
+              "run",
+              "swim"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "EntrySport",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "to_minutes": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "to_role": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
     "EntryExposureProfile": {
       "kinds": [
         "object"
@@ -12565,6 +12821,7 @@
           "optional": false,
           "spec": {
             "kinds": [
+              "null",
               "string"
             ],
             "literals": [
@@ -12584,6 +12841,7 @@
           "optional": false,
           "spec": {
             "kinds": [
+              "null",
               "object"
             ],
             "literals": [],
@@ -12601,6 +12859,7 @@
           "optional": false,
           "spec": {
             "kinds": [
+              "null",
               "object"
             ],
             "literals": [],
@@ -12715,6 +12974,92 @@
               "record_values": null,
               "array_length": null
             },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "EntryLoadError": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "code": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "entry_dose_infeasible",
+              "entry_dose_required"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "detail": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "entry_load": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "EntryLoadAssessment",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "retryable": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
             "fields": null,
             "ref": null,
             "wildcard": false,
@@ -13786,6 +14131,37 @@
             "items": null,
             "fields": null,
             "ref": "ConstraintApplication",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "entry_adjustments": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "array",
+              "null"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "EntryDoseAdjustment",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
             "wildcard": false,
             "variants": null,
             "record_values": null,
@@ -19365,6 +19741,23 @@
             "items": null,
             "fields": null,
             "ref": "CycleContext",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "entry_load": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "EntryLoadAssessment",
             "wildcard": false,
             "variants": null,
             "record_values": null,

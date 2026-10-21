@@ -1,4 +1,4 @@
-"""M4 spec RED: desired public behavior, not an implemented dose policy."""
+"""M4 public acceptance: original M4a REDs become executable M4c guards."""
 from __future__ import annotations
 
 import pytest
@@ -18,7 +18,6 @@ def frozen_clock(monkeypatch):
     (["running"] * 4, {"run": 4, "bike": 0, "swim": 0}),
     (["running", "cycling", "swimming", "cycling"], {"run": 1, "bike": 2, "swim": 1}),
 ])
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="M4: per-discipline entry profile not implemented")
 def test_build_exposes_frozen_recent_exposure_per_discipline(tmp_path, sports, expected):
     db = exposure_db(tmp_path, sports)
     response, _ = calculate(db)
@@ -29,7 +28,6 @@ def test_build_exposes_frozen_recent_exposure_per_discipline(tmp_path, sports, e
     assert response["build_readiness"]["training_suitability"] == "not_assessed"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="M4: absent sport exposure must request an explicit baseline")
 def test_absent_bike_swim_exposure_does_not_create_publishable_token(tmp_path):
     db = exposure_db(tmp_path, ["running"] * 4)
     before = protected_state(db)
@@ -44,7 +42,6 @@ def test_absent_bike_swim_exposure_does_not_create_publishable_token(tmp_path):
         assert conn.execute("SELECT count(*) FROM planning_build_previews").fetchone()[0] == 0
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="M4: declared per-sport limits are currently ignored")
 def test_final_entry_dose_respects_declared_limits_or_explicitly_blocks(tmp_path):
     db = exposure_db(tmp_path, ["running"] * 4)
     limits = {sport: {"source": "athlete_declared", "weekly_minutes": minutes,

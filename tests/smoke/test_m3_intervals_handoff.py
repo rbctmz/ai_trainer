@@ -14,7 +14,7 @@ from api.routers import system as system_mod
 from api.sync_jobs import sync_job_manager
 from data.database import Database
 from services import intervals_icu, planning_onboarding
-from tests.smoke._planning_build_confirmation import cycle_fields
+from tests.smoke._planning_build_confirmation import cycle_fields, declared_entry_limits
 
 
 pytestmark = pytest.mark.smoke
@@ -128,7 +128,8 @@ def test_m3_intervals_only_handoff_reaches_visible_plan(
 
             build_payload = {
                 **profile_payload,
-                **cycle_fields(db),
+                **cycle_fields(db), "initial_dose_limits": declared_entry_limits(),
+                "start_date": (datetime.now().date() + timedelta(days=7)).isoformat(),
                 "event_date": None,
                 "events": [],
                 "focus": "balanced_triathlon",

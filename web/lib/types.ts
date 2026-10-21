@@ -935,6 +935,7 @@ export interface PlanScienceAudit {
 
 /** Read-only projection of the persisted active checkpoint for Planning M1. */
 export interface PlanningOverview {
+  entry_load?: EntryLoadAssessment;
   build_readiness?: BuildReadiness;
   cycle_context?: CycleContext;
   has_actionable_plan?: boolean;
@@ -1300,7 +1301,19 @@ export interface RaceMicrocycleChange {
   after: RaceMicrocycleState;
 }
 
+export interface EntryDoseAdjustment {
+  date: string;
+  kind: "retimed" | "removed_at_entry_limit" | "completed_assignment_retired";
+  sport?: EntrySport | "brick" | null;
+  session_id?: string | null;
+  from_minutes?: number | null;
+  to_minutes?: number | null;
+  from_role?: string | null;
+  to_role?: string | null;
+}
+
 export interface BuiltPlan {
+  entry_adjustments?: EntryDoseAdjustment[] | null;
   plan_id: string | null;
   planning_mode: "event_goal" | "training_goal" | "manual";
   confirmation_required: boolean;
@@ -1426,14 +1439,21 @@ export interface EntryLimits {
   swim?: SourcedEntryLimit;
 }
 export interface EntryLoadAssessment {
-  policy_version: "entry-load-v1";
+  policy_version: "entry-load-v1" | null;
   status: "supported" | "needs_baseline" | "blocked" | "unassessed";
   can_publish: boolean;
-  scope: EntryScope;
-  profile: EntryExposureProfile;
+  scope: EntryScope | null;
+  profile: EntryExposureProfile | null;
   limits: EntryLimits;
   blockers: { code: string; sport: EntrySport | null; date: string | null; field: string; expected: unknown; observed: unknown }[];
   warnings: { code: string; sport: EntrySport | null; field: string }[];
+}
+
+export interface EntryLoadError {
+  detail: string;
+  code: "entry_dose_required" | "entry_dose_infeasible";
+  retryable: boolean;
+  entry_load: EntryLoadAssessment;
 }
 
 export interface BuildReadinessReason {
@@ -1532,8 +1552,8 @@ export interface BuildConfirmationV2 {
 
 export type BuildPreviewResponse = LegacyBuildPreviewResponse | CycleBuildPreviewResponse;
 export type BuildConfirmResponse = BuildPreviewResponse;
-export type BuildPrepareResult = BuildPreviewResponse | BuildReadinessError;
-export type BuildConfirmResult = BuildConfirmResponse | BuildReadinessError;
+export type BuildPrepareResult = BuildPreviewResponse | BuildReadinessError | EntryLoadError;
+export type BuildConfirmResult = BuildConfirmResponse | BuildReadinessError | EntryLoadError;
 
 export interface CycleBuildInputs {
   start_date: string;

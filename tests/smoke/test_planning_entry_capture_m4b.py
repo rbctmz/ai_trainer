@@ -45,14 +45,15 @@ def test_http_build_request_accepts_typed_starting_information(captured):
     assert request.model_dump(mode="json")["history_coverage"] == raw["history_coverage"]
 
 
-def test_existing_preparation_echoes_inputs_without_early_entry_publish_claim(captured):
+def test_preparation_echoes_inputs_and_final_m4c_entry_assessment(captured):
     db, raw, snapshot = captured
     before = protected_state(db)
     response = ps.prepare_plan_build(db, parameters=BuildParameters.from_mapping(raw), origin="planning_ui")
     assert response["parameters"].get("history_coverage") == raw["history_coverage"]
     assert response["parameters"].get("initial_dose_limits") == LIMITS
-    # Generation/final assignment publication guard is M4c, not implemented here.
-    assert response.get("entry_load") is None
+    # M4c now consumes the M4b inputs; a supported final prescription is required.
+    assert response["entry_load"]["status"] == "supported"
+    assert response["entry_load"]["can_publish"] is True
     assert protected_state(db) == before
 
 

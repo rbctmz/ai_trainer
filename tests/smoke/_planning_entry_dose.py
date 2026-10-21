@@ -40,8 +40,7 @@ def entry_request(db: Database, *, limits: dict[str, Any] | None = None) -> dict
     values = {
         **parameters(), **cycle_fields(db), "events": [],
         "start_week": "2026-10-26", "start_date": "2026-10-26", "available_hours": 10,
-        # Proposed M4 request fields: current capture ignores them. Their absence
-        # from the frozen calculation is characterized, not called implemented.
+        # Explicit synthetic coverage; omission remains unknown in production.
         "history_coverage": {"status": "user_reported_complete", "start_date": "2026-09-18",
                              "end_date_exclusive": "2026-10-16"},
     }

@@ -32,6 +32,9 @@ from models.planning_build_readiness import (
     forecast_build_input, historical_build_readiness, normalize_build_loads, require_prepared_readiness,
 )
 from models.planning_entry_load import ENTRY_LOAD_POLICY_VERSION, normalize_entry_inputs
+from models.planning_entry_publication import entry_base, execution_partition, assess_entry_assignments, require_entry, historical_entry_load
+from models.planning_entry_generation import constrain_entry_assignments
+from services.planning_entry_capture import capture_entry_inputs
 from models.planning_build_confirmation import (
     BuildInputSnapshot, BuildParameters, PreparedPlanBuild, PlanningBuildPreviewError, canonical_json,
     dependency_components,
@@ -1206,6 +1209,7 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
         "cycle_context": context,
         "last_week": context["last_week"],
         "build_readiness": historical_build_readiness(goal_plan),
+        "entry_load": historical_entry_load(goal_plan),
         "goal": goal,
         "timeline": timeline,
         "current_week": current_week,
@@ -1365,6 +1369,7 @@ def _capture_plan_build_inputs(
     }
     if lifecycle:
         sources["constraint_ownership"] = constraint_rows
+        sources["entry_inputs"] = capture_entry_inputs(conn, frame, latest, lifecycle, values)
     sources_json = canonical_json(sources)
     context = {
         "athlete_day": as_of.isoformat(), "athlete_timezone": Settings.ATHLETE_TIMEZONE,
@@ -1384,6 +1389,7 @@ def _capture_plan_build_inputs(
         context.update(lifecycle=lifecycle, cycle_ownership=ownership)
         context["versions"]["protocol"] = 2
         context["versions"]["cycle_build"] = "cycle-build-v2"
+        context["versions"]["entry_final"] = "entry-final-v1"
     return BuildInputSnapshot(BuildParameters.from_mapping(values), sources_json,
                               canonical_json(context), revision_time, checkpoint_source)
 
@@ -1399,6 +1405,7 @@ def prepare_plan_build(
     try:
         snapshot = _capture_plan_build_inputs(db, parameters)
         prepared = _calculate_plan_build(snapshot)
+        require_entry(prepared)
         require_prepared_readiness(prepared)
         values = snapshot.parameters.as_dict()
         writes = {}
@@ -1848,6 +1855,14 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
                          "race_forecast_loads": goal_plan["race_forecast_loads"]}
     donor = existing_plan if not lifecycle or lifecycle["action"] == "edit_current" else None
     goal_plan = ensure_session_identities(goal_plan, previous_goal_plan=donor)
+    if lifecycle:
+        entry_context = {**context, "entry_inputs": inputs["entry_inputs"]}
+        entry_assessment = entry_base(entry_context, params)
+        execution = execution_partition(entry_context)
+        goal_plan = constrain_entry_assignments(goal_plan, entry_assessment, execution, context=entry_context, zones=build_zone_snapshot)
+        goal_plan = ensure_session_identities(goal_plan, previous_goal_plan=donor)
+        goal_plan["microcycle_changes"] = synchronize_microcycle_changes(
+            goal_plan.get("microcycle_changes", []), goal_plan["daily_plan"], goal_plan["session_templates"])
     # Issue #205: the product weekly table is a projection of the materialized
     # leaf sessions (parts → sessions → weekly), computed after constraints and
     # identity stamping so it reflects the final executable truth.
@@ -1919,6 +1934,11 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
     checkpoint.update(effective_totals)
     final_plan = checkpoint["goal_plan_snapshot"]
     final_plan["forecast_input"] = forecast_input
+    if lifecycle:
+        final_plan["entry_evidence"] = inputs["entry_inputs"]
+        final_plan["entry_load"] = response["entry_load"] = assess_entry_assignments(final_plan, entry_assessment, execution, context=entry_context)
+        final_plan["entry_adjustments"] = goal_plan.get("entry_adjustments", [])
+        response["entry_adjustments"] = goal_plan.get("entry_adjustments", [])
     assessment = assess_plan_build_readiness(final_plan, response, {**context, "parameters": params})
     final_plan["build_readiness"] = response["build_readiness"] = assessment
     return PreparedPlanBuild(
