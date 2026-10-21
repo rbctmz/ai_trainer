@@ -205,3 +205,17 @@ Final documentation/Coach-fixture commit publishes the reviewed runtime without
 claiming final-head functional CI or native acceptance. #710 and#677 remain open;
 #711 remains draft/unaccepted. Primary checkout's unrelated research edits and
 live athlete cache remain untouched.
+
+
+### UI handoff resolved; M4d local acceptance
+
+The missing-input failure above is preserved as historical evidence. UI/Design
+implemented the agreed DTO consumer in46e17f4..f0650b5: explicit blank starting
+limits/coverage, structured refusal with edit path, sourced preview and all
+server adjustments. No backend guard, schema, AC or policy was weakened.
+Independent UI delta round1 READY, zero blocking P1/P2;5 entry UI tests passed.
+Author whole63 isolated E2E passed/1warning189.89s; contributor3965passed/
+16skipped/87deselected/7warnings277.59s. Lint/build/Ruff/contracts passed.
+[Consumer brief, commands, screenshots and limitations](../../design/evidence/issue-710/README.md).
+Whole-delivery native and final-head remote CI remain separate; #711 is not
+accepted or merged. No human usability/clinical/provider acceptance is implied.

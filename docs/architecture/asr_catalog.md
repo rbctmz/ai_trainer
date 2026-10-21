@@ -756,10 +756,12 @@ merge равен принятому head. Generator limitations — #707; ledger
 Личный rollout, live provider writes и персональная тренировочная пригодность не заявлены.
 
 
-## Planning entry load (proposed S3 M4; #710, parent #677)
+## Planning entry load (S3 M4 candidate; #710, parent #677)
 
-2026-10-21: M4a spec/evidence only, independent review READY on `fb06cb8`;
-runtime M4b/c and acceptance NOT YET.
+2026-10-21: independently reviewed M4a specfb06cb8, M4b176b77e,
+M4c3a28f99 and UI consumerf0650b5. Local3965 contributor and63 isolated E2E
+passed; final-head remote CI/native/owner acceptance pending. The checkpoint
+paragraphs below preserve the earlier staged evidence, not current missing work.
 [Spec](../planning_entry_dose_m4_slice_spec.md),
 [ExecPlan](../planning_entry_dose_m4_execplan.md),
 [evidence and strict RED](../reports/2026-10-21-planning-entry-dose-m4/README.md).
@@ -783,3 +785,13 @@ can_publish and M4c atomic guard are NOT YET; no entry assessment is emitted
 by builds at this checkpoint. Independent delta review READY on `176b77e`
 (83 + 145 checks); author final contributor-safe 3921 passed, 4 expected M4c
 XFAIL; web lint/build/contracts green. [M4b evidence](../reports/2026-10-21-planning-entry-load-m4b/README.md).
+
+
+M4c/UI current checkpoint: per-sport constraints apply to final executable
+assignments and frozen prepare/confirm evidence; other writers drop stale
+support. Explicit UI declarations/typed refusal/provenance consume the server
+contract, with no browser dose derivation. Original final-build XFAILs now pass.
+Bounded independent backend/UI reviews READY; all63 isolated browser journeys
+pass. [M4c evidence](../reports/2026-10-21-planning-entry-load-m4c/README.md),
+[UI/M4d local evidence](../design/evidence/issue-710/README.md). Limits remain
+operational heuristics; this is not clinical validation or owner merge approval.

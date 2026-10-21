@@ -351,13 +351,12 @@ executed falsifier/NOT YET → AC/gate and fixed-in/follow-up/disputed dispositi
 
 ## Final Verdict
 
-READY for M4b→M4c handoff on independently reviewed runtime `176b77e`;
-M4a spec remains reviewed on `fb06cb8`. BLOCK for whole-M4 runtime/merge:
-M4c integration and final/native/CI/owner gates NOT YET. M4b is not completion of
-M4. Explicit task handoff: Domain / API Implementer consumes AC1–AC7 in M4b/c;
-Spec Owner retains scope/invariant decisions. Owner final gate remains explicit; cleanup retains worktree until the assigned delivery is
-reviewable. No owner exception, live write, UI authority or additional reviewer
-round is implied by this spec.
+READY for M4d final-head CI/native review preparation. M4a is independently
+reviewed on fb06cb8, M4b on176b77e, M4c on3a28f99 and UI consumer onf0650b5.
+No blocking P1/P2 remains in those bounded reviews. Local whole contributor and
+browser contours are green; remote final-head CI/native and human acceptance
+remain separate. Owner merge/live-write authority is unchanged. Cleanup retains
+the worktree until the assigned delivery is accepted; no exception is implied.
 
 M4c implementation evidence (AC unchanged): [report](reports/2026-10-21-planning-entry-load-m4c/README.md). Stable-head independent review and final M4d/native/owner acceptance remain separate.
 
@@ -365,5 +364,22 @@ M4c delta round1 BLOCK on149dbf5 (real demand writer retained supported evidence
 **fixed-in3a28f99**. Scoped round2 READY on3a28f99:176passed/1warning42.17s,
 Ruff green, tracked clean. Author stable contributor-safe3965passed/16skip/
 82deselected/7warnings265.45s. Operational thresholds and AC1–AC7 unchanged.
-Original M4a REDs are GREEN. Native0/2 remains unused; current form cannot collect
-entry inputs, so whole M4 UI/browser/native/merge acceptance is explicitly open.
+Original M4a REDs are GREEN. The historical missing-input UI gap is resolved by
+the explicit consumer handoff reviewed atf0650b5; native0/2 is reserved for the
+stable whole-delivery candidate. No acceptance criterion above is changed.
+
+
+UI delta round1:46e17f4..f0650b53d8e394a84db539387b699da17f35acdd,
+**READY, zero blocking P1/P2**. Independent5entryE2E passed/1existing warning
+(12.74s); changed-test Ruff passed. First sandbox attempt stopped at localhost
+setup permission errors, so it is not counted as a UI result. Authorized rerun
+used the isolated harness. Source head unchanged; same12 known regenerated PNG
+paths before/after, no source edits. Nonblocking suggestion: live announcement
+or heading focus for structured refusals; **follow-up #710**, no reproduced
+screen-reader failure or acceptance claim.
+
+Author M4d local onf0650b5:3965 passed/16 skipped/87 deselected/7warnings
+(277.59s); all63 isolated E2E passed/1warning(189.89s); earlier focused41passed.
+Ruff, web lint/build, extraction freshness/inventory and diff check green.
+[UI evidence](design/evidence/issue-710/README.md). Final native receipt belongs
+on #711, bound to its reviewed SHA; no documentation-only post-review push.

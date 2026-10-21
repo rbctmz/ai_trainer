@@ -59,3 +59,44 @@ Visual checks cover390dark and1280light, with input and confirmation source
 panels, missing-data and infeasible states. Owner usability testing without
 assistance has NOT YET been performed; this does not claim a UX outcome,
 screen-reader acceptance, medical validation, native acceptance or merge approval.
+
+
+## Final local acceptance and review
+
+UI source candidate:f0650b53d8e394a84db539387b699da17f35acdd, delta from46e17f4.
+Independent UI consumer round1/2: **READY, zero blocking P1/P2**;5 real entry UI
+E2E passed/1existing Starlette warning in12.74s, changed-Python Ruff passed.
+The first attempt was blocked at localhost setup by the sandbox; the authorized
+rerun passed. HEAD/source unchanged; known parent-owned regenerated PNGs only.
+Native remains a separate whole-delivery review, not another UI-delta round.
+
+Author commands from the worktree (venv on PATH, synthetic temporary DB/chat
+paths; providers disabled by isolated E2E harness):
+
+    python -m pytest -m e2e tests/e2e/test_planning_entry_ui.py tests/e2e/test_planning_cycle_lifecycle_ui.py tests/e2e/test_planning_build_confirmation_ui.py -q -p no:cacheprovider --tb=short
+    python -m pytest -m e2e tests/e2e -q -p no:cacheprovider --tb=short
+    python -m pytest -m "not live and not debug and not e2e" tests/ -q -p no:cacheprovider --tb=short
+    python -m ruff check . --no-cache
+    npm --prefix web run lint
+    npm --prefix web run build
+    npm --prefix web run contract:extract -- --check
+    npm --prefix web run contract:inventory
+
+Results:41 focused passed/1warning59.53s; whole63E2E passed/1warning189.89s;
+contributor3965passed/16skipped/87deselected/7warnings277.59s. Five newly added
+entry browser cases account for82→87 contributor deselections. Lint/build,
+Ruff and contract checks passed. No clinical, provider or real-athlete write test.
+
+Screenshots, generated only by the real isolated journeys:
+[input390dark](entry-input-390-dark.png), [input1280light](entry-input-1280-light.png),
+[preview390dark](entry-preview-390-dark.png), [preview1280light](entry-preview-1280-light.png),
+[missing data](entry-missing.png), [infeasible](entry-infeasible.png).
+Input/preview narrow and infeasible panels were visually inspected; existing
+automated assertions cover horizontal overflow and keyboard/focus behavior.
+
+Nonblocking reviewer suggestion: announce structured refusals through a live
+region or heading focus. Disposition: **follow-up #710**; no demonstrated
+screen-reader failure, no new source change or extra review loop. Owner usability
+without assistance, screen-reader acceptance and physiological safety remain
+unverified. Explicit handoff now returns to Supervisor/Integrator for final-head
+CI, native receipt and the owner's separate acceptance/merge decision.

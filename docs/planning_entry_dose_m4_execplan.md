@@ -2,8 +2,9 @@
 
 This living ExecPlan follows `.agent/PLANS.md` and implements the bounded
 [issue#710](https://github.com/rbctmz/ai_trainer/issues/710), parent#677.
-Date2026-10-21, Europe/Moscow. Current role: Domain / API Implementer for M4b, following the explicit
-reviewed M4a handoff and owner request. UI/Design remains a separate S4 handoff. Class A.
+Date2026-10-21, Europe/Moscow. Current role: Supervisor / Integrator after the
+explicit reviewed Domain/API and UI/Design handoffs. Class A. No acceptance
+criteria, domain policy or API contract is changed by this integration record.
 [Instantiated spec/review record](planning_entry_dose_m4_slice_spec.md),
 [scientific/evidence report](reports/2026-10-21-planning-entry-dose-m4/README.md).
 Runtime baseline main `9d679b3410cc7b34c9a3a554b050edaebf8ccd23` includes S3 M1–M3.
@@ -30,16 +31,18 @@ M4b/c implement it and M4d hands the typed result to S4.
 - [x] (2026-10-21) M4b implementation: pure per-sport exposure/reference profile, validated coverage/declared limits, frozen parameters + policy digest, additive API/TS models and registry/extractor. 83 focused M4b tests pass after two reproduced lineage/date corrections; exact implementation `176b77e` independently reviewed READY. Final contributor-safe 3921 passed / 16 skipped / 82 deselected / 4 expected XFAIL / 7 warnings (238.78s).
 - [x] (2026-10-21) M4b independent delta review 1/2 READY on `176b77e`, no blocking P1/P2; checker 83 new + 145 compatibility passed, Ruff green. Author final broad/lint/build/contracts green; current documentation-only record preserves the runtime checkpoint. M4c handoff below; native 0/2 remains M4d.
 - [x] (2026-10-21) Domain/API M4c complete at reviewed runtime3a28f99:3965 contributor-safe passed, independent scoped round2 READY/176passed; AC6 demand-writer P2 fixed-in3a28f99. Three explicit Coach browser approval fixtures pass. UI form gap is reproduced/tracked; whole M4/M4d/native/merge remain open.
-- [ ] M4d: whole-delivery verification/native/owner gate; UI/Design S4 handoff.
+- [x] (2026-10-21) UI consumer handoff complete at f0650b5: explicit coverage/limits, typed refusal/provenance/adjustments, token-only confirmation. Independent UI round1 READY,5 real E2E passed; author41 focused then63 whole E2E passed. No browser dose derivation or API/AC change.
+- [x] (2026-10-21) M4d local acceptance on f0650b5:3965 passed/16 skipped/87 deselected/7 warnings in277.59s; Ruff, web lint/build, contract freshness/inventory green. Six isolated UI screenshots retained.
+- [ ] M4d stable final-head remote functional CI and native review (0/2 before request); owner acceptance and merge are separate. Exact native receipt/CI result will be recorded on #711 without a documentation push after review.
 
 ## Surprises & Discoveries
 
-Observed (M4c): the real new-cycle browser journey returns422 entry_dose_required
+Historical observation at M4c (resolved by the UI handoff below): the real new-cycle browser journey returns422 entry_dose_required
 because the form does not transmit coverage/dose. Verified by the existing
 isolated lifecycle E2E (1 failed,7.71s), without API mocking. This is an explicit
-UI/Design consumer handoff, not a reason to bypass the backend guard. M4d final
-acceptance/native and merge remain blocked on that consumer work; no UI scope
-is transferred to Domain/API. Details and typed inputs are in the M4c report.
+UI/Design consumer handoff, not a reason to bypass the backend guard. That consumer work was explicitly handed to UI/Design and is now reviewed at
+f0650b5; native/owner acceptance remains separate. No UI scope was transferred
+to Domain/API. Details and typed inputs are in the M4c report.
 
 
 Observed: adding the entry policy stamp changed six existing full-payload golden
@@ -254,12 +257,23 @@ in the [M4b report](reports/2026-10-21-planning-entry-load-m4b/README.md).
 M4b is complete for its bounded handoff: independent 83 + 145 compatibility
 checks and author final 3921-test contributor contour are green; four final-build
 RED are now GREEN in M4c. Runtime3a28f99 generation/publication is independently
-READY for bounded backend handoff with3965 local contributor passes. The current
-form still cannot submit entry coverage/dose, so whole M4d/browser/native/merge
-acceptance remains open under the UI/Design handoff. Clinical validation is not
+READY for bounded backend handoff with3965 local contributor passes. The UI
+consumer is now independently READY on f0650b5, and all63 isolated E2E pass.
+Whole M4d local contributor verification is3965 passed/16 skipped/87 deselected;
+the five new UI cases explain the deselection increase from82. Remote final-head
+CI/native/owner acceptance remains open; no human usability or merge is claimed. Clinical validation is not
 claimed. The first paired falsifier was an evidence-discipline check, not a
 preregistered model-selection experiment. Further numerical experimentation must
 freeze cases/baselines/budget/exit rules before execution, as described in the
 report. A usable template fit does not promote a dose to scientifically safe.
 
 M4c implementation/evidence and UI handoff: [report](reports/2026-10-21-planning-entry-load-m4c/README.md). No acceptance criteria or numerical thresholds changed.
+
+
+UI/Design → Supervisor/Integrator handoff (2026-10-21): source
+46e17f4..f0650b5 independently READY, zero blocking P1/P2. Scope is the existing
+DTO consumer, input/response presentation and isolated browser fixtures only.
+The integrator now records whole-delivery evidence and requests native review
+on the stable final head. One nonblocking accessibility announcement suggestion
+is retained as follow-up #710; no screen-reader failure was demonstrated.
+[UI acceptance/evidence](design/evidence/issue-710/README.md).
