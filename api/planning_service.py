@@ -1283,6 +1283,7 @@ def _capture_plan_build_inputs(
     db: Database, parameters: BuildParameters, *, conn: sqlite3.Connection | None = None,
     checkpoint_source: str = "initial_plan",
     lifecycle_context: dict[str, Any] | None = None,
+    include_entry: bool = True,
 ) -> BuildInputSnapshot:
     """Capture all calculation dependencies on exactly one explicit read transaction."""
     if conn is None:
@@ -1290,7 +1291,7 @@ def _capture_plan_build_inputs(
         try:
             own.execute("BEGIN")
             return _capture_plan_build_inputs(db, parameters, conn=own, checkpoint_source=checkpoint_source,
-                                              lifecycle_context=lifecycle_context)
+                                              lifecycle_context=lifecycle_context, include_entry=include_entry)
         finally:
             own.rollback()
             own.close()
@@ -1369,7 +1370,8 @@ def _capture_plan_build_inputs(
     }
     if lifecycle:
         sources["constraint_ownership"] = constraint_rows
-        sources["entry_inputs"] = capture_entry_inputs(conn, frame, latest, lifecycle, values)
+        if include_entry:
+            sources["entry_inputs"] = capture_entry_inputs(conn, frame, latest, lifecycle, values)
     sources_json = canonical_json(sources)
     context = {
         "athlete_day": as_of.isoformat(), "athlete_timezone": Settings.ATHLETE_TIMEZONE,
@@ -1389,7 +1391,8 @@ def _capture_plan_build_inputs(
         context.update(lifecycle=lifecycle, cycle_ownership=ownership)
         context["versions"]["protocol"] = 2
         context["versions"]["cycle_build"] = "cycle-build-v2"
-        context["versions"]["entry_final"] = "entry-final-v1"
+        if include_entry:
+            context["versions"]["entry_final"] = "entry-final-v1"
     return BuildInputSnapshot(BuildParameters.from_mapping(values), sources_json,
                               canonical_json(context), revision_time, checkpoint_source)
 
@@ -1527,7 +1530,9 @@ def build_plan(
         "base_checkpoint_id": expected_base_checkpoint_id,
         **cycle_fields,
     })
-    snapshot = _capture_plan_build_inputs(db, parameters, checkpoint_source=checkpoint_source)
+    # This trusted facade serves existing non-build mutations, not the M4
+    # prepare/confirm protocol. Keep their previous numerical policy and CAS.
+    snapshot = _capture_plan_build_inputs(db, parameters, checkpoint_source=checkpoint_source, include_entry=False)
     prepared = _calculate_plan_build(snapshot)
     response = json.loads(prepared.response_json)
     if persist:
@@ -1536,6 +1541,10 @@ def build_plan(
         checkpoint = json.loads(prepared.checkpoint_json)
         checkpoint["goal_plan_snapshot"].pop("build_readiness", None)
         checkpoint["goal_plan_snapshot"].pop("forecast_input", None)
+        for field in ("entry_load", "entry_evidence", "entry_adjustments"):
+            checkpoint["goal_plan_snapshot"].pop(field, None)
+            response.pop(field, None)
+        response["entry_load"] = historical_entry_load({})
         response["build_readiness"] = historical_build_readiness({})
         settings_write = {PLANNING_DEMAND_SETTING_KEY: snapshot.parameters.as_dict()["demand"]} if demand is not None else {}
         saved = db.save_planning_checkpoint(checkpoint, cycle_context=cycle_context,
@@ -1855,7 +1864,7 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
                          "race_forecast_loads": goal_plan["race_forecast_loads"]}
     donor = existing_plan if not lifecycle or lifecycle["action"] == "edit_current" else None
     goal_plan = ensure_session_identities(goal_plan, previous_goal_plan=donor)
-    if lifecycle:
+    if lifecycle and "entry_inputs" in inputs:
         entry_context = {**context, "entry_inputs": inputs["entry_inputs"]}
         entry_assessment = entry_base(entry_context, params)
         execution = execution_partition(entry_context)
@@ -1934,7 +1943,7 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
     checkpoint.update(effective_totals)
     final_plan = checkpoint["goal_plan_snapshot"]
     final_plan["forecast_input"] = forecast_input
-    if lifecycle:
+    if lifecycle and "entry_inputs" in inputs:
         final_plan["entry_evidence"] = inputs["entry_inputs"]
         final_plan["entry_load"] = response["entry_load"] = assess_entry_assignments(final_plan, entry_assessment, execution, context=entry_context)
         final_plan["entry_adjustments"] = goal_plan.get("entry_adjustments", [])

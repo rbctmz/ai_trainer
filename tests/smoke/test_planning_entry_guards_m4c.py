@@ -627,3 +627,59 @@ def test_marker_coach_preserves_nested_explicit_dose_and_rejects_missing_baselin
     assert refused["success"] is False and refused["code"] == "entry_dose_required"
     assert "entry_load" in refused and "preview_id" not in refused
     assert all_tables(db) == before
+
+
+def test_real_demand_change_never_carries_supported_entry_assessment(
+    entry_scenario, monkeypatch
+):
+    db, raw = entry_scenario
+    shown = ps.prepare_plan_build(
+        db, parameters=BuildParameters.from_mapping(raw), origin="planning_ui"
+    )
+    saved = ps.confirm_plan_build(
+        db, preview_id=shown["confirmation"]["preview_id"], origin="planning_ui"
+    )
+    old = db.get_current_planning_checkpoint()
+    assert old["goal_plan_snapshot"]["entry_load"]["can_publish"]
+    demand = ps.demand_preview(db, "demanding")
+    assert demand["state"] == "available", demand
+
+    def forbidden(*a, **k):
+        pytest.fail("Legacy demand mutation must not acquire the new numerical policy")
+
+    monkeypatch.setattr(ps, "constrain_entry_assignments", forbidden)
+    ps.confirm_demand_change(
+        db,
+        level="demanding",
+        base_checkpoint_id=int(saved["plan_id"]),
+        preview_fingerprint=demand["preview_fingerprint"],
+    )
+    changed = db.get_current_planning_checkpoint()
+    assert changed["checkpoint_source"] == "demand_change"
+    assert "entry_load" not in changed["goal_plan_snapshot"]
+    assert "entry_evidence" not in changed["goal_plan_snapshot"]
+    assert "entry_adjustments" not in changed["goal_plan_snapshot"]
+    assert "build_readiness" not in changed["goal_plan_snapshot"]
+    # Overview must recognize real restored datetime instances; pin the athlete
+    # clock, not the datetime type used by its isinstance checks.
+    from datetime import datetime
+    monkeypatch.setattr(ps, "datetime", datetime)
+    assert ps.active_plan_overview(db)["entry_load"]["status"] == "unassessed"
+    assert db.get_planning_checkpoint(int(saved["plan_id"])) == old
+
+
+def test_internal_nonpublication_capture_cannot_be_promoted_into_public_preview(
+    entry_scenario,
+):
+    from models.planning_entry_publication import require_entry
+
+    db, raw = entry_scenario
+    snapshot = ps._capture_plan_build_inputs(
+        db, BuildParameters.from_mapping(raw), include_entry=False
+    )
+    assert "entry_inputs" not in snapshot.sources()
+    result = ps._calculate_plan_build(snapshot)
+    assert "entry_load" not in json.loads(result.response_json)
+    with pytest.raises(PlanningBuildPreviewError) as error:
+        require_entry(result)
+    assert (error.value.code, error.value.status) == ("preview_corrupt", 500)

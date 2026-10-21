@@ -192,7 +192,8 @@ def test_partial_week_totals_and_forecast_follow_actual_calendar(tmp_path, monke
         start = date.fromisoformat(week["week_start"][:10])
         load = sum(item["total_tss"] for item in daily if start <= date.fromisoformat(item["date"][:10]) < start + timedelta(days=7))
         assert week["weekly_tss"] == round(load)
-    assert shown["totals"]["total_tss"] == sum(week["weekly_tss"] for week in shown["weeks"])
+    # Whole-plan total rounds the raw effective sum once, not weekly displays.
+    assert shown["totals"]["total_tss"] == round(sum(float(item["total_tss"]) for item in snapshot["daily_plan"]))
     assert shown["forecast"]["points"][0]["date"] == TODAY.isoformat()
     assert shown["forecast"]["points"][-1]["date"] == shown["lifecycle"]["end_date"]
     assert shown["science_audit"] == snapshot["science_audit"]

@@ -129,7 +129,7 @@ Planning form. No API interception, fake user declaration or guard bypass was
 added to make this journey pass. UI/Design Specialist must provide explicit
 coverage/discipline-dose input and display supported/needs_baseline/blocked plus
 EntryDoseAdjustment under the agreed API/TS contract. Exact entry points are
-`web/app/planning/page.tsx`, its existing PlanningForm components, and
+`web/app/planning/page.tsx`, its existing `web/components/planning/PlanBuilder.tsx`, and
 `web/lib/types.ts`; no domain derivation belongs in the browser. Backend evidence,
 positive fixtures and safe refusal contracts are the handoff input.
 
@@ -140,5 +140,31 @@ remain separate and are not authorized for #711.
 
 ## Stable-head verification and independent review
 
-Pending candidate commit. Record the exact implementation head, final commands,
-all results, checker round/findings/dispositions, current CI and clean status here.
+Candidate `149dbf5aee01e4c9180ca64c3562dd7b4802fd0b` is published. Its stable
+contributor contour:3962 passed /1 failed /16 skipped /82 deselected /7 warnings,
+252.57s. The one failed cycle assertion incorrectly sums rounded week displays:
+raw effective1816.1 correctly rounds to1816; separately rounded weeks sum1817.
+The canonical existing effective_build_totals/S3 invariant is unchanged. The
+assertion now compares total to round(sum(raw effective daily loads)), preserving
+all individual weekly checks. This is a test correction, not a changed threshold.
+
+Independent M4c delta round1 on149dbf5:BLOCK, one reproduced P2 (AC6). The actual
+legacy demand-preview/confirm writer retained supported entry_load/evidence while
+removing M3 readiness; the helper-only invalidation test missed that route. The
+checker ran231pass/1rounding-assertion failure/7warnings(44.92s), Ruff green,
+tracked tree clean. No provider/athlete writes or native review.
+
+The exact demand workflow now has an assertion RED on retained entry_load. The
+correction explicitly keeps trusted nonpublication build_plan captures outside
+the new numerical policy; public prepare/confirm still require bound M4 evidence.
+Legacy persistence strips entry_load/evidence/adjustments and returns unassessed,
+alongside existing M3 invalidation. The demand regression forbids calling the new
+constraining generator, checks current overview and unchanged prior version;
+a second regression proves an internal nonpublication snapshot cannot pass the
+public guard. No new public bypass parameter is introduced. Scoped correction
+review and final committed-head broad verification follow.
+
+The same30 frozen experiment conditions replayed on149dbf5 in4.6554s. Status,
+limits, executable first-week dose and horizon total-TSS outputs equal the first
+run exactly (elapsed time excluded). No new conditions or threshold tuning.
+
