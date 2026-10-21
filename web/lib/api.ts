@@ -5,11 +5,13 @@ export class ApiError extends Error {
   status: number;
   code?: string;
   retryable?: boolean;
-  constructor(status: number, message: string, code?: string, retryable?: boolean) {
+  data?: Record<string, unknown>;
+  constructor(status: number, message: string, code?: string, retryable?: boolean, data?: Record<string, unknown>) {
     super(message);
     this.status = status;
     this.code = code;
     this.retryable = retryable;
+    this.data = data;
     this.name = "ApiError";
   }
 }
@@ -51,15 +53,18 @@ export async function postJSON<T>(path: string, body: unknown): Promise<T> {
     let detail = `Request failed: ${res.status}`;
     let code: string | undefined;
     let retryable: boolean | undefined;
+    let data: Record<string, unknown> | undefined;
     try {
       const j = await res.json();
-      if (j?.detail) detail = j.detail;
+      if (typeof j?.detail === "string") detail = j.detail;
+      else if (Array.isArray(j?.detail)) detail = "Проверьте введённые значения.";
+      if (j && typeof j === "object" && !Array.isArray(j)) data = j;
       if (typeof j?.code === "string") code = j.code;
       if (typeof j?.retryable === "boolean") retryable = j.retryable;
     } catch {
       /* ignore */
     }
-    throw new ApiError(res.status, detail, code, retryable);
+    throw new ApiError(res.status, detail, code, retryable, data);
   }
   return (await res.json()) as T;
 }
