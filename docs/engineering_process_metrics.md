@@ -390,3 +390,144 @@ requested for a single PR.
 **Falsification, not just a green run.** For #663 the acceptance criterion demanded that no test be weakened to fit the current date, so the fix was verified across opposite extremes: `TZ=UTC`, `TZ=Pacific/Kiritimati` (UTC+14) and `TZ=Pacific/Honolulu` (UTC−10) each give **2933 passed, 13 skipped** — a fix that merely papered over one direction would have failed the other. The merged tree was then re-measured on `main` at `df5a48b` under `TZ=UTC` at 22:15 UTC, still inside the formerly broken window: **2940 passed, 13 skipped**, `ruff` clean.
 
 **What the synthetic run actually proves, and what it does not.** #662 adds a deterministic scenario database (structured plan day, rest day, activity with a provider cache, activity without one, brick day) and five scripted questions executed through the marker path to the synthesis prompt. Its checks are falsifiable by construction and were falsified: making the rest day unrecognisable fails `plan-rest-day`; masking the honest refusal fails `fact-without-cache`; breaking the prompt delivery fails all five. The run never touches the network — a test replaces three provider entry points with raising stubs and still requires 5/5. **What it does not prove:** it verifies that data reaches the model, not that the model uses it well. The generation-side check needs a real provider over the same fixture, and the "every number must be traceable to the evidence bundle" checker is a separate slice; both are recorded as non-goals rather than implied coverage.
+
+
+## Planning S1 exact confirmation — #685 / #691 (2026-10-17)
+
+**Prospective Class A — Full.** Issue #685 declared Class A before implementation;
+this record does not recompute the aggregate historical cohort. The delivered
+unit is [PR #691](https://github.com/rbctmz/ai_trainer/pull/691), containing the
+specification and M1–M4 commits. Drafts #686–#690 were milestone evidence, not
+five independently deployable fixes. #686 was automatically marked merged by
+GitHub with the final merge commit; #687–#690 were closed as superseded without
+separate merges.
+
+**Observed:** #691 opened at 2026-10-17 17:08:38 UTC and merged at 17:26:00 UTC
+as `93fa4f4d8d41c9e392093538900f471903b6c331`: PR cycle **17m 22s**. Issue #685
+opened 2026-10-16 19:26:31 UTC: creation-to-merge **21h 59m 29s**; it was closed
+at 2026-10-17 17:31:21 UTC, creation-to-close **22h 4m 50s**. These are calendar
+intervals including queue, approval and human wait, not coding-time estimates.
+The change is +9305/−364 across 47 files, including a large generated TS contract.
+
+| Metric | Outcome |
+| --- | --- |
+| Independent rounds | Specification 2; working-session M1 1, M2 2, M3 2, M4 2; final native 1/2. The nine working/spec rounds and one final native round have distinct recorded slice boundaries. The native result is an authenticated clean-result comment/receipt, not a submitted GitHub review object. No second native round or budget exception. |
+| Pre-merge P0/P1 | 0 new reviewer P0/P1 recorded. The original preview drift is the input P1, not an introduced pre-merge review finding. |
+| Pre-merge blocking P2 | 4 recorded working/spec findings: unresolved-token ownership in specification (fixed before implementation), M2 transitive clock access and absent/SQL-NULL setting distinction (`fixed-in 6516989`), M4 explicit-demand fixture with a timestamp-masked no-write assertion (`fixed-in 495d589`). Final native review reported no findings. |
+| CI / flake boundary | On accepted `4201a95`: 3342 contributor-safe passed / 38 skipped / 64 deselected (187.03s), full browser 40 passed (222.38s), contract and secret checks green. Final-PR test-job failures or manual reruns: none observed. Initial Review gate failures were expected before native/human acceptance; fresh accepted gate passed. Earlier milestone RED and author harness/test failures are recorded in the ExecPlan, not labelled flakes or hidden as final GREEN. |
+| UI acceptance | Temporary synthetic FastAPI/Next/Chromium stack; Planning and Coach, lost-response replay, stale/late response, cancel, historical replay, locked ownership, keyboard, 390/900/1280 light/dark. Six inspected images; no WCAG or live-provider claim. |
+| Escaped defects / follow-ups | No S1-attributed escaped defect observed in the immediate post-merge subset; observation remains open. No final native follow-up P2. Parent #677 remains open for S2–S4, not counted as newly discovered S1 defects. |
+| Agent wait | Publication was once blocked by the automatic approval service's usage limit; resumed later. Total approval/quota/CI/human wait and active coding time were not captured separately. |
+
+**Verified by:** [native clean receipt](https://github.com/rbctmz/ai_trainer/pull/691#issuecomment-6237446682)
+explicitly names `4201a953f5`; durable authenticated receipt and policy read yielded
+one current-head native round, zero threads/changes-requested. The human owner
+explicitly accepted review and authorized merge. Applying the acceptance label
+produced fresh successful Review gate/readiness jobs; `mergeStateStatus=CLEAN`
+was checked before `--match-head-commit` merge, without admin bypass, waiver or
+exception. [CI and acceptance evidence](https://github.com/rbctmz/ai_trainer/pull/691#issuecomment-6237456787),
+[human acceptance](https://github.com/rbctmz/ai_trainer/pull/691#issuecomment-6237556399)
+and [post-merge record](https://github.com/rbctmz/ai_trainer/issues/685#issuecomment-6237675432)
+are linked separately.
+
+Local main was fast-forward synced. Its full tree equals the reviewed head;
+post-merge HTTP confirmation and lost-response/restart/backup replay checks
+returned **51 passed, 2 known warnings in 5.42s**. This verifies the decisive
+synthetic regression after merge; it is not another broad suite or live rollout.
+No personal database, provider, deployment or old-binary downgrade was operated.
+The [final evidence bundle](planning_preview_confirm_acceptance.md) preserves
+exact scope, reset/rollback probes and live rollout limitations.
+
+
+## 2026-10-19 post-merge: Planning S2 #693 / PR #701
+
+**Observed:** [PR #701](https://github.com/rbctmz/ai_trainer/pull/701) merged
+accepted head `4f612dcb349bfaf0a03bdb68df233e19091a8d36` as
+`5f3b738a8b890d1d69ce7793f684277fb00b40dd` at 2026-10-19 19:06:03 UTC
+(22:06:03 Europe/Moscow). [Issue #693](https://github.com/rbctmz/ai_trainer/issues/693)
+closed automatically at 19:06:05 UTC. Parent #677 remains open for S3/S4.
+Class A was declared before runtime implementation; this record does not
+recompute historical prospective-cohort totals. Scope is explicit cycle state,
+close/outcome correction, clean new cycle and guarded readers/writers/UI,
+not live rollout or general confirmation-screen/aggregate redesign.
+
+| Metric | Observed outcome |
+| --- | --- |
+| Issue calendar lead time | Created 2026-10-17 17:46:33 UTC; **49h 19m 30s to merge /49h 19m 32s to close**. Includes implementation, external review and human wait; active time is not captured. |
+| Final PR calendar cycle | Created 2026-10-19 12:27:31 UTC; **6h 38m 32s** to merge. Earlier milestone drafts are not extra independently merged product changes. |
+| Native review | **2/2:** full round on 65cf6f3, then scoped correction on 4f612dc. The clean result is an authenticated comment receipt, not a second formal native review object. The repository policy counts one submitted native review plus one clean receipt: 2 total /1 on accepted head. Human comment replies appearing as COMMENTED review objects are not native rounds. |
+| Native findings | **0 P1 /3 blocking P2**, all reproduced and fixed-in 4f612dc. Unspecified declaration retention, hidden prior event snapshots, and Coach second-selection/day read. Controlled reproduction 8 RED /1 control GREEN (2.08s); corrected native/control plus affected commands/storage/readers/Coach 167 GREEN (7.70s). Ten final native regression/control cases remain. Earlier independent spec/milestone findings and dispositions are in the ExecPlan; no combined local/native finding total is inferred. |
+| Accepted-head local checks | Contributor-safe **3683 passed /14 skipped /82 deselected**, 313.29s; complete isolated E2E **58 passed**, 256.62s. Ruff, diff, extractor freshness/inventory pass; lint/build passed on unchanged web sources before the final Python-only correction. Earlier whole-delivery 540 focused/82 contract and 62 all-table writer-state probes are distinct measurements, not additive totals. |
+| Accepted-head GitHub CI | Run **39299941540**: contributor-safe **3658 passed /39 skipped /82 deselected**, 212.40s; web-contract **24 passed**, 4.51s; full E2E **58 passed**, 227.99s. Python-only CI skips 23 TypeScript-dependent tests that execute in web-contract; other skips: 10 explicit fixture regen, 2 optional garth, 1 unavailable synthetic pilot session, 3 missing HRV inputs. No special M1/M4 failure deselection. Secret scan run 39299941528 SUCCESS. |
+| Review acceptance and merge gates | Owner explicitly authorized acceptance label and merge in the task. status: review accepted added; automation added status: ready to merge. Fresh Review gate **39308042164 SUCCESS**, CLEAN/MERGEABLE before `gh pr merge --merge --match-head-commit 4f612dc…`. Zero unresolved threads or active CHANGES_REQUESTED. No waiver, budget exception, force/admin bypass or additional native round. |
+| CI failures/reruns/flakes | Both full technical PR CI runs (initial candidate and native correction) succeeded. Earlier red Review gate runs waited for current-head native review/owner acceptance; they are not classified as test flakes. Overall workflow rerun count and agent wait time are not captured. |
+| Main verification | Fetched merge 5f3b738 and `git diff --quiet 4f612dc origin/main` returned zero. Main [CI 39308131797](https://github.com/rbctmz/ai_trainer/actions/runs/39308131797) SUCCESS: **3658 passed /39 skipped /82 deselected**, 275.03s; **58 E2E passed**, 269.27s; **24 contract assertions passed**, 4.30s. Main [Secret scan 39308131852](https://github.com/rbctmz/ai_trainer/actions/runs/39308131852) SUCCESS. No redundant local full-suite rerun on the byte-identical merge tree. |
+| Escaped defects / acceptance limits | No linked post-merge defect observed at this immediate snapshot; this is not proof of absence. Browser acceptance is synthetic; owner-observed athlete UX and live rollout were not performed. No personal SQLite, real provider write or backfill. |
+
+**Verified by:** GitHub PR/issue timestamps and final head; native full review
+5571637188, [clean receipt 6273981670](https://github.com/rbctmz/ai_trainer/pull/701#issuecomment-6273981670),
+three resolved review threads and durable status
+`review-gate/codex-clean/6273981670:4f612dcb34` created by github-actions[bot].
+The repository review-gate.cjs evaluated the authenticated receipts as 2 rounds,
+1 current-head and 0 unresolved threads; acceptance changed only after explicit
+owner authorization. Exact technical handoff is
+[recorded in #701](https://github.com/rbctmz/ai_trainer/pull/701#issuecomment-6274074028).
+
+**Delivery and remaining work:** intermediate drafts #695–#700 were closed
+without additional merges; branches/evidence remain. GitHub also reports spec
+#694 MERGED after the complete stack delivery; no separate merge command was
+issued for it. Unrelated S1 docs #692 were preserved. Nonblocking UI/S4 and
+Domain/API follow-ups are carried into the still-open
+[parent record](https://github.com/rbctmz/ai_trainer/issues/677#issuecomment-6275096581):
+other-field acknowledgement/stale-context ergonomics, restore error/doc
+consistency and low-level athlete-scope validation. No public bypass or partial
+write was reproduced for the latter two. The M3c full writer-state evidence gap
+is closed by M5. The independent milestone/spec records stay in
+`docs/planning_cycle_lifecycle_execplan.md`; the post-merge documentation is a
+separate Class C delta, so the accepted product head was not invalidated by an
+evidence-only push.
+
+## 2026-10-20 post-merge: issue #677 S3 / integrated PR #708
+
+**Observed.** [PR #708](https://github.com/rbctmz/ai_trainer/pull/708) merged into
+main as `9d679b3410cc7b34c9a3a554b050edaebf8ccd23` at
+2026-10-20T13:43:32Z (16:43:32 Europe/Moscow), **5h 15m 58s** after opening
+at08:27:34Z; +6045/−246 across53 files for the combined M1–M3 stack. The exact
+accepted head was `4c0c07c0ce6cf985e41cc074be193a164edb2710`. M1
+[#705](https://github.com/rbctmz/ai_trainer/pull/705) was automatically marked
+merged at13:43:34Z. M2 [#706](https://github.com/rbctmz/ai_trainer/pull/706)
+was closed explicitly as integrated, rather than merged again into its old M1
+base. Both dependency heads (`d13d013`, `dbf9772`) are ancestors of fetched
+origin/main; `git diff 4c0c07c..9d679b3` is empty. No history rewrite or branch
+deletion was performed. Parent [#677](https://github.com/rbctmz/ai_trainer/issues/677)
+stays open for later slices, so its final issue lead time/cohort completion is
+not reported and no cohort totals are recomputed here.
+
+| Metric | Verified outcome |
+| --- | --- |
+| Class and scope | Class A S3, declared in checked-in M1/M2/M3 specs and ExecPlans: executable Recovery/fallback prescriptions, explicit RPE semantics, effective-load consistency and atomic build-readiness guards. No individualized entry dose or S4 layout delivery. |
+| Native review rounds | Two own native rounds per PR, six across705/706/708. Each second request was scoped to the first round's fixes. Final M1 clean receipt [d13d013](https://github.com/rbctmz/ai_trainer/pull/705#issuecomment-6291819702); final M2 clean receipt [dbf9772](https://github.com/rbctmz/ai_trainer/pull/706#issuecomment-6292097611); M3 clean receipt [32ab871](https://github.com/rbctmz/ai_trainer/pull/708#issuecomment-6291007773). Independent working-session rounds are recorded separately in slice evidence; they are not inferred from GitHub objects. |
+| Pre-merge findings | Native review found seven P2: three M1 documentation/evidence defects, three M2 raw-RPE/stage/fallback defects, one M3 preserved-ID collision. All have fixing commits, written dispositions and resolved threads. M3 additionally records three independent P2 fixed-in60c2343; this is not a complete aggregate of all session findings. No native P0/P1 observed. |
+| Owner acceptance and merge | Explicit owner instruction accepted post-budget exception and merge of4c0c07c. [Decision recorded](https://github.com/rbctmz/ai_trainer/pull/708#issuecomment-6292272684); privileged review-budget-exception + status: review accepted applied; latest Review gate and readiness SUCCESS/CLEAN before merge. M3 head changed after its second native round to import M1/M2 blocking corrections; no third native round, waiver or admin bypass was used. |
+| Author verification | Integrated focused364passed; complete contributor3836passed,16skipped,82deselected,7 existing warnings in241.18s. Original four strict M3 XFAIL now pass. Ruff, TS contract freshness and whitespace GREEN. Current accepted-head remote Contributor-safe pytest, Web E2E, Web contract and Gitleaks SUCCESS. |
+| Falsifying evidence | M2 native repro6failed/4controls, then added15 regressions; matrix1458requests/486light replacements without time/load/status/bounds violations. M3 native ID collision four behavioral RED cases then five controls GREEN, preserving malformed historical-only data. Original complete-payload oracles retained; integrated readiness-v2 six cases follow inspected version/stage/identity changes with unchanged daily-load/events/science/forecast hashes. |
+| CI and environment limits | Pre-merge functional checks GREEN; historical review-gate failures were missing acceptance/current-head evidence, not functional-test results. Earlier local missing-parent SQLite and subprocess PATH failures are disclosed in existing reports; no unmeasured flaky-rate/rerun total is invented. Separate main [CI39432895573](https://github.com/rbctmz/ai_trainer/actions/runs/39432895573) on9d679b3 completed SUCCESS:3813passed/39skipped/82deselected in378.71s;58E2Epassed in261.95s;24contract tests passed in4.43s. Main secret scan alsoSUCCESS. The23 TypeScript-dependent checks are skipped in the Python-only job and covered by web-contract; local3836 and remote3813 are different environment contours. |
+| Follow-ups / escaped defects / wait | Generation refusals remain explicit in#707. Pre-existing workflow ledger defect#709 counts imported dependency receipts against the integrating PR (pure4 vs same-PR control2; existing gate tests28passed). It was reproduced before merge and left outside this runtime PR; even a corrected count would not qualify the newer head without owner exception. No escaped defect causally linked to#708 observed at this snapshot; observation remains open. Active work and agent/human wait durations not captured. |
+
+**Verified by.** Current-head GitHub checks/review-thread snapshots, the explicit
+owner decision, merge REST response plus PR readback, independent ancestor/tree
+checks after fetching main, and [parent completion record](https://github.com/rbctmz/ai_trainer/issues/677#issuecomment-6292326217).
+Pre-merge evidence is [recorded on the PR](https://github.com/rbctmz/ai_trainer/pull/708#issuecomment-6292231345).
+The primary checkout's unrelated research edits and local athlete DB were left
+untouched. Next slice is M4 recent-history entry dose; technical readiness still
+reports personal training suitability as `not_assessed`.
+
+
+Documentation integration note (2026-10-20): S1 record#692, S2 record#704 and
+the separately committed S3 record are combined for one docs-only#704 review.
+Their original commits and retrospective timestamps are preserved; the shared
+metrics append conflict keeps all three sections. ASR status wording now agrees
+with the verified S1/S2 merges. Runtime/API/TS/test trees remain identical to
+main9d679b3; this documentation delivery does not change any AC or authorize its
+own merge. Current native/owner acceptance belongs to the final documentation
+candidate, not the historical implementation PRs.

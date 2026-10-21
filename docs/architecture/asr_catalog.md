@@ -23,14 +23,15 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | ASR-DEP-1 | `docker compose up` поднимает весь стек | High | compose + `/api/health` + healthcheck (уже реализованы) | самопроверка compose | ✅ |
 | ASR-DEP-2 | Обновление без потери данных | High | SQLite в named volume; append-only чекпойнты; stopped-service Backup API snapshot, integrity check, atomic restore и pre-restore rollback (#293) | `test_sqlite_backup_restore.py`: clean-volume domain drill + rollback/failure gates | ✅ |
 
-## Planning preview → confirm (planned; #685, parent #677)
+## Planning preview → confirm (delivered S1; #685 / #691, parent #677)
 
-Статус на 2026-10-16: **спецификация, реализация и GREEN — NOT YET**.
+Статус на 2026-10-17: **S1 реализован и принят; #691 слит как `93fa4f4`
+после clean native review, явного human acceptance и GREEN gates/CLEAN**.
 Этот подраздел не меняет статусы ранее реализованных механизмов в таблице выше.
 Контракт: [`planning_preview_confirm_slice_spec.md`](../planning_preview_confirm_slice_spec.md).
 Порядок реализации: [`planning_preview_confirm_execplan.md`](../planning_preview_confirm_execplan.md).
 
-- **ASR-REL-1/2**: планируется сохранять замороженный результат preview после
+- **ASR-REL-1/2**: сохраняется замороженный результат preview после
   проверки актуальности входов; checkpoint, настройки и receipt подтверждения
   записываются одной SQLite-транзакцией. Повтор возвращает исходный результат,
   не активируя исторический план; stale/corrupt требуют явного безопасного исхода.
@@ -39,25 +40,28 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
   неподтверждённый raw-build write намеренно отклоняется. Только build-предложения
   Коуча включены в адаптацию, остальные типы не мигрируют.
 - **ASR-PERF-4**: расчёт вне writer lock, подтверждение без пересборки и provider
-  I/O; при реализации проверить reference-preview 16 недель <10 с.
+  I/O; критерий reference-preview 16 недель <10 с сохранён. Границы выполненных
+  измерений указаны в S1 evidence bundle.
 
-Проверки запланированы в `test_planning_build_confirmation.py`,
+Проверки выполнены в `test_planning_build_confirmation.py`,
 `test_planning_build_confirmation_storage.py` и изолированном web E2E, включая
 dependency freshness, реальную конкуренцию, rollback, lost-response replay,
-reset/retention и API↔TS. Сейчас проверены только исходное расхождение на
-синтетической БД и блокировка второго writer при `BEGIN IMMEDIATE`; это не
-доказательство готовности будущего механизма. ADR-0001 переиспользуется.
+reset/retention и API↔TS. Точные выполненные проверки и ограничения live rollout
+собраны в [`planning_preview_confirm_acceptance.md`](../planning_preview_confirm_acceptance.md).
+После merge на неизменном дереве прошли 51 confirmation/replay cases; это
+синтетическое подтверждение, а не live migration/provider или пользовательская
+UX-приёмка. ADR-0001 переиспользуется.
 
-## Planning cycle lifecycle (planned S2; #693, parent #677)
+## Planning cycle lifecycle (delivered S2; #693 / #701, parent #677)
 
 Статус на 2026-10-19: **Class A, M2 storage/projection, M3a commands, M3b exact build, M3c writer guards и M4 readers/UI реализованы;
-полный синтетический lifecycle/API/UI GREEN; native/current-head acceptance и human merge ещё не приняты**.
+полный синтетический lifecycle/API/UI GREEN; native 2/2 clean, human review принят, #701 слит как 5f3b738**.
 S1 #685/#691 уже слит как `93fa4f4`; S2 отдельно задаёт выбор/закрытие цикла,
 явный исход события и новый календарь. Контракт:
 [`planning_cycle_lifecycle_slice_spec.md`](../planning_cycle_lifecycle_slice_spec.md),
 план: [`planning_cycle_lifecycle_execplan.md`](../planning_cycle_lifecycle_execplan.md).
 
-ASR-REL-1/2: планируются сохранение legacy ledger IDs, cycle namespace для новых
+ASR-REL-1/2: реализованы сохранение legacy ledger IDs, cycle namespace для новых
 sessions/legs без cross-cycle lineage, честные indeterminate и
 unknown outcome, отсутствие backdated new assignments. ASR-MOD-2/3: единый Python
 selector вместо MAX(checkpoint), conservative legacy import и guards всех
@@ -87,7 +91,8 @@ GREEN, lint/build/contracts GREEN. M5 общий кандидат на неиз�
 `93fa4f4`: 540 focused, 82 contract, 3673 contributor-safe и все 58 E2E GREEN;
 writer-specific полный snapshot всех таблиц/Coach rollback — 62 GREEN.
 Evidence: [общая приёмка](../reports/2026-10-19-issue-693-s2/README.md).
-Native/current-head CI и human acceptance/merge остаются отдельными M5 gates. Это не merge/rollout и не пользовательская UX-приёмка. Независимый M2 review: READY после
+M5 закрыт после native/current-head CI, явного human acceptance и GREEN Review gate/CLEAN. Финальный accepted head 4f612dc, merge 5f3b738; post-merge outcomes записаны отдельно в engineering_process_metrics.md. Личный rollout и пользовательская UX-приёмка не выполнялись.
+Следующие checkpoint-измерения относятся к промежуточным M2–M4 до M5. Независимый M2 review: READY после
 scoped correction `69a2623` (DELETE guard immutable associations + atomic reset),
 77 focused GREEN. Contributor-safe contour с явным исключением M1 RED-модулей:
 3427 passed / 14 skipped / 64 deselected; отдельный merge не разрешён.
@@ -702,23 +707,24 @@ readback (менеджер job'ов process-local); вне объёма — back
 и автоматическая коррекция плана. Полное разделение проверенного и непроверенного —
 в evidence bundle [`../recovery_snapshot_capture_parity_evidence.md`](../recovery_snapshot_capture_parity_evidence.md).
 
-## Planning build readiness (specification only; #677 S3 M1)
+## Planning build readiness (delivered S3 M1–M3; #677 / #708)
 
-Статус на 2026-10-20: Class A, контракт и синтетические RED; runtime GREEN —
-NOT YET. [Spec](../planning_build_readiness_slice_spec.md),
+Статус на 2026-10-20: Class A, M1 контракт и синтетические RED сохранены как
+историческое evidence; M2/M3 реализованы и слиты через #708 как `9d679b3`. [Spec](../planning_build_readiness_slice_spec.md),
 [ExecPlan](../planning_build_readiness_execplan.md). Техническая готовность
 заданий не доказывает медицинскую безопасность или достижение тренировочной цели.
 
-ASR-REL-1/2: planned shared prepare/confirm guard для incomplete/infeasible
+ASR-REL-1/2: реализованный M3 shared prepare/confirm guard для incomplete/infeasible
 assignments, без потери истории и без публикации при отказе. ASR-MOD-2/3:
 Python-owned assessment, additive frozen payload, old applied receipt replay.
 ASR-PERF-4: bounded pure validation, без provider/rebuild под writer lock.
 ASR-DEP-2: новые таблицы, backfill и отдельное retention ownership не вводятся.
 Проверки M1: tests/smoke/test_planning_build_readiness_spec.py (--runxfail) и
 docs/reports/2026-10-20-planning-readiness-m1/probe.py; результаты в report README.
-Это planned раздел, он не повышает статус доставленных механизмов S1/S2.
+M1 RED описывает исходный дефект; текущая реализация и допуск публикации — в M3 ниже.
+План по-прежнему не получает медицинского или персонального допуска из технической готовности.
 
-## Planning prescription repair (verified draft; #677 S3 M2)
+## Planning prescription repair (delivered S3 M2; #677 / #708)
 
 2026-10-20: [ExecPlan](../planning_build_readiness_m2_execplan.md),
 [evidence](../reports/2026-10-20-planning-readiness-m2/README.md). Shared Python
@@ -726,9 +732,11 @@ catalog adds light Recovery eligibility, feasibility-first rotation, bounded
 explicit quality downgrade and versioned RPE stage policy. ASR-REL-1/2: no
 historical rewrite or silent impossible-request success; ASR-MOD-2/3: additive
 immutable provenance, existing DTOs; ASR-PERF-4: 16-week synthetic prepare 0.321s.
-No training-suitability validation or M3 publication guard is claimed.
+M2 сам не оценивает personal training suitability; допуск публикации принадлежит
+M3 ниже. Native corrections закрывают raw RPE shape/duplicates, legacy recovery
+identity и downward fallback rounding; материализатор итогового стека — v8.
 
-## Final build readiness (draft implementation; #677 S3 M3)
+## Final build readiness (delivered S3 M3; #677 / #708)
 
 2026-10-20: [ExecPlan](../planning_build_readiness_m3_execplan.md),
 [slice](../planning_build_readiness_m3_slice_spec.md),
@@ -739,5 +747,10 @@ plans before retaining a token; pending confirm validates before active writes,
 while old applied receipts replay first. ASR-REL-1/2, ASR-MOD-2/3, ASR-PERF-4 and
 ASR-DEP-2 reuse existing transaction/reset ownership. No new table, provider I/O,
 Banister under lock, personal suitability approval or UI layout change. Independent
-review2/2 READY at3eafc7b; contributor3816 and browser58passed. Generator
-limitations owned in #707; no native acceptance, merge or rollout implied.
+review2/2 READY at3eafc7b; финальный native M3 clean на32ab871, 2/2. После
+импорта проверенных M1/M2 native corrections владелец явно принял post-budget
+exception и head4c0c07c; GREEN Review gate/CLEAN предшествовал merge9d679b3.
+Финально3836 локальных contributor-safe и364 focused passed; main CI39432895573:
+3813 Python/39 skipped/82 deselected,58 E2E и24 contract passed. Runtime/test tree
+merge равен принятому head. Generator limitations — #707; ledger follow-up — #709.
+Личный rollout, live provider writes и персональная тренировочная пригодность не заявлены.
