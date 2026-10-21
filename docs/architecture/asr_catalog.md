@@ -707,23 +707,24 @@ readback (менеджер job'ов process-local); вне объёма — back
 и автоматическая коррекция плана. Полное разделение проверенного и непроверенного —
 в evidence bundle [`../recovery_snapshot_capture_parity_evidence.md`](../recovery_snapshot_capture_parity_evidence.md).
 
-## Planning build readiness (specification only; #677 S3 M1)
+## Planning build readiness (delivered S3 M1–M3; #677 / #708)
 
-Статус на 2026-10-20: Class A, контракт и синтетические RED; runtime GREEN —
-NOT YET. [Spec](../planning_build_readiness_slice_spec.md),
+Статус на 2026-10-20: Class A, M1 контракт и синтетические RED сохранены как
+историческое evidence; M2/M3 реализованы и слиты через #708 как `9d679b3`. [Spec](../planning_build_readiness_slice_spec.md),
 [ExecPlan](../planning_build_readiness_execplan.md). Техническая готовность
 заданий не доказывает медицинскую безопасность или достижение тренировочной цели.
 
-ASR-REL-1/2: planned shared prepare/confirm guard для incomplete/infeasible
+ASR-REL-1/2: реализованный M3 shared prepare/confirm guard для incomplete/infeasible
 assignments, без потери истории и без публикации при отказе. ASR-MOD-2/3:
 Python-owned assessment, additive frozen payload, old applied receipt replay.
 ASR-PERF-4: bounded pure validation, без provider/rebuild под writer lock.
 ASR-DEP-2: новые таблицы, backfill и отдельное retention ownership не вводятся.
 Проверки M1: tests/smoke/test_planning_build_readiness_spec.py (--runxfail) и
 docs/reports/2026-10-20-planning-readiness-m1/probe.py; результаты в report README.
-Это planned раздел, он не повышает статус доставленных механизмов S1/S2.
+M1 RED описывает исходный дефект; текущая реализация и допуск публикации — в M3 ниже.
+План по-прежнему не получает медицинского или персонального допуска из технической готовности.
 
-## Planning prescription repair (verified draft; #677 S3 M2)
+## Planning prescription repair (delivered S3 M2; #677 / #708)
 
 2026-10-20: [ExecPlan](../planning_build_readiness_m2_execplan.md),
 [evidence](../reports/2026-10-20-planning-readiness-m2/README.md). Shared Python
@@ -731,9 +732,11 @@ catalog adds light Recovery eligibility, feasibility-first rotation, bounded
 explicit quality downgrade and versioned RPE stage policy. ASR-REL-1/2: no
 historical rewrite or silent impossible-request success; ASR-MOD-2/3: additive
 immutable provenance, existing DTOs; ASR-PERF-4: 16-week synthetic prepare 0.321s.
-No training-suitability validation or M3 publication guard is claimed.
+M2 сам не оценивает personal training suitability; допуск публикации принадлежит
+M3 ниже. Native corrections закрывают raw RPE shape/duplicates, legacy recovery
+identity и downward fallback rounding; материализатор итогового стека — v8.
 
-## Final build readiness (draft implementation; #677 S3 M3)
+## Final build readiness (delivered S3 M3; #677 / #708)
 
 2026-10-20: [ExecPlan](../planning_build_readiness_m3_execplan.md),
 [slice](../planning_build_readiness_m3_slice_spec.md),
@@ -744,5 +747,10 @@ plans before retaining a token; pending confirm validates before active writes,
 while old applied receipts replay first. ASR-REL-1/2, ASR-MOD-2/3, ASR-PERF-4 and
 ASR-DEP-2 reuse existing transaction/reset ownership. No new table, provider I/O,
 Banister under lock, personal suitability approval or UI layout change. Independent
-review2/2 READY at3eafc7b; contributor3816 and browser58passed. Generator
-limitations owned in #707; no native acceptance, merge or rollout implied.
+review2/2 READY at3eafc7b; финальный native M3 clean на32ab871, 2/2. После
+импорта проверенных M1/M2 native corrections владелец явно принял post-budget
+exception и head4c0c07c; GREEN Review gate/CLEAN предшествовал merge9d679b3.
+Финально3836 локальных contributor-safe и364 focused passed; main CI39432895573:
+3813 Python/39 skipped/82 deselected,58 E2E и24 contract passed. Runtime/test tree
+merge равен принятому head. Generator limitations — #707; ledger follow-up — #709.
+Личный rollout, live provider writes и персональная тренировочная пригодность не заявлены.
