@@ -346,17 +346,18 @@ executed falsifier/NOT YET → AC/gate and fixed-in/follow-up/disputed dispositi
 
 | Round | Reviewed head | Trigger | Findings disposition | Stop/exception |
 | ---: | --- | --- | --- | --- |
-| 1 | N/A, not requested | manual after stable candidate/CI | pending | max1 correction |
-| 2 | N/A | scoped verification only if needed | pending | stop |
+| 1 | 7b98ff3045d135e825e3c54db06659af4e7d0001 | manual after stable candidate/CI | clean receipt6326085434; zero findings | accepted by owner, merged00de158 |
+| 2 | unused | not needed | no request | budget1/2 used |
 
 ## Final Verdict
 
-READY for M4d final-head CI/native review preparation. M4a is independently
-reviewed on fb06cb8, M4b on176b77e, M4c on3a28f99 and UI consumer onf0650b5.
-No blocking P1/P2 remains in those bounded reviews. Local whole contributor and
-browser contours are green; remote final-head CI/native and human acceptance
-remain separate. Owner merge/live-write authority is unchanged. Cleanup retains
-the worktree until the assigned delivery is accepted; no exception is implied.
+**MERGED:**#711 accepted head7b98ff3 merged as00de158 on2026-10-22
+00:01:23 Europe/Moscow. Functional CI39670959095 and fresh Review gate green;
+native round1 clean [receipt](https://github.com/rbctmz/ai_trainer/pull/711#issuecomment-6326085434)
+confirmed current head, zero review threads. Owner explicitly accepted review,
+label and merge; no budget exception, admin bypass or second native round.
+Earlier checkpoint paragraphs below remain historical evidence. Nonblocking
+announcement suggestion now#712; no AC, policy or suitability claim changes.
 
 M4c implementation evidence (AC unchanged): [report](reports/2026-10-21-planning-entry-load-m4c/README.md). Stable-head independent review and final M4d/native/owner acceptance remain separate.
 
@@ -392,3 +393,9 @@ refusal assertions, with no product-code changes; the earlier failure cause
 remains inferred. HEAD unchanged, only three known synthetic PNG regenerations.
 Those generated differences were restored, not included as unrelated evidence.
 UI delta budget exhausted; native0/2 remains reserved for whole-delivery review.
+
+
+Post-merge record only: merged tree equals accepted head; main CI39675328437
+was running at the snapshot. See[metrics](engineering_process_metrics.md).
+Post-merge documentation is a separate Class C delta, not a new native round or
+source push on the accepted product candidate. Parent#677 remains open.

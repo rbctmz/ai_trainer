@@ -531,3 +531,36 @@ with the verified S1/S2 merges. Runtime/API/TS/test trees remain identical to
 main9d679b3; this documentation delivery does not change any AC or authorize its
 own merge. Current native/owner acceptance belongs to the final documentation
 candidate, not the historical implementation PRs.
+
+
+## 2026-10-22 post-merge: Planning M4 #710 / PR #711
+
+**Observed:** [PR #711](https://github.com/rbctmz/ai_trainer/pull/711) merged the
+accepted head `7b98ff3045d135e825e3c54db06659af4e7d0001` as
+`00de15828a17719b96bf8e1dcb213c1aeca55144` at2026-10-21 21:01:23 UTC
+(**2026-10-22 00:01:23 Europe/Moscow**). Class A was assigned before implementation;
+this record does not recalculate retrospective prospective-cohort totals.
+Scope: sport-specific initial exposure/constraints, frozen publication guards
+and the explicit Planning UI consumer; no personal athlete/provider writes.
+
+| Metric | Observed outcome |
+| --- | --- |
+| Calendar lead time | Issue created2026-10-21 06:00:02 UTC:15h01m21s to merge. PR created06:19:46 UTC:14h41m37s to merge. Active work versus human/CI/review wait is not captured. |
+| Native review | **1/2**, clean authenticated connector [receipt6326085434](https://github.com/rbctmz/ai_trainer/pull/711#issuecomment-6326085434), reviewed exact accepted head7b98ff3. No formal submitted review object, no second request or exception; durable clean status SUCCESS. |
+| Independent reviews | M4a1 round, M4b1, M4c2, UI consumer2. These are bounded milestone/delta reviews, not extra native rounds. M4c round1 reproduced an AC6 legacy demand-writer P2; fixed-in3a28f99, scoped176passed. UI round2 reviewed test-only focus synchronization6895cc0,5passed; no remaining blocking findings. |
+| Accepted-source local | Contributor-safe3965passed/16skipped/87deselected/7warnings277.59s onf0650b5;63E2E passed/1warning189.89s. Final test-only correction:author5passed11.04s, independent5passed10.78s. Product code unchanged afterf0650b5; no repeated full local claim on metadata-only head. Ruff, web lint/build and contract freshness/inventory green. |
+| Accepted-head remote CI | [39670959095](https://github.com/rbctmz/ai_trainer/actions/runs/39670959095) SUCCESS on7b98ff3:3942contributor passed/39skipped/87deselected/6warnings323.75s;63E2E passed276.46s;24contract passed2.84s; Ruff green. Secret scan39670959096 SUCCESS. Different local/CI dependency skips are separately reported. |
+| Failures / test correction | Earlier39597418839 had a rounded-total assertion and E2E fixture/input failures;39598684871/39599528330 retained the genuine missing-dose consumer gap. That gap was implemented without bypassing the backend. UI CI39668399073 then had62E2E passes/1 keyboard assertion failure; identical-source whole CI39669348958 passed63. Focus race is inferred, not proved; unchanged local single recheck passed1, repeated-node CLI deduplicated into1 (not5).6895cc0 waits the existing step-heading focus and adds checked assertion, preserving all validation/refusal checks. Complete rerun count not captured. |
+| Owner/gates | Owner explicitly accepted review, label and merge. status: review accepted applied; draft cleared; automation added status: ready to merge; Review gate39675226535 SUCCESS, CLEAN/MERGEABLE.0 review threads, no active CHANGES_REQUESTED. Merge used --merge --match-head-commit7b98ff3; no admin/force/exception or new source push. Earlier red Review gate runs are expected missing-acceptance states, not functional flakes. |
+| Main verification | Fetched00de158; git diff --quiet7b98ff3 origin/main passed:byte-identical product tree. Local unoccupied main ref advanced by verified fast-forward/CAS; primary checkout's unrelated research edits/branch untouched. Main CI39675328437 was running at this record; main secret scan39675328884 SUCCESS. No extra local full-suite rerun on the identical tree. |
+| Limits / follow-ups | No escaped product defect observed at this immediate snapshot; this is not evidence of absence. Nonblocking refusal-announcement suggestion transferred from#710 to [#712](https://github.com/rbctmz/ai_trainer/issues/712). Actual screen-reader/human athlete UX and clinical dose suitability remain unverified; no live rollout/backfill. Parent#677 remains open for remaining work. |
+
+**Verified by:** live PR head/merge timestamps, clean native receipt, zero review
+threads, final CI logs and review-gate success; explicit owner decision in the
+task. The full source/evidence chain is in
+[ExecPlan](planning_entry_dose_m4_execplan.md),
+[slice/review record](planning_entry_dose_m4_slice_spec.md) and
+[UI evidence](design/evidence/issue-710/README.md). Post-merge bookkeeping is a
+separate Class C documentation delta; it does not invalidate the accepted product
+head or authorize its own merge. Synthetic dose-envelope checks are not clinical
+validation, and calendar timestamps are not a productivity/active-time claim.
