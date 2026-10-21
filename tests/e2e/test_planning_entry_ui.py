@@ -89,8 +89,13 @@ def test_infeasible_explicit_dose_and_input_validation_are_not_success(web_stack
     page, db = setup_ended(web_stack)
     close_in_ui(page)
     entry_step(page)
-    page.get_by_role("checkbox", name="Указать ограничения: бег", exact=True).focus()
+    # The step transition focuses its heading on the next animation frame.
+    # Wait for that observable boundary before testing keyboard activation.
+    expect(page.get_by_role("heading", name="Настройка плана — шаг 2: Доступность", exact=True)).to_be_focused()
+    checkbox = page.get_by_role("checkbox", name="Указать ограничения: бег", exact=True)
+    checkbox.focus()
     page.keyboard.press("Space")
+    expect(checkbox).to_be_checked()
     expect(page.get_by_role("button", name="Далее", exact=True)).to_be_disabled()
     page.get_by_label("бег: минут за 7 дней", exact=True).fill("1")
     page.get_by_label("бег: занятий за 7 дней", exact=True).fill("1")
