@@ -123,3 +123,23 @@ Required next input is M3 integrated acceptance plus unaided owner responses to
 the unchanged M1 questions. This record changes no acceptance/API/domain policy.
 Native0/2 remains reserved for stable full S4; no native request, owner acceptance
 label, merge or live write occurred. M2 automation is not proof of human usability.
+
+## CI compatibility correction
+
+Final-head CI39823267154 ran the whole browser suite: **77 passed,274.79s**;
+contract CI passed. Contributor-safe Python run: **2 failed,3940 passed,39 skipped,
+101 deselected,6 warnings,432.88s**. Both failures were legacy UI source gates: one
+looked for a scroll class in PlanBuilder after WeeksTable moved to PlanForecast;
+one required the former “Недельная цель” label instead of the agreed orientir.
+No browser/product failure was observed in that run.
+
+Those two source tests now inspect the actual weekly table component and current
+Russian orientir label. The S4 browser test additionally verifies that the390px
+weekly table really overflows inside its own scroll area and retains the swimming
+column, while the document itself does not overflow. Both themes exercise that
+invariant. Nine affected smoke tests passed0.04s;14 S4 E2E passed/1existing
+warning22.46s; changed-test Ruff and diff-check passed. Runtime UI, public DTO,
+M1 AC and numerical policies remain exactly the reviewed46201b3 source.
+Eight regenerated captures restored to their reviewed versions. The subsequent
+CI run and scoped UI review verify this test-only correction; the failed first
+CI result is preserved above rather than claimed green.

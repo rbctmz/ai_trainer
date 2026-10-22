@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 NAV = REPO_ROOT / "web/components/Nav.tsx"
 PLANNING = REPO_ROOT / "web/app/planning/page.tsx"
-BUILDER = REPO_ROOT / "web/components/planning/PlanBuilder.tsx"
+FORECAST = REPO_ROOT / "web/components/planning/PlanForecast.tsx"
 COACH = REPO_ROOT / "web/app/coach/page.tsx"
 ACTIVITIES = REPO_ROOT / "web/app/activities/page.tsx"
 
@@ -32,10 +32,10 @@ def test_nav_keeps_destinations_visible_on_mobile():
 
 def test_planning_wide_tables_scroll_locally():
     page = PLANNING.read_text(encoding="utf-8")
-    builder = BUILDER.read_text(encoding="utf-8")
+    weeks_table = FORECAST.read_text(encoding="utf-8").split("export function WeeksTable", 1)[1]
 
     assert page.count("overflow-x-auto rounded-card") >= 3
-    assert "overflow-x-auto rounded-card" in builder
+    assert "overflow-x-auto" in weeks_table
 
 
 def test_activities_table_scrolls_locally():

@@ -85,6 +85,12 @@ def test_frozen_decision_scope_load_and_forecast_are_understandable(web_stack, w
     row = forecast.get_by_role("row").filter(has_text=result["forecast"]["points"][-1]["date"])
     expect(row).to_contain_text(str(result["forecast"]["points"][-1]["ctl"]))
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    if width == 390:
+        # The full discipline table remains available via its own scroll area.
+        weeks = page.get_by_role("region", name="Назначения по неделям", exact=True)
+        scroll = weeks.locator("div.overflow-x-auto")
+        assert scroll.evaluate("element => element.scrollWidth > element.clientWidth")
+        expect(weeks.get_by_role("columnheader", name="Плавание, TSS", exact=True)).to_have_count(1)
     artifact = Path(__file__).parents[2] / "docs/design/evidence/issue-714"
     artifact.mkdir(parents=True, exist_ok=True)
     page.screenshot(path=str(artifact / f"confirmation-{width}-{theme}.png"), full_page=True)
