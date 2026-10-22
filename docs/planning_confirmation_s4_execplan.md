@@ -3,7 +3,7 @@
 Этот living ExecPlan следует .agent/PLANS.md. Задача#714, родитель#677;
 дата2026-10-22 Europe/Moscow. [Спецификация](planning_confirmation_s4_spec.md).
 Baseline main00de158; S1/S2/S3/M4 уже слиты. M1 завершён в роли Spec / Architecture Owner;
-M2 UI/Design завершён и передан Supervisor/Integrator для M3. Class B для будущего UI-поведения на существующих контрактах.
+M2 UI/Design завершён; текущая роль Supervisor/Integrator выполняет M3. Class B для будущего UI-поведения на существующих контрактах.
 
 ## Purpose / Big Picture
 
@@ -21,7 +21,10 @@ M2 UI/Design завершён и передан Supervisor/Integrator для M3.
 - [x] (2026-10-22) Focused existing compatibility56passed/1existing warning8.51s; probe exit0, Ruff/diff green. Это не новые UI BDD/RED и не full contributor suite.
 - [x] (2026-10-22) Independent spec round1/2 READY на7337fb5, zero P1/P2: probe повторён,56 compatibility passed/1existing warning8.43s, Ruff/diff green, HEAD/tree unchanged. M1 завершён, явная передача UI/Design для M2 зафиксирована; native0/2 не запускался.
 - [x] (2026-10-22) M2: UI/Design прототип/реализация на46201b3, observable RED→GREEN;55 related E2E, затем14 после contrast-only; final lint/build/контракты green. Independent UI round1/2 READY, zero P1/blocking P2;14 E2E повторены независимо. Передано Supervisor/Integrator для M3.
-- [ ] M3: полная приёмка UI/state-сценариев, пользователь без подсказок, native review/owner merge как отдельные решения.
+- [x] (2026-10-22) M3 automated: CI exactd00fb5f SUCCESS (3942 contributor-safe,77 browser,24 contract); картаS4-01…11 и4 real-DOM owner cases. Дополнительный loading/error probe PASS; UI/domain/AC не менялись. Полные наборы не повторяются без изменений; новый evidence head получает стандартный CI.
+- [ ] M3 owner comprehension: запрошены ответы по A/B/C/D; NOT YET, отсутствие ответа не считается успешным. Static screenshot comprehension не заменяет interactive/assistive-technology usability.
+- [ ] M3 native review:0/2 на момент этой записи; запрашивается на стабильном итоговом HEAD после CI. Может выполняться параллельно ожиданию owner responses; не заменяет их.
+- [ ] Owner acceptance / merge: отдельное явное решение после M3, пока не запрошено и не выполнено.
 
 ## Surprises & Discoveries
 
@@ -149,3 +152,8 @@ READY; подробные границы проверок/fixture failures и8 s
 передача Supervisor/Integrator для M3. Это запись статуса и evidence, без
 пересмотра M1 AC/source map, API или числовой политики. Unaided owner usability,
 whole acceptance и native0/2 ещё не выполнены; no merge/live writes.
+
+
+Обновление M3 / 2026-10-22, Supervisor/Integrator: [общий отчёт](reports/2026-10-22-planning-confirmation-s4-m3/README.md) фиксирует S4-01…11 → реально выполненные тесты, отдельные временные loading/error и lost-response probes, четыре неизменяемых кадра для ответа владельца. Два слишком широких диагностических oracle и один неверный локатор исправлены в capture helpers; это не продуктовый RED и не UI fixes. Disabled-provider503 и намеренный ERR_FAILED классифицированы отдельно от unhandled JS.
+
+Пользователю задана одна группа открытых вопросов без ответов/подсказок; ответа пока нет. Автоматические PASS не закрывают этот критерий. Native review после CI может идти независимо, чтобы не задерживать оставшуюся работу; его результат также не закрывает пользовательскую проверку. Новые факты/ответы и review receipts фиксируются в #714/#715 без косметического push после принятого review; реальная блокирующая ошибка потребует воспроизведения и scoped fix. AC/контракты/числовая политика не пересмотрены.
