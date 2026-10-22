@@ -795,3 +795,18 @@ Bounded independent backend/UI reviews READY; all63 isolated browser journeys
 pass. [M4c evidence](../reports/2026-10-21-planning-entry-load-m4c/README.md),
 [UI/M4d local evidence](../design/evidence/issue-710/README.md). Limits remain
 operational heuristics; this is not clinical validation or owner merge approval.
+
+## Planning confirmation explanation (S4 M1; #714, parent #677)
+
+2026-10-22: Class B existing-DTO presentation proposed; **M1 specification only**,
+independent review pending. [Spec](../planning_confirmation_s4_spec.md),
+[ExecPlan](../planning_confirmation_s4_execplan.md),
+[synthetic characterization](../reports/2026-10-22-planning-confirmation-s4-m1/README.md).
+ASR-REL-1/2: keep frozen confirm/history and unknown/stale/uncertain semantics;
+MOD-2/3: UI consumes existing server fields, no new comparison/dose math or DTO;
+PERF-4: no additional provider/current-state read to explain a frozen candidate.
+Missing old-period comparability uses an explicit no-comparison fallback; richer
+physical totals or new server comparison require separate Class A Domain/API
+handoff. No new architecture boundary/ADR, runtime/UI implementation, clinical
+verdict or owner unaided usability is claimed by M1.56 existing compatibility
+checks passed; future S4 BDD/browser checks are not executed by this record.
