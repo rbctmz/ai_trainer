@@ -105,3 +105,21 @@ period, availability ceiling, total/peak/orientir and save consequence are
 readable; the narrow layout stacks facts. Automated viewport checks separately
 assert no page overflow and keyboard access to the numerical forecast table.
 Owner unaided usability and actual assistive-technology testing remain NOT YET.
+
+## Independent UI review and handoff
+
+M2 UI round1/2: **READY** at
+46201b3c52b6b9818a5a1420fdcb7324c66c1b0b, exact a7732e5..46201b3 diff.
+Independent Reviewer checked S4-01…11 source/acceptance mapping: frozen data and
+assignment/target/availability scopes; unknown/zero; historical/current-null
+receipts; no new comparison/efficacy/domain policy; retained identity-only,
+stale and uncertain guards. No concrete P1 or blocking P2. Independent S4 E2E:
+**14 passed / 1 existing warning,22.53s**; changed-test Ruff and contract freshness
+passed. Narrow-dark/wide-light summaries visually checked. Only eight generated
+S4 screenshots restored to reviewed source; HEAD unchanged and tracked tree clean.
+
+UI/Design hands the implementation and this evidence to Supervisor/Integrator.
+Required next input is M3 integrated acceptance plus unaided owner responses to
+the unchanged M1 questions. This record changes no acceptance/API/domain policy.
+Native0/2 remains reserved for stable full S4; no native request, owner acceptance
+label, merge or live write occurred. M2 automation is not proof of human usability.

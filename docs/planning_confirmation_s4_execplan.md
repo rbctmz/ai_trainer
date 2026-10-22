@@ -2,8 +2,8 @@
 
 Этот living ExecPlan следует .agent/PLANS.md. Задача#714, родитель#677;
 дата2026-10-22 Europe/Moscow. [Спецификация](planning_confirmation_s4_spec.md).
-Baseline main00de158; S1/S2/S3/M4 уже слиты. Текущая роль — Spec / Architecture Owner,
-только M1. Class B для будущего UI-поведения на существующих контрактах.
+Baseline main00de158; S1/S2/S3/M4 уже слиты. M1 завершён в роли Spec / Architecture Owner;
+M2 UI/Design завершён и передан Supervisor/Integrator для M3. Class B для будущего UI-поведения на существующих контрактах.
 
 ## Purpose / Big Picture
 
@@ -20,7 +20,7 @@ Baseline main00de158; S1/S2/S3/M4 уже слиты. Текущая роль —
 - [x] (2026-10-22) Информационный spec, источник каждого значения, safe fallback и BDD S4-01…11 подготовлены; UI/API/числовая модель не менялись.
 - [x] (2026-10-22) Focused existing compatibility56passed/1existing warning8.51s; probe exit0, Ruff/diff green. Это не новые UI BDD/RED и не full contributor suite.
 - [x] (2026-10-22) Independent spec round1/2 READY на7337fb5, zero P1/P2: probe повторён,56 compatibility passed/1existing warning8.43s, Ruff/diff green, HEAD/tree unchanged. M1 завершён, явная передача UI/Design для M2 зафиксирована; native0/2 не запускался.
-- [ ] M2: UI/Design прототип/реализация после handoff, RED→GREEN observable behavior, lint/build/контракты.
+- [x] (2026-10-22) M2: UI/Design прототип/реализация на46201b3, observable RED→GREEN;55 related E2E, затем14 после contrast-only; final lint/build/контракты green. Independent UI round1/2 READY, zero P1/blocking P2;14 E2E повторены независимо. Передано Supervisor/Integrator для M3.
 - [ ] M3: полная приёмка UI/state-сценариев, пользователь без подсказок, native review/owner merge как отдельные решения.
 
 ## Surprises & Discoveries
@@ -140,3 +140,12 @@ handoff дополняются после проверки; найденные �
 Обновление2026-10-22: по выполненному независимому review M1 отмечен завершённым;
 M2/M3 и unaided owner acceptance остаются следующими этапами. Причина изменения —
 запись фактического verdict/test evidence, без пересмотра AC/контрактов/чисел.
+
+
+Обновление M2 / 2026-10-22: по явному запросу владельца UI/Design реализовал
+информационную модель на существующем frozen DTO. Source46201b3, UI review1/2
+READY; подробные границы проверок/fixture failures и8 synthetic screenshots —
+[UI evidence](design/evidence/issue-714/README.md). Роль UI/Design завершена;
+передача Supervisor/Integrator для M3. Это запись статуса и evidence, без
+пересмотра M1 AC/source map, API или числовой политики. Unaided owner usability,
+whole acceptance и native0/2 ещё не выполнены; no merge/live writes.
