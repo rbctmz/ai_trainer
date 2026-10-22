@@ -111,7 +111,22 @@ Merge и live writes требуют владельца; M1 не даёт раз�
 
 ## Review M1
 
-Независимый checker: pending; исход READY/BLOCK ещё не получен. Бюджет 0/2 spec
-rounds; native 0/2 не запрошен. Findings требуют severity + Observed/Inferred/
+Независимый checker: **READY** на7337fb564201794cce6f2d0ea5015bc0cd463c4d;
+zero blocking P1/P2. Бюджет1/2 spec rounds; native0/2 не запрошен. Findings требуют severity + Observed/Inferred/
 Verified by + violated AC; предпочтения без нарушения — follow-up. Не утверждать
 реализованный UI, личную usability или новый контракт из успешного probe.
+
+
+Проверены frozen#714AC1–7, S4-01…11 и текущий DTO/source. Независимо: probe
+воспроизведён (999/174/420→433/125/420;8→4нед,−566недатированная дельта,
+network0, pure tables unchanged, prepare только pending);56 existing compatibility
+passed/1existing warning8.43s, Ruff/diff green. HEAD unchanged; tracked tree clean
+до/после, только tracking изменился от parent push. Findings/dispositions N/A:
+блокирующих замечаний нет. Это проверка M1, не реализованного UI или UX-outcome.
+
+Явная передача **M1 Spec → M2 UI/Design**: использовать S4-01…11 и карту источников
+выше, PlanBuilder.tsx/EntryLoad.tsx, существующие типы web/lib/types.ts и isolated
+E2E harness. Не изменять эту acceptance/доменную семантику при выборе композиции;
+дополнительный смысл передавать Domain/API. M2 реализация не выполнена в M1;
+весь S4 остаётся открытым. Следующая metadata-запись меняет только статус review,
+не создаёт новый spec round или принятие native/merge.

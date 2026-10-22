@@ -40,3 +40,15 @@ whitespace checks pass. This is a targeted compatibility baseline, not execution
 of new S4 BDD, a full-suite measurement, native acceptance or human usability.
 Independent committed-candidate spec review follows; no UI lint/build required
 for this specification-only delta.
+
+
+Independent S4 M1 spec round1/2 **READY** at7337fb564201794cce6f2d0ea5015bc0cd463c4d,
+zero blockingP1/P2. Checker verified frozen#714AC1–7/source mapping/fallbacks,
+independently replayed the probe,56 compatibility passed/1existing warning8.43s,
+Ruff/diff green. HEAD unchanged, clean tracked tree before/after; upstream push
+changed tracking only. No source edits/provider writes. Spec budget1/2 used;
+native0/2 reserved for implemented S4. Following metadata-only review receipt
+changes no acceptance/public contract/probe result, so no extra full-diff round.
+UI, browser screenshots, full contributor run and unaided owner usability remain
+NOT YET for S4; M1's exit is the reviewed information/BDD contract and explicit
+UI/Design handoff, not product readiness or merge approval.

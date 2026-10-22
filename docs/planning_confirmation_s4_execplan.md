@@ -19,7 +19,7 @@ Baseline main00de158; S1/S2/S3/M4 уже слиты. Текущая роль —
 - [x] (2026-10-22) Изолированный probe: новый8нед/изменение4нед, оба supported; pure capture/calculation не меняют таблицы, prepare меняет только pending, сеть0. Начальный неверный identity-oracle исправлен; это не продуктовый RED.
 - [x] (2026-10-22) Информационный spec, источник каждого значения, safe fallback и BDD S4-01…11 подготовлены; UI/API/числовая модель не менялись.
 - [x] (2026-10-22) Focused existing compatibility56passed/1existing warning8.51s; probe exit0, Ruff/diff green. Это не новые UI BDD/RED и не full contributor suite.
-- [ ] M1: независимый committed-candidate spec review и финальная передача.
+- [x] (2026-10-22) Independent spec round1/2 READY на7337fb5, zero P1/P2: probe повторён,56 compatibility passed/1existing warning8.43s, Ruff/diff green, HEAD/tree unchanged. M1 завершён, явная передача UI/Design для M2 зафиксирована; native0/2 не запускался.
 - [ ] M2: UI/Design прототип/реализация после handoff, RED→GREEN observable behavior, lint/build/контракты.
 - [ ] M3: полная приёмка UI/state-сценариев, пользователь без подсказок, native review/owner merge как отдельные решения.
 
@@ -128,8 +128,15 @@ pending. Raw namespace identity не сравнивается. М1 не доба
 
 ## Outcomes & Retrospective
 
-М1 spec/characterization и targeted compatibility готовы; independent review ещё не завершён.
+М1 завершён: spec/characterization, targeted compatibility и независимый READY
+на7337fb5. Карта источников/fallback не требует нового API или доменной логики
+в React. Явная передача M2 UI/Design — в spec; реализация в этом M1 не выполнялась.
 Полноценное UI, owner usability и merge S4 не заявлены. Новые факты и точный
 handoff дополняются после проверки; найденные пробелы нельзя решать в CSS/React
 доменными догадками. Этот документ создан для запуска M1, с будущими M2/M3 как
 последовательностью, а не неявным расширением текущего разрешения.
+
+
+Обновление2026-10-22: по выполненному независимому review M1 отмечен завершённым;
+M2/M3 и unaided owner acceptance остаются следующими этапами. Причина изменения —
+запись фактического verdict/test evidence, без пересмотра AC/контрактов/чисел.

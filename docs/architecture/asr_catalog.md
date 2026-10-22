@@ -799,7 +799,8 @@ operational heuristics; this is not clinical validation or owner merge approval.
 ## Planning confirmation explanation (S4 M1; #714, parent #677)
 
 2026-10-22: Class B existing-DTO presentation proposed; **M1 specification only**,
-independent review pending. [Spec](../planning_confirmation_s4_spec.md),
+independent M1 review READY on7337fb5 (round1/2;56 compatibility checks and
+synthetic probe independently pass). [Spec](../planning_confirmation_s4_spec.md),
 [ExecPlan](../planning_confirmation_s4_execplan.md),
 [synthetic characterization](../reports/2026-10-22-planning-confirmation-s4-m1/README.md).
 ASR-REL-1/2: keep frozen confirm/history and unknown/stale/uncertain semantics;
