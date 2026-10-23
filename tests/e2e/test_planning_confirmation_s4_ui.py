@@ -272,3 +272,29 @@ def test_comparison_unknown_and_legacy_receipt_keep_protocol_meaning(web_stack, 
             expect(comparison.get_by_role("note")).to_contain_text("не означает ноль или отдых")
             expect(page.get_by_role("button", name="Подтвердить и сохранить", exact=True)).to_be_enabled()
     assert db.get_current_planning_checkpoint()["id"] == current
+
+
+def test_changed_rest_phase_is_visible_on_both_sides(web_stack):
+    def fixture(payload):
+        comparison = payload["comparison"]
+        comparison["days"] = [{
+            "date": comparison["after"]["scope"]["start_date"],
+            "change": "changed",
+            "before": {"state": "rest", "phase": "Base", "tss": 0, "sessions": []},
+            "after": {"state": "rest", "phase": "Recovery", "tss": 0, "sessions": []},
+        }]
+        comparison["counts"] = {"added": 0, "removed": 0, "changed": 1, "unchanged": 0}
+
+    # Read-only presentation fixture: no modified response is confirmed.
+    page, db, _ = candidate(web_stack, replace=True, display_fixture=fixture)
+    current = db.get_current_planning_checkpoint()["id"]
+    comparison = page.get_by_role("region", name="Было и станет", exact=True)
+    comparison.get_by_text("Изменения расписания по датам", exact=True).click()
+    schedule = comparison.get_by_role("region", name="Расписание до и после", exact=True)
+    row = schedule.get_by_role("row").filter(has_text="Назначения изменены")
+    for index, phase in enumerate(("Базовая подготовка", "Восстановление")):
+        cell = row.get_by_role("cell").nth(index)
+        expect(cell).to_contain_text("Отдых · 0 TSS")
+        expect(cell).to_contain_text(phase)
+    page.get_by_role("button", name="Отменить", exact=True).click()
+    assert db.get_current_planning_checkpoint()["id"] == current

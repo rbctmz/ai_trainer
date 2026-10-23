@@ -57,3 +57,19 @@ are unchanged, and incidental old710/693/readiness captures were restored after
 tests. UI rendering/tests do not establish owner understanding. New owner answer
 pending; C3 independent review pending; M3/S4 remain unaccepted and draft. Native
 1/2 historical9d41e2b, final scoped2/2 not requested yet. No merge.
+
+## Independent C3 round1: rest phase correction
+
+At681c29e the reviewer found one blocking P2: rest(Base) to rest(Recovery) is a
+server-classified change, but both cells rendered only rest/0TSS. Parent
+read-only display fixture independently reproduced it:1failed/22deselected/
+1existing warning11.57s. This violates CMP06's visible phase requirement.
+DayValue now displays the saved phase on rest days as on scheduled days.
+No comparison classification or API/domain contract changes. Regression never
+confirms the modified response, and cancelling preserves the selected checkpoint.
+Final full S4 UI contour:23passed/1existing warning37.61s; Ruff/diff pass.
+This change does not alter the paired owner prototype, which remains frozen.
+The nonblocking suggestion to expose additional focus/transition details remains
+tracked in #714 for later UI polish; it does not revise the approved C2 content
+comparison or create a new publication gate. Scoped C3 delta review pending.
+Final post-correction web lint/production build and contract freshness also pass.

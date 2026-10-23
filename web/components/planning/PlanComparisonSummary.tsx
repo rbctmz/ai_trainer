@@ -49,7 +49,7 @@ function Session({ session }: { session: PlanComparisonSession }) {
 function DayValue({ value }: { value: PlanComparisonDayValue }) {
   if (value.state === "unknown") return <p>{unknown}</p>;
   if (value.state === "outside") return <p>Вне периода этого плана</p>;
-  if (value.state === "rest") return <p>Отдых · {numeric(value.tss, "TSS")}</p>;
+  if (value.state === "rest") return <><p className="mb-2">{value.phase ? phaseLabel(value.phase) : "Фаза не указана"}</p><p>Отдых · {numeric(value.tss, "TSS")}</p></>;
   return <><p className="mb-2">{value.phase ? phaseLabel(value.phase) : "Фаза не указана"}</p><ul className="space-y-3">{value.sessions?.map((session, index) => <Session key={index} session={session} />)}</ul></>;
 }
 function Events({ params }: { params: PlanComparisonParameters }) {
