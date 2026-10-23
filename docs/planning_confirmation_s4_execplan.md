@@ -297,3 +297,16 @@ question is pending. Unknown-save follows after it. These are follow-up checks
 after revision/coaching, not a new blind first-use study. Previous1111d37 CI was
 green; latest pushed-head CI is separate and not yet claimed green. Native
 round2/2 remains reserved for stable feedback and current CI. No acceptance or merge.
+
+
+### C4 clarified replacement / final owner case
+
+After the narrower replacement question the owner acknowledges the displayed
+replacement consequence and refers to its remaining text. Recorded as clarified
+acknowledgement, not an unaided independent history paraphrase. The assistant
+restated closure/history after the response. Only the unknown-save status/action
+scenario remains pending. It now uses [a distinct capture](design/evidence/issue-714/unknown-save-v1/README.md):
+QA found the highlight-v1 summary-only D image omitted wizard status/retry, so
+that image is not used to test those controls. A fresh real-DOM wizard capture
+and same-identity retry pass; product code/contract/criteria unchanged. Source
+c00dc50 CI40004020426 succeeded. No new native review, acceptance label or merge.
