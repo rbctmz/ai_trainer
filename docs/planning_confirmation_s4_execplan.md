@@ -33,6 +33,7 @@ Class A для расширения, прежний Class B UI scope сохра�
 - [x] (2026-10-23) C1 independent full+scoped spec check READY at93a37ec; P2 reset wording fixed-in93a37ec; budget2/2, raw characterization and initial contract RED recorded.
 - [x] (2026-10-23) C2 independently READY atc7b42f5, malformed-steps P2 fixed-inc7b42f5; local budget2/2. Final clean-head contributor-safe run:3991passed/16skipped/101deselected/7warnings257.11s with venv on PATH. Typed API/TS and frozen integration,26comparison regressions, lint/build/freshness pass.
 - [x] (2026-10-23) C3 UI/Design independently READY atc324c9e, local budget2/2: paired periods/parameters/load/calendar, partial/legacy/historical states. Rest-phase P2 fixed-inc324c9e after reproduced RED; final23S4browser tests passed37.61s, independent delta1passed6.31s; lint/build/freshness pass. UI→Integrator handoff recorded in#714. Owner comprehension remains pending.
+- [x] (2026-10-23) Owner requested difference highlighting; bounded UI revision at4dc9f37 adds color/text for known differing displayed values, unknown remains unknown.23S4UI/33related checks and lint/build/freshness pass; distinct highlight-v1 captures and320probe preserve earlier owner evidence. This new delta awaits final native review; earlier local C3READY remains scoped toc324c9e.
 - [ ] C4 integrated checks, owner remaining cases and scoped native round2/2; acceptance/merge separate.
 
 ## Surprises & Discoveries
@@ -279,3 +280,20 @@ No owner pass is inferred from tests or silence. Native scoped round2/2 is
 reserved until remaining feedback stabilizes source. Review gate currently
 expects current-head native review; it is not a code-test failure. Acceptance
 label, ready state and merge have not been requested or performed.
+
+
+### C4 owner-driven highlighting / 2026-10-23
+
+Owner follow-up correctly identified the changed end/whole-period assignment
+on the frozen paired edit prototype. A later replacement response named summary
+differences and requested highlighting; it did not answer old-cycle/history
+consequences. Integrator explicitly handed that bounded UI change to UI/Design,
+which delivered4dc9f37. [Evidence](design/evidence/issue-714/highlight-v1/README.md)
+records RED/GREEN, complete captures and verification. No API/domain/spec change
+or new independent review budget. UI handed back to Integrator in#714.
+
+Replacement owner-c in highlight-v1 is now shown and frozen; one open consequence
+question is pending. Unknown-save follows after it. These are follow-up checks
+after revision/coaching, not a new blind first-use study. Previous1111d37 CI was
+green; latest pushed-head CI is separate and not yet claimed green. Native
+round2/2 remains reserved for stable feedback and current CI. No acceptance or merge.
