@@ -166,7 +166,10 @@ transition, нормализованные steps/legs, materialization/structure
 Обычные sessions сравниваются как multiset с сохранением повторений; порядок
 legs/steps внутри composite важен. Изменённые target/steps при прежних TSS/minutes
 всё равно дают changed. Разный phase тоже changed и должен быть виден.
-Обе rest = unchanged при равном phase. Любой unknown = unknown, не unchanged.
+Обе rest = unchanged при равном phase. Rest↔outside и outside↔outside не
+меняют тренировочного назначения: change=unchanged, состояния сторон остаются
+различимы; изменение области видно в scope, не называется удалённой тренировкой.
+Любой unknown = unknown, не unchanged.
 Для no_baseline все days unknown (нет доказанного «было0»); UI показывает новый
 план без выдуманного счётчика добавленных относительно отсутствующего плана.
 
@@ -178,7 +181,10 @@ UI так их и подписывает. Counts заполнены только
 изменения или выполнении занятий. Для replacement before/after — разные циклы,
 сравнение содержимого не создаёт cross-cycle session identity.
 
-Ограничение: не более366 saved daily rows и366 templates на сторону. При
+Ограничение: не более366 saved daily rows,366 templates и366 включительных
+календарных дней между min/max dates на сторону. Предел span проверяется до
+календарного развёртывания, даже при2raw rows с очень далёкими датами. Union
+двух разрешённых областей содержит максимум732dates, не промежуток между ними. При
 превышении не обрезать молча и не делать выводы об удалённых назначениях:
 schedule_status=unavailable, counts=null; доказанные dates противоположной
 стороны могут остаться с change=unknown, но большого date expansion нет,
@@ -214,7 +220,7 @@ Edit/replacement до confirm явно различает «Текущий пл�
 | CMP09 | Preview создан, current изменился/закрылся; old receipt повторён | frozen bytes retained; stale before first confirm; historical replay not reactivated |
 | CMP10 | Lost confirm response; retry/restart; injected failure | same identity/comparison; no duplicate checkpoint; atomic rollback unchanged |
 | CMP11 | Старые pending/receipt/protocol1 без поля; malformed/partial optional response | читаемы/unknown, no new gate/current lookup |
-| CMP12 | Чистый расчёт/prepare/full reset | calculation all tables unchanged; prepare только existing pending owner; reset removes retained comparison with row, checkpoint history untouched |
+| CMP12 | Чистый расчёт/prepare/full reset | calculation all tables unchanged; prepare только existing pending owner; calculation/prepare/replay do not rewrite history; explicit full reset retains existing deletion of previews, cycle state and checkpoint history |
 | CMP13 |16weeks/366bound/overflow366, no providers, real raw sums vs rounded displays | bounded result/reason; no silent truncation; existing preview budget <10s |
 | CMP14 |390/900/1280 light/dark, keyboard, unknown-save lock | observable paired values, local scroll only, old actions/alerts retained |
 
@@ -230,7 +236,10 @@ Owner проверка после UI: понимает, чем отличают�
 
 Новых таблиц/cursor/settings/команд нет. Comparison живёт внутри существующего
 pending response/receipt и стареет/удаляется с ними. Full reset использует
-существующий lifecycle owner. Read-only projection не чинит старый checkpoint;
+существующий lifecycle owner и удаляет previews, cycle state и checkpoint
+history по нынешнему reset path. Сохранность history относится к обычным
+calculation/prepare/confirm/replay, не к явно запрошенному full reset.
+Read-only projection не чинит старый checkpoint;
 при неполноте даёт reasons/partial, не отказывает готовому M4 plan по новым
 порогам. Failure во время расчёта не меняет current; confirm transaction и
 rollback принадлежат S1/S2. Corruption нового comparison JSON не оправдывает
@@ -255,5 +264,8 @@ Definition of Done: CMP01…14 доказаны; exact provenance и missing-dat
 проверены; green relevant/broad/contract/web; owner feedback и coaching записаны
 честно; ноль открытых P1, P2 disposed, merge только владельцем. Пока DoD НЕ выполнен.
 Evidence bundle: docs/reports/2026-10-23-planning-comparison-m1/README.md.
-Changed runtime contracts: планируются additive, пока unchanged. Review findings:
-NOT YET; unresolved new review threads:N/A; final verdict:AUTHOR DRAFT, не READY.
+Changed runtime contracts: планируются additive, пока unchanged. Review findings: independent round1/2 наdee2422 нашёл blocking P2 в CMP12
+(reset history contradiction). Подтверждён data/database.py5751; исправлена
+только спецификация, reset не выполнялся. Rest↔outside и календарный span bound
+уточнены как принятые nonblocking suggestions. Unresolved new native threads:N/A;
+scoped delta check pending; final verdict:AUTHOR FIX, пока не independent READY.

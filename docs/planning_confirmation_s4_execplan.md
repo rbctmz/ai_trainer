@@ -232,3 +232,10 @@ Outcomes at C1 author draft: scope/contract defined; no production implementatio
 no refreshed native result and no complete owner acceptance. Missing before
 calendar was verified by the existing pinned probe; raw checkpoint availability
 and executable session fields were checked in a second synthetic fixture.
+
+
+C1 independent round1/2 on dee2422: BLOCK for CMP12 contradicting full-reset
+checkpoint deletion. Supervisor independently confirmed database.py5751; spec
+corrected, rest/outside semantics and span bound clarified.106-case baseline
+already includes cycle full-reset regression; no live reset or source change.
+Scoped delta verification pending; native budget remains1/2.

@@ -51,7 +51,14 @@ Full schedule larger than the explicit366per-side bound is unavailable, not sile
 truncated. Source inspection, typed-contract validation, chronology/identity-only
 and metadata-only versus actual-prescription mutation cases are required in C2.
 
-Independent C1 check: PENDING. Author result is not READY implementation or
+Independent C1 round1/2 atdee2422: BLOCK, one P2 in CMP12 incorrectly requiring
+checkpoint history retention after full reset. Supervisor independently read
+data/database.py5751: explicit full reset deletes planning_checkpoints. Existing
+106-case contour includes the reset regression; no live reset was run. Corrected
+spec preserves that deletion and separates it from read-only/normal publication
+history retention. Accepted suggestions clarify rest↔outside and bound elapsed
+calendar span before expansion (366per side, at most732union dates). These are
+spec corrections only, not changed runtime. Scoped delta check pending. Author result is not READY implementation or
 completed owner acceptance. Original candidate-only M1 spec and UI captures
 remain historical; the original fallback is superseded only for this approved
 new comparison. Native1/2 at9d41e2b stays historical; do not request round2 for
