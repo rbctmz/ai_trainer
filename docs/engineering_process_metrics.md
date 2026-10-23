@@ -531,3 +531,33 @@ with the verified S1/S2 merges. Runtime/API/TS/test trees remain identical to
 main9d679b3; this documentation delivery does not change any AC or authorize its
 own merge. Current native/owner acceptance belongs to the final documentation
 candidate, not the historical implementation PRs.
+
+
+## 2026-10-23 post-merge: issue #677 S4 / PR #715
+
+**Observed.** [PR#715](https://github.com/rbctmz/ai_trainer/pull/715) merged into
+main as `3aed0ac7decae36612ba5931073106c3d89697f2` at2026-10-23T19:52:56Z
+(22:52:56 Europe/Moscow),37h25m46s after opening. [Issue#714](https://github.com/rbctmz/ai_trainer/issues/714)
+was created2026-10-21T21:24:48Z and closed automatically at19:52:57Z on23October:
+46h28m09s issue lead time to closure. These are calendar durations, not active
+work/wait measurements. The delivery adds5362/removes206 lines across113files,
+including versioned synthetic screenshots and evidence.
+
+| Metric | Verified outcome |
+| --- | --- |
+| Class/scope | Original Class B confirmation UI expanded with explicit owner authorization to Class A raw-current→final-proposed comparison, optional retained API/TS field and paired summary/calendar. No dose/model policy, persistent schema, current-GET enrichment or live athlete write. |
+| Native review | Two authenticated clean rounds: [historical9d41e2b](https://github.com/rbctmz/ai_trainer/pull/715#issuecomment-6348441790), [final0ba1d0b](https://github.com/rbctmz/ai_trainer/pull/715#issuecomment-6372699848). Second request scoped to delta since first; zero review threads. No third round, budget exception or waiver. Independent working-session milestone reviews are separate; no aggregate total inferred. |
+| Findings | No native P0/P1/P2 reported. Comparison extension local checks found3blocking P2: reset-history wording fixed-in93a37ec, incomplete steps falsely complete fixed-inc7b42f5, hidden rest-phase change fixed-inc324c9e. Each independently verified after reproduction. Other historical milestone findings are not aggregated into this count. Extra focus/transition UI detail remains a nonblocking suggestion tracked in#714. |
+| Checks/evidence | Final exact-head functional CI40007660958 and Gitleaks40007660977 SUCCESS. Clean C2 contributor contour3991passed/16skipped/101deselected; final highlight23S4UI tests and33mobile/polish/contract checks, lint/build/extractor/Ruff/diff pass. Temporary actual new/edit/replacement/cancel/lost-response/same-identity replay and320px probes pass. Local/CI contours are not added together. |
+| Owner/gates/merge | Explicit owner decision accepted review, label and merge with disclosed UX-check limitation. Review gate40014828026 SUCCESS and CLEAN before squash merge matched exactly0ba1d0bb1b7578019f6c694f4b9b51970b3cb785. No force/admin bypass. |
+| UX limits | Initial comprehension failed; revised edit facts identified, replacement acknowledged after a narrower question, safe retry selected. Availability/total received explanation; entire unaided-owner criterion is not claimed. Owner accepted this recorded limitation. No population usability or live training suitability claim. |
+| CI/environment | Review-gate red runs before current receipt/owner acceptance are expected process gates, not test flakes. Earlier contributor preflight failure was reproduced as missing venv PATH and resolved in invocation, no startup change. Screenshot viewport/status omissions were evidence-helper fixes. Total reruns/flakes and agent/human wait time not captured. |
+| Main/escaped defects | Fetched main3aed0ac tree is identical to reviewed0ba1d0b; local main synchronized without altering unrelated primary research edits. Separate main CI40014890716 pending at immediate snapshot; main Secret scan40014890702 SUCCESS. No linked escaped defect observed at this snapshot; observation remains open. No redundant local full-suite rerun or live restart. |
+
+**Verified by.** Merge REST readback, fetched tree comparison, issue closure,
+current-head checks, privileged acceptance/ready labels and linked native receipts.
+[Owner decision](https://github.com/rbctmz/ai_trainer/issues/714#issuecomment-6373464554)
+and [C4 outcome/limitations](reports/2026-10-23-planning-comparison-c4/README.md)
+remain explicit. Parent#677 remains open; #707/#712/#713 are not closed or merged
+by this delivery. This Class C post-merge documentation does not reopen the
+accepted product review or authorize its own merge.
