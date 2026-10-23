@@ -100,7 +100,7 @@ def test_frozen_decision_scope_load_and_forecast_are_understandable(web_stack, w
         scroll = weeks.locator("div.overflow-x-auto")
         assert scroll.evaluate("element => element.scrollWidth > element.clientWidth")
         expect(weeks.get_by_role("columnheader", name="Плавание, TSS", exact=True)).to_have_count(1)
-    artifact = Path(__file__).parents[2] / "docs/design/evidence/issue-714/comparison"
+    artifact = Path(__file__).parents[2] / "docs/design/evidence/issue-714/highlight-v1"
     artifact.mkdir(parents=True, exist_ok=True)
     page.screenshot(path=str(artifact / f"confirmation-{width}-{theme}.png"), full_page=True)
     if (width, theme) in ((390, "dark"), (1280, "light")):
@@ -145,10 +145,16 @@ def test_edit_different_horizon_has_dated_before_and_after(web_stack, width, the
     period = comparison.get_by_role("row").filter(has=page.get_by_role("rowheader", name="Период плана", exact=True))
     for column, side in enumerate(("before", "after")):
         expect(period.get_by_role("cell").nth(column).locator("time").nth(1)).to_have_attribute("datetime", paired[side]["scope"]["end_date"])
+    for changed in (load, period):
+        expect(changed).to_contain_text("Изменено")
+        expect(changed).to_have_class(re.compile("bg-accent/10"))
+    unchanged = comparison.get_by_role("row").filter(has=page.get_by_role("rowheader", name="Подготовка", exact=True))
+    expect(unchanged).not_to_contain_text("Изменено")
+    expect(unchanged).not_to_have_class(re.compile("bg-accent/10"))
     expect(comparison).to_contain_text("Разница сумм за разные периоды не означает изменение недельной нагрузки")
     page.set_viewport_size({"width": width, "height": 950})
     page.evaluate("theme => {document.documentElement.classList.toggle('dark',theme==='dark');document.documentElement.dataset.theme=theme}", theme)
-    artifact = Path(__file__).parents[2] / "docs/design/evidence/issue-714/comparison"
+    artifact = Path(__file__).parents[2] / "docs/design/evidence/issue-714/highlight-v1"
     artifact.mkdir(parents=True, exist_ok=True)
     summary.screenshot(path=str(artifact / f"edit-{width}-{theme}.png"))
     expect(page.get_by_role("heading", name="Настройка плана — шаг 4: Подтверждение", exact=True)).to_be_focused()
@@ -268,6 +274,8 @@ def test_comparison_unknown_and_legacy_receipt_keep_protocol_meaning(web_stack, 
         else:
             row = comparison.get_by_role("row").filter(has=page.get_by_role("rowheader", name="Сумма за весь период", exact=True))
             expect(row.get_by_role("cell").nth(0)).to_have_text("Нет данных")
+            expect(row).not_to_contain_text("Изменено")
+            expect(row).not_to_have_class(re.compile("bg-accent/10"))
             expect(row.get_by_role("cell").nth(1)).to_have_text(f'{result["comparison"]["after"]["total_tss"]} TSS')
             expect(comparison.get_by_role("note")).to_contain_text("не означает ноль или отдых")
             expect(page.get_by_role("button", name="Подтвердить и сохранить", exact=True)).to_be_enabled()
