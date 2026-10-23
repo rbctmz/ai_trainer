@@ -100,7 +100,7 @@ def test_frozen_decision_scope_load_and_forecast_are_understandable(web_stack, w
         scroll = weeks.locator("div.overflow-x-auto")
         assert scroll.evaluate("element => element.scrollWidth > element.clientWidth")
         expect(weeks.get_by_role("columnheader", name="Плавание, TSS", exact=True)).to_have_count(1)
-    artifact = Path(__file__).parents[2] / "docs/design/evidence/issue-714/revision-1"
+    artifact = Path(__file__).parents[2] / "docs/design/evidence/issue-714/comparison"
     artifact.mkdir(parents=True, exist_ok=True)
     page.screenshot(path=str(artifact / f"confirmation-{width}-{theme}.png"), full_page=True)
     if (width, theme) in ((390, "dark"), (1280, "light")):
@@ -114,7 +114,8 @@ def test_frozen_decision_scope_load_and_forecast_are_understandable(web_stack, w
     expect(page.get_by_text("План сохранён и стал активным", exact=False)).to_be_visible()
 
 
-def test_edit_different_horizon_has_no_undated_comparison(web_stack):
+@pytest.mark.parametrize("width,theme", [(390,"light"),(390,"dark"),(900,"light"),(900,"dark"),(1280,"light"),(1280,"dark")])
+def test_edit_different_horizon_has_dated_before_and_after(web_stack, width, theme):
     page, db, _ = candidate(web_stack)
     page.get_by_role("button", name="Подтвердить и сохранить", exact=True).click()
     expect(page.get_by_text("План сохранён и стал активным", exact=False)).to_be_visible()
@@ -132,7 +133,36 @@ def test_edit_different_horizon_has_no_undated_comparison(web_stack):
     page.get_by_role("button", name="Далее", exact=True).click()
     summary = page.get_by_role("region", name="Резюме плана", exact=True)
     expect(summary).to_contain_text("Изменение плана")
-    expect(summary).to_contain_text("Сравнение с прежним планом недоступно")
+    comparison = summary.get_by_role("region", name="Было и станет", exact=True)
+    expect(comparison).to_be_visible()
+    expect(comparison.get_by_role("columnheader", name="Текущий план", exact=True)).to_be_visible()
+    expect(comparison.get_by_role("columnheader", name="Предлагаемый план", exact=True)).to_be_visible()
+    paired = result["comparison"]
+    assert paired["status"] == "complete"
+    load = comparison.get_by_role("row").filter(has=page.get_by_role("rowheader", name="Сумма за весь период", exact=True))
+    expect(load.get_by_role("cell").nth(0)).to_have_text(f'{paired["before"]["total_tss"]} TSS')
+    expect(load.get_by_role("cell").nth(1)).to_have_text(f'{paired["after"]["total_tss"]} TSS')
+    period = comparison.get_by_role("row").filter(has=page.get_by_role("rowheader", name="Период плана", exact=True))
+    for column, side in enumerate(("before", "after")):
+        expect(period.get_by_role("cell").nth(column).locator("time").nth(1)).to_have_attribute("datetime", paired[side]["scope"]["end_date"])
+    expect(comparison).to_contain_text("Разница сумм за разные периоды не означает изменение недельной нагрузки")
+    page.set_viewport_size({"width": width, "height": 950})
+    page.evaluate("theme => {document.documentElement.classList.toggle('dark',theme==='dark');document.documentElement.dataset.theme=theme}", theme)
+    artifact = Path(__file__).parents[2] / "docs/design/evidence/issue-714/comparison"
+    artifact.mkdir(parents=True, exist_ok=True)
+    summary.screenshot(path=str(artifact / f"edit-{width}-{theme}.png"))
+    expect(page.get_by_role("heading", name="Настройка плана — шаг 4: Подтверждение", exact=True)).to_be_focused()
+    schedule = comparison.get_by_text("Изменения расписания по датам", exact=True)
+    schedule.focus()
+    page.keyboard.press("Enter")
+    region = comparison.get_by_role("region", name="Расписание до и после", exact=True)
+    expect(region).to_be_visible()
+    expect(region.get_by_role("row")).to_have_count(len(paired["days"]) + 1)
+    expect(region).to_contain_text("Назначения убраны")
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    if width == 390:
+        assert region.evaluate("element => element.scrollWidth > element.clientWidth")
+    expect(page.get_by_text("Сравнение с прежним планом недоступно", exact=False)).to_have_count(0)
     assert any(warning["code"] == "entry_limits_retained" for warning in result["entry_load"]["warnings"])
     expect(summary.get_by_text("Сохранены стартовые ограничения выбранного цикла; новая история показана отдельно.", exact=True)).to_be_visible()
     expect(summary).to_contain_text(f'{result["totals"]["total_tss"]} TSS')
@@ -207,3 +237,38 @@ def test_structured_readiness_refusal_is_explained_without_confirm(web_stack):
     expect(page.get_by_role("button", name="Подтвердить и сохранить", exact=True)).to_have_count(0)
     expect(page.get_by_role("button", name="Далее", exact=True)).to_be_disabled()
     assert db.get_current_planning_checkpoint() is None
+
+
+@pytest.mark.parametrize("state", ["partial", "legacy", "historical"])
+def test_comparison_unknown_and_legacy_receipt_keep_protocol_meaning(web_stack, state):
+    def fixture(payload):
+        if state == "legacy":
+            payload.pop("comparison")
+        elif state == "historical":
+            payload["plan_id"] = "synthetic-historical-comparison"
+            payload["confirmation"].update(status="applied", replayed=True, is_current=False)
+        else:
+            comparison = payload["comparison"]
+            comparison.update(status="partial", counts=None)
+            comparison["before"]["scope"] = None
+            comparison["before"]["total_tss"] = None
+            comparison["before"]["parameters"]["available_hours"] = None
+    page, db, result = candidate(web_stack, replace=True, display_fixture=fixture)
+    current = db.get_current_planning_checkpoint()["id"]
+    if state == "legacy":
+        expect(page.get_by_text("В этом предложении нет данных для сравнения с прежним планом.", exact=False)).to_be_visible()
+        expect(page.get_by_role("button", name="Подтвердить и сохранить", exact=True)).to_be_enabled()
+    else:
+        comparison = page.get_by_role("region", name="Было и станет", exact=True)
+        expect(comparison).to_be_visible()
+        if state == "historical":
+            expect(comparison.get_by_role("columnheader", name="Было в предложении", exact=True)).to_be_visible()
+            expect(comparison.get_by_role("columnheader", name="Текущий план", exact=True)).to_have_count(0)
+            expect(page.get_by_role("button", name="Подтвердить и сохранить", exact=True)).to_have_count(0)
+        else:
+            row = comparison.get_by_role("row").filter(has=page.get_by_role("rowheader", name="Сумма за весь период", exact=True))
+            expect(row.get_by_role("cell").nth(0)).to_have_text("Нет данных")
+            expect(row.get_by_role("cell").nth(1)).to_have_text(f'{result["comparison"]["after"]["total_tss"]} TSS')
+            expect(comparison.get_by_role("note")).to_contain_text("не означает ноль или отдых")
+            expect(page.get_by_role("button", name="Подтвердить и сохранить", exact=True)).to_be_enabled()
+    assert db.get_current_planning_checkpoint()["id"] == current

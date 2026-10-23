@@ -91,7 +91,7 @@ function formatPace(secondsPerUnit: number): string {
   return `${minutes}:${String(rest).padStart(2, "0")}`;
 }
 
-function formatTarget(target: WorkoutTarget | null): string {
+export function formatTarget(target: WorkoutTarget | null): string {
   if (!target) return "";
   const type = String(target.type || "");
   const low = target.low;
