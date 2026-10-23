@@ -72,7 +72,7 @@ def test_expired_close_unknown_new_cancel_confirm_and_history(web_stack):
     declare_entry_limits(page)
     page.get_by_role('button', name='Далее', exact=True).click()
     page.get_by_role('button', name='🧭 Предпросмотр плана', exact=True).click()
-    page.get_by_text(re.compile('План собран: изменение нагрузки')).wait_for()
+    page.get_by_text(re.compile('Предпросмотр готов.')).wait_for()
     page.get_by_role('button', name='Далее', exact=True).click()
     with page.expect_response('**/api/planning/build/confirm*') as response:
         page.get_by_role('button', name='Подтвердить и сохранить', exact=True).click()
@@ -218,7 +218,7 @@ def test_repeated_new_cycle_requires_fresh_choices_and_replacement_ack(web_stack
     declare_entry_limits(page)
     page.get_by_role('button', name='Далее', exact=True).click()
     page.get_by_role('button', name='🧭 Предпросмотр плана', exact=True).click()
-    page.get_by_text(re.compile('План собран: изменение нагрузки')).wait_for()
+    page.get_by_text(re.compile('Предпросмотр готов.')).wait_for()
     page.get_by_role('button', name='Далее', exact=True).click()
     page.get_by_role('button', name='Подтвердить и сохранить', exact=True).click()
     expect(page.get_by_text('План сохранён и стал активным', exact=False)).to_be_visible()

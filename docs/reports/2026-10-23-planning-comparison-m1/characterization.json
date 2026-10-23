@@ -1,0 +1,46 @@
+{
+  "source": "3f75915",
+  "synthetic_only": true,
+  "network_calls": 0,
+  "calculation_all_tables_unchanged": true,
+  "before_days": 56,
+  "after_days": 28,
+  "before_available_hours": 10.0,
+  "before_available_day_indices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "before_saved_scope": [
+    "2026-10-26T00:00:00",
+    "2026-12-20T00:00:00"
+  ],
+  "after_scope": [
+    "2026-10-26",
+    "2026-11-22"
+  ],
+  "before_total_tss": 999,
+  "after_total_tss": 433,
+  "undated_week_counts": [
+    8,
+    4
+  ],
+  "preview_fields": [
+    "base_checkpoint_id",
+    "events_after",
+    "events_before",
+    "microcycle_changes",
+    "phases_after",
+    "phases_before",
+    "total_tss_after",
+    "total_tss_before",
+    "weekly_tss_after",
+    "weekly_tss_before",
+    "weekly_tss_delta"
+  ],
+  "comparison_present": false
+}

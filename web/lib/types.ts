@@ -1312,7 +1312,52 @@ export interface EntryDoseAdjustment {
   to_role?: string | null;
 }
 
+export interface PlanComparisonScope { start_date: string; end_date: string; }
+export interface PlanComparisonParameters {
+  goal_type: string | null; distance: string | null; planning_mode: string | null;
+  intent: string | null; focus: string | null; demand: string | null;
+  available_hours: number | null; available_days: string[] | null;
+  events: RaceEvent[] | null;
+}
+export interface PlanComparisonSide {
+  scope: PlanComparisonScope | null;
+  parameters: PlanComparisonParameters;
+  total_tss: number | null; peak_tss: number | null;
+  schedule_status: "complete" | "partial" | "unavailable";
+  reasons: string[];
+}
+export interface PlanComparisonStep {
+  name: string | null; intensity: string | null; segment_kind: string | null;
+  duration_seconds: number | null; target: unknown;
+}
+export interface PlanComparisonSession {
+  kind: string | null; sport: string | null; role: string | null;
+  focus: string | null; name: string | null; minutes: number | null; tss: number | null;
+  transition_minutes: number | null; materialization_status: string | null;
+  structure_status: string | null; steps: PlanComparisonStep[] | null;
+  legs: PlanComparisonSession[] | null;
+}
+export interface PlanComparisonDayValue {
+  state: "scheduled" | "rest" | "outside" | "unknown";
+  phase: string | null; tss: number | null; sessions: PlanComparisonSession[] | null;
+}
+export interface PlanComparisonDay {
+  date: string; change: "added" | "removed" | "changed" | "unchanged" | "unknown";
+  before: PlanComparisonDayValue; after: PlanComparisonDayValue;
+}
+export interface PlanComparisonCounts {
+  added: number; removed: number; changed: number; unchanged: number; unknown: number;
+}
+export interface PlanBuildComparison {
+  version: "plan-comparison-v1"; status: "complete" | "partial" | "no_baseline";
+  base_checkpoint_id: number | null; base_cycle_id: string | null; base_cycle_revision: number | null;
+  before: PlanComparisonSide | null; after: PlanComparisonSide;
+  days: PlanComparisonDay[]; counts: PlanComparisonCounts | null; reasons: string[];
+}
+
 export interface BuiltPlan {
+  /** Retained historical responses can predate this projection. */
+  comparison?: PlanBuildComparison | null;
   entry_adjustments?: EntryDoseAdjustment[] | null;
   plan_id: string | null;
   planning_mode: "event_goal" | "training_goal" | "manual";

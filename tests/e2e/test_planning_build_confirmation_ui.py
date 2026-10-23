@@ -27,7 +27,7 @@ def ready(web_stack):
     with page.expect_response("**/api/planning/build?*") as built:
         page.get_by_role("button", name="🧭 Предпросмотр плана", exact=True).click()
     assert built.value.status == 200, built.value.text()
-    page.get_by_text(re.compile("План собран: изменение нагрузки")).wait_for(timeout=60000)
+    page.get_by_text(re.compile("Предпросмотр готов.")).wait_for(timeout=60000)
     page.get_by_role("button", name="Далее", exact=True).click()
     expect(page.get_by_role("heading",name="Настройка плана — шаг 4: Подтверждение",exact=True)).to_be_focused()
     return page
