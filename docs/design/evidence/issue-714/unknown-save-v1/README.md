@@ -31,3 +31,10 @@ Reproduce with primary venv bin on PATH and PYTHONPATH=.:
     python docs/design/evidence/issue-714/unknown-save-v1/capture.py
 
 Do not rerun into this shown directory; use a new version for future captures.
+
+Final owner outcome: selected retry/check as the next action on this frame.
+This satisfies the safe-next-action observation for the unknown-save scenario.
+Uncertainty was explained afterward; no independent status paraphrase is claimed.
+The conversational follow-up is complete with coaching/revision limitations in
+[the C4 report](../../../../reports/2026-10-23-planning-comparison-c4/README.md).
+It does not establish full unaided-owner acceptance or authorize labels/merge.

@@ -310,3 +310,15 @@ QA found the highlight-v1 summary-only D image omitted wizard status/retry, so
 that image is not used to test those controls. A fresh real-DOM wizard capture
 and same-identity retry pass; product code/contract/criteria unchanged. Source
 c00dc50 CI40004020426 succeeded. No new native review, acceptance label or merge.
+
+
+### C4 conversational follow-up closeout / 2026-10-23
+
+The owner selected retry/check on the actual unknown-result frame, satisfying
+that scenario's safe-next-action observation. Uncertainty was explained only
+afterward. Planned conversational checks are finished; [C4 report](reports/2026-10-23-planning-comparison-c4/README.md)
+separates correct replies from coached/clarified results and the unsuccessful
+initial exercise. Entire unaided-owner acceptance is not claimed. No further
+owner-requested source change is pending; final CI and scoped native round2/2
+can proceed, then an explicit owner acceptance/merge decision. No current
+acceptance label or merge; avoid cosmetic pushes after final native receipt.
