@@ -19,7 +19,7 @@ def capture(page, name: str, *, uncertain: bool = False) -> None:
     page.evaluate("document.documentElement.classList.remove('dark'); document.documentElement.dataset.theme='light'; window.scrollTo(0,0)")
     title = page.get_by_role("heading", name="Настройка плана — шаг 4: Подтверждение", exact=True)
     summary = page.get_by_role("region", name="Резюме плана", exact=True)
-    action = page.locator("section").filter(has=page.get_by_role("button", name="Повторить проверку" if uncertain else "Подтвердить и сохранить", exact=True))
+    action = page.locator("section").filter(has=page.get_by_role("button", name="Повторить проверку" if uncertain else "Подтвердить и сохранить", exact=True)).last
     if not uncertain:  # Only a wizard step transition moves focus to its title.
         expect(title).to_be_focused()
     expect(page.get_by_role("navigation", name="Шаги настройки плана").get_by_role("button").nth(3)).to_have_attribute("aria-current", "step")

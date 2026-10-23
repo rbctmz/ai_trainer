@@ -61,6 +61,13 @@ def test_explicit_starting_limits_preview_sources_invalidate_and_confirm(web_sta
     assert response.value.request.post_data_json["initial_dose_limits"]["run"]["weekly_minutes"] == 480
     assert all(cap["source"] == "athlete_declared" for cap in result["entry_load"]["limits"].values())
     page.get_by_role("button", name="Далее", exact=True).click()
+    expect(page.get_by_role("heading", name="Настройка плана — шаг 4: Подтверждение", exact=True)).to_be_focused()
+    expect(page.get_by_role("heading", name="Начальная нагрузка согласована с ограничениями", exact=True)).to_have_count(0)
+    # Successful details collapse; their sources remain reachable by keyboard.
+    check = page.locator("summary").filter(has_text=re.compile("^Проверка начального объёма"))
+    check.focus()
+    page.keyboard.press("Enter")
+    expect(check.locator("..")).to_have_attribute("open", "")
     expect(page.get_by_role("heading", name="Начальная нагрузка согласована с ограничениями", exact=True)).to_be_visible()
     page.get_by_text("Записанная история и источники ограничений", exact=True).click()
     expect(page.get_by_text(re.compile("Задано вами: до"))).to_have_count(3)

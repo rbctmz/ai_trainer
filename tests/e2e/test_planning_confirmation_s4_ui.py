@@ -66,15 +66,24 @@ def test_frozen_decision_scope_load_and_forecast_are_understandable(web_stack, w
     page.evaluate("theme => {document.documentElement.classList.toggle('dark',theme==='dark');document.documentElement.dataset.theme=theme;}", theme)
     summary = page.get_by_role("region", name="Резюме плана", exact=True)
     expect(summary).to_be_visible()
-    expect(summary).to_contain_text(result["lifecycle"]["start_date"])
-    expect(summary).to_contain_text(result["lifecycle"]["end_date"])
+    expect(summary.locator("time").nth(0)).to_have_attribute("datetime", result["lifecycle"]["start_date"])
+    expect(summary.locator("time").nth(1)).to_have_attribute("datetime", result["lifecycle"]["end_date"])
     expect(summary).to_contain_text("Триатлон · Олимпийка")
     expect(summary).to_contain_text("Развивать форму")
     expect(summary).to_contain_text(f'{result["totals"]["total_tss"]} TSS')
     expect(summary).to_contain_text(f'{result["totals"]["peak_tss"]} TSS')
     expect(summary).to_contain_text(f'{result["weekly_target"]["target_weekly_tss"]} TSS')
-    expect(summary).to_contain_text("Потолок доступности")
-    expect(summary).to_contain_text("Старты не включены в предложение")
+    expect(summary).to_contain_text("Ваш лимит времени")
+    expect(summary).to_contain_text("Соревнования в этот план не включены")
+    # Extra explanation is available by keyboard without pushing the decision
+    # or its actual total behind a disclosure.
+    explanation = summary.get_by_text("Как понимать нагрузку", exact=True)
+    expect(explanation.locator("..")).not_to_have_attribute("open", "")
+    explanation.focus()
+    page.keyboard.press("Enter")
+    expect(explanation.locator("..")).to_have_attribute("open", "")
+    expect(summary).to_contain_text("Общая длительность и число тренировок здесь не показаны")
+    page.keyboard.press("Enter")
     expect(page.get_by_text(re.compile("Изменение нагрузки:|нед. rolling|Прогноз CTL / ATL / TSB к старту"))).to_have_count(0)
     expect(page.get_by_text(result["forecast"]["message"], exact=True)).to_have_count(0)
     forecast = page.get_by_role("region", name="Модельный прогноз нагрузки", exact=True)
@@ -91,7 +100,7 @@ def test_frozen_decision_scope_load_and_forecast_are_understandable(web_stack, w
         scroll = weeks.locator("div.overflow-x-auto")
         assert scroll.evaluate("element => element.scrollWidth > element.clientWidth")
         expect(weeks.get_by_role("columnheader", name="Плавание, TSS", exact=True)).to_have_count(1)
-    artifact = Path(__file__).parents[2] / "docs/design/evidence/issue-714"
+    artifact = Path(__file__).parents[2] / "docs/design/evidence/issue-714/revision-1"
     artifact.mkdir(parents=True, exist_ok=True)
     page.screenshot(path=str(artifact / f"confirmation-{width}-{theme}.png"), full_page=True)
     if (width, theme) in ((390, "dark"), (1280, "light")):
@@ -122,8 +131,10 @@ def test_edit_different_horizon_has_no_undated_comparison(web_stack):
     assert len(result["preview"]["weekly_tss_before"]) != len(result["preview"]["weekly_tss_after"])
     page.get_by_role("button", name="Далее", exact=True).click()
     summary = page.get_by_role("region", name="Резюме плана", exact=True)
-    expect(summary).to_contain_text("Изменение выбранного цикла")
-    expect(summary).to_contain_text("Сопоставимое сравнение с прежним планом недоступно")
+    expect(summary).to_contain_text("Изменение плана")
+    expect(summary).to_contain_text("Сравнение с прежним планом недоступно")
+    assert any(warning["code"] == "entry_limits_retained" for warning in result["entry_load"]["warnings"])
+    expect(summary.get_by_text("Сохранены стартовые ограничения выбранного цикла; новая история показана отдельно.", exact=True)).to_be_visible()
     expect(summary).to_contain_text(f'{result["totals"]["total_tss"]} TSS')
     expect(page.get_by_text(re.compile("Изменение нагрузки:"))).to_have_count(0)
     page.get_by_role("button", name="Отменить", exact=True).click()
@@ -137,7 +148,7 @@ def test_event_and_manual_summary_use_applied_candidate_data(web_stack, mode):
     if mode == "event_goal":
         assert result["goal"]["events"]
         for event in result["goal"]["events"]:
-            expect(summary).to_contain_text(event["date"])
+            expect(summary.get_by_text("Соревнования", exact=True).locator("..").locator(f'time[datetime="{event["date"]}"]').first).to_be_visible()
     else:
         expect(summary).to_contain_text("Ручные фазы")
         expect(summary).to_contain_text("Базовая подготовка")
@@ -159,6 +170,7 @@ def test_legacy_and_partial_display_does_not_invent_current_or_zero(web_stack, s
         if state == "missing_values":
             payload.pop("lifecycle", None)
             payload["totals"] = None
+            payload["parameters"] = None
             payload["forecast"] = {"points": [{"date": "2026-01-01", "ctl": None}]}
             payload["goal"]["events"] = None
         else:
@@ -169,7 +181,8 @@ def test_legacy_and_partial_display_does_not_invent_current_or_zero(web_stack, s
     if state == "missing_values":
         summary = page.get_by_role("region", name="Резюме плана", exact=True)
         expect(summary).to_contain_text("Период этого варианта не указан")
-        expect(summary).to_contain_text("Данные не переданы")
+        expect(summary).to_contain_text("Нет данных")
+        expect(summary).to_contain_text("Лимит времени для этого варианта неизвестен")
         expect(page.get_by_text("Датированные значения прогноза не переданы", exact=False)).to_be_visible()
         # Presentation omissions do not introduce a second publication policy.
         expect(page.get_by_role("button", name="Подтвердить и сохранить", exact=True)).to_be_enabled()

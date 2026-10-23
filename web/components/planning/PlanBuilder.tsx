@@ -671,9 +671,9 @@ export function PlanBuilder({
 
       {plan && step === 4 ? (
         <>
-          <PlanDecisionSummary plan={plan} awaitingResult={confirmationLocked} />
-          {plan.entry_load ? <EntryLoadSummary assessment={plan.entry_load} adjustments={plan.entry_adjustments} /> : null}
-          <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+          <PlanDecisionSummary plan={plan} awaitingResult={confirmationLocked}>
+          {plan.entry_load ? <EntryLoadSummary assessment={plan.entry_load} adjustments={plan.entry_adjustments} compact /> : null}
+          <section className="mt-4 border-t border-surface-border pt-4">
             {plan.plan_id ? (
               <div className={`text-sm ${plan.confirmation.status === "applied" && plan.confirmation.is_current === true ? "text-tone-success" : "text-ink"}`}>
                 <div className="flex items-center gap-2 text-base font-semibold">
@@ -719,7 +719,7 @@ export function PlanBuilder({
                     Сохранится именно показанный вариант плана.
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex w-full flex-wrap gap-2 sm:w-auto">
                   <button
                     type="button"
                     onClick={resetBuilder}
@@ -740,6 +740,7 @@ export function PlanBuilder({
               </div>
             )}
           </section>
+          </PlanDecisionSummary>
 
           {plan.preview?.microcycle_changes?.length ? (
             <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
@@ -766,6 +767,8 @@ export function PlanBuilder({
             </section>
           ) : null}
           {plan.weekly_target?.breakdown ? (
+            <details className="rounded-card border border-surface-border bg-surface p-4">
+            <summary className="cursor-pointer py-1 text-sm font-medium text-ink">Как выбран недельный ориентир</summary>
             <WeeklyTargetPreview
               preview={{
                 goal: plan.goal,
@@ -775,6 +778,7 @@ export function PlanBuilder({
                 options: demandOptions,
               }}
             />
+            </details>
           ) : null}
           <ForecastSection forecast={plan.forecast} />
           <WeeksTable weeks={plan.weeks} />
@@ -939,7 +943,7 @@ export function Stat({ label, value }: { label: string; value: string }) {
       <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
         {label}
       </div>
-      <div className="mt-1 text-xl font-bold text-ink">{value}</div>
+      <div className="mt-1 break-words text-xl font-bold text-ink">{value}</div>
     </div>
   );
 }
