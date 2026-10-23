@@ -85,3 +85,15 @@ bin to PATH made all26comparison+3preflight tests pass (29passed1.67s). This
 confirms an author-command environment error, not a product port regression or
 a randomly green rerun. New full correct-environment suite is pending. Native
 review remains1/2; C2 scoped delta verification pending.
+
+
+## Final C2 closeout / recorded by Integrator
+
+Independent scoped delta READY atc7b42f53b32ca9821dd07a122b91cfe1befa6d0c;
+26comparison tests independently passed1.78s, local review budget2/2 complete.
+Full correct-environment contributor-safe run on that clean head:
+**3991passed /16skipped /101deselected /7warnings257.11s**. Command uses the
+primary venv bin on PATH as well as the absolute Python interpreter. Domain/API
+then handed off to UI/Design in#714; C3 is independently READY atc324c9e. Earlier
+pending status paragraphs describe intermediate checkpoints, not final C2 state.
+No owner acceptance or refreshed native review is established by these passes.

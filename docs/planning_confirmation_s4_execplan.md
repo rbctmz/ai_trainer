@@ -4,7 +4,7 @@
 дата2026-10-22 Europe/Moscow. [Спецификация](planning_confirmation_s4_spec.md).
 Baseline main00de158; S1/S2/S3/M4 уже слиты. M1 завершён в роли Spec / Architecture Owner;
 M2 UI/Design и revision1 реализованы, M3 owner acceptance частична.23October2026
-владелец одобрил новое before/after сравнение в #714: текущая роль Spec / Architecture Owner;
+владелец одобрил новое before/after сравнение в #714: C1–C3 завершены, текущая роль Supervisor / Integrator;
 Class A для расширения, прежний Class B UI scope сохранён как история.
 [Comparison slice spec](planning_confirmation_s4_comparison_spec.md) задаёт C1–C4.
 
@@ -31,8 +31,8 @@ Class A для расширения, прежний Class B UI scope сохра�
 - [x] (2026-10-23) Current UI3f75915: green CI39991604878 и isolated new/edit/replacement/lost-response probe; native1/2 historical, owner comparison finding recorded.
 - [x] (2026-10-23) Owner approved Class A comparison; task role handoff to Spec recorded before edits; C1 author specification prepared on raw checkpoint evidence.
 - [x] (2026-10-23) C1 independent full+scoped spec check READY at93a37ec; P2 reset wording fixed-in93a37ec; budget2/2, raw characterization and initial contract RED recorded.
-- [ ] C2 implementation completed: typed API/TS, pure/frozen integration and focused21+150checks, lint/build/freshness pass; independent review and full contributor result pending.
-- [ ] C3 UI/Design before/after rendering and isolated browser acceptance.
+- [x] (2026-10-23) C2 independently READY atc7b42f5, malformed-steps P2 fixed-inc7b42f5; local budget2/2. Final clean-head contributor-safe run:3991passed/16skipped/101deselected/7warnings257.11s with venv on PATH. Typed API/TS and frozen integration,26comparison regressions, lint/build/freshness pass.
+- [x] (2026-10-23) C3 UI/Design independently READY atc324c9e, local budget2/2: paired periods/parameters/load/calendar, partial/legacy/historical states. Rest-phase P2 fixed-inc324c9e after reproduced RED; final23S4browser tests passed37.61s, independent delta1passed6.31s; lint/build/freshness pass. UI→Integrator handoff recorded in#714. Owner comprehension remains pending.
 - [ ] C4 integrated checks, owner remaining cases and scoped native round2/2; acceptance/merge separate.
 
 ## Surprises & Discoveries
@@ -260,3 +260,22 @@ and1environment failure (run_web.sh subprocess could not resolve python);
 affected test was reproduced and fixed by test invocation environment, without
 changing product startup. Full correct-environment result and scoped independent
 delta check remain pending. Date-keyed reordered-template case added.
+
+
+## C4 handoff status / 2026-10-23
+
+Supervisor/Integrator received independently READY C3 atc324c9e after the named
+rest-phase P2 correction. All local C1/C2/C3 reviews used bounded full+delta
+rounds; none replaced or reset native review1/2. C2 final full contributor-safe
+run on cleanc7b42f5 passed3991tests; earlier missing bare-python failure was
+resolved by test invocation PATH, without startup code changes. C3 final23S4
+UI tests passed; related63contour and33source/contract checks remain recorded
+at their source boundaries. No reason to repeat the entire contributor suite
+for the single UI text rendering fix. Current CI runs on each pushed head.
+
+The already shown paired edit prototype is frozen. Owner response is pending;
+remaining replacement/unknown-save comprehension checks follow one at a time.
+No owner pass is inferred from tests or silence. Native scoped round2/2 is
+reserved until remaining feedback stabilizes source. Review gate currently
+expects current-head native review; it is not a code-test failure. Acceptance
+label, ready state and merge have not been requested or performed.
