@@ -1948,6 +1948,11 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
         final_plan["entry_load"] = response["entry_load"] = assess_entry_assignments(final_plan, entry_assessment, execution, context=entry_context)
         final_plan["entry_adjustments"] = goal_plan.get("entry_adjustments", [])
         response["entry_adjustments"] = goal_plan.get("entry_adjustments", [])
+    if lifecycle:
+        from models.planning_build_comparison import build_plan_comparison
+        response["comparison"] = build_plan_comparison(
+            latest_checkpoint, json.loads(canonical_json(checkpoint)), params, context,
+        )
     assessment = assess_plan_build_readiness(final_plan, response, {**context, "parameters": params})
     final_plan["build_readiness"] = response["build_readiness"] = assessment
     return PreparedPlanBuild(

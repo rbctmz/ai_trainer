@@ -30,8 +30,8 @@ Class A для расширения, прежний Class B UI scope сохра�
 - [ ] Owner acceptance / merge: отдельное явное решение после M3, пока не запрошено и не выполнено.
 - [x] (2026-10-23) Current UI3f75915: green CI39991604878 и isolated new/edit/replacement/lost-response probe; native1/2 historical, owner comparison finding recorded.
 - [x] (2026-10-23) Owner approved Class A comparison; task role handoff to Spec recorded before edits; C1 author specification prepared on raw checkpoint evidence.
-- [ ] C1 independent spec check and concrete characterization evidence bundle.
-- [ ] C2 typed Domain/API comparison, RED→GREEN, frozen integration and contract freshness.
+- [x] (2026-10-23) C1 independent full+scoped spec check READY at93a37ec; P2 reset wording fixed-in93a37ec; budget2/2, raw characterization and initial contract RED recorded.
+- [ ] C2 implementation completed: typed API/TS, pure/frozen integration and focused21+150checks, lint/build/freshness pass; independent review and full contributor result pending.
 - [ ] C3 UI/Design before/after rendering and isolated browser acceptance.
 - [ ] C4 integrated checks, owner remaining cases and scoped native round2/2; acceptance/merge separate.
 
@@ -191,8 +191,8 @@ CMP01…14, additive legacy behavior and raw/final provenance before C2.
 C2 edits models/planning_build_comparison.py (new pure function
 build_plan_comparison(before_checkpoint, after_checkpoint, parameters, context)),
 api/planning_build_contract.py (typed nullable response field),
-api/planning_service.py::_calculate_plan_build (call only after final checkpoint
-and readiness), web/lib/types.ts (mirror), and relevant smoke/API/contract tests.
+api/planning_service.py::_calculate_plan_build (call after final checkpoint prescriptions/entry repairs, before final
+readiness fingerprint binding), web/lib/types.ts (mirror), and relevant smoke/API/contract tests.
 Before editing, handoff Spec→Domain/API in #714. New tests first fail because
 comparison is absent. Test chronology and failed probes must be recorded, not
 retroactively called RED. Use already-captured sources/context; no new db read
@@ -239,3 +239,15 @@ checkpoint deletion. Supervisor independently confirmed database.py5751; spec
 corrected, rest/outside semantics and span bound clarified.106-case baseline
 already includes cycle full-reset regression; no live reset or source change.
 Scoped delta verification pending; native budget remains1/2.
+
+
+C1 independently READY at93a37ec91feb5b0a4e6f0be913da6e7f27ee63c1, P2 fixed-in93a37ec;
+Spec→Domain/API handoff recorded in #714. C2 adds the approved pure comparison,
+optional API/TS and original retained response integration; [C2 evidence](reports/2026-10-23-planning-comparison-c2/README.md).
+Observed: adding a response field after readiness changed the bound candidate
+fingerprint; verified by require_prepared_readiness failure. Integration now
+computes comparison after final prescription repairs but before final binding.
+No guard weakened and no new dependency reads. Observed: a selected unreadable
+baseline is allowed during explicit replacement; reproduced existing S2
+regression. Such comparison is partial, not a new publication refusal.
+C2 author checkpoint has focused/contract/web checks, independent/broad pending.

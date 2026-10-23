@@ -55,7 +55,7 @@ def main() -> None:
         assert all("date" in row for row in stored["daily_plan"])
         assert all(isinstance(row.get("sessions"), list) for row in stored["session_templates"])
         out = {
-            "source": "3f75915", "synthetic_only": True, "network_calls": calls,
+            "characterization_baseline": "3f75915", "synthetic_only": True, "network_calls": calls,
             "calculation_all_tables_unchanged": True,
             "before_days": len(stored["daily_plan"]),
             "after_days": len(json.loads(result.checkpoint_json)["goal_plan_snapshot"]["daily_plan"]),
