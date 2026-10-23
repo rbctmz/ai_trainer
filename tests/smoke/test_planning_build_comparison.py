@@ -272,3 +272,24 @@ def test_invalid_old_events_and_nonfinite_loads_remain_unknown():
     assert result["before"]["parameters"]["events"] is None
     assert result["before"]["total_tss"] is None
     assert result["days"][0]["before"]["state"] == "unknown"
+
+
+@pytest.mark.parametrize("steps", [[], [{}], [{"duration_seconds": 30}], [{"duration_seconds": 0, "target": {"rpe": 2}}]])
+def test_incomplete_prescription_steps_do_not_become_a_known_change(steps):
+    before = checkpoint()
+    before["goal_plan_snapshot"]["session_templates"][0]["sessions"][0]["materialized_steps"] = steps
+    result = compare(before, checkpoint())
+    assert result["status"] == "partial" and result["counts"] is None
+    assert result["days"][0]["before"]["state"] == "unknown"
+    assert result["days"][0]["change"] == "unknown"
+
+
+def test_reordered_templates_are_matched_by_own_date_not_index():
+    before = checkpoint()
+    before["goal_plan_snapshot"]["session_templates"][1]["sessions"][0] = session(minutes=40)
+    after = deepcopy(before)
+    after["goal_plan_snapshot"]["session_templates"].reverse()
+    result = compare(before, after)
+    assert result["status"] == "complete"
+    assert all(row["change"] == "unchanged" for row in result["days"])
+    assert result["days"][1]["before"]["sessions"][0]["minutes"] == 40

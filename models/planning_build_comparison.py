@@ -57,7 +57,12 @@ def _valid_session(raw: Mapping) -> bool:
         return False
     if raw.get("kind") == "composite":
         return isinstance(legs, list) and bool(legs) and all(isinstance(leg, Mapping) and _valid_session(leg) for leg in legs)
-    return isinstance(steps, list) and all(isinstance(step, Mapping) and _safe(step) is not None for step in steps)
+    return isinstance(steps, list) and bool(steps) and all(
+        isinstance(step, Mapping) and _safe(step) is not None
+        and (_number(step.get("duration_seconds")) or 0) > 0
+        and isinstance(step.get("target"), Mapping) and bool(step["target"])
+        for step in steps
+    )
 
 
 def _session(raw: Mapping) -> dict:

@@ -251,3 +251,12 @@ No guard weakened and no new dependency reads. Observed: a selected unreadable
 baseline is allowed during explicit replacement; reproduced existing S2
 regression. Such comparison is partial, not a new publication refusal.
 C2 author checkpoint has focused/contract/web checks, independent/broad pending.
+
+
+C2 independent round1 found P2 malformed raw steps falsely marked complete;
+supervisor reproduced and4regressions RED, then structural-only fix.26comparison
+and3preflight pass with primary venv on PATH. Full initial suite had3985passes
+and1environment failure (run_web.sh subprocess could not resolve python);
+affected test was reproduced and fixed by test invocation environment, without
+changing product startup. Full correct-environment result and scoped independent
+delta check remain pending. Date-keyed reordered-template case added.

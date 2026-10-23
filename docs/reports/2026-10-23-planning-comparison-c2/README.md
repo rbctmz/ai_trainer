@@ -65,3 +65,23 @@ pending; C3 UI handoff not yet issued. Do not mark the user-facing comparison
 complete from API output or a green test. New ownership/reset/rollback storage is
 N/A; existing publication/storage/cycle regression retains reset/replay gates.
 Synthetic only, no athlete cache/provider read/write or live confirmation.
+
+## Independent C2 round1 and scoped correction
+
+Independent checker on5e29792 ran21comparison tests (21passed1.62s) and found
+one blocking P2: empty steps or[{}] were treated as known complete content.
+Supervisor independently reproduced both (complete/changed), then added four
+structural RED cases (4failed/22passed1.69s). The narrow correction requires
+nonempty finite step duration and a present nonempty target, without scientific
+dose/eligibility classification. Incomplete raw assignments now become unknown
+and comparison partial. A reordered-template regression proves date join rather
+than index pairing; it is not a new template-order rejection policy.
+
+Whole contributor run at5e29792:3985passed/16skipped/101deselected/7warnings,
+1failed273.77s. Failure was run_web preflight subprocess missing bare python
+because the venv was not on PATH. Same failure reproduced in the narrow run
+(28passed/1failed2.91s), without changing run_web.sh. Adding the primary venv
+bin to PATH made all26comparison+3preflight tests pass (29passed1.67s). This
+confirms an author-command environment error, not a product port regression or
+a randomly green rerun. New full correct-environment suite is pending. Native
+review remains1/2; C2 scoped delta verification pending.
