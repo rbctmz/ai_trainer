@@ -1,0 +1,93 @@
+{
+  "A": {
+    "lifecycle": {
+      "action": "start_new",
+      "source_cycle_id": null,
+      "target_cycle_id": "15ccedcd-2e31-4e9f-84ea-3d27791b6a7a",
+      "base_cycle_revision": null,
+      "base_selection_revision": 2,
+      "base_checkpoint_id": 0,
+      "start_date": "2026-10-30",
+      "end_date": "2026-12-20",
+      "closes_cycle_id": null
+    },
+    "totals": {
+      "peak_tss": 420,
+      "total_tss": 2818
+    },
+    "available_hours": 10.0,
+    "target_weekly_tss": 420
+  },
+  "B": {
+    "lifecycle": {
+      "action": "edit_current",
+      "source_cycle_id": "15ccedcd-2e31-4e9f-84ea-3d27791b6a7a",
+      "target_cycle_id": "15ccedcd-2e31-4e9f-84ea-3d27791b6a7a",
+      "base_cycle_revision": 1,
+      "base_selection_revision": 3,
+      "base_checkpoint_id": 3,
+      "start_date": "2026-10-30",
+      "end_date": "2026-11-22",
+      "closes_cycle_id": null
+    },
+    "totals": {
+      "peak_tss": 420,
+      "total_tss": 1278
+    },
+    "available_hours": 10.0,
+    "target_weekly_tss": 420
+  },
+  "C": {
+    "lifecycle": {
+      "action": "start_new",
+      "source_cycle_id": "6bd6b145-32f8-4ec9-9817-4c014544d1b0",
+      "target_cycle_id": "96ff6d8d-9a9c-4756-8ff6-e5c4b2993061",
+      "base_cycle_revision": 1,
+      "base_selection_revision": 1,
+      "base_checkpoint_id": 4,
+      "start_date": "2026-10-30",
+      "end_date": "2026-12-20",
+      "closes_cycle_id": "6bd6b145-32f8-4ec9-9817-4c014544d1b0"
+    },
+    "totals": {
+      "peak_tss": 420,
+      "total_tss": 2818
+    },
+    "available_hours": 10.0,
+    "target_weekly_tss": 420
+  },
+  "D": {
+    "transport_simulation": "commit succeeds; response aborted before browser receipt",
+    "replayed": true,
+    "same_identity": true,
+    "identity_only": true
+  },
+  "diagnostics": {
+    "http_errors": [
+      {
+        "path": "/api/planning/events",
+        "status": 503
+      },
+      {
+        "path": "/api/planning/events",
+        "status": 503
+      },
+      {
+        "path": "/api/planning/events",
+        "status": 503
+      },
+      {
+        "path": "/api/planning/events",
+        "status": 503
+      }
+    ],
+    "console_errors": [
+      "console[error]: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "console[error]: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "console[error]: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "console[error]: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "console[error]: Failed to load resource: net::ERR_FAILED"
+    ],
+    "unhandled_js_errors": 0
+  }
+}

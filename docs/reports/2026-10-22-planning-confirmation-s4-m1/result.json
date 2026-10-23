@@ -1,0 +1,152 @@
+{
+  "athlete_day": "2026-10-16",
+  "baseline": "00de15828a17719b96bf8e1dcb213c1aeca55144",
+  "edit_4_weeks": {
+    "action": "edit_current",
+    "actual_totals_tss": {
+      "peak_tss": 125,
+      "total_tss": 433
+    },
+    "applied_events": [],
+    "calculation_all_tables_unchanged": true,
+    "candidate_period": {
+      "end_date": "2026-11-22",
+      "start_date": "2026-10-26"
+    },
+    "changed_tables_on_prepare": [
+      "planning_build_previews"
+    ],
+    "chosen": {
+      "available_days": [
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat",
+        "sun"
+      ],
+      "available_hours": 10.0,
+      "distance": "olympic",
+      "event_date": null,
+      "goal_type": "triathlon",
+      "intent": "develop",
+      "planning_mode": "training_goal"
+    },
+    "comparison": {
+      "total_tss_after": 433,
+      "total_tss_before": 999,
+      "weekly_tss_delta": -566
+    },
+    "comparison_week_counts": [
+      8,
+      4
+    ],
+    "entry_status": "supported",
+    "forecast": {
+      "first_point": {
+        "atl": 8.8,
+        "ctl": 16.4,
+        "date": "2026-10-16",
+        "tsb": 7.6
+      },
+      "last_point": {
+        "atl": 13.0,
+        "ctl": 14.2,
+        "date": "2026-11-22",
+        "tsb": 1.2
+      },
+      "message": "🟡 Хорошая нагрузка для поддержания формы."
+    },
+    "internal_goal_event_date": "",
+    "preview_fields": [
+      "base_checkpoint_id",
+      "events_after",
+      "events_before",
+      "microcycle_changes",
+      "phases_after",
+      "phases_before",
+      "total_tss_after",
+      "total_tss_before",
+      "weekly_tss_after",
+      "weekly_tss_before",
+      "weekly_tss_delta"
+    ],
+    "weekly_target_tss": 420
+  },
+  "network_calls": 0,
+  "new_8_weeks": {
+    "action": "start_new",
+    "actual_totals_tss": {
+      "peak_tss": 174,
+      "total_tss": 999
+    },
+    "applied_events": [],
+    "calculation_all_tables_unchanged": true,
+    "candidate_period": {
+      "end_date": "2026-12-20",
+      "start_date": "2026-10-26"
+    },
+    "changed_tables_on_prepare": [
+      "planning_build_previews"
+    ],
+    "chosen": {
+      "available_days": [
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat",
+        "sun"
+      ],
+      "available_hours": 10.0,
+      "distance": "olympic",
+      "event_date": null,
+      "goal_type": "triathlon",
+      "intent": "develop",
+      "planning_mode": "training_goal"
+    },
+    "comparison": {
+      "total_tss_after": 999,
+      "total_tss_before": 0,
+      "weekly_tss_delta": 999
+    },
+    "comparison_week_counts": [
+      0,
+      8
+    ],
+    "entry_status": "supported",
+    "forecast": {
+      "first_point": {
+        "atl": 8.8,
+        "ctl": 16.4,
+        "date": "2026-10-16",
+        "tsb": 7.6
+      },
+      "last_point": {
+        "atl": 15.6,
+        "ctl": 16.7,
+        "date": "2026-12-20",
+        "tsb": 1.2
+      },
+      "message": "🟡 Хорошая нагрузка для поддержания формы."
+    },
+    "internal_goal_event_date": "",
+    "preview_fields": [
+      "base_checkpoint_id",
+      "events_after",
+      "events_before",
+      "microcycle_changes",
+      "phases_after",
+      "phases_before",
+      "total_tss_after",
+      "total_tss_before",
+      "weekly_tss_after",
+      "weekly_tss_before",
+      "weekly_tss_delta"
+    ],
+    "weekly_target_tss": 420
+  },
+  "synthetic_only": true
+}

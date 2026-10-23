@@ -101,6 +101,99 @@ class BuildReadinessError(BaseModel):
     build_readiness: BuildReadiness
 
 
+class PlanComparisonScope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    start_date: str
+    end_date: str
+
+
+class PlanComparisonParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    goal_type: str | None
+    distance: str | None
+    planning_mode: str | None
+    intent: str | None
+    focus: str | None
+    demand: str | None
+    available_hours: float | None
+    available_days: list[str] | None
+    events: list[dict[str, Any]] | None
+
+
+class PlanComparisonSide(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scope: PlanComparisonScope | None
+    parameters: PlanComparisonParameters
+    total_tss: int | None
+    peak_tss: int | None
+    schedule_status: Literal["complete", "partial", "unavailable"]
+    reasons: list[str]
+
+
+class PlanComparisonStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str | None
+    intensity: str | None
+    segment_kind: str | None
+    duration_seconds: float | None
+    target: Any
+
+
+class PlanComparisonSession(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str | None
+    sport: str | None
+    role: str | None
+    focus: str | None
+    name: str | None
+    minutes: float | None
+    tss: float | None
+    transition_minutes: float | None
+    materialization_status: str | None
+    structure_status: str | None
+    steps: list[PlanComparisonStep] | None
+    legs: list["PlanComparisonSession"] | None
+
+
+class PlanComparisonDayValue(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["scheduled", "rest", "outside", "unknown"]
+    phase: str | None
+    tss: float | None
+    sessions: list[PlanComparisonSession] | None
+
+
+class PlanComparisonDay(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    date: str
+    change: Literal["added", "removed", "changed", "unchanged", "unknown"]
+    before: PlanComparisonDayValue
+    after: PlanComparisonDayValue
+
+
+class PlanComparisonCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    added: int
+    removed: int
+    changed: int
+    unchanged: int
+    unknown: int
+
+
+class PlanBuildComparison(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: Literal["plan-comparison-v1"]
+    status: Literal["complete", "partial", "no_baseline"]
+    base_checkpoint_id: int | None
+    base_cycle_id: str | None
+    base_cycle_revision: int | None
+    before: PlanComparisonSide | None
+    after: PlanComparisonSide
+    days: list[PlanComparisonDay]
+    counts: PlanComparisonCounts | None
+    reasons: list[str]
+
+
 class BuiltPlanResponse(BaseModel):
     # Legacy nested payloads stay complete: this protocol adds identity without
     # redefining or stripping existing prescriptions, audits or future additions.
@@ -121,6 +214,8 @@ class BuiltPlanResponse(BaseModel):
     # Optional only for historical receipts; M4c guards every new publication.
     entry_load: EntryLoadAssessment | None = None
     entry_adjustments: list[EntryDoseAdjustment] | None = None
+    # Historical retained responses may predate comparison; not a new save gate.
+    comparison: PlanBuildComparison | None = None
 
 
 class BuildPreviewResponse(BuiltPlanResponse):

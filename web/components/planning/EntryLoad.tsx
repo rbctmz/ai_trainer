@@ -87,11 +87,12 @@ const reasonText: Record<string, string> = {
 const roleText: Record<string, string> = { off: "отдых", recovery: "восстановление", easy: "лёгкая", quality: "интенсивная", long: "длительная", activation: "активация", race: "старт" };
 const minutes = (value: number) => `${value.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} мин`;
 
-export function EntryLoadSummary({ assessment, adjustments = [], onEdit }: { assessment: EntryLoadAssessment; adjustments?: EntryDoseAdjustment[] | null; onEdit?: () => void }) {
+export function EntryLoadSummary({ assessment, adjustments = [], onEdit, compact = false }: { assessment: EntryLoadAssessment; adjustments?: EntryDoseAdjustment[] | null; onEdit?: () => void; compact?: boolean }) {
   const supported = assessment.status === "supported" && assessment.can_publish;
   const heading = supported ? "Начальная нагрузка согласована с ограничениями" : assessment.status === "needs_baseline" ? "Нужны данные для начальной нагрузки" : assessment.status === "blocked" ? "План не укладывается в ограничения" : "Начальная нагрузка не проверена";
   const profile = assessment.profile;
-  return <section aria-label="Проверка начальной нагрузки" className={`mt-4 rounded-card border p-4 ${supported ? "border-surface-border bg-surface" : "border-tone-warning/40 bg-tone-warning/5"}`}>
+  const retainedNotice = assessment.warnings.some(w => w.code === "entry_limits_retained") ? <p className="mt-2 text-sm text-ink-soft">Сохранены стартовые ограничения выбранного цикла; новая история показана отдельно.</p> : null;
+  const content = <section aria-label="Проверка начальной нагрузки" className={`mt-4 rounded-card border p-4 ${supported ? "border-surface-border bg-surface" : "border-tone-warning/40 bg-tone-warning/5"}`}>
     <h3 className="text-sm font-semibold text-ink">{heading}</h3>
     {assessment.scope ? <p className="mt-1 text-sm text-ink-soft">Начальный период: {assessment.scope.start_date} — {assessment.scope.end_date}.</p> : null}
     <p className="mt-1 text-sm text-ink-soft">Проверка ограничений не оценивает медицинскую безопасность и достижение тренировочной цели.</p>
@@ -113,7 +114,7 @@ export function EntryLoadSummary({ assessment, adjustments = [], onEdit }: { ass
       })}</dl>
       {profile.quality_limits.length ? <p className="mt-2">Есть ограничения качества записей ({profile.quality_limits.length}); они учтены при проверке.</p> : null}
     </details> : null}
-    {assessment.warnings.some(w => w.code === "entry_limits_retained") ? <p className="mt-2 text-sm text-ink-soft">Сохранены стартовые ограничения выбранного цикла; новая история показана отдельно.</p> : null}
+    {compact && supported ? null : retainedNotice}
     {adjustments?.length ? <details className="mt-3 text-sm text-ink-soft"><summary className="cursor-pointer py-1">Изменения назначений: {adjustments.length}</summary>
       <ul className="mt-2 space-y-2">{adjustments.map((change, index) => <li key={`${change.date}-${index}`}>
         {change.date} · {change.sport === "brick" ? "вело → бег" : change.sport ? ENTRY_SPORT_LABELS[change.sport] : "занятие"}: {change.kind === "completed_assignment_retired" ? "выполнение учтено, назначение убрано" : change.kind === "removed_at_entry_limit" ? "убрано из расписания из-за ограничения" : "длительность изменена"}
@@ -123,4 +124,12 @@ export function EntryLoadSummary({ assessment, adjustments = [], onEdit }: { ass
     </details> : null}
     {onEdit ? <button type="button" onClick={onEdit} className="mt-3 rounded-lg border border-surface-border px-3 py-2 text-sm text-ink">Уточнить историю и ограничения</button> : null}
   </section>;
+  // Only successful checks collapse. Refusals and unknown outcomes remain visible.
+  return compact && supported ? <div>
+    {retainedNotice}
+    <details className="mt-1 text-sm text-ink-soft">
+    <summary className="cursor-pointer py-2 font-medium text-ink">Проверка начального объёма{adjustments?.length ? ` · изменений: ${adjustments.length}` : ""}</summary>
+    {content}
+    </details>
+  </div> : content;
 }

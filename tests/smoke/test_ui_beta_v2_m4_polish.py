@@ -106,6 +106,6 @@ def test_microcopy_has_no_stray_english_labels():
     adherence = ADHERENCE_LIB.read_text(encoding="utf-8")
 
     assert "Weekly Target" not in builder
-    assert "Недельная цель" in builder
+    assert "Ориентир недельной нагрузки" in builder
     assert '"pending"' in types
     assert "pending" in adherence

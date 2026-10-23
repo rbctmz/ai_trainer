@@ -3,64 +3,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { readCycleBuildContext } from "@/lib/planningCycles";
+import { PlanDecisionSummary, PlanRuleAudit, PlanBuildRefusal } from "./PlanDecisionSummary";
+import { ForecastSection, WeeksTable } from "./PlanForecast";
+import { GOAL_TYPES, DISTANCES, DAYS, phaseLabel } from "./planningLabels";
 import { EntryDoseFields, EntryLoadSummary, declaredEntryPayload, entryFieldsValid, type EntryDraft } from "./EntryLoad";
 import { ApiError, fetcher, postJSON } from "@/lib/api";
 import {
-  BuiltPlan,
   EntryLoadAssessment,
+  BuildReadiness,
   EntrySport,
   HistoryCoverage,
   BuildPreviewResponse,
   BuildConfirmResponse,
-  ForecastPoint,
   PlanningDemand,
   CycleBuildContext,
   PlanningEventsResponse,
   PlanningOnboarding,
   PlanningStatus,
-  PlanWeek,
   RaceEvent,
   TargetPreview,
 } from "@/lib/types";
-
-const GOAL_TYPES = [
-  { value: "triathlon", label: "Триатлон" },
-  { value: "run", label: "Бег" },
-  { value: "bike", label: "Вело" },
-];
-
-const DISTANCES: Record<string, { value: string; label: string }[]> = {
-  triathlon: [
-    { value: "sprint", label: "Спринт" },
-    { value: "olympic", label: "Олимпийка" },
-    { value: "half", label: "Half (70.3)" },
-    { value: "ironman", label: "Ironman" },
-  ],
-  run: [
-    { value: "5k", label: "5 км" },
-    { value: "10k", label: "10 км" },
-    { value: "half_marathon", label: "Полумарафон" },
-    { value: "marathon", label: "Марафон" },
-    { value: "ultra", label: "Ультра" },
-  ],
-  bike: [
-    { value: "40k_tt", label: "40 км TT" },
-    { value: "100k", label: "100 км" },
-    { value: "100mi", label: "100 миль" },
-    { value: "brevet", label: "200 км (бревет)" },
-    { value: "stage_race", label: "Этапная гонка" },
-  ],
-};
-
-const DAYS = [
-  { value: "mon", label: "Пн" },
-  { value: "tue", label: "Вт" },
-  { value: "wed", label: "Ср" },
-  { value: "thu", label: "Чт" },
-  { value: "fri", label: "Пт" },
-  { value: "sat", label: "Сб" },
-  { value: "sun", label: "Вс" },
-];
 
 export const DEFAULT_DEMAND_OPTIONS: PlanningDemand[] = [
   { level: "easy", label: "Легко", multiplier: 0.9 },
@@ -141,6 +103,7 @@ export function PlanBuilder({
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [entryError, setEntryError] = useState<EntryLoadAssessment | null>(null);
+  const [readinessError, setReadinessError] = useState<BuildReadiness | null>(null);
   const [coverage, setCoverage] = useState<HistoryCoverage | null>(null);
   const [entryDraft, setEntryDraft] = useState<EntryDraft>({});
   const entrySports: EntrySport[] = goalType === "triathlon" ? ["bike", "run", "swim"] : [goalType as EntrySport];
@@ -222,6 +185,7 @@ export function PlanBuilder({
     setBuilding(false);
     setError(null);
     setEntryError(null);
+    setReadinessError(null);
   }
   function onGoalChange(v: string) {
     setGoalType(v);
@@ -290,6 +254,7 @@ export function PlanBuilder({
     setBuilding(true);
     setError(null);
     setEntryError(null);
+    setReadinessError(null);
     try {
       const prepared = await postJSON<BuildPreviewResponse>("/api/planning/build", requestPayload());
       if (current !== generation.current) return;
@@ -298,6 +263,7 @@ export function PlanBuilder({
     } catch (e) {
       if (current !== generation.current) return;
       setFlow("editing");
+      if (e instanceof ApiError && e.code === "plan_not_ready" && e.data?.build_readiness) setReadinessError(e.data.build_readiness as BuildReadiness);
       if (e instanceof ApiError && ["entry_dose_required", "entry_dose_infeasible"].includes(e.code ?? "") && e.data?.entry_load) setEntryError(e.data.entry_load as EntryLoadAssessment);
       setError(e instanceof ApiError ? e.message : "Не удалось собрать план");
     } finally {
@@ -314,6 +280,7 @@ export function PlanBuilder({
     setBuilding(true);
     setError(null);
     setEntryError(null);
+    setReadinessError(null);
     try {
       const confirmed = await postJSON<BuildConfirmResponse>("/api/planning/build/confirm", {
         preview_id: token, confirm: true,
@@ -385,7 +352,7 @@ export function PlanBuilder({
   return (
     <>
       {contextError ? <p role="alert" className="text-sm text-tone-warning">Не удалось получить контекст цикла. Обновите страницу перед созданием плана.</p> : null}
-      {onboarding && !onboarding.completed ? (
+      {onboarding && !onboarding.completed && step !== 4 ? (
         <FirstPlanCard onboarding={onboarding} hours={hours} days={days} />
       ) : null}
       <section className="rounded-card border border-surface-border bg-surface p-5 shadow-card">
@@ -471,6 +438,7 @@ export function PlanBuilder({
                 <Field label="Дата A-старта">
                   <input
                     type="date"
+                    aria-label="Дата A-старта"
                     value={eventDate}
                     onChange={(e) => {
                       setEventDate(e.target.value);
@@ -511,6 +479,7 @@ export function PlanBuilder({
                 {planningMode === "manual" ? (
                   <Field label={`Фазы через запятую — ровно ${horizonWeeks}`}>
                     <input
+                      aria-label="Ручные фазы"
                       value={manualPhases}
                       onChange={(event) => {
                         setManualPhases(event.target.value);
@@ -649,10 +618,7 @@ export function PlanBuilder({
 
             {plan && !plan.plan_id ? (
               <div className="mt-3 rounded-lg border border-surface-border bg-surface-muted/40 px-3 py-2 text-sm text-ink">
-                План собран: изменение нагрузки{" "}
-                {plan.preview.weekly_tss_delta >= 0 ? "+" : ""}
-                {plan.preview.weekly_tss_delta} TSS ·{" "}
-                {plan.event_overlay.rule_version}. Переходите к подтверждению.
+                Предпросмотр готов. Проверьте назначенную нагрузку и условия на шаге подтверждения.
               </div>
             ) : null}
             {!plan ? (
@@ -676,7 +642,7 @@ export function PlanBuilder({
         {entryError ? <EntryLoadSummary assessment={entryError} onEdit={() => goToStep(2)} /> : null}
         {error && !entryError ? (
           <div role="alert" className="mt-3 rounded-lg bg-tone-danger/10 px-3 py-2 text-sm text-tone-danger">
-            {error}
+            {readinessError ? <PlanBuildRefusal assessment={readinessError} /> : error}
           </div>
         ) : null}
 
@@ -705,24 +671,22 @@ export function PlanBuilder({
 
       {plan && step === 4 ? (
         <>
-          <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
-            {"lifecycle" in plan ? <p className="mb-3 text-sm text-ink" role="note">{plan.lifecycle.action === "start_new" ? "Новый цикл" : "Изменение выбранного цикла"}: {plan.lifecycle.start_date} — {plan.lifecycle.end_date}.{plan.lifecycle.closes_cycle_id ? " При подтверждении прежний цикл закроется. История сохранится; участие не будет выведено автоматически." : ""}</p> : null}
+          <PlanDecisionSummary plan={plan} awaitingResult={confirmationLocked}>
+          {plan.entry_load ? <EntryLoadSummary assessment={plan.entry_load} adjustments={plan.entry_adjustments} compact /> : null}
+          <section className="mt-4 border-t border-surface-border pt-4">
             {plan.plan_id ? (
-              <div className="text-sm text-tone-success">
+              <div className={`text-sm ${plan.confirmation.status === "applied" && plan.confirmation.is_current === true ? "text-tone-success" : "text-ink"}`}>
                 <div className="flex items-center gap-2 text-base font-semibold">
                   <span
                     aria-hidden="true"
-                    className="flex h-6 w-6 items-center justify-center rounded-full bg-tone-success/15 text-tone-success"
+                    className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-muted text-ink-soft"
                   >
                     ✓
                   </span>
-                  {plan.confirmation.is_current === false ? "Этот вариант уже сохранялся; сейчас действует другой план" : "План сохранён и стал активным"}
+                  {plan.confirmation.status === "applied" && plan.confirmation.is_current === true ? "План сохранён и стал активным" : plan.confirmation.status === "applied" && plan.confirmation.is_current === false ? "Этот вариант уже сохранялся; сейчас действует другой план" : "Вариант сохранён; его текущий статус не подтверждён"}
                 </div>
                 <p className="mt-1 text-xs">
-                  Новая версия сохранена как checkpoint #{plan.plan_id}. Общая нагрузка
-                  изменилась на {plan.preview.weekly_tss_delta >= 0 ? "+" : ""}
-                  {plan.preview.weekly_tss_delta} TSS по {plan.weeks.length}{" "}
-                  {plan.weeks.length === 1 ? "неделе" : "неделям"} плана.
+                  Сведения выше относятся к этому сохранённому варианту плана.
                 </p>
                 <p className="mt-1 text-xs text-ink-soft">
                   Продолжить можно в «Обзоре» — там видны доступность, расчёт нагрузки и режим
@@ -752,10 +716,10 @@ export function PlanBuilder({
                     {confirmationLocked ? "Сохранение требует проверки" : "Предпросмотр · План ещё не сохранён"}
                   </div>
                   <div className="mt-1 text-sm text-ink-soft">
-                    Изменение нагрузки: {plan.preview.weekly_tss_delta >= 0 ? "+" : ""}{plan.preview.weekly_tss_delta} TSS · {plan.event_overlay.rule_version}
+                    Сохранится именно показанный вариант плана.
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex w-full flex-wrap gap-2 sm:w-auto">
                   <button
                     type="button"
                     onClick={resetBuilder}
@@ -776,11 +740,12 @@ export function PlanBuilder({
               </div>
             )}
           </section>
-          {plan.entry_load ? <EntryLoadSummary assessment={plan.entry_load} adjustments={plan.entry_adjustments} /> : null}
-          {plan.preview.microcycle_changes.length ? (
+          </PlanDecisionSummary>
+
+          {plan.preview?.microcycle_changes?.length ? (
             <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
               <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-                Подводка к стартам · до подтверждения
+                Изменения при подводке к стартам
               </div>
               <div className="mt-3 divide-y divide-surface-border">
                 {plan.preview.microcycle_changes.map((change) => (
@@ -793,7 +758,7 @@ export function PlanBuilder({
                         {microcycleStateLabel(change.before)} → {microcycleStateLabel(change.after)}
                       </div>
                       <div className="mt-0.5 text-xs text-ink-soft">
-                        {change.phase} · {change.after.focus} · {change.label || `Старт ${change.priority}`}
+                        {phaseLabel(change.phase)} · {change.label || `Старт ${change.priority}`}
                       </div>
                     </div>
                   </div>
@@ -801,14 +766,9 @@ export function PlanBuilder({
               </div>
             </section>
           ) : null}
-          <section className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-            <Stat label="Горизонт" value={plan.goal.weeks_to_race ? `${plan.goal.weeks_to_race} нед. до старта` : `${plan.weeks.length} нед. rolling`} />
-            <Stat label="Цель/нед" value={`${plan.weekly_target.target_weekly_tss} TSS`} />
-            <Stat label="Режим" value={plan.weekly_target.demand?.label ?? "—"} />
-            <Stat label="Пик" value={`${plan.totals.peak_tss} TSS`} />
-            <Stat label="Всего" value={`${plan.totals.total_tss} TSS`} />
-          </section>
-          {plan.weekly_target.breakdown ? (
+          {plan.weekly_target?.breakdown ? (
+            <details className="rounded-card border border-surface-border bg-surface p-4">
+            <summary className="cursor-pointer py-1 text-sm font-medium text-ink">Как выбран недельный ориентир</summary>
             <WeeklyTargetPreview
               preview={{
                 goal: plan.goal,
@@ -818,9 +778,11 @@ export function PlanBuilder({
                 options: demandOptions,
               }}
             />
+            </details>
           ) : null}
           <ForecastSection forecast={plan.forecast} />
           <WeeksTable weeks={plan.weeks} />
+          <PlanRuleAudit audit={plan.science_audit} />
         </>
       ) : null}
     </>
@@ -912,7 +874,7 @@ function WeeklyTargetPreview({ preview }: { preview?: TargetPreview | null }) {
     return (
       <section className="rounded-card border border-surface-border bg-surface-muted/40 p-4">
         <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-          Недельная цель
+          Ориентир недельной нагрузки
         </div>
         <div className="mt-3 h-16 animate-pulse rounded-lg bg-surface-muted" />
       </section>
@@ -925,7 +887,7 @@ function WeeklyTargetPreview({ preview }: { preview?: TargetPreview | null }) {
     <section className="rounded-card border border-surface-border bg-surface-muted/40 p-4">
       <div className="flex items-baseline justify-between gap-3">
         <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-          Недельная цель
+          Ориентир недельной нагрузки
         </div>
         <div className="text-sm font-semibold text-ink">
           {target.target_weekly_tss} TSS
@@ -948,120 +910,6 @@ function WeeklyTargetPreview({ preview }: { preview?: TargetPreview | null }) {
         ))}
       </div>
     </section>
-  );
-}
-
-function ForecastSection({
-  forecast,
-}: {
-  forecast: { points: ForecastPoint[]; message: string };
-}) {
-  return (
-    <section className="rounded-card border border-surface-border bg-surface p-5 shadow-card">
-      <div className="mb-3 flex items-baseline justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-          Прогноз CTL / ATL / TSB к старту
-        </span>
-        <span className="text-xs text-ink-soft">{forecast.message}</span>
-      </div>
-      <ForecastChart points={forecast.points} />
-      <Legend />
-    </section>
-  );
-}
-
-function WeeksTable({ weeks }: { weeks: PlanWeek[] }) {
-  return (
-    <section className="overflow-x-auto rounded-card border border-surface-border bg-surface shadow-card">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-surface-border text-left text-xs uppercase tracking-wide text-ink-faint">
-            <th className="px-3 py-2.5 font-medium">Нед.</th>
-            <th className="px-3 py-2.5 font-medium">Фаза</th>
-            <th className="px-3 py-2.5 text-right font-medium">TSS</th>
-            <th className="hidden px-3 py-2.5 text-right font-medium sm:table-cell">Вело</th>
-            <th className="hidden px-3 py-2.5 text-right font-medium sm:table-cell">Бег</th>
-            <th className="hidden px-3 py-2.5 text-right font-medium sm:table-cell">Плав</th>
-            <th className="px-3 py-2.5 font-medium">Заметка</th>
-          </tr>
-        </thead>
-        <tbody>
-          {weeks.map((w) => (
-            <tr key={w.index} className="border-b border-surface-border last:border-0">
-              <td className="px-3 py-2.5 text-ink-soft">{w.week_start.slice(5)}</td>
-              <td className="px-3 py-2.5 text-ink">{w.phase}</td>
-              <td className="px-3 py-2.5 text-right font-medium tabular-nums text-ink">
-                {w.weekly_tss}
-              </td>
-              <td className="hidden px-3 py-2.5 text-right tabular-nums text-ink-soft sm:table-cell">
-                {w.bike || "—"}
-              </td>
-              <td className="hidden px-3 py-2.5 text-right tabular-nums text-ink-soft sm:table-cell">
-                {w.run || "—"}
-              </td>
-              <td className="hidden px-3 py-2.5 text-right tabular-nums text-ink-soft sm:table-cell">
-                {w.swim || "—"}
-              </td>
-              <td className="px-3 py-2.5 text-xs text-ink-faint">{w.adjustment_note}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
-  );
-}
-
-function ForecastChart({ points }: { points: ForecastPoint[] }) {
-  const w = 680;
-  const h = 200;
-  const pad = 24;
-  const { paths, zeroY } = useMemo(() => {
-    if (points.length < 2) return { paths: null, zeroY: 0 };
-    const s = {
-      ctl: points.map((p) => p.ctl),
-      atl: points.map((p) => p.atl),
-      tsb: points.map((p) => p.tsb),
-    };
-    const all = [...s.ctl, ...s.atl, ...s.tsb, 0];
-    const min = Math.min(...all);
-    const max = Math.max(...all);
-    const span = max - min || 1;
-    const x = (i: number) => pad + (i * (w - 2 * pad)) / (points.length - 1);
-    const y = (v: number) => h - pad - ((v - min) / span) * (h - 2 * pad);
-    const toPath = (vals: number[]) =>
-      vals.map((v, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(v)}`).join(" ");
-    return {
-      paths: { ctl: toPath(s.ctl), atl: toPath(s.atl), tsb: toPath(s.tsb) },
-      zeroY: y(0),
-    };
-  }, [points]);
-
-  if (!paths) return <div className="text-sm text-ink-faint">Недостаточно точек.</div>;
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
-      <line x1={pad} x2={w - pad} y1={zeroY} y2={zeroY} stroke="#E2E8F0" strokeWidth={1} />
-      <path d={paths.ctl} fill="none" stroke="#3B82F6" strokeWidth={2} />
-      <path d={paths.atl} fill="none" stroke="#F59E0B" strokeWidth={2} />
-      <path d={paths.tsb} fill="none" stroke="#10B981" strokeWidth={2} />
-    </svg>
-  );
-}
-
-function Legend() {
-  const items = [
-    { c: "#3B82F6", l: "CTL (форма)" },
-    { c: "#F59E0B", l: "ATL (усталость)" },
-    { c: "#10B981", l: "TSB (свежесть)" },
-  ];
-  return (
-    <div className="mt-2 flex flex-wrap gap-4 text-xs text-ink-soft">
-      {items.map((i) => (
-        <span key={i.l} className="flex items-center gap-1.5">
-          <span className="h-2 w-3 rounded" style={{ background: i.c }} />
-          {i.l}
-        </span>
-      ))}
-    </div>
   );
 }
 
@@ -1095,7 +943,7 @@ export function Stat({ label, value }: { label: string; value: string }) {
       <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
         {label}
       </div>
-      <div className="mt-1 text-xl font-bold text-ink">{value}</div>
+      <div className="mt-1 break-words text-xl font-bold text-ink">{value}</div>
     </div>
   );
 }
