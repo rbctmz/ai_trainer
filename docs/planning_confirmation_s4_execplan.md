@@ -3,7 +3,10 @@
 Этот living ExecPlan следует .agent/PLANS.md. Задача#714, родитель#677;
 дата2026-10-22 Europe/Moscow. [Спецификация](planning_confirmation_s4_spec.md).
 Baseline main00de158; S1/S2/S3/M4 уже слиты. M1 завершён в роли Spec / Architecture Owner;
-M2 UI/Design завершён; текущая роль Supervisor/Integrator выполняет M3. Class B для будущего UI-поведения на существующих контрактах.
+M2 UI/Design и revision1 реализованы, M3 owner acceptance частична.23October2026
+владелец одобрил новое before/after сравнение в #714: текущая роль Spec / Architecture Owner;
+Class A для расширения, прежний Class B UI scope сохранён как история.
+[Comparison slice spec](planning_confirmation_s4_comparison_spec.md) задаёт C1–C4.
 
 ## Purpose / Big Picture
 
@@ -22,9 +25,15 @@ M2 UI/Design завершён; текущая роль Supervisor/Integrator в�
 - [x] (2026-10-22) Independent spec round1/2 READY на7337fb5, zero P1/P2: probe повторён,56 compatibility passed/1existing warning8.43s, Ruff/diff green, HEAD/tree unchanged. M1 завершён, явная передача UI/Design для M2 зафиксирована; native0/2 не запускался.
 - [x] (2026-10-22) M2: UI/Design прототип/реализация на46201b3, observable RED→GREEN;55 related E2E, затем14 после contrast-only; final lint/build/контракты green. Independent UI round1/2 READY, zero P1/blocking P2;14 E2E повторены независимо. Передано Supervisor/Integrator для M3.
 - [x] (2026-10-22) M3 automated: CI exactd00fb5f SUCCESS (3942 contributor-safe,77 browser,24 contract); картаS4-01…11 и4 real-DOM owner cases. Дополнительный loading/error probe PASS; UI/domain/AC не менялись. Полные наборы не повторяются без изменений; новый evidence head получает стандартный CI.
-- [ ] M3 owner comprehension: запрошены ответы по A/B/C/D; NOT YET, отсутствие ответа не считается успешным. Static screenshot comprehension не заменяет interactive/assistive-technology usability.
-- [ ] M3 native review:0/2 на момент этой записи; запрашивается на стабильном итоговом HEAD после CI. Может выполняться параллельно ожиданию owner responses; не заменяет их.
+- [ ] M3 owner comprehension: первое A–D упражнение неуспешно; revision1 period/save понятны, availability проверена с подсказкой, total пояснён. Edit effect не понятен без before/after; сравнение одобрено как расширение. Это не blind first-use study и не completed M3.
+- [ ] M3 native review:1/2 clean на9d41e2b, исторический после3f75915; scoped round2/2 оставлен для стабильного итогового кандидата, не для текущего prototype/spec.
 - [ ] Owner acceptance / merge: отдельное явное решение после M3, пока не запрошено и не выполнено.
+- [x] (2026-10-23) Current UI3f75915: green CI39991604878 и isolated new/edit/replacement/lost-response probe; native1/2 historical, owner comparison finding recorded.
+- [x] (2026-10-23) Owner approved Class A comparison; task role handoff to Spec recorded before edits; C1 author specification prepared on raw checkpoint evidence.
+- [ ] C1 independent spec check and concrete characterization evidence bundle.
+- [ ] C2 typed Domain/API comparison, RED→GREEN, frozen integration and contract freshness.
+- [ ] C3 UI/Design before/after rendering and isolated browser acceptance.
+- [ ] C4 integrated checks, owner remaining cases and scoped native round2/2; acceptance/merge separate.
 
 ## Surprises & Discoveries
 
@@ -157,3 +166,69 @@ whole acceptance и native0/2 ещё не выполнены; no merge/live writ
 Обновление M3 / 2026-10-22, Supervisor/Integrator: [общий отчёт](reports/2026-10-22-planning-confirmation-s4-m3/README.md) фиксирует S4-01…11 → реально выполненные тесты, отдельные временные loading/error и lost-response probes, четыре неизменяемых кадра для ответа владельца. Два слишком широких диагностических oracle и один неверный локатор исправлены в capture helpers; это не продуктовый RED и не UI fixes. Disabled-provider503 и намеренный ERR_FAILED классифицированы отдельно от unhandled JS.
 
 Пользователю задана одна группа открытых вопросов без ответов/подсказок; ответа пока нет. Автоматические PASS не закрывают этот критерий. Native review после CI может идти независимо, чтобы не задерживать оставшуюся работу; его результат также не закрывает пользовательскую проверку. Новые факты/ответы и review receipts фиксируются в #714/#715 без косметического push после принятого review; реальная блокирующая ошибка потребует воспроизведения и scoped fix. AC/контракты/числовая политика не пересмотрены.
+
+
+## Comparison extension:23October2026
+
+Purpose: edit should explain actual old→new differences rather than only the
+proposed state. The owner rejected the unavailable-comparison fallback for this
+decision and explicitly approved a Class A API/UI expansion. The approved source
+is issue #714; the comparison spec defines all fields/unknown semantics.
+
+Decision Log: before facts come from the raw selected checkpoint already in
+BuildInputSnapshot.sources, after facts from the final serialized candidate. No
+restore/rebuild of old data and no current GET enrichment. Per-date content
+comparison does not infer moved-session lineage or delete actual history.
+Rationale: old/new horizons and identity namespaces can differ. Existing S1/S2
+retention/transaction/reset ownership remains. No new table, migration, setting
+or provider access. Current complete receipts remain unchanged.
+
+C1 produces docs/planning_confirmation_s4_comparison_spec.md using the slice
+template and evidence in docs/reports/2026-10-23-planning-comparison-m1/. It
+changes approved scope, not UI/layout/runtime. Independent checker verifies
+CMP01…14, additive legacy behavior and raw/final provenance before C2.
+
+C2 edits models/planning_build_comparison.py (new pure function
+build_plan_comparison(before_checkpoint, after_checkpoint, parameters, context)),
+api/planning_build_contract.py (typed nullable response field),
+api/planning_service.py::_calculate_plan_build (call only after final checkpoint
+and readiness), web/lib/types.ts (mirror), and relevant smoke/API/contract tests.
+Before editing, handoff Spec→Domain/API in #714. New tests first fail because
+comparison is absent. Test chronology and failed probes must be recorded, not
+retroactively called RED. Use already-captured sources/context; no new db read
+or comparison policy in TypeScript. Refresh contract registry/extracted artifact.
+
+C3 starts only after C2 contract check, with explicit Domain/API→UI/Design
+handoff. UI uses paired facts/day change states and existing design tokens,
+never client-computed lineage/comparability. Capture distinct new images, leave
+original rejected owner screens unchanged. Owner checks go one at a time.
+
+C4 integrates final head, green CI and independent findings, captures remaining
+owner results without laundering coached replies as unaided, then requests
+only scoped native round2/2 since9d41e2b. Human acceptance/merge are still needed.
+The new architecture boundary does not reset the native review budget.
+
+Concrete commands from this worktree, primary venv on PATH, PYTHONPATH=.:
+
+    python docs/reports/2026-10-23-planning-comparison-m1/probe.py
+    python -m pytest tests/smoke/test_planning_build_comparison.py -q
+    python -m pytest tests/smoke/test_planning_build_confirmation.py tests/smoke/test_planning_build_confirmation_storage.py -q
+    npm --prefix web run contract:extract
+    npm --prefix web run contract:extract -- --check
+    python -m pytest -m e2e tests/e2e/test_planning_confirmation_s4_ui.py tests/e2e/test_planning_build_confirmation_ui.py -q
+    npm --prefix web run lint
+    npm --prefix web run build
+    python -m ruff check .
+    python -m pytest -m "not live and not debug and not e2e" tests/
+
+Expected behavior is CMP01…14, not a test count. Future commands/files above
+are planned, not claimed already present/passed. Run suites once per meaningful
+source boundary; no build concurrently with Next E2E. Pure/protocol tests use
+temporary SQLite; never confirm against athlete DB. Failure rolls back existing
+transaction. Repeating prepare creates only normal pending ownership; reset
+removes that comparison with its existing row.
+
+Outcomes at C1 author draft: scope/contract defined; no production implementation,
+no refreshed native result and no complete owner acceptance. Missing before
+calendar was verified by the existing pinned probe; raw checkpoint availability
+and executable session fields were checked in a second synthetic fixture.

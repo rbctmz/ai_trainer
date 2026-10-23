@@ -811,3 +811,16 @@ physical totals or new server comparison require separate Class A Domain/API
 handoff. No new architecture boundary/ADR, runtime/UI implementation, clinical
 verdict or owner unaided usability is claimed by M1.56 existing compatibility
 checks passed; future S4 BDD/browser checks are not executed by this record.
+
+
+### Planning comparison extension (S4 C1; #714)
+
+23October2026: owner approved Class A extension after edit comparison was not
+understandable through the candidate-only fallback. [Comparison spec](../planning_confirmation_s4_comparison_spec.md)
+and [ExecPlan](../planning_confirmation_s4_execplan.md) define proposed raw
+selected-checkpoint→final-candidate facts retained in the same preview response.
+ASR-REL-1/2 preserve frozen replay/unknown/history; MOD-2/3 keep comparison in
+shared Python with additive optional API/TS and no backfill; PERF-4 reuses
+captured data and bounded date projections outside writer lock. ADR-0001/0002/
+0005/0006/0009 reused, new ADR N/A. C1 author draft only: no new runtime behavior,
+UI, independent verdict, native acceptance or performance outcome claimed yet.

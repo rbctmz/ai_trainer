@@ -130,3 +130,14 @@ E2E harness. Не изменять эту acceptance/доменную семан
 дополнительный смысл передавать Domain/API. M2 реализация не выполнена в M1;
 весь S4 остаётся открытым. Следующая metadata-запись меняет только статус review,
 не создаёт новый spec round или принятие native/merge.
+
+
+## Одобренное расширение23October2026: before/after comparison
+
+Владелец явно одобрил сравнение в #714 после M3 edit finding. Для новых
+edit/replacement исходный candidate-only fallback в строке «Было/станет» и
+S4-03 теперь заменяется [Class A comparison specification](planning_confirmation_s4_comparison_spec.md).
+Исторический текст выше остаётся evidence исходного M1 scope. Остальные
+S4-01…11/ASR/guards действуют. New comparison contract принадлежит Spec и
+Domain/API; React не реконструирует старый период и не вычисляет сопоставимость.
+Compatibility fallback сохраняется для старых/неполных frozen receipts.
