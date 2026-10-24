@@ -34,7 +34,8 @@ M4b/c implement it and M4d hands the typed result to S4.
 - [x] (2026-10-21) UI consumer handoff complete at f0650b5: explicit coverage/limits, typed refusal/provenance/adjustments, token-only confirmation. Independent UI round1 READY,5 real E2E passed; author41 focused then63 whole E2E passed. No browser dose derivation or API/AC change.
 - [x] (2026-10-21) M4d local acceptance on f0650b5:3965 passed/16 skipped/87 deselected/7 warnings in277.59s; Ruff, web lint/build, contract freshness/inventory green. Six isolated UI screenshots retained.
 - [x] (2026-10-21) Remote CI39669348958 SUCCESS on4e9efe9:3942 contributor passed/39skip/87deselected,63E2E and24contract passed. Prior CI one keyboard-test failure investigated; test-only6895cc0 synchronizes expected step focus and asserts checkbox activation, author5passed. Cause remains inferred; full account in UI evidence.
-- [ ] M4d final test-correction CI and native review (0/2 before request); owner acceptance and merge are separate. Exact native receipt/CI result will be recorded on #711 without a documentation push after review.
+- [x] (2026-10-22 Europe/Moscow) M4d final CI39670959095 SUCCESS; native round1/2 clean on7b98ff3, owner explicitly accepted review/label/merge. #711 merged as00de158 at00:01:23 local time; merged tree equals accepted head. No second native/exception. Post-merge evidence is a separate Class C documentation delta.
+- [x] (2026-10-24) Main CI39675328437 final result verified SUCCESS; documentation-only observation, no new product/clinical acceptance claim.
 
 ## Surprises & Discoveries
 
@@ -278,3 +279,24 @@ The integrator now records whole-delivery evidence and requests native review
 on the stable final head. One nonblocking accessibility announcement suggestion
 is retained as follow-up #710; no screen-reader failure was demonstrated.
 [UI acceptance/evidence](design/evidence/issue-710/README.md).
+
+
+## Post-merge closure (2026-10-22 Europe/Moscow)
+
+M4 implementation/consumer delivery is merged in#711 as00de158 from accepted
+7b98ff3. Native round1/2 clean [receipt](https://github.com/rbctmz/ai_trainer/pull/711#issuecomment-6326085434),
+zero review threads; functional CI, new Review gate and owner acceptance verified
+before merge. Local main ref is synchronized without changing the primary dirty
+research checkout. Main tree equals accepted head; main CI39675328437 is running
+at this snapshot. [Process metrics](engineering_process_metrics.md) distinguish
+local/CI evidence, inferred keyboard-race cause and remaining acceptance limits.
+Nonblocking announcement suggestion is now#712, preserving its earlier follow-up
+#710 disposition. Parent#677 remains open. No personal/provider rollout or new
+clinical conclusion is implied. Documentation receipt changes no AC/runtime/DTO.
+
+
+2026-10-24 follow-up: main CI39675328437 finished SUCCESS; parent#677 is now
+closed through#717. Earlier pending/open statuses are historical snapshots.
+This M4 documentation delta was included in#716, then consolidated with the
+remaining docs in#722 at the owner's explicit request. Close#713/#716 as included
+after#722 merges. No new source/native round on the accepted#711.

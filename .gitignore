@@ -293,3 +293,6 @@ Zwift_Training_Plan_*.zip
 week_*.zip
 week_*/
 workout_*.zip
+
+# Public competitor announcement registry (contains no athlete data)
+!research/intervals_apps_2026_10_registry.json
