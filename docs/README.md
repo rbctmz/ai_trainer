@@ -75,6 +75,10 @@ These completed ExecPlans describe the current product behavior and the invarian
 
 ## Drafts and Research
 
+- [`database_path_relocation_slice_spec.md`](database_path_relocation_slice_spec.md),
+  [`database_path_relocation_execplan.md`](database_path_relocation_execplan.md):
+  draft #624 runtime path, explicit offline relocation/validation/activation and
+  rollback contract; spec only, no live migration or implementation approval.
 - [`bike_hr_tss_m0_execplan.md`](bike_hr_tss_m0_execplan.md): M0 research for
   issue #444 (personal bike TSS from HR without power) — data inventory,
   candidate comparison, and the M0 decision; the M1–M3 plan outline is a
