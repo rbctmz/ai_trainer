@@ -15,7 +15,8 @@
 - [x] Проверены #622 owner decision, #624/#625, Settings/API/default consumers и offline backup primitives на main d977618.
 - [x] Относительный default подтверждён без SQLite opens; 16 существующих backup/restore tests passed на временных БД.
 - [x] Подготовлены path/upgrade/CLI/activation/rollback contract и будущая RED matrix.
-- [ ] Независимое spec review; учесть blocking findings до кода.
+- [x] Первое независимое native spec review на ae554b23ab: два blocking P2; оба подтверждены pure-path probe и исправлены в контракте/матрицах.
+- [ ] Scoped verification исправлений; independent spec acceptance до кода (review budget 1/2).
 - [ ] M1 path/default/preflight: RED → GREEN, explicit path compatibility.
 - [ ] M2 offline migrate: RED → GREEN, all-domain/WAL/failure/no-clobber proof.
 - [ ] M3 synthetic acceptance, final checks/native review и явный owner merge.
@@ -30,6 +31,8 @@ Observed: #622 owner decision отменил прежний широкий ст�
 
 Observed: existing backup атомарно публикует новый artifact без clobber, а restore умеет заменять target. Inferred: direct restore на final migration target нарушил бы refusal-on-existing invariant. Verified by: source reading и 16 existing temporary-DB tests; будущий migration-specific race test NOT YET.
 
+Observed: review #724 показал пересечение future sidecar names и ложный legacy detection при cwd=data dir. Inferred: проверок только существующих файлов/endpoint aliases недостаточно, а выбранную SQLite family нельзя считать отдельным legacy store. Verified by: pure-path probe без filesystem/SQLite — все 18 направленных endpoint/suffix комбинаций пересекаются; candidate из data-dir равен target, отдельный checkout candidate отличается. Это проверка логики spec, не runtime GREEN.
+
 ## Decision Log
 
 
@@ -39,10 +42,12 @@ Observed: existing backup атомарно публикует новый artifac
 
 2026-10-24 / Spec Owner: reuse #293 в существующем operator module, no-clobber publication после logical validation. Без новых runtime dependencies, DB schema/receipt/selector, provider writes и automatic retention.
 
+2026-10-24 / Spec Owner after native round 1: до любых artifacts проверять непересекаемость F(p)={p,p-wal,p-shm,p-journal} всех переданных endpoints, а при apply полной тройки source/target/rollback. Исключать сам selected platform store и его sidecars из legacy candidates по нормализованной identity; неоднозначный hardlink family отвергать. Это сохраняет snapshot независимым и разрешает запуск из data directory.
+
 ## Outcomes & Retrospective
 
 
-M0 фиксирует draft specification, не реализованную гарантию. M1–M3, независимый review и owner merge остаются. Runtime/личные данные не изменены. Проверки Windows native/полной migration ещё не выполнялись; не подменять их baseline backup tests.
+M0 фиксирует draft specification, не реализованную гарантию. Первое независимое review выявило два P2; контракты и матрицы исправлены. M1–M3, independent verification исправлений и owner merge остаются. Runtime/личные данные не изменены. Проверки Windows native/полной migration ещё не выполнялись; не подменять их baseline backup tests.
 
 ## Context and Orientation
 
@@ -52,9 +57,9 @@ M0 фиксирует draft specification, не реализованную га�
 ## Plan of Work
 
 
-M1: в `config/database_paths.py` добавить чистый resolver, принимающий platform/env/home/cwd, и узкий read-only legacy/default preflight. Environment reads/defaults остаются в config. В Settings сохранить строковый DATABASE_PATH и явное происхождение выбора. В `Database.__init__` проверять только implicit selection до init, не `_connect`; explicit path не блокировать. API startup и real/demo dependencies используют тот же выбор и alias policy. У operator scripts заменить только default fallback, сохранив explicit аргументы. Не добавлять универсальный cleanup guard из #625.
+M1: в `config/database_paths.py` добавить чистый resolver, принимающий platform/env/home/cwd, и узкий read-only legacy/default preflight. Environment reads/defaults остаются в config. В Settings сохранить строковый DATABASE_PATH и явное происхождение выбора. До legacy refusal исключить выбранный platform store с его sidecars: запуск из data directory не требует миграции самого target; отдельный legacy продолжает блокировать, неоднозначный hardlink/sidecar alias — явный отказ. В `Database.__init__` проверять только implicit selection до init, не `_connect`; explicit path не блокировать. API startup и real/demo dependencies используют тот же выбор и alias policy. У operator scripts заменить только default fallback, сохранив explicit аргументы. Не добавлять универсальный cleanup guard из #625.
 
-M2: добавить `migrate` к существующему SQLite CLI. Наиболее ранние проверки — absolute endpoints, aliases, наличие target/sidecars, stopped acknowledgement. Read-only plan распознаёт legacy application schema по минимуму `activities` из spec и проверяет schema/aggregates без output files. Source может находиться в checkout; target/snapshot — вне checkout, с pairwise alias/no-clobber проверкой. Apply создаёт private rollback snapshot и temporary target, сравнивает schema/ID/raw values, затем публикует no-clobber. Вынести необходимые маленькие reusable функции внутри этого модуля, не дублировать Backup API. Migration path не должен требовать успешного runtime preflight: он нужен как раз для исправления legacy-present.
+M2: добавить `migrate` к существующему SQLite CLI. Наиболее ранние проверки — absolute endpoints, aliases, наличие target/sidecars, stopped acknowledgement и непересекаемость будущих SQLite families F(p)={p,p-wal,p-shm,p-journal} для всех переданных endpoints независимо от наличия файлов. Dry-run может не задавать rollback-output: тогда snapshot path не проверен; apply проверяет полную тройку до первой записи. Read-only plan распознаёт legacy application schema по минимуму `activities` из spec и проверяет schema/aggregates без output files. Source может находиться в checkout; target/snapshot — вне checkout, с pairwise alias/no-clobber проверкой. Apply создаёт private rollback snapshot и temporary target, сравнивает schema/ID/raw values, затем публикует no-clobber. Вынести необходимые маленькие reusable функции внутри этого модуля, не дублировать Backup API. Migration path не должен требовать успешного runtime preflight: он нужен как раз для исправления legacy-present.
 
 M3: один синтетический application DB с provider links/manual links, planning/decision/match/feedback/readiness evidence и committed WAL marker проходит CLI plan → apply → explicit restart → сравнение. Затем inject failures, target race, retry/reset и post-activation rollback proof. Обновить существующий runbook, quickstart и ADR-0002; раскрыть фактически проверенные ОС. Опубликовать evidence bundle на final head, затем native review и owner merge; никаких live migration команд автоматически.
 
@@ -75,7 +80,7 @@ M3: один синтетический application DB с provider links/manual 
 ## Validation and Acceptance
 
 
-Матрица spec покрывает три ОС, два cwd, explicit overrides/Docker, real/demo aliases, legacy-only/both, WAL, существующий/появившийся target, corrupt schema/data, disk/permission/publish failures, restart/retry/reset и rollback после новых записей. Проход — поведение, а не только тест-count: source/config не меняются при отказе; финальный target появляется только проверенным; старые IDs и raw JSON не переписаны; нельзя потерять новые записи возвратом к stale source. Указать реальные команды/счётчики/платформы после исполнения, не заранее обещать число GREEN.
+Матрица spec покрывает три ОС, два cwd и cwd=platform data dir с existing main/sidecars, отдельный legacy store, все 18 направленных endpoint/sidecar пересечений с ещё отсутствующими файлами, explicit overrides/Docker, real/demo aliases, legacy-only/both, WAL, существующий/появившийся target, corrupt schema/data, disk/permission/publish failures, restart/retry/reset и rollback после новых записей. Проход — поведение, а не только тест-count: source/config не меняются при отказе; финальный target появляется только проверенным; старые IDs и raw JSON не переписаны; нельзя потерять новые записи возвратом к stale source. Указать реальные команды/счётчики/платформы после исполнения, не заранее обещать число GREEN.
 
 ## Idempotence and Recovery
 
@@ -91,3 +96,6 @@ M0 baseline d977618: AST default `ai_trainer.db`; два temp cwd разреша
 
 
 Использовать standard library pathlib/os/sys/sqlite3; без platformdirs/new dependency. Будущие seams в config: `resolve_database_paths(env, platform, home, cwd)` возвращает normalized real/demo paths + origin, `runtime_database_path()` выполняет узкий implicit-selection preflight и возвращает строку либо именованную configuration error. Import Settings сам не открывает/создаёт SQLite. CLI-facing `plan_database_relocation(...)` и `migrate_database(..., apply, confirm_stopped)` находятся рядом с существующим backup/restore; result/exit contract описан spec. Public REST/TypeScript и схема не меняются. Независимый reviewer проверяет resolved paths/upgrade/default consumers и failure boundaries до Domain/API implementation; merge/live authority остаётся у rbctmz.
+
+
+Revision 2026-10-24: по независимому review ae554b23ab уточнены selected-store identity и будущие SQLite namespaces; добавлены M1/M2 cases, evidence и review budget. Изменены только документы, новые runtime tests пока planned.

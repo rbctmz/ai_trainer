@@ -2,13 +2,13 @@
 
 Статус: **Draft / spec only**, 24 октября 2026. Runtime ещё не изменён.
 Issue: [#624](https://github.com/rbctmz/ai_trainer/issues/624), parent [#622](https://github.com/rbctmz/ai_trainer/issues/622).
-Author: Spec / Architecture Owner; checker: независимый spec reviewer, ещё не назначен; merge owner: rbctmz.
+Author: Spec / Architecture Owner; checker: независимый native reviewer (round 1: ae554b23ab; verification pending); merge owner: rbctmz.
 Baseline: `d977618804d63b43dbb1078be69dae5648f3dacb`. Candidate SHA — текущий docs PR, фиксируется в его evidence bundle.
 [ExecPlan](database_path_relocation_execplan.md).
 
 ## Change Class
 
-**Class A / Full** для реализации: меняются default конфигурации, выбор persistent data и operator migration boundary. Текущий срез только документирует контракт; проверка docs соразмерна Class C, это не понижение класса реализации. Native/spec review пока не запрошены; бюджет 0/2, manual only, acceptance SHA и exception: N/A. Переход к коду — после независимого spec review, не по одному наличию этого файла.
+**Class A / Full** для реализации: меняются default конфигурации, выбор persistent data и operator migration boundary. Текущий срез только документирует контракт; проверка docs соразмерна Class C, это не понижение класса реализации. Первое независимое native spec review выполнено на `ae554b23ab`: два blocking P2, исправления описаны ниже; бюджет 1/2, manual only, acceptance SHA и exception: N/A. Scoped verification исправлений ещё не получена. Переход к коду — после независимого spec review, не по одному наличию этого файла.
 
 ## Scope
 
@@ -40,7 +40,7 @@ Baseline: `d977618804d63b43dbb1078be69dae5648f3dacb`. Candidate SHA — теку
 
 ### Upgrade preflight
 
-Перед **неявным** открытием real DB проверить известные legacy candidates `ai_trainer.db` и sidecars (`-wal`, `-shm`, `-journal`) в launch cwd и checkout. Для linked worktree также учитывать основной checkout из Git metadata, без рекурсивного поиска по home. Нечитаемое/неоднозначное metadata — именованный отказ, не выбор наугад. При наличии legacy artifact отказаться с `database_migration_required` **до создания новой БД**, независимо от возраста/размера файлов. Если legacy и target существуют, не выбирать «свежее». Явный override — осознанный выбор оператора, preflight не переопределяет его.
+Перед **неявным** открытием real DB проверить известные legacy candidates `ai_trainer.db` и sidecars (`-wal`, `-shm`, `-journal`) в launch cwd и checkout. Для linked worktree также учитывать основной checkout из Git metadata, без рекурсивного поиска по home. Нечитаемое/неоднозначное metadata — именованный отказ, не выбор наугад. Сначала исключить из legacy candidates уже выбранное platform store и принадлежащие ему sidecars: сравнивать нормализованные абсолютные base paths, resolved parent paths и native case/file identity. При `cwd=platform_data_dir` кандидат `cwd/ai_trainer.db` — сам target, не отдельная legacy DB; его main/WAL/SHM/journal не вызывают migration_required. Один лишь hardlink main-файла при разных base names не доказывает идентичность SQLite family: при неоднозначной принадлежности sidecars — именованный отказ, не пропуск проверки. При наличии **отдельного** legacy artifact отказаться с `database_migration_required` **до создания новой БД**, независимо от возраста/размера файлов. Если legacy и target существуют, не выбирать «свежее». Явный override — осознанный выбор оператора, preflight не переопределяет его.
 
 Preflight нужен в API startup, direct real dependency и default `Database()`; Settings import остаётся без открытия/создания БД. Явные temp/offline paths не блокируются наличием чужого legacy файла. Это default-selection проверка #624, не armed-guard framework #625. REST/TypeScript/DB schema — unchanged. Конфигурационный default — breaking с явным upgrade refusal и operator migration; explicit непустой override — compatible. CLI `migrate` — additive. API/TS DTO и endpoints не меняются; startup error — операторская диагностика, не новое экранное API.
 
@@ -54,6 +54,8 @@ Preflight нужен в API startup, direct real dependency и default `Database
 Без `--apply` — read-only dry-run: paths, существование/alias checks, integrity/schema и агрегаты; target/snapshot/config не создаются. SQLite читается через `mode=ro`, без DDL/DML; dry-run не обещает неподвижность SQLite read-lock/SHM metadata. Apply заново проверяет источник после остановки, не доверяя устаревшему dry-run.
 
 Apply требует `--confirm-stopped`, явных абсолютных source/target/rollback-output. Флаг — подтверждение оператора, не автоматическое обнаружение/остановка процессов. Отсутствует флаг — отказ до записей. Все существующие target/rollback-output (включая пустой файл), их sidecars, aliases между любыми двумя endpoints, symlink endpoints и directory/invalid source — отказ. Source разрешён внутри legacy checkout; target и rollback-output должны быть вне Git checkout. Проверять также разрешённые parent paths: symlink в родителе не должен обходить эту границу. Hardlink/case aliases проверяются native resolve/samefile до SQLite; неизвестный результат — отказ. Rollback snapshot также публикуется no-clobber; source, target и snapshot не могут подменять друг друга.
+
+До открытия SQLite/создания artifacts проверить также будущие имена: для каждого endpoint `p` зарезервировано семейство `F(p)={p, p+"-wal", p+"-shm", p+"-journal"}`. Для любых двух из source/target/rollback-output семейства должны быть попарно непересекающимися, даже если файлы ещё отсутствуют; применять ту же нормализацию parent/case/alias, что к endpoints. Пересечение — `endpoint_namespace_overlap`, отказ без artifacts. Например, target=`/outside/new.db`, rollback-output=`/outside/new.db-wal` запрещены в обоих направлениях, как и пары с source и суффиксами `-shm`/`-journal`. Проверка обязательна и в dry-run для всех переданных endpoints; rollback-output без apply опционален, но такой plan не утверждает, что непереданный snapshot path проверен. Apply заново проверяет полную тройку до первой записи.
 
 Порядок apply: validate source → WAL-aware private rollback snapshot через #293 → сравнить его logical schema/data с source → подготовить временный target рядом с назначением → integrity + logical validation → atomic **no-clobber** publication. Если target появился в гонке, не перезаписывать. Не вызывать `restore_database` непосредственно на final target: этот API умеет заменять существующий файл. Переиспользовать `_copy_sqlite`, `_publish_new_artifact` и связанные уже проверенные примитивы в том же модуле; не писать второй backup engine.
 
@@ -78,9 +80,11 @@ Persistent artifacts: relocated DB и operator-owned rollback snapshot; ново
 | Identity / provenance | State | Expected / falsifier |
 |---|---|---|
 | default / два cwd | fresh, нет legacy | один абсолютный platform path |
+| cwd=platform data dir / тот же resolved store | target main/sidecars уже существуют | открыть выбранный store, без ложной migration_required; отдельный legacy по-прежнему блокирует |
 | explicit absolute/relative; Docker | valid override | сохранить выбранный файл и origin |
 | legacy main/WAL; default missing/exists | ambiguous | migration_required, никаких новых DB |
 | source=target / symlink / hardlink / case alias | conflicting | отказ до записи |
+| F(source), F(target), F(rollback-output) | future endpoint/sidecar names пересекаются | endpoint_namespace_overlap до открытия SQLite/создания artifacts |
 | target/sidecar возник после preview | stale | no-clobber, чужой файл неизменён |
 | snapshot + target | verified present | все IDs/payload и committed WAL pages сохранены |
 | copied target с новыми user writes | newer than legacy | не возвращаться автоматически к stale source |
@@ -93,6 +97,8 @@ Persistent artifacts: relocated DB и operator-owned rollback snapshot; ново
 |---|---|
 | default cwd-independent; macOS/Linux/Windows | pure resolver fixtures, XDG/LOCALAPPDATA absent/empty/relative, unknown platform |
 | compatibility + no implicit switch | explicit absolute/relative, Docker override, legacy-only/both/sidecar-only; no created target |
+| selected platform store не legacy | cwd=data dir с target main/WAL/SHM/journal; тот же resolved store при parent alias/native case; отдельный legacy всё ещё блокирует, ambiguous hardlink family не пропускается |
+| непересекаемые SQLite families | все 6 направленных пар endpoints × 3 sidecar suffixes (18 cases), файлы ещё отсутствуют; dry-run/apply отказывают до artifacts; distinct sibling DB names разрешены |
 | real/demo/acceptance isolation | distinct files, alias refusal до seeding, explicit temp mode без доступа к user home |
 | migration dry-run | unchanged logical source, нет target/snapshot/config artifacts; aggregates без personal rows |
 | WAL + local evidence | committed marker ещё в WAL; all-domain IDs/raw values одинаковы после copy |
@@ -117,20 +123,25 @@ M0 — эта спецификация и ExecPlan. M1 — RED→GREEN path/defa
 
 ## Evidence Bundle
 
-M0 baseline: AST inspection `config/settings.py:116` и два temp cwd подтвердили относительный default, SQLite не открывалась. Существующий `test_sqlite_backup_restore.py`: **16 passed / 0.56s**, только tmp_path. Это проверка reuse primitive, не реализованной migration. Проверены `git diff --check`, локальные Markdown links в трёх документах и обязательные sections/checkbox placement ExecPlan. Primary checkout clean на d977618; runtime source не менялся. Native rounds 0/2, manual; independent findings: NOT YET. Broad runtime/UI suites N/A для spec-only diff. Новый конфигурационный/CLI контракт не реализован. Остаточные риски: native Windows paths/ACL, распознавание legacy schema и unsupported SQLite objects, quiescence доверяется operator.
+M0 baseline: AST inspection `config/settings.py:116` и два temp cwd подтвердили относительный default, SQLite не открывалась. Существующий `test_sqlite_backup_restore.py`: **16 passed / 0.56s**, только tmp_path. Это проверка reuse primitive, не реализованной migration. Проверены `git diff --check`, локальные Markdown links в трёх документах и обязательные sections/checkbox placement ExecPlan. Primary checkout clean на d977618; runtime source не менялся. Native rounds 1/2, manual; review `5639434571` на `ae554b23ab`, оба P2 исправлены в spec, independent verification pending. Pure-path probe подтвердил 18 endpoint/sidecar пересечений и равенство selected target/cwd candidate; файловые/SQLite операции не выполнялись, это не GREEN будущей реализации. Broad runtime/UI suites N/A для spec-only diff. Новый конфигурационный/CLI контракт не реализован. Остаточные риски: native Windows paths/ACL, распознавание legacy schema и unsupported SQLite objects, quiescence доверяется operator.
 
 ## Review Findings
 
-Self-review: исправлена неоднозначность source-in-checkout и определены schema recognition / all-table equality / rollback endpoint collision checks. Это авторская проверка; независимых findings пока нет. Reviewer фиксирует `Observed / Inferred / Verified by`, severity и нарушенный AC до блокировки реализации.
+Первое независимое review: два blocking P2 на `ae554b23ab`, оба приняты и исправлены документально. Commit disposition указан в PR threads; новая runtime implementation отсутствует.
+
+| Finding | Observed / Inferred / Verified by | Gate / status |
+|---|---|---|
+| P2 [4368076843](https://github.com/rbctmz/ai_trainer/pull/724#discussion_r4368076843) | Distinct endpoints могут пересекаться с будущими sidecars → snapshot окажется SQLite-owned; pure-path probe подтвердил пример `new.db` / `new.db-wal` и все 18 направленных комбинаций | Исправлено: F(p) disjoint, отказ до artifacts; M2 RED cases planned; scoped verification pending |
+| P2 [4368076850](https://github.com/rbctmz/ai_trainer/pull/724#discussion_r4368076850) | Cwd=data dir даёт legacy candidate == target → ложный migration_required; pure-path подстановка Linux default подтвердила равенство и отдельность checkout candidate | Исправлено: исключить выбранную SQLite family, сохранить отказ для отдельного legacy; M1 RED cases planned; scoped verification pending |
 
 ## Native Review Rounds
 
 | Round | Reviewed SHA | Trigger | Findings / decision |
 |---|---|---|---|
-| — | — | manual, ещё не запрошен | 0/2; независимое spec review pending |
+| 1 | `ae554b23ab` | manual | 2 blocking P2; spec corrected, scoped verification pending; used 1/2 |
 
 ## Final Verdict
 
-**READY FOR SPEC REVIEW; NOT READY FOR IMPLEMENTATION.** Непроверенный spec не считать независимым одобрением. Следующий role handoff: independent spec reviewer → Domain/API implementer, только после закрытия blocking findings. Human merge/live migration остаются отдельными решениями. #624/#622 не закрываются по этому docs PR.
+**READY FOR SCOPED SPEC VERIFICATION; NOT READY FOR IMPLEMENTATION.** Два P2 исправлены автором; independent acceptance исправлений пока не получен. Следующий role handoff: independent spec reviewer → Domain/API implementer, только после закрытия blocking findings. Human merge/live migration остаются отдельными решениями. #624/#622 не закрываются по этому docs PR.
 
 OS references для выбора каталогов: [Apple Application Support](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPFileSystem/Articles/WhereToPutFiles.html), [XDG Base Directory 0.8](https://specifications.freedesktop.org/basedir/0.8/), [Windows LocalAppData](https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid). Это обоснование выбранного layout, не выполненная cross-platform runtime-проверка.
