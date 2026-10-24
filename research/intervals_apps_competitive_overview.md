@@ -1,89 +1,76 @@
-# Приложения Intervals.icu: конкурентный обзор для AI Trainer
+# Intervals.icu: конкурентный обзор для AI Trainer
 
-Дата среза: 2026-07-13.
+Срез: 2026-10-20. Проверка документов и выборочных первичных источников; без платного onboarding или проверки алгоритмов на тренировках. Профиль AI Trainer сверён с локальным HEAD `fda0c83`.
 
-## Охват
+## Что можно заключить
 
-- Исходный каталог: `intervals_icu_ai_trainer_apps.csv`.
-- Фильтр каталога Intervals.icu: категория «ИИ Тренер».
-- Всего: 63 приложения, включая 2 уже подключенных к исследованному аккаунту и 61 запись каталога.
-- Эталон нашего продукта: `research/ai_trainer_product_profile.md`.
-- Правила проверки: `research/comparison_methodology.md`.
+**Observed:** в июльском отфильтрованном каталоге сохранены 63 приложения. В новой форумной выборке — 35 строк анонсов: 25 coach-записей (23 уникальных названия), 6 MCP/data-access, 2 смежных продукта, 1 инструмент тренера и повторный Brotein. Это разные выборки: складывать их в «95 конкурентов» или измерять по ним рост рынка нельзя. Gregaria опубликован 13.07, на границе старого среза.
 
-## Как читать материалы
+**Observed:** несколько конкурентов соединяют планирование, фактические активности, recovery и доставку на устройство. Есть явное подтверждение изменений у Paceform и TriCoach. Поэтому «AI-чат», «генерация плана», «readiness» и «approval» по отдельности не устанавливают уникальность AI Trainer.
 
-Подробные карточки приложений разделены на три группы:
+**Inferred:** перспективное позиционирование AI Trainer — контроль данных и проверяемый жизненный цикл плана: локальный источник истины, сохраняемые предложения, защита от устаревшего подтверждения, история и откат, плюс исполняемые сессии. **Verified by:** текущие репозиторные контракты; сравнительная уникальность всей комбинации не доказана без аудита реализации конкурентов.
 
-- `research/intervals_apps_batch_1.md`
-- `research/intervals_apps_batch_2.md`
-- `research/intervals_apps_batch_3.md`
+## Главные изменения после июля
 
-`n/a` означает отсутствие публичного подтверждения, а не доказанное отсутствие функции. Уровень confidence относится к качеству доступных официальных данных.
+| Продукт | Уточнение на 20.10 | Основание и предел проверки |
+|---|---|---|
+| Coach AMA | Объявляет закрытие и прекращение набора | [Официальный сайт](https://coach-ama.com/); старые €10/€20 блоки сохранены и не означают доступность подписки |
+| Peaking | Публичный trial и тариф | [Сайт](https://peaking.pro/): 30 дней без карты, $4.99/мес или $44.99/год; это коммерческое предложение, не проверка качества |
+| TrainerDay | Сайт доступен, прежний 403 не характеризует продукт | [Сайт](https://trainerday.com/): $4.99/мес, $3.33/мес при годовой оплате; есть ограниченный free tier |
+| Paceform | Явный Apply/Keep перед изменением недели; web/PWA | [Сайт](https://paceform.app/): founding €69/год; monthly-переключатель не проверен. Наличие UI approval подтверждено, server enforcement и rollback неизвестны |
+| Trace | Теперь сайт заявляет iPhone и Android, помимо web | [Сайт](https://usetrace.de/en): annual Athlete €67.10 и Pro €124.68; показаны эквиваленты €5.59/€10.39 в месяц, не month-to-month тариф |
+| TrainerAI | Trial изменён с 30 на 14 дней | [Обновление автора 30.09](https://forum.intervals.icu/t/trainerai-an-intervals-icu-coach-that-lives-in-telegram-writes-to-you-first-and-keeps-no-copy-of-your-data/132167): €9.99/мес с VAT; текущий сайт не удалось прочитать |
+| VeloGrit | В анонсе снижена цена до €2.95/мес и €29.95/год | [Тема и ответы автора](https://forum.intervals.icu/t/velogrit-automated-data-driven-periodization-1-click-zrl-dirt-imports-5-back-to-intervals-icu/132596); акция −50% закончилась 30.09, текущий checkout не проверен |
+| TriCoach AI | PWA; native apps в roadmap, а не подтверждённые приложения | [Анонс](https://forum.intervals.icu/t/tricoach-ai-200-triathletes-from-15-countries-in-4-months-come-see-whats-different/132270): approve week, A/B/C, OAuth. [Сайт](https://coachtriathlon.com/) содержит CAD pricing и старый beta-counter; число доступных мест не установлено |
+| Norvin | Появился публичный founding pricing | [Сайт](https://norvin.fit/): 14 дней, $19.99/мес или $79.99/год; июльская карточка цены не фиксировала |
+| Gregaria | Клиентские ask-first permissions заявлены; server gate не установлен | [Обсуждение](https://forum.intervals.icu/t/gregaria-mcp-remote-mcp-server-for-intervals-icu-no-local-setup/130675); исходный анонс подтверждает Claude, ChatGPT тогда roadmap |
+| Adapt Run / FitMi | Текущую работу подтвердить не удалось | Ошибка доступа/пустой ответ не доказывают закрытие сервиса |
 
-## Сводные выводы
+Цены разных billing periods, валют и объёмов продукта не ранжируются как единый прайс. Trial, free-анализ одной активности, OSS и полный coach SaaS также не эквивалентны.
 
-1. **Обычный AI-чат и генерация плана уже стали commodity.** В каталоге много продуктов с похожим обещанием, а публичные цены узких сервисов часто лежат около $/€5–10 в месяц; зрелые full-stack продукты обычно ближе к $/€15–20.
-2. **Рыночный стандарт смещается к полному циклу:** recovery/readiness → изменение плана → доставка тренировки на устройство → post-workout feedback. AI Trainer силен в объяснимом и безопасном изменении плана, но слабее в доставке на мобильные/watch/device surfaces.
-3. **Intervals.icu работает как дешевый data/distribution hub.** AI Trainer уже использует его для профиля, гонок A/B/C, plan-fact evidence и legacy-экспорта событий, сохраняя direct Garmin как основной источник. Пробел теперь не в отсутствии интеграции, а в OAuth/onboarding и завершённой last-mile доставке из основного web-контура.
-4. **Proactive delivery важнее еще одного dashboard.** Утренние сообщения, post-session review, Telegram/WhatsApp/Discord и push уменьшают необходимость самому открывать web-интерфейс. У AI Trainer backend-сигналы уже есть, но нет такого пользовательского канала.
-5. **Human-in-the-loop становится нормой, но редко описан строго.** Несколько продуктов показывают review/approval, однако публично подтвержденная комбинация AI Trainer `signal → conflict → proposal → approve/reject → audit → rollback` остается редкой и защитимой.
-6. **Главная позиция AI Trainer — не “еще один AI coach”.** Более четкий тезис: self-hosted, direct Garmin, local data, model choice/Ollama и обратимые действия с доказательствами.
+## Кого сравнивать глубже
 
-## Наиболее близкие конкуренты
+Это shortlist по пересечению функций, а не рейтинг качества.
 
-| Продукт | Почему близок | Где конкурент сильнее | Где AI Trainer сильнее |
-|---|---|---|---|
-| IntervalCoach | Multisport, daily readiness, adaptive plans, AI chat | Breadth recovery signals, mobile, зрелый adaptation runtime | Self-hosting, multi-provider/Ollama, explicit audit/rollback |
-| AI Endurance | Science/predictive adaptive planning | Predictive models, integrations, коммерческая зрелость | Local control, provider choice, approval lifecycle |
-| Athletica | Multisport plans, readiness, coach workflows | Sports-science maturity, human-coach ecosystem | Self-hosting, Russian-first, reversible AI actions |
-| Enduco | Multisport adaptive mobile coach | Native mobile, device breadth, adaptivity UX | Direct Garmin/local data, explainable readiness gate |
-| Coach Watts | Plan + recovery + nutrition | Nutrition/fueling layer, integrations, proactivity | Safer mutation governance, local/provider independence |
-| Intervals Pro | Chat → analysis → plan → approval → calendar | Telegram/WhatsApp, Intervals-native distribution, power analytics | Direct Garmin, self-hosting, deterministic gate/rollback |
-| LeCoach | Adaptive endurance planning and plan-health | Device delivery, polished SaaS lifecycle | Evidence trail, local deployment, model choice |
-| PlanWatts | Conversational multisport planning and editing | Intervals/device ecosystem, teams, sharing, low-friction SaaS | Recovery decision safety, audit, rollback, Ollama |
-| RestOrTrain | Conversational recovery-aware coach | iOS polish, integrations, proactive/route workflows | Transparent human approval and local data ownership |
-| RacePal | Triathlon plans, health signals, adaptive schedule | Consumer mobile, nutrition/race UX | Self-hosting, traceable actions, multi-provider AI |
-| RaceMind | Deterministic sports science + LLM explanation | Consumer integrations, push, workout library | Broader AI provider choice and explicit proposal lifecycle |
-| Ridium | Cycling-specific contextual AI coach | Focused cycling UX and Intervals integration | Multisport planning, self-hosting, recovery audit/rollback |
+| Продукт | Общий сценарий с AI Trainer | Что проверить в пользовательской приёмке |
+|---|---|---|
+| Paceform | План → факт → изменение → подтверждение → watch delivery | Сохранённый diff, undo, повторное подтверждение, pace targets на устройстве |
+| TriCoach AI | Триатлон, A/B/C, ограничения, недельный план и sync | Стабильность macrocycle при replanning, recovery, native/PWA distinction |
+| Trace | Readiness, deterministic analytics, планы, debrief | Доказательства readiness, правила адаптации, мобильная доставка и стоимость полного сценария |
+| TrainerAI | Telegram, пропуски и недельный review, календарные действия | Поведение при устаревших данных, подтверждение записи, история/откат |
+| IntervalCoach / AI Endurance / Athletica / Enduco | Полный adaptive coaching цикл | Сохраняют статус shortlist из июльских карточек; pricing и текущее поведение не переаудированы |
+| PlanWatts / Intervals Pro / RestOrTrain | Разговорный план и действия над данными | Контроль записи, provenance, переносы, восстановление после ошибок; июльский функциональный baseline |
 
-## Повторяющиеся возможности рынка
+## AI Trainer: нынешнее положение
 
-- Генерация многонедельного или сезонного плана по цели и доступному времени.
-- Изменение недели после пропуска, усталости, HRV/sleep/readiness или изменения расписания.
-- Чат поверх истории тренировок и post-workout объяснения.
-- CTL/ATL/TSB, нагрузка, adherence и race/fitness projections.
-- Структурированные тренировки с доставкой через Intervals.icu, Garmin, Wahoo, Zwift или файлы FIT/ZWO/TCX.
-- Нативный mobile/watch или хотя бы внешний messaging-канал.
-- Бесплатный/дешевый entry tier, trial или BYOK/credit модель.
-- Узкая специализация как способ выделиться: rowing, cycling power, today-only workout, indoor execution, nutrition или MCP/data access.
+[Актуальный профиль](ai_trainer_product_profile.md) подтверждает:
 
-## Дифференциаторы AI Trainer
+- Intervals.icu как рекомендуемый primary источник активностей/wellness; Garmin остаётся совместимым дополнительным источником.
+- Исполняемые `sessions[]`, несколько сессий в день, 22 стимула и bike-to-run brick.
+- Web-доставку структурированных тренировок через Intervals.icu с ownership/external-id проверками.
+- RecoveryReplan v2: keep, downgrade и ограниченный перенос D+1…D+3, append-only rollback.
+- Preview/confirm, stale-state guards, constraints, plan-fact evidence и явный контекст жизненного цикла планов.
+- Self-hosting, SQLite и выбор AI-провайдера, включая Ollama.
 
-- Direct Garmin без обязательного внешнего тренировочного хаба.
-- Опциональный Intervals.icu слой для профиля, гонок и plan-fact evidence без отказа от локального источника истины.
-- Local SQLite и self-hosted Docker deployment.
-- OpenAI, Anthropic, DeepSeek, Gemini, Ollama и Mock AI вместо привязки к одному провайдеру.
-- Демо/acceptance режим без реальных учетных данных.
-- Readiness conflict gate с сохранением доказательств и причины молчания/вмешательства.
-- Версионированный каталог структурированных стимулов и консервативные
-  bike-to-run bricks с неизменяемыми prescription snapshots.
-- Persisted preview/approve/reject и безопасный rollback версии плана.
-- Russian-first UX для рынка, который большинство конкурентов не обслуживает как основной.
+Внешний proactive-канал, native mobile, история/статус доставки и post-delivery reconciliation остаются направлениями для проверки. Технический журнал частично скрыт dev-флагом: наличие механизма в backend не означает удобство для обычного пользователя.
 
-## Продуктовые пробелы и возможности
+## Продуктовые гипотезы, без назначения приоритетов
 
-1. **P0 — ясно упаковать trust advantage:** вывести decision trail и rollback из технической реализации в главное продуктовое обещание.
-2. **P1 — довести существующий Intervals.icu слой до production UX:** onboarding/OAuth либо безопасная настройка ключа, web-доставка workout events, статус синхронизации и идемпотентность повторной отправки.
-3. **P1 — proactive channel:** начать с Telegram для русскоязычной аудитории или push/PWA morning briefing; любые write-actions оставить за approval gate.
-4. **P1 — закрыть last mile:** надежная доставка структурированных тренировок на Garmin/Wahoo/Zwift и видимый статус синхронизации.
-5. **P2 — mobile/PWA surface:** today/readiness/proposal/approve как минимальный мобильный контур, не полный перенос dashboard.
-6. **P2 — узкий hero flow «Что делать сегодня и почему?»**, который использует уже существующий readiness/replan engine и объясняет immediate value.
-7. **P2 — MCP/external AI access** с read scopes по умолчанию и подтверждением любых изменений.
-8. **Не приоритет:** indoor trainer execution, social rides, clubs и большие workout marketplaces — это отдельные категории, где уже есть специализированные игроки.
+| Гипотеза | Опора | Дешёвая проверка, которая может её опровергнуть |
+|---|---|---|
+| Понятный diff и откат повышают доверие | Механизмы AI Trainer и approval UX конкурентов | Дать пользователю исправить ошибочную адаптацию; измерить успешность и понимание результата |
+| Внешний утренний канал помогает регулярности | Сценарии TrainerAI, но данных retention нет | Сравнить короткий Telegram briefing с Today в малой пилотной группе |
+| Надёжность доставки важнее ширины каталога | Все shortlist обещают workout delivery | Провести один end-to-end тест разных targets до устройства, включая повторную отправку и сбой |
+| Self-hosting нужен отдельному сегменту | OSS/self-hosted предложения существуют | Интервью и реальные установки; число анонсов не заменяет adoption |
 
-## Ограничения исследования
+Прежние рекомендации «добавить Intervals» и «реализовать web delivery» закрыты на уровне базовой функциональности. Пересмотр backlog требует этих проверок и решения владельца продукта.
 
-- Проверялись публичные официальные страницы без покупки подписок и полного onboarding.
-- 63 из 63 карточек имеют источники, confidence и список неопределенностей; часть закрытых beta/SPAs осталась low-confidence.
-- Маркетинговые числа пользователей, сигналов и тренировок не были независимо проверены.
-- Региональные цены app stores могут отличаться.
+## Материалы и воспроизводимость
+
+- [Новые анонсы с источником каждой строки](intervals_apps_new_2026q3.md).
+- [Отслеживаемый JSON-реестр](intervals_apps_2026_10_registry.json): 35 строк, canonical product для дедупликации, исходная и нормализованная уверенность, дата/уровень проверки.
+- Июльские карточки: [1–21](intervals_apps_batch_1.md), [22–42](intervals_apps_batch_2.md), [43–63](intervals_apps_batch_3.md). Это исторические документы; утверждения о текущих пробелах AI Trainer заменены настоящим обзором.
+- [Методика](comparison_methodology.md). `n/a` — неизвестно, а не отсутствует.
+- Исходный локальный CSV сохранён; шесть исключённых тем и исходный HTTP-журнал 63 сайтов не представлены. Полноту 86/41 форумных тем и заявления «все цены неизменны» воспроизвести нельзя.
+- Каталог /settings/apps на октябрь не перечитан в браузере: новая выборка — форумные анонсы, не подтверждённый текущий каталог.
+- Перепроверены значимые источники shortlist; остальные строки сохраняют уровень исходного анонса. Реальная работа алгоритмов, оплаченный onboarding и доставка на личные устройства не тестировались.
