@@ -355,6 +355,9 @@ function ActivePlanOverview({ overview, error }: { overview?: PlanningOverview; 
   const event = overview.timeline?.kind === "event" ? overview.timeline.event : null;
   const goalTitle = [overview.goal?.goal_type, overview.goal?.distance].filter(Boolean).join(" · ");
   const currentWeek = overview.current_week;
+  const remainingDays = overview.has_actionable_plan && overview.timeline?.kind === "event"
+    ? overview.timeline.days_remaining
+    : null;
 
   return (
     <section className="rounded-card border border-surface-border bg-surface p-5 shadow-card">
@@ -368,7 +371,7 @@ function ActivePlanOverview({ overview, error }: { overview?: PlanningOverview; 
             </p>
           ) : event?.date ? (
             <p className="mt-2 text-sm text-ink-soft">
-              A-цель: {event.label} · {event.date} · осталось {overview.timeline?.days_remaining} дн.
+              A-цель: {event.label} · {event.date}{remainingDays !== null && remainingDays > 0 ? ` · осталось ${remainingDays} дн.` : ""}
             </p>
           ) : (
             <p className="mt-2 text-sm text-ink-soft">
