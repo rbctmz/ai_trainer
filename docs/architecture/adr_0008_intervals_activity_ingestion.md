@@ -57,3 +57,34 @@ M0 задевает три ASR (`docs/architecture/asr_catalog.md`):
 - No-orphan на уровне ingest: публичный `ingest_provider_activity` НИКОГДА не оставляет link без canonical (canonical + link — одна транзакция), хотя прямой SQL orphan допускает (п.1).
 - Атомарный rollback (постоянный тест): сбой записи canonical внутри транзакции откатывает и link → `0 activities / 0 links` (`test_write_provider_activity_rolls_back_atomically`).
 - Fail-closed сопоставление (п.2): только точный Garmin-`source` даёт garmin-namespace (`NOT_GARMIN`/Strava/пусто → standalone); ДВА претендента на одну координату → ОБА `ambiguous` независимо от порядка (нет произвольного winner); смена external identity перепроецирует старую каноническую (нет залипших полей/TSS, нет orphan/двойного учёта); `clear_all_data` очищает provider-links.
+
+## Explicit operator equivalence for a reimported FIT (#720)
+
+The default exact-coordinate and ambiguous-matching rules above remain unchanged.
+An offline operator may additionally confirm one original standalone Intervals
+activity and one Garmin activity as the same physical cycling session.
+`activity_manual_links` stores that decision separately from provider facts, with
+unique Intervals/Garmin ids, a reason and creation time. The canonical survivor is
+`intervals_<original-id>`. Both payload projection and Intervals enrichment prefer
+that exact original provider identity, regardless of PRIMARY_ACTIVITY_SOURCE.
+Provider ids, source namespaces, source TSS and provider payloads are not rewritten.
+
+This narrow operation requires existing source payloads, a valid identical UTC
+start, a recognized cycling sport, and finite positive elapsed durations differing
+by at most one second. It refuses conflicting associations, unsupported groups and
+authored/immutable references attached to any disappearing canonical. References
+attached to the survivor remain intact. Only derived interval/power-curve/bike-pair
+caches on disappearing canonicals are cleared transactionally and may be refetched.
+A single Intervals claimant of the confirmed Garmin coordinate follows the selected
+canonical; a second claimant aborts the ingest transaction rather than expanding
+the confirmation. Existing ambiguity behavior outside confirmed pairs is unchanged.
+
+The association is reapplied within every affected ingest transaction before
+projection. Default operator preview uses a read-only SQLite connection, including
+before the additive table exists. Apply/unlink acquire BEGIN IMMEDIATE and recheck
+an opaque preview token, identity and dependency blockers. Unlink recomputes normal
+source-coordinate grouping from preserved current payloads. Full reset clears the
+manual table along with provider links; schema rollback is not required. The
+operator runbook is `docs/manual_activity_links.md`.
+
+Duration precision clarification (2026-10-24 review): the one-second allowance is represented as 0.017 minutes, matching the existing three-decimal minute normalization; a two-second source difference is refused.
