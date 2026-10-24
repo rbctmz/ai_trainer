@@ -561,3 +561,30 @@ and [C4 outcome/limitations](reports/2026-10-23-planning-comparison-c4/README.md
 remain explicit. Parent#677 remains open; #707/#712/#713 are not closed or merged
 by this delivery. This Class C post-merge documentation does not reopen the
 accepted product review or authorize its own merge.
+
+
+## 2026-10-24 post-merge: final #677 countdown repair / PR #717
+
+**Observed.** [PR#717](https://github.com/rbctmz/ai_trainer/pull/717) merged at
+2026-10-24T08:34:05Z (11:34:05 Europe/Moscow) as
+`ae557d4ceb8af4d3da9a7ef46ca6734200036413`. Accepted/reviewed head
+`222a81324b367a1bfba06c244a1517eebba5f8eb` has an identical fetched main tree.
+The existing first acceptance gap in#677 was a pre-existing overview caption,
+byte-identical before/after#715, not an escaped regression attributed to S4.
+Issue#677 closed automatically08:34:06Z; all original checkboxes were then updated.
+
+| Metric | Verified outcome |
+| --- | --- |
+| Class/scope | Class C, four source additions/one caption replacement using existing server count/actionability. Saved event name/date retained; no client date calculation, new contract, dose/persistence/provider change. |
+| Regressions | Separate RED9dee5fc:5failed/1future control passed. GREEN222a813:6UIcases/51related overview/lifecycle/contract checks, lint/build/freshness/Ruff/diff passed. Actual temporary backend cases plus two never-confirmed legacy/disabled display controls; no planning evidence mutation or page overflow. |
+| Native execution | Two owner-authorized requests after the first remained running; one authenticated [clean receipt6381993129](https://github.com/rbctmz/ai_trainer/pull/717#issuecomment-6381993129) and completed/no-findings summary on exact222a813. The shared summary does not attribute completion to one remote execution, so retry causality and two completed rounds are not claimed. Conservatively2/2 requests; no third request, waiver or budget exception. No native P0/P1/P2 reported. |
+| Owner/gates/merge | Explicit owner acceptance of#717, acceptance label and merge/closure after automatic approval review rejected earlier generic authorization. Source unchanged. Review gate/readiness40078474270 SUCCESS, CLEAN and zero review threads before SHA-matched squash merge; no admin/force bypass. |
+| CI | Final functional CI40074663278 and Gitleaks SUCCESS. Separate main CI40078546692 pending at immediate snapshot; main Secret scan40078546642 SUCCESS. No redundant local broad run on the byte-identical merge. Red review gates before result/acceptance are process gates, not test flakes. Total reruns/flakes/active and wait times not captured. |
+| Working tree/follow-ups | Local main ref synchronized. Primary checkout now clean on user-selected research/intervals-apps-2026-10 at4cfd6f1 and was not switched or modified; local running app not restarted. #707/#712 and docs#713 remain separate. Post-merge record appended to existing unreviewed#716 rather than opening another docs PR. |
+| Escaped defects/limits | No linked escaped defect observed at this immediate snapshot; observation remains open. Tests are synthetic, no personal DB/provider writes or training-suitability claim. Existing S4 coached/clarified UX limitation remains recorded and was accepted separately. |
+
+**Verified by.** [Explicit owner acceptance record](https://github.com/rbctmz/ai_trainer/issues/677#issuecomment-6382040407),
+GitHub merge/issue readbacks, current-head checks, fetched tree comparison and
+[closed parent](https://github.com/rbctmz/ai_trainer/issues/677). A separate docs
+review/merge decision still applies to#716; accepted product head was not changed
+by outcome-only pushes.

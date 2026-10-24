@@ -341,3 +341,23 @@ pending at this immediate snapshot; main Secret scan40014890702 succeeded. No
 redundant local full suite on the identical merge tree, and no runtime/service
 restart or athlete DB write. Post-merge metrics are recorded separately from
 the reviewed product head; parent#677 stays open, #707/#712/#713 stay separate.
+
+
+### Parent lifecycle closure / 2026-10-24
+
+A later audit of main3aed0ac found the pre-existing remaining#677 caption
+requirement: expired A-event still showed remaining-zero. This was outside
+the S4 confirmation renderer and unchanged by#715. Bounded Class C#717 kept
+name/date and only positive actionable countdown, with separate RED9dee5fc
+and GREEN222a813,6UI/51related tests and full exact-head CI40074663278. Two
+owner-authorized native requests produced one visible authenticated clean
+receipt6381993129 on222a813; no execution attribution or third request claimed.
+
+After explicit owner acceptance, accepted/ready labels and green CLEAN gates,
+#717 merged asae557d4ceb8af4d3da9a7ef46ca6734200036413 at11:34:05 Europe/Moscow.
+#677 closed automatically; original criteria now all checked. Merged tree
+equals reviewed source. Local main ref was updated without switching or changing
+the primary checkout's new clean user research branch. No live restart/DB write.
+Main CI40078546692 is pending at this snapshot; main secret scan succeeded.
+#707/#712 remain separate follow-ups. Required outcome record is appended to
+existing#716 (not yet reviewed/accepted), with no further product-head push.
