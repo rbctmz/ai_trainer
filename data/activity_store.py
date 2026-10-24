@@ -278,6 +278,11 @@ class ActivityStore:
         ``'intervals'``). Garmin-only activities have no such link, but may still
         have locally cached Garmin laps in ``activity_intervals``.
         """
+        from data.activity_manual_links import preferred_intervals_id
+
+        selected = preferred_intervals_id(self._conn, str(canonical_activity_id))
+        if selected:
+            return selected
         row = self._conn.execute(
             "SELECT provider_activity_id FROM activity_provider_links "
             "WHERE canonical_activity_id = ? AND provider = 'intervals' LIMIT 1",
