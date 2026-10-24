@@ -533,6 +533,39 @@ own merge. Current native/owner acceptance belongs to the final documentation
 candidate, not the historical implementation PRs.
 
 
+## 2026-10-22 post-merge: Planning M4 #710 / PR #711
+
+**Observed:** [PR #711](https://github.com/rbctmz/ai_trainer/pull/711) merged the
+accepted head `7b98ff3045d135e825e3c54db06659af4e7d0001` as
+`00de15828a17719b96bf8e1dcb213c1aeca55144` at2026-10-21 21:01:23 UTC
+(**2026-10-22 00:01:23 Europe/Moscow**). Class A was assigned before implementation;
+this record does not recalculate retrospective prospective-cohort totals.
+Scope: sport-specific initial exposure/constraints, frozen publication guards
+and the explicit Planning UI consumer; no personal athlete/provider writes.
+
+| Metric | Observed outcome |
+| --- | --- |
+| Calendar lead time | Issue created2026-10-21 06:00:02 UTC:15h01m21s to merge. PR created06:19:46 UTC:14h41m37s to merge. Active work versus human/CI/review wait is not captured. |
+| Native review | **1/2**, clean authenticated connector [receipt6326085434](https://github.com/rbctmz/ai_trainer/pull/711#issuecomment-6326085434), reviewed exact accepted head7b98ff3. No formal submitted review object, no second request or exception; durable clean status SUCCESS. |
+| Independent reviews | M4a1 round, M4b1, M4c2, UI consumer2. These are bounded milestone/delta reviews, not extra native rounds. M4c round1 reproduced an AC6 legacy demand-writer P2; fixed-in3a28f99, scoped176passed. UI round2 reviewed test-only focus synchronization6895cc0,5passed; no remaining blocking findings. |
+| Accepted-source local | Contributor-safe3965passed/16skipped/87deselected/7warnings277.59s onf0650b5;63E2E passed/1warning189.89s. Final test-only correction:author5passed11.04s, independent5passed10.78s. Product code unchanged afterf0650b5; no repeated full local claim on metadata-only head. Ruff, web lint/build and contract freshness/inventory green. |
+| Accepted-head remote CI | [39670959095](https://github.com/rbctmz/ai_trainer/actions/runs/39670959095) SUCCESS on7b98ff3:3942contributor passed/39skipped/87deselected/6warnings323.75s;63E2E passed276.46s;24contract passed2.84s; Ruff green. Secret scan39670959096 SUCCESS. Different local/CI dependency skips are separately reported. |
+| Failures / test correction | Earlier39597418839 had a rounded-total assertion and E2E fixture/input failures;39598684871/39599528330 retained the genuine missing-dose consumer gap. That gap was implemented without bypassing the backend. UI CI39668399073 then had62E2E passes/1 keyboard assertion failure; identical-source whole CI39669348958 passed63. Focus race is inferred, not proved; unchanged local single recheck passed1, repeated-node CLI deduplicated into1 (not5).6895cc0 waits the existing step-heading focus and adds checked assertion, preserving all validation/refusal checks. Complete rerun count not captured. |
+| Owner/gates | Owner explicitly accepted review, label and merge. status: review accepted applied; draft cleared; automation added status: ready to merge; Review gate39675226535 SUCCESS, CLEAN/MERGEABLE.0 review threads, no active CHANGES_REQUESTED. Merge used --merge --match-head-commit7b98ff3; no admin/force/exception or new source push. Earlier red Review gate runs are expected missing-acceptance states, not functional flakes. |
+| Main verification | Fetched00de158; git diff --quiet7b98ff3 origin/main passed:byte-identical product tree. Local unoccupied main ref advanced by verified fast-forward/CAS; primary checkout's unrelated research edits/branch untouched. Main CI39675328437 was running at the initial snapshot and was verified SUCCESS on2026-10-24; main secret scan39675328884 SUCCESS. No extra local full-suite rerun on the identical tree. |
+| Limits / follow-ups | No escaped product defect observed at this immediate snapshot; this is not evidence of absence. Nonblocking refusal-announcement suggestion transferred from#710 to [#712](https://github.com/rbctmz/ai_trainer/issues/712). Actual screen-reader/human athlete UX and clinical dose suitability remain unverified; no live rollout/backfill. Parent#677 remains open for remaining work. |
+
+**Verified by:** live PR head/merge timestamps, clean native receipt, zero review
+threads, final CI logs and review-gate success; explicit owner decision in the
+task. The full source/evidence chain is in
+[ExecPlan](planning_entry_dose_m4_execplan.md),
+[slice/review record](planning_entry_dose_m4_slice_spec.md) and
+[UI evidence](design/evidence/issue-710/README.md). Post-merge bookkeeping is a
+separate Class C documentation delta; it does not invalidate the accepted product
+head or authorize its own merge. Synthetic dose-envelope checks are not clinical
+validation, and calendar timestamps are not a productivity/active-time claim.
+
+
 ## 2026-10-23 post-merge: issue #677 S4 / PR #715
 
 **Observed.** [PR#715](https://github.com/rbctmz/ai_trainer/pull/715) merged into
@@ -552,7 +585,7 @@ including versioned synthetic screenshots and evidence.
 | Owner/gates/merge | Explicit owner decision accepted review, label and merge with disclosed UX-check limitation. Review gate40014828026 SUCCESS and CLEAN before squash merge matched exactly0ba1d0bb1b7578019f6c694f4b9b51970b3cb785. No force/admin bypass. |
 | UX limits | Initial comprehension failed; revised edit facts identified, replacement acknowledged after a narrower question, safe retry selected. Availability/total received explanation; entire unaided-owner criterion is not claimed. Owner accepted this recorded limitation. No population usability or live training suitability claim. |
 | CI/environment | Review-gate red runs before current receipt/owner acceptance are expected process gates, not test flakes. Earlier contributor preflight failure was reproduced as missing venv PATH and resolved in invocation, no startup change. Screenshot viewport/status omissions were evidence-helper fixes. Total reruns/flakes and agent/human wait time not captured. |
-| Main/escaped defects | Fetched main3aed0ac tree is identical to reviewed0ba1d0b; local main synchronized without altering unrelated primary research edits. Separate main CI40014890716 pending at immediate snapshot; main Secret scan40014890702 SUCCESS. No linked escaped defect observed at this snapshot; observation remains open. No redundant local full-suite rerun or live restart. |
+| Main/escaped defects | Fetched main3aed0ac tree is identical to reviewed0ba1d0b; local main synchronized without altering unrelated primary research edits. Separate main CI40014890716 was pending at the initial snapshot and was verified SUCCESS on2026-10-24; main Secret scan40014890702 SUCCESS. No linked escaped defect observed at this snapshot; observation remains open. No redundant local full-suite rerun or live restart. |
 
 **Verified by.** Merge REST readback, fetched tree comparison, issue closure,
 current-head checks, privileged acceptance/ready labels and linked native receipts.
@@ -579,7 +612,7 @@ Issue#677 closed automatically08:34:06Z; all original checkboxes were then updat
 | Regressions | Separate RED9dee5fc:5failed/1future control passed. GREEN222a813:6UIcases/51related overview/lifecycle/contract checks, lint/build/freshness/Ruff/diff passed. Actual temporary backend cases plus two never-confirmed legacy/disabled display controls; no planning evidence mutation or page overflow. |
 | Native execution | Two owner-authorized requests after the first remained running; one authenticated [clean receipt6381993129](https://github.com/rbctmz/ai_trainer/pull/717#issuecomment-6381993129) and completed/no-findings summary on exact222a813. The shared summary does not attribute completion to one remote execution, so retry causality and two completed rounds are not claimed. Conservatively2/2 requests; no third request, waiver or budget exception. No native P0/P1/P2 reported. |
 | Owner/gates/merge | Explicit owner acceptance of#717, acceptance label and merge/closure after automatic approval review rejected earlier generic authorization. Source unchanged. Review gate/readiness40078474270 SUCCESS, CLEAN and zero review threads before SHA-matched squash merge; no admin/force bypass. |
-| CI | Final functional CI40074663278 and Gitleaks SUCCESS. Separate main CI40078546692 pending at immediate snapshot; main Secret scan40078546642 SUCCESS. No redundant local broad run on the byte-identical merge. Red review gates before result/acceptance are process gates, not test flakes. Total reruns/flakes/active and wait times not captured. |
+| CI | Final functional CI40074663278 and Gitleaks SUCCESS. Separate main CI40078546692 was pending at the initial snapshot and was verified SUCCESS on2026-10-24; main Secret scan40078546642 SUCCESS. No redundant local broad run on the byte-identical merge. Red review gates before result/acceptance are process gates, not test flakes. Total reruns/flakes/active and wait times not captured. |
 | Working tree/follow-ups | Local main ref synchronized. Primary checkout now clean on user-selected research/intervals-apps-2026-10 at4cfd6f1 and was not switched or modified; local running app not restarted. #707/#712 and docs#713 remain separate. Post-merge record appended to existing unreviewed#716 rather than opening another docs PR. |
 | Escaped defects/limits | No linked escaped defect observed at this immediate snapshot; observation remains open. Tests are synthetic, no personal DB/provider writes or training-suitability claim. Existing S4 coached/clarified UX limitation remains recorded and was accepted separately. |
 
@@ -588,3 +621,14 @@ GitHub merge/issue readbacks, current-head checks, fetched tree comparison and
 [closed parent](https://github.com/rbctmz/ai_trainer/issues/677). A separate docs
 review/merge decision still applies to#716; accepted product head was not changed
 by outcome-only pushes.
+
+
+### Documentation consolidation / 2026-10-24
+
+The remaining M4 record from#713 is included in#716 with the S4 and final#677
+records. All three post-merge main CI runs above are now verified SUCCESS.
+Earlier open-parent/pending-CI statements describe their original snapshots;
+#677 is currently closed by#717. This is five Markdown files only, with no
+product/contract/acceptance changes. #713 remains open until the combined record
+is merged; #716 still needs its own native review and explicit owner acceptance.
+Research#718 and product follow-ups#707/#712 remain separate.

@@ -34,7 +34,7 @@ Class A для расширения, прежний Class B UI scope сохра�
 - [x] (2026-10-23) C2 independently READY atc7b42f5, malformed-steps P2 fixed-inc7b42f5; local budget2/2. Final clean-head contributor-safe run:3991passed/16skipped/101deselected/7warnings257.11s with venv on PATH. Typed API/TS and frozen integration,26comparison regressions, lint/build/freshness pass.
 - [x] (2026-10-23) C3 UI/Design independently READY atc324c9e, local budget2/2: paired periods/parameters/load/calendar, partial/legacy/historical states. Rest-phase P2 fixed-inc324c9e after reproduced RED; final23S4browser tests passed37.61s, independent delta1passed6.31s; lint/build/freshness pass. UI→Integrator handoff recorded in#714. Owner comprehension remains pending.
 - [x] (2026-10-23) Owner requested difference highlighting; bounded UI revision at4dc9f37 adds color/text for known differing displayed values, unknown remains unknown.23S4UI/33related checks and lint/build/freshness pass; distinct highlight-v1 captures and320probe preserve earlier owner evidence. This new delta awaits final native review; earlier local C3READY remains scoped toc324c9e.
-- [x] (2026-10-23) C4 closeout: final functional CI40007660958 and native2/2 clean on0ba1d0b; owner follow-up recorded with coaching limitations; explicit acceptance/merge followed on3aed0ac. Post-merge tree equals reviewed source; separate main CI is pending at this snapshot.
+- [x] (2026-10-23) C4 closeout: final functional CI40007660958 and native2/2 clean on0ba1d0b; owner follow-up recorded with coaching limitations; explicit acceptance/merge followed on3aed0ac. Post-merge tree equals reviewed source; separate main CI40014890716 verified SUCCESS on2026-10-24.
 
 ## Surprises & Discoveries
 
@@ -336,8 +336,8 @@ Issue#714 closed automatically. No admin/force bypass, waiver or extra review.
 
 Fetched origin/main and verified an empty tree diff from reviewed0ba1d0b; local
 main fast-forwarded in the clean managed worktree. The unrelated primary checkout
-and its research edits were not switched or modified. Main CI40014890716 remains
-pending at this immediate snapshot; main Secret scan40014890702 succeeded. No
+and its research edits were not switched or modified. Main CI40014890716 was pending
+at the initial snapshot and was verified SUCCESS on2026-10-24; main Secret scan40014890702 succeeded. No
 redundant local full suite on the identical merge tree, and no runtime/service
 restart or athlete DB write. Post-merge metrics are recorded separately from
 the reviewed product head; parent#677 stays open, #707/#712/#713 stay separate.
@@ -358,6 +358,16 @@ After explicit owner acceptance, accepted/ready labels and green CLEAN gates,
 #677 closed automatically; original criteria now all checked. Merged tree
 equals reviewed source. Local main ref was updated without switching or changing
 the primary checkout's new clean user research branch. No live restart/DB write.
-Main CI40078546692 is pending at this snapshot; main secret scan succeeded.
+Main CI40078546692 was pending at the initial snapshot and is now SUCCESS; main secret scan succeeded.
 #707/#712 remain separate follow-ups. Required outcome record is appended to
 existing#716 (not yet reviewed/accepted), with no further product-head push.
+
+
+### Remaining documentation / 2026-10-24
+
+The M4 post-merge record from#713 is included in existing#716, making one
+five-Markdown-file candidate for the remaining lifecycle records. Main CI
+39675328437 (M4),40014890716 (S4) and40078546692 (#717) are verified SUCCESS.
+#713 remains open until the combined record merges. #716 needs its own native
+review and explicit owner acceptance; no source/contract/AC changes are included.
+Research#718 and follow-ups#707/#712 remain separate.
