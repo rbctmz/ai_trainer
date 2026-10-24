@@ -18,7 +18,7 @@
 - [x] Первое независимое native spec review на ae554b23ab: два blocking P2; оба подтверждены pure-path probe и исправлены в контракте/матрицах.
 - [x] Scoped native verification clean на 9ae7676431 (2/2); owner слил #724 как 276eec6 2026-10-24T20:56:29Z.
 - [x] 2026-10-25: handoff Spec/Architecture → Domain/API Implementer по принятому контракту; M1 в codex/issue-624-m1-database-path, без live writes.
-- [x] M1 path/default/preflight: RED → GREEN, explicit path compatibility; 55 new path/integration cases, full contributor-safe 4067 passed / 18 skipped / 116 deselected.
+- [x] M1 path/default/preflight: RED → GREEN, explicit path compatibility; 54 new path/integration cases, full contributor-safe 4067 passed / 18 skipped / 116 deselected.
 - [ ] M1 runtime PR: remote CI, independent native review и отдельный owner merge (0/2 review rounds).
 - [ ] M2 offline migrate: RED → GREEN, all-domain/WAL/failure/no-clobber proof.
 - [ ] M3 synthetic acceptance, final checks/native review и явный owner merge.
