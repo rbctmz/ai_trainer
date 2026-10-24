@@ -185,12 +185,28 @@ def test_explicit_database_still_reads_and_writes(tmp_path):
         assert conn.execute("SELECT value FROM user_settings WHERE key='624'").fetchone()[0] == 'kept'
 
 
+def _settings_subprocess(tmp_path, env, script):
+    # The child deliberately starts outside the checkout with no inherited
+    # project PYTHONPATH or credentials. Dotenv must not reintroduce them.
+    keep = {
+        "PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "SYSTEMDRIVE",
+        "LOCALAPPDATA", "XDG_DATA_HOME", "DATABASE_PATH", "DEMO_DATABASE_PATH", "TMPDIR",
+    }
+    child_env = {key: value for key, value in env.items() if key in keep}
+    child_env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
+    bootstrap = "import dotenv; dotenv.load_dotenv = lambda *a, **kw: False; "
+    return subprocess.run(
+        [sys.executable, "-c", bootstrap + script], env=child_env,
+        cwd=tmp_path, capture_output=True, text=True, check=True,
+    )
+
+
 def test_settings_default_is_absolute_without_creating_database(tmp_path):
     env = dict(os.environ)
     env.pop("DATABASE_PATH", None)
     env.pop("DEMO_DATABASE_PATH", None)
-    env.update(HOME=str(tmp_path), XDG_DATA_HOME=str(tmp_path / "xdg"))
-    run = subprocess.run([sys.executable, "-c", "from config.settings import Settings; import json; print(json.dumps(Settings.DATABASE_PATH))"], env=env, cwd=tmp_path, capture_output=True, text=True, check=True)
+    env.update(HOME=str(tmp_path), XDG_DATA_HOME=str(tmp_path / "xdg"), LOCALAPPDATA=str(tmp_path / "local"))
+    run = _settings_subprocess(tmp_path, env, "from config.settings import Settings; import json; print(json.dumps(Settings.DATABASE_PATH))")
     actual = json.loads(run.stdout)
     assert Path(actual).is_absolute(), actual
     expected = {
@@ -204,7 +220,7 @@ def test_settings_default_is_absolute_without_creating_database(tmp_path):
 
 def test_relative_settings_override_is_frozen_at_import(tmp_path):
     env=dict(os.environ, DATABASE_PATH="relative.db")
-    run=subprocess.run([sys.executable,"-c","from config.settings import Settings; import os,json; os.chdir('/'); print(json.dumps(Settings.DATABASE_PATH))"],env=env,cwd=tmp_path,capture_output=True,text=True,check=True)
+    run = _settings_subprocess(tmp_path, env, "from config.settings import Settings; import os,json; os.chdir('/'); print(json.dumps(Settings.DATABASE_PATH))")
     assert json.loads(run.stdout) == str(tmp_path / "relative.db")
 
 

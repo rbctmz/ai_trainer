@@ -124,3 +124,15 @@ source-file tests; отсутствие TMPDIR нарушало собствен
 все эти проверки прошли; повторный full run GREEN, как указано выше. Подробные
 приватные логи/runner — `/private/tmp/ai-trainer-624-m1-qipy1b1y`, их SQLite
 и output не публикуются. Это тестовая Git history, не merge/review evidence.
+
+
+CI correction 2026-10-25 (до первого native runtime review): run 40133680451
+на 883a39d выявил два новых subprocess-test failures, ModuleNotFoundError: config.
+Observed: child cwd — tmp_path, inherited PYTHONPATH отсутствует на CI.
+Inferred: локальный runner экспортировал source root и маскировал зависимость
+тестов от окружения. Verified by: локальный запуск ровно этих двух assertions
+после удаления PYTHONPATH повторил 2 failures. Исправлен только test bootstrap:
+явный source root в child PYTHONPATH, whitelist environment без credentials,
+dotenv disabled до Settings import, все home/data paths временные. Runtime code
+не менялся. Green на исправленном bootstrap и CI фиксируются в PR metadata;
+исторические 4067 GREEN выше не объявляются повторным full run этого head.
