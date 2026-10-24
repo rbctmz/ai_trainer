@@ -365,9 +365,11 @@ existing#716 (not yet reviewed/accepted), with no further product-head push.
 
 ### Remaining documentation / 2026-10-24
 
-The M4 post-merge record from#713 is included in existing#716, making one
-five-Markdown-file candidate for the remaining lifecycle records. Main CI
-39675328437 (M4),40014890716 (S4) and40078546692 (#717) are verified SUCCESS.
-#713 remains open until the combined record merges. #716 needs its own native
-review and explicit owner acceptance; no source/contract/AC changes are included.
-Research#718 and follow-ups#707/#712 remain separate.
+The M4 post-merge record from#713 was included in#716. Main CI39675328437
+(M4),40014890716 (S4) and40078546692 (#717) are verified SUCCESS. Native#716
+review completed clean on865bd61 (receipt6386163847), after two requests and one
+visible result. The owner then authorized merging all remaining docs. All records
+from#713/#716, dated research#718 and the#719 manual script are now included in
+existing#722, updated from main, for one final CI/native review and merge.
+Close#713/#716/#718 as included only after#722 merges. No source/contract or
+previously accepted planning AC changes; follow-ups#707/#712 remain separate.

@@ -297,5 +297,6 @@ clinical conclusion is implied. Documentation receipt changes no AC/runtime/DTO.
 
 2026-10-24 follow-up: main CI39675328437 finished SUCCESS; parent#677 is now
 closed through#717. Earlier pending/open statuses are historical snapshots.
-This M4 documentation delta is included in combined#716;#713 remains open until
-that candidate merges. No new source/native round on the accepted#711.
+This M4 documentation delta was included in#716, then consolidated with the
+remaining docs in#722 at the owner's explicit request. Close#713/#716 as included
+after#722 merges. No new source/native round on the accepted#711.

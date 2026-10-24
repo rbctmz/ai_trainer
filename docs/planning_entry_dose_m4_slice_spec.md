@@ -403,5 +403,6 @@ source push on the accepted product candidate. Parent#677 remains open.
 
 2026-10-24 status: main CI39675328437 verified SUCCESS; parent#677 closed via
 #717. The preceding staged/pending statements are historical evidence, not
-remaining implementation work. Post-merge records from#713 are included in#716;
-the combined documentation candidate has its own review/owner merge decision.
+remaining implementation work. Post-merge records from#713 were included in#716,
+then in the final combined#722. The owner explicitly authorized merging all
+remaining docs;#722 has its own final CI/native review. No M4 AC changed.

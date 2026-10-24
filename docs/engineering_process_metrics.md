@@ -625,10 +625,20 @@ by outcome-only pushes.
 
 ### Documentation consolidation / 2026-10-24
 
-The remaining M4 record from#713 is included in#716 with the S4 and final#677
-records. All three post-merge main CI runs above are now verified SUCCESS.
+The M4 record from#713 was first included in#716 with the S4 and final#677
+records. All three post-merge main CI runs above are verified SUCCESS.
 Earlier open-parent/pending-CI statements describe their original snapshots;
-#677 is currently closed by#717. This is five Markdown files only, with no
-product/contract/acceptance changes. #713 remains open until the combined record
-is merged; #716 still needs its own native review and explicit owner acceptance.
-Research#718 and product follow-ups#707/#712 remain separate.
+#677 is closed by#717. Native review of#716 completed with an authenticated
+[clean receipt](https://github.com/rbctmz/ai_trainer/pull/716#issuecomment-6386163847)
+on865bd61 after two requests and one visible completed result; attribution to
+one remote execution is unknown. No third request on#716 was made.
+
+The owner then explicitly requested merging all remaining documentation. Existing
+#722 is the single final candidate: the full records from#713/#716, the dated
+research from#718, and the#719 manual acceptance script. Each source branch is
+retained in merge ancestry; product code matches the updated main. The final
+candidate has its own native review and CI, and the owner merge decision is
+already explicit. After merge, close#713/#716/#718 as included. No new product
+AC or runtime behavior is added by the bookkeeping; the#719 script remains a
+future manual acceptance task, not a claim that it passed or authorization for
+paid subscriptions/provider writes. Product follow-ups#707/#712 remain separate.
