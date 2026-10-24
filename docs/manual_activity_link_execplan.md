@@ -11,10 +11,11 @@ An operator can confirm that one original Intervals activity and one manually im
 - [x] (2026-10-24) Read-only reproduction: two local canonicals for one owner-confirmed FIT; equal UTC start and duration; original has no Garmin external coordinate.
 - [x] Issue #720 created; clean isolated worktree from ae557d4; existing ingest/schema baseline: 47 passed.
 - [x] Independent design checker identified deterministic payload selection, reference guards, cache cleanup, dry-run and reset boundaries.
-- [ ] Write spec and new behavioral tests; record RED.
-- [ ] Implement and verify exact linking, replay, unlink, stale protection and reset.
-- [ ] Run focused/broad checks and independent diff review.
-- [ ] Rehearse on a consistent SQLite analysis copy; publish reviewable branch/PR if available.
+- [x] Write spec and behavioral tests: initial RED missing service; first implementation exposed six replay failures, then GREEN.
+- [x] Exact link/replay/unlink/stale protection/reset implemented; 24 new tests passed. Duration-boundary regression: RED 2 failed / 2 passed, then GREEN 4 passed.
+- [x] Focused baseline and related suites passed; global ruff and independent consolidated review plus scoped fix verification passed.
+- [x] Final corrected contributor-safe run: 3992 passed, 39 skipped, 116 deselected in 239.19s. Related focused suite: 88 passed. Ruff and diff whitespace check passed.
+- [x] Consistent SQLite analysis copy rehearsed: link 2→1, replay in both orders stays 1, unlink 1→2, relink 2→1, integrity ok, zero orphan links. Draft PR #721 published.
 
 ## Surprises & Discoveries
 
@@ -32,7 +33,7 @@ Decision: refuse authored references on disappearing identities; delete only reb
 
 ## Outcomes & Retrospective
 
-Implementation and copied-data rehearsal pending. No live database mutation, provider write or merge is authorized by this plan.
+Implementation is in commit 064d1689a9336699d08a9543361da26510cdc88d and draft PR https://github.com/rbctmz/ai_trainer/pull/721. Independent code review found one P2 at the one-second normalization boundary; reproduced, fixed-in 064d168, and scoped verification returned 24 passed. The copied-data acceptance passed without live database mutation or provider writes. Final broad evidence: 3992 passed, 39 skipped, 116 deselected; related focused suite 88 passed; ruff and diff whitespace checks passed. Merge and live apply remain human decisions.
 
 ## Context and Orientation
 
@@ -62,6 +63,8 @@ The exact pair has unique Intervals and Garmin keys; no chains or groups are int
 
 ## Artifacts and Notes
 
+Reviewed implementation SHA: 064d1689a9336699d08a9543361da26510cdc88d. Initial broad run: 3987 passed, 39 skipped, 116 deselected, one environment failure because a child run_web.sh lacked python in PATH. Activating the existing venv made the preflight module pass 3/3; the final corrected full run passed: 3992 passed, 39 skipped, 116 deselected in 239.19s. Optional skips include absent local TypeScript dependencies, garth and deliberately disabled fixture/diagnostic data. No dependencies were installed for this backend-only change.
+
 Tracked evidence uses synthetic fixtures only. Personal rehearsal paths and identifiers remain outside Git. The source checkout stays unchanged and the original personal database stays untouched. PR closes #720 only after human merge.
 
 ## Interfaces and Dependencies
@@ -69,3 +72,5 @@ Tracked evidence uses synthetic fixtures only. Personal rehearsal paths and iden
 Use existing sqlite3, json, hashlib and pytest; no new dependencies. `manage_manual_link(path, intervals_id, garmin_id, *, apply=False, unlink=False, expected_token=None, reason=None, confirm_stopped=False)` is the service boundary returning a JSON-safe preview/result. Database write operations reuse `_resolve_garmin_coordinate` and `_project_canonical` inside one transaction. Public HTTP and TypeScript contracts are unchanged. ASR-REL-3 and ASR-MOD-3 and ADR-0008 cover atomic identity persistence and additive schema compatibility.
 
 Duration precision clarification (2026-10-24 review): the one-second allowance is represented as 0.017 minutes, matching the existing three-decimal minute normalization; a two-second source difference is refused.
+
+2026-10-24 progress update: recorded RED/GREEN, independent review disposition, copied-data acceptance and publication of draft PR #721. Final corrected broad result recorded; all local acceptance and independent checker gates passed. Native PR review, human merge and live apply remain separate gates.

@@ -1,6 +1,6 @@
 # Exact manual activity link: slice spec and review (#720)
 
-Issue: https://github.com/rbctmz/ai_trainer/issues/720. Author/integrator: Codex; checker: independent identity_checker; merge owner: human owner. Date: 2026-10-24. Base: ae557d4. Candidate/acceptance SHA pending.
+Issue: https://github.com/rbctmz/ai_trainer/issues/720. Author/integrator: Codex; checker: independent identity_checker; merge owner: human owner. Date: 2026-10-24. Base: ae557d4. Reviewed implementation SHA: 064d1689a9336699d08a9543361da26510cdc88d. PR: https://github.com/rbctmz/ai_trainer/pull/721. Native acceptance remains the human merge-owner gate.
 
 ## Change Class
 
@@ -12,8 +12,9 @@ Operator CLI confirms one original standalone Intervals id and one Garmin id, wi
 
 ## Definition of Done
 
-- [ ] Observable acceptance and synthetic RED→GREEN recorded.
-- [ ] Focused/broad tests, copied-data rehearsal and independent final review recorded.
+- [x] Observable acceptance and synthetic RED→GREEN recorded.
+- [x] Focused tests, copied-data rehearsal and independent final review recorded.
+- [x] Final corrected broad test result: 3992 passed, 39 skipped, 116 deselected; related focused suite 88 passed.
 - [x] Human owner retains merge/live-apply authority; task owns isolated worktree cleanup.
 
 ## Public Contracts
@@ -43,9 +44,9 @@ Source facts remain in activity_provider_links. A manual decision asserts equiva
 
 | Contract | Probe | Expected RED | GREEN |
 | --- | --- | --- | --- |
-| preview/apply/replay | new manual-link smoke suite | service absent | pending |
-| restart/unlink/reset | same suite | service absent | pending |
-| stale/refs/rollback | same suite | service absent | pending |
+| preview/apply/replay | new manual-link smoke suite | service absent | 24-test manual suite passed |
+| restart/unlink/reset | same suite | service absent | 24-test manual suite passed |
+| stale/refs/rollback | same suite | service absent | 24-test manual suite passed |
 | ordinary behavior | existing ingest/schema suites | already green baseline | 47 passed |
 
 ## ASR / ADR Traceability
@@ -58,11 +59,11 @@ One behavior slice: exact-pair state, ingest replay and operator rollback; tests
 
 ## Evidence Bundle
 
-Base ae557d4. Focused baseline 47 passed. New RED, GREEN, broad tests, rehearsal, candidate SHA, CI and final checker pending. No live data changes.
+Base ae557d4. Focused baseline 47 passed. New suite: initial RED missing service, GREEN 24 passed. One-second boundary RED 2 failed / 2 passed, fixed-in 064d168 and verified 4 passed; complete manual suite 24 passed. Final related focused suite: 88 passed, including all four duration boundary cases. Global ruff and diff whitespace check passed. Copy-only link/replay/unlink/relink, integrity and orphan probes passed. Final corrected broad run: 3992 passed, 39 skipped, 116 deselected in 239.19s. No live data changes. CI started on PR #721; native Review gate correctly refuses acceptance until the current-head native review is submitted by the merge owner.
 
 ## Review Findings
 
-Design checker identified deterministic same-provider selection, authored-reference guards, derived cache cleanup, raw read-only preview, ambiguity, current-fact unlink and reset. All accepted as constraints; implementation evidence pending. This is one consolidated design review, followed by a scoped verification round.
+Design checker identified deterministic same-provider selection, authored-reference guards, derived cache cleanup, raw read-only preview, ambiguity, current-fact unlink and reset. All accepted and covered. Consolidated implementation review found one blocking P2: existing minute normalization rejected an exact one-second source difference. Parent reproduced it, added acceptance/refusal boundary tests and fixed-in 064d168. Scoped checker verification: 24 passed; zero remaining blockers. One full implementation review plus one scoped fix verification; no second full-diff round was requested.
 
 ## Native Review Rounds
 
@@ -70,6 +71,6 @@ Design checker identified deterministic same-provider selection, authored-refere
 
 ## Final Verdict
 
-BLOCK: implementation and validation pending. No merge or live apply approval requested yet.
+READY for human code review: final local broad and focused evidence passed. Published-head CI is tracked on PR #721. Zero open independent-checker blockers. Native review/acceptance, human merge and live apply are pending; no such approval was inferred.
 
 Duration precision clarification (2026-10-24 review): the one-second allowance is represented as 0.017 minutes, matching the existing three-decimal minute normalization; a two-second source difference is refused.
