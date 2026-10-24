@@ -642,3 +642,23 @@ already explicit. After merge, close#713/#716/#718 as included. No new product
 AC or runtime behavior is added by the bookkeeping; the#719 script remains a
 future manual acceptance task, not a claim that it passed or authorization for
 paid subscriptions/provider writes. Product follow-ups#707/#712 remain separate.
+
+
+## #624 M0 spec — #724, owner merged 2026-10-24
+
+[PR #724](https://github.com/rbctmz/ai_trainer/pull/724) opened
+2026-10-24T18:15:01Z and merged at 20:56:29Z as `276eec6`: PR calendar cycle
+2h 41m 28s, active work/wait not captured. Parent #622 and implementation issue
+#624 stay open; issue lead time is not complete. M0 was docs-only preparation
+for a Class A runtime track.
+
+Observed: two manual native rounds: `ae554b23ab` (two blocking P2) then scoped
+verification `9ae7676431` (clean). Both findings received fixed-in `9ae7676`:
+future SQLite sidecar namespace overlap and selected-platform-store false
+legacy detection. Open review threads at acceptance snapshot: 0. Functional CI
+and Gitleaks green on reviewed HEAD. P0/P1: 0 observed; CI rerun/flake count and
+active agent wait not captured. No implementation/live data operation was
+included in this merge. Escaped defects: none linked as of 2026-10-25; observation
+remains open. Verified by GitHub merge metadata, native result
+[6388479205](https://github.com/rbctmz/ai_trainer/pull/724#issuecomment-6388479205)
+and the two fixed-in review threads. M1 code needs its own review/owner merge.

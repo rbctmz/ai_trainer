@@ -13,21 +13,19 @@ demo seeding/clearing — important because the demo seeder wipes its database.
 """
 from __future__ import annotations
 
-import os
 import threading
 from typing import Dict
 
 from fastapi import Depends, Query
 
+from config.database_paths import prepare_private_database_path, validate_demo_path
 from config.settings import Settings
 from data.database import Database
 from utils.app_state import HeadlessState, make_headless_state as _make_headless_state
 
 
 def _demo_db_path() -> str:
-    real = Settings.DATABASE_PATH or "ai_trainer.db"
-    base, ext = os.path.splitext(real)
-    return os.getenv("DEMO_DATABASE_PATH", f"{base}_demo{ext or '.db'}")
+    return Settings.DEMO_DATABASE_PATH
 
 
 DEMO_DB_PATH = _demo_db_path()
@@ -61,10 +59,13 @@ def _reset_db_cache() -> None:
 
 
 def real_database() -> Database:
-    return _db_for_path(Settings.DATABASE_PATH or "ai_trainer.db")
+    return _db_for_path(Settings.runtime_database_path(prepare=True))
 
 
 def demo_database() -> Database:
+    validate_demo_path(Settings.DATABASE_PATH, DEMO_DB_PATH)
+    if Settings._DATABASE_PATHS.origin == "platform" and DEMO_DB_PATH == Settings.DEMO_DATABASE_PATH:
+        prepare_private_database_path(DEMO_DB_PATH)
     return _db_for_path(DEMO_DB_PATH)
 
 

@@ -10,6 +10,8 @@ new boundary that the Next.js frontend in ``web/`` talks to.
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -45,7 +47,20 @@ from api.routers import (  # noqa: E402  (after env setup)
     today,
 )
 
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    from api.deps import DEMO_DB_PATH
+    from config.database_paths import validate_demo_path
+    from config.settings import Settings
+
+    Settings.runtime_database_path()
+    validate_demo_path(Settings.DATABASE_PATH, DEMO_DB_PATH)
+    yield
+
+
 app = FastAPI(
+    lifespan=_lifespan,
     title="AI Trainer API",
     version="0.1.0",
     description="HTTP boundary over the existing AI Trainer training logic.",

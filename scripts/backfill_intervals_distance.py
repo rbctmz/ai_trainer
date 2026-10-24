@@ -51,7 +51,7 @@ def main(*, client=None, database_path: str | None = None) -> int:
         )
         return 2
 
-    conn = sqlite3.connect(database_path or Settings.DATABASE_PATH)
+    conn = sqlite3.connect(database_path or Settings.runtime_database_path())
     try:
         cursor = conn.cursor()
         primary_source = str(

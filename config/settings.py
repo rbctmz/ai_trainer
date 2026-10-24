@@ -1,4 +1,12 @@
 import os
+import sys
+from dataclasses import replace
+from pathlib import Path
+
+from config.database_paths import (
+    DatabasePathError, DatabasePaths, prepare_private_database_path,
+    resolve_database_paths, runtime_database_path,
+)
 from dotenv import load_dotenv
 
 # Загрузка переменных окружения
@@ -46,6 +54,14 @@ def _primary_wellness_source() -> str:
             f"got {value!r}"
         )
     return value
+
+
+def _database_paths() -> DatabasePaths:
+    try:
+        home = str(Path.home())
+    except RuntimeError:
+        home = None
+    return resolve_database_paths(os.environ, platform=sys.platform, home=home, cwd=str(Path.cwd()))
 
 
 class Settings:
@@ -113,7 +129,24 @@ class Settings:
     PRIMARY_WELLNESS_SOURCE = _primary_wellness_source()
 
     # База данных
-    DATABASE_PATH = os.getenv("DATABASE_PATH", "ai_trainer.db")
+    _DATABASE_PATHS = _database_paths()
+    DATABASE_PATH = _DATABASE_PATHS.real
+    DEMO_DATABASE_PATH = _DATABASE_PATHS.demo
+
+    @classmethod
+    def runtime_database_path(cls, *, prepare: bool = False) -> str:
+        """Проверить выбранный default до открытия; explicit путь сохраняется."""
+        selection = cls._DATABASE_PATHS
+        if cls.DATABASE_PATH != selection.real:
+            # In-process explicit injection (tests/admin callers) is intentional.
+            if not str(cls.DATABASE_PATH or "").strip():
+                raise DatabasePathError("database_path_invalid: empty DATABASE_PATH")
+            selection = replace(selection, real=str(cls.DATABASE_PATH), origin="injected")
+        path = runtime_database_path(selection)
+        if prepare and selection.origin == "platform":
+            prepare_private_database_path(path)
+        return path
+
     CHATS_DIR = os.getenv("CHATS_DIR", "chats")
     # Canonical IANA timezone for prospective scientific cutoffs.  Recovery
     # evidence fails closed if this value is invalid.

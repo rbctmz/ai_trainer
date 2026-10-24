@@ -37,6 +37,29 @@ Backup не шифруется. Перед переносом off-host испо�
 шифрованное хранилище и не публикуйте файл: он содержит персональные показатели
 здоровья и тренировок.
 
+## Runtime path и upgrade (#624, M1)
+
+Без `--database` CLI использует тот же выбор, что API и `Database()`:
+macOS `~/Library/Application Support/ai_trainer/ai_trainer.db`; Linux
+`$XDG_DATA_HOME/ai_trainer/ai_trainer.db` с fallback `~/.local/share`; Windows
+`%LOCALAPPDATA%\ai_trainer\ai_trainer.db` с fallback `~/AppData/Local`.
+Docker использует явный `/data/ai_trainer.db`. Непустой `DATABASE_PATH` имеет
+приоритет; пустой/whitespace override — configuration error. Относительный
+explicit override нормализуется при импорте Settings, без создания SQLite.
+
+При implicit default найденный **отдельный** legacy main/WAL/SHM/journal в
+launch cwd, checkout или primary checkout linked worktree блокирует startup
+до открытия новой БД. Сам platform store с его sidecars не считается legacy
+при запуске из data directory. Не выбирайте файл по mtime. После осознанного
+выбора оператор может задать абсолютный `DATABASE_PATH` или `--database`;
+явные offline paths остаются доступны при runtime refusal.
+
+M1 не перемещает данные и не добавляет `migrate`: этот subcommand относится
+к M2. Существующие `backup`/`restore` ниже сохраняют stopped-service boundary.
+Не удаляйте старую БД и не переключайте конфигурацию ради устранения отказа
+без отдельного плана переноса. Alias real/demo отвергается до demo seeding.
+Реальный перенос и остановка сервисов в рамках разработки M1 не выполнялись.
+
 ## Bare-metal backup
 
 Остановите запущенный через `run_web.sh`, `run.sh`, Uvicorn или Streamlit
@@ -44,7 +67,6 @@ Backup не шифруется. Перед переносом off-host испо�
 
     mkdir -p backups
     ./ai_trainer_env/bin/python scripts/sqlite_backup_restore.py backup \
-      --database "${DATABASE_PATH:-ai_trainer.db}" \
       --output "backups/ai_trainer-$(date -u +%Y%m%dT%H%M%SZ).db" \
       --confirm-stopped
 
@@ -67,7 +89,6 @@ Backup не шифруется. Перед переносом off-host испо�
 задать rollback вне рабочего каталога БД:
 
     ./ai_trainer_env/bin/python scripts/sqlite_backup_restore.py restore \
-      --database "${DATABASE_PATH:-ai_trainer.db}" \
       --backup "backups/ai_trainer-20260728T120000Z.db" \
       --rollback-output "backups/pre-restore-$(date -u +%Y%m%dT%H%M%SZ).db" \
       --confirm-stopped

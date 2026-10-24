@@ -92,6 +92,19 @@ USER_MAX_HR=185                        # Максимальный пульс (у
 - web UI: http://localhost:3000
 - FastAPI docs: http://localhost:8000/docs
 
+Рабочая SQLite по умолчанию хранится вне исходников: macOS —
+`~/Library/Application Support/ai_trainer/ai_trainer.db`, Linux —
+`$XDG_DATA_HOME/ai_trainer/ai_trainer.db` (иначе `~/.local/share/ai_trainer/ai_trainer.db`),
+Windows — `%LOCALAPPDATA%\ai_trainer\ai_trainer.db` (иначе
+`~/AppData/Local/ai_trainer/ai_trainer.db`). Явный непустой `DATABASE_PATH`
+имеет приоритет; относительный путь закрепляется относительно cwd при старте.
+Docker сохраняет `/data/ai_trainer.db` в named volume.
+Если найдена отдельная старая `ai_trainer.db` или её sidecars в launch/checkout,
+запуск откажет с `database_migration_required` до создания новой БД. На этапе M1
+автоматического переноса и команды `migrate` ещё нет. Для намеренного продолжения
+работы со старым файлом задайте его абсолютный `DATABASE_PATH`; offline перенос
+будет отдельным M2. Подробнее: [путь и backup](docs/sqlite_backup_restore.md).
+
 Если один из портов уже занят, скрипт остановится до запуска web stack и подскажет
 override. Например:
 

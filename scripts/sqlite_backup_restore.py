@@ -16,6 +16,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
+if __package__ in {None, ""}:  # direct script execution
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from config.database_paths import DatabasePathError  # noqa: E402
+
 
 class SQLiteBackupRestoreError(RuntimeError):
     """Safe, operator-facing backup/restore failure."""
@@ -401,15 +406,14 @@ def restore_database(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    default_database = os.environ.get("DATABASE_PATH", "ai_trainer.db")
 
     backup_parser = subparsers.add_parser("backup", help="create a validated snapshot")
-    backup_parser.add_argument("--database", default=default_database)
+    backup_parser.add_argument("--database", default=None)
     backup_parser.add_argument("--output", required=True)
     backup_parser.add_argument("--confirm-stopped", action="store_true")
 
     restore_parser = subparsers.add_parser("restore", help="restore a validated snapshot")
-    restore_parser.add_argument("--database", default=default_database)
+    restore_parser.add_argument("--database", default=None)
     restore_parser.add_argument("--backup", required=True)
     restore_parser.add_argument("--rollback-output")
     restore_parser.add_argument("--confirm-stopped", action="store_true")
@@ -419,6 +423,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.database is None:
+            # Lazy: explicit offline paths still work when runtime preflight refuses.
+            from config.settings import Settings
+            args.database = Settings.runtime_database_path()
         if args.command == "backup":
             report = backup_database(
                 args.database,
@@ -432,7 +440,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 confirm_stopped=args.confirm_stopped,
                 rollback_output=args.rollback_output,
             )
-    except (SQLiteBackupRestoreError, OSError) as exc:
+    except (SQLiteBackupRestoreError, OSError, DatabasePathError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(asdict(report), ensure_ascii=False, indent=2, sort_keys=True))

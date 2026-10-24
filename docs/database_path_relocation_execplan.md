@@ -6,7 +6,7 @@
 ## Purpose / Big Picture
 
 
-Рабочая SQLite должна переживать удаление checkout. Пользователь увидит стабильный абсолютный путь, явный отказ при неоднозначном upgrade и проверенный перенос, который не стирает старую базу. Здесь описан будущий Class A implementation; текущая работа — подготовка спецификации, без live filesystem/DB/process операций.
+Рабочая SQLite должна переживать удаление checkout. Пользователь увидит стабильный абсолютный путь, явный отказ при неоднозначном upgrade и проверенный перенос, который не стирает старую базу. Class A implementation следует уже принятому контракту; текущий slice — M1 path/default/preflight, без live DB/process операций. Offline migrate и его full drill остаются M2–M3.
 
 ## Progress
 
@@ -16,8 +16,10 @@
 - [x] Относительный default подтверждён без SQLite opens; 16 существующих backup/restore tests passed на временных БД.
 - [x] Подготовлены path/upgrade/CLI/activation/rollback contract и будущая RED matrix.
 - [x] Первое независимое native spec review на ae554b23ab: два blocking P2; оба подтверждены pure-path probe и исправлены в контракте/матрицах.
-- [ ] Scoped verification исправлений; independent spec acceptance до кода (review budget 1/2).
-- [ ] M1 path/default/preflight: RED → GREEN, explicit path compatibility.
+- [x] Scoped native verification clean на 9ae7676431 (2/2); owner слил #724 как 276eec6 2026-10-24T20:56:29Z.
+- [x] 2026-10-25: handoff Spec/Architecture → Domain/API Implementer по принятому контракту; M1 в codex/issue-624-m1-database-path, без live writes.
+- [x] M1 path/default/preflight: RED → GREEN, explicit path compatibility; 55 new path/integration cases, full contributor-safe 4067 passed / 18 skipped / 116 deselected.
+- [ ] M1 runtime PR: remote CI, independent native review и отдельный owner merge (0/2 review rounds).
 - [ ] M2 offline migrate: RED → GREEN, all-domain/WAL/failure/no-clobber proof.
 - [ ] M3 synthetic acceptance, final checks/native review и явный owner merge.
 - [ ] Отдельный operator handoff; реальный перенос не авторизован этой подготовкой.
@@ -47,7 +49,7 @@ Observed: review #724 показал пересечение future sidecar names
 ## Outcomes & Retrospective
 
 
-M0 фиксирует draft specification, не реализованную гарантию. Первое независимое review выявило два P2; контракты и матрицы исправлены. M1–M3, independent verification исправлений и owner merge остаются. Runtime/личные данные не изменены. Проверки Windows native/полной migration ещё не выполнялись; не подменять их baseline backup tests.
+M0 завершён: два P2 исправлены, scoped review clean, owner merge #724 подтверждён. M1 реализован в candidate branch: focused и contributor-safe GREEN, runtime review/owner merge ещё pending. M2–M3 остаются. Работающий runtime и личные данные не изменены. Проверки Windows native/полной migration ещё не выполнялись; не подменять их baseline backup tests.
 
 ## Context and Orientation
 
@@ -90,7 +92,7 @@ Dry-run повторяем. Повтор apply при существующем t
 ## Artifacts and Notes
 
 
-M0 baseline d977618: AST default `ai_trainer.db`; два temp cwd разрешают его в разные файлы; SQLite не открывалась. Existing temporary backup/restore suite: 16 passed in 0.56s. Приватная evidence-папка записана в `/private/tmp/ai-trainer-624-spec-current.txt`; её БД/логи не публиковать. В Git включаются только spec/ExecPlan/index. Ни проверок новой migration, ни live approval пока нет.
+M0 baseline d977618: AST default `ai_trainer.db`; два temp cwd разрешают его в разные файлы; SQLite не открывалась. Existing temporary backup/restore suite: 16 passed in 0.56s. Приватная evidence-папка записана в `/private/tmp/ai-trainer-624-spec-current.txt`; её БД/логи не публиковать. Это исходный M0 record. M1 добавляет config resolver/preflight, default consumers и synthetic tests; новой migration и live approval по-прежнему нет.
 
 ## Interfaces and Dependencies
 
@@ -99,3 +101,26 @@ M0 baseline d977618: AST default `ai_trainer.db`; два temp cwd разреша
 
 
 Revision 2026-10-24: по независимому review ae554b23ab уточнены selected-store identity и будущие SQLite namespaces; добавлены M1/M2 cases, evidence и review budget. Изменены только документы, новые runtime tests пока planned.
+
+Revision 2026-10-25: подтверждены clean spec verification и owner merge #724; начат только M1. RED: default ai_trainer.db относительный и relative override не закреплён (2 meaningful failures; explicit Database(tmp) characterization GREEN). Новые pure resolver/preflight checks проверяют будущий config seam отдельно; отсутствие модуля до реализации не выдаётся за behavioral RED.
+
+M1 self-review: pure-path probe воспроизвёл main-only symlink, ошибочно исключавший целое SQLite family, и NotADirectoryError вместо именованного отказа. Исправлено сравнением resolved parent/base identity и отдельной обработкой создания parent; добавлены точные synthetic regressions. Для нестандартного XDG path внутри checkout implicit default также отказывает до artifacts, explicit override не ограничивается.
+
+M1 acceptance 2026-10-25: ruff check всего source tree — GREEN. Contributor-safe
+`python -m pytest -m "not live and not debug and not e2e" tests/ -q
+-W error::pytest.PytestReturnNotNoneWarning` — 4067 passed / 18 skipped /
+116 deselected in 280.13s. Запускался exact tracked-source snapshot в
+`/private/tmp/ai-trainer-624-m1-qipy1b1y/source` с текущей working delta; равенство
+всех 9 runtime/test Python files проверено. Все DATABASE_PATH/DEMO_DATABASE_PATH,
+CHATS_DIR/HOME/XDG/TMPDIR заданы под owned temp root до import, dotenv отключён,
+audit hook запрещает SQLite вне root и внешние sockets. Existing TypeScript
+переиспользован read-only для contract checks; UI не менялся, web build/lint N/A.
+Native Windows/ACL, migration M2/M3, live user data — NOT RUN.
+
+Первые broad attempts не являются product failures: temp cwd ломал относительные
+source-file tests; отсутствие TMPDIR нарушало собственный isolation audit;
+после этого 4035 passed + 5 failures из-за отсутствующего Git HEAD во snapshot.
+После добавления локального synthetic Git HEAD и установленных TS dependencies
+все эти проверки прошли; повторный full run GREEN, как указано выше. Подробные
+приватные логи/runner — `/private/tmp/ai-trainer-624-m1-qipy1b1y`, их SQLite
+и output не публикуются. Это тестовая Git history, не merge/review evidence.
