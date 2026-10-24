@@ -26,15 +26,15 @@ Class A для расширения, прежний Class B UI scope сохра�
 - [x] (2026-10-22) M2: UI/Design прототип/реализация на46201b3, observable RED→GREEN;55 related E2E, затем14 после contrast-only; final lint/build/контракты green. Independent UI round1/2 READY, zero P1/blocking P2;14 E2E повторены независимо. Передано Supervisor/Integrator для M3.
 - [x] (2026-10-22) M3 automated: CI exactd00fb5f SUCCESS (3942 contributor-safe,77 browser,24 contract); картаS4-01…11 и4 real-DOM owner cases. Дополнительный loading/error probe PASS; UI/domain/AC не менялись. Полные наборы не повторяются без изменений; новый evidence head получает стандартный CI.
 - [ ] M3 owner comprehension: первое A–D упражнение неуспешно; revision1 period/save понятны, availability проверена с подсказкой, total пояснён. Edit effect не понятен без before/after; сравнение одобрено как расширение. Это не blind first-use study и не completed M3.
-- [ ] M3 native review:1/2 clean на9d41e2b, исторический после3f75915; scoped round2/2 оставлен для стабильного итогового кандидата, не для текущего prototype/spec.
-- [ ] Owner acceptance / merge: отдельное явное решение после M3, пока не запрошено и не выполнено.
+- [x] (2026-10-23) M3 native review2/2 complete: historical clean9d41e2b and final clean0ba1d0b. Zero review threads; no exception, waiver or third round.
+- [x] (2026-10-23) Owner explicitly accepted the recorded UX-check limitation, review label and merge of#715; merged into main as3aed0ac. Entire unaided-owner criterion remains unproven; it is not retroactively claimed passed.
 - [x] (2026-10-23) Current UI3f75915: green CI39991604878 и isolated new/edit/replacement/lost-response probe; native1/2 historical, owner comparison finding recorded.
 - [x] (2026-10-23) Owner approved Class A comparison; task role handoff to Spec recorded before edits; C1 author specification prepared on raw checkpoint evidence.
 - [x] (2026-10-23) C1 independent full+scoped spec check READY at93a37ec; P2 reset wording fixed-in93a37ec; budget2/2, raw characterization and initial contract RED recorded.
 - [x] (2026-10-23) C2 independently READY atc7b42f5, malformed-steps P2 fixed-inc7b42f5; local budget2/2. Final clean-head contributor-safe run:3991passed/16skipped/101deselected/7warnings257.11s with venv on PATH. Typed API/TS and frozen integration,26comparison regressions, lint/build/freshness pass.
 - [x] (2026-10-23) C3 UI/Design independently READY atc324c9e, local budget2/2: paired periods/parameters/load/calendar, partial/legacy/historical states. Rest-phase P2 fixed-inc324c9e after reproduced RED; final23S4browser tests passed37.61s, independent delta1passed6.31s; lint/build/freshness pass. UI→Integrator handoff recorded in#714. Owner comprehension remains pending.
 - [x] (2026-10-23) Owner requested difference highlighting; bounded UI revision at4dc9f37 adds color/text for known differing displayed values, unknown remains unknown.23S4UI/33related checks and lint/build/freshness pass; distinct highlight-v1 captures and320probe preserve earlier owner evidence. This new delta awaits final native review; earlier local C3READY remains scoped toc324c9e.
-- [ ] C4 integrated checks, owner remaining cases and scoped native round2/2; acceptance/merge separate.
+- [x] (2026-10-23) C4 closeout: final functional CI40007660958 and native2/2 clean on0ba1d0b; owner follow-up recorded with coaching limitations; explicit acceptance/merge followed on3aed0ac. Post-merge tree equals reviewed source; separate main CI40014890716 verified SUCCESS on2026-10-24.
 
 ## Surprises & Discoveries
 
@@ -322,3 +322,52 @@ initial exercise. Entire unaided-owner acceptance is not claimed. No further
 owner-requested source change is pending; final CI and scoped native round2/2
 can proceed, then an explicit owner acceptance/merge decision. No current
 acceptance label or merge; avoid cosmetic pushes after final native receipt.
+
+
+## Post-merge outcome / 2026-10-23
+
+Owner explicitly authorized the acceptance label and merge after the clean final
+native receipt and disclosure of the UX-check limitation. PR#715 was marked
+ready; status: review accepted applied by maintainer rbctmz, automation added
+status: ready to merge. Review gate40014828026 and all required checks succeeded;
+mergeStateStatus=CLEAN, zero review threads. Squash merge at2026-10-23T19:52:56Z
+(22:52:56 Europe/Moscow) produced3aed0ac7decae36612ba5931073106c3d89697f2.
+Issue#714 closed automatically. No admin/force bypass, waiver or extra review.
+
+Fetched origin/main and verified an empty tree diff from reviewed0ba1d0b; local
+main fast-forwarded in the clean managed worktree. The unrelated primary checkout
+and its research edits were not switched or modified. Main CI40014890716 was pending
+at the initial snapshot and was verified SUCCESS on2026-10-24; main Secret scan40014890702 succeeded. No
+redundant local full suite on the identical merge tree, and no runtime/service
+restart or athlete DB write. Post-merge metrics are recorded separately from
+the reviewed product head; parent#677 stays open, #707/#712/#713 stay separate.
+
+
+### Parent lifecycle closure / 2026-10-24
+
+A later audit of main3aed0ac found the pre-existing remaining#677 caption
+requirement: expired A-event still showed remaining-zero. This was outside
+the S4 confirmation renderer and unchanged by#715. Bounded Class C#717 kept
+name/date and only positive actionable countdown, with separate RED9dee5fc
+and GREEN222a813,6UI/51related tests and full exact-head CI40074663278. Two
+owner-authorized native requests produced one visible authenticated clean
+receipt6381993129 on222a813; no execution attribution or third request claimed.
+
+After explicit owner acceptance, accepted/ready labels and green CLEAN gates,
+#717 merged asae557d4ceb8af4d3da9a7ef46ca6734200036413 at11:34:05 Europe/Moscow.
+#677 closed automatically; original criteria now all checked. Merged tree
+equals reviewed source. Local main ref was updated without switching or changing
+the primary checkout's new clean user research branch. No live restart/DB write.
+Main CI40078546692 was pending at the initial snapshot and is now SUCCESS; main secret scan succeeded.
+#707/#712 remain separate follow-ups. Required outcome record is appended to
+existing#716 (not yet reviewed/accepted), with no further product-head push.
+
+
+### Remaining documentation / 2026-10-24
+
+The M4 post-merge record from#713 is included in existing#716, making one
+five-Markdown-file candidate for the remaining lifecycle records. Main CI
+39675328437 (M4),40014890716 (S4) and40078546692 (#717) are verified SUCCESS.
+#713 remains open until the combined record merges. #716 needs its own native
+review and explicit owner acceptance; no source/contract/AC changes are included.
+Research#718 and follow-ups#707/#712 remain separate.

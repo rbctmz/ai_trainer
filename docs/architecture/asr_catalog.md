@@ -756,12 +756,15 @@ merge равен принятому head. Generator limitations — #707; ledger
 Личный rollout, live provider writes и персональная тренировочная пригодность не заявлены.
 
 
-## Planning entry load (S3 M4 candidate; #710, parent #677)
+## Planning entry load (S3 M4 merged; #710, parent #677)
 
 2026-10-21: independently reviewed M4a specfb06cb8, M4b176b77e,
 M4c3a28f99 and UI consumerf0650b5. Local3965 contributor and63 isolated E2E
-passed; final-head remote CI/native/owner acceptance pending. The checkpoint
-paragraphs below preserve the earlier staged evidence, not current missing work.
+passed. Final CI39670959095, native round1 clean and owner acceptance verified;
+#711 merged accepted7b98ff3 as00de158 on2026-10-22 Europe/Moscow. The checkpoint
+paragraphs below preserve staged history, not current missing work. Main CI
+39675328437 was verified SUCCESS on2026-10-24. Parent#677 closed via#717;
+#712 remains separate. No live rollout is claimed.
 [Spec](../planning_entry_dose_m4_slice_spec.md),
 [ExecPlan](../planning_entry_dose_m4_execplan.md),
 [evidence and strict RED](../reports/2026-10-21-planning-entry-dose-m4/README.md).
