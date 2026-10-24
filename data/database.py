@@ -17,6 +17,7 @@ from data.athlete_feedback_fact_store import (
     AthleteFeedbackFactStore,
     create_athlete_feedback_facts_table,
 )
+from data import activity_manual_links
 from data.activity_store import (
     ACTIVITY_COLUMN_ORDER,
     ActivityStore,
@@ -267,9 +268,10 @@ class Database:
         'rollback_checkpoint_id': 'INTEGER',
     }
 
-    def __init__(self, db_path=None):
+    def __init__(self, db_path=None, *, initialize: bool = True):
         self.db_path = db_path or Settings.DATABASE_PATH
-        self.init_tables()
+        if initialize:
+            self.init_tables()
 
     def _connect(self) -> sqlite3.Connection:
         """Open one SQLite connection with the unified TD-003 policy.
@@ -847,6 +849,7 @@ class Database:
             ON activity_provider_links(external_provider, external_id)
             WHERE external_id IS NOT NULL
         ''')
+        activity_manual_links.initialize(conn)
         # M1 (#270): persistent per-provider / per-domain sync cursor. cursor_value is
         # the ISO-date HIGH-WATER boundary of the window a provider has fully, cleanly
         # processed (NOT the last activity's date). Advanced only after a whole
@@ -5393,6 +5396,16 @@ class Database:
         if not rows:
             cursor.execute('DELETE FROM activities WHERE activity_id=?', (canonical_id,))
             return
+        selected_id = activity_manual_links.preferred_intervals_id(cursor.connection, canonical_id)
+        if selected_id:
+            selected = cursor.execute(
+                "SELECT provider_payload FROM activity_provider_links "
+                "WHERE provider='intervals' AND provider_activity_id=?", (selected_id,),
+            ).fetchone()
+            if not selected or not selected[0]:
+                raise ValueError('manual activity link has no selected payload')
+            rows = [('intervals', selected[0])]
+            primary_source = 'intervals'
         payloads = {}
         for provider, payload_json in rows:
             if payload_json:
@@ -5464,6 +5477,7 @@ class Database:
 
         conn = self._connect()
         try:
+            conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
 
             # Existing link → re-ingest idempotency + external-identity-change detection.
@@ -5506,6 +5520,8 @@ class Database:
                 affected |= self._resolve_garmin_coordinate(cursor, new_garmin_coord)
             if old_garmin_coord and old_garmin_coord != new_garmin_coord:
                 affected |= self._resolve_garmin_coordinate(cursor, old_garmin_coord)
+
+            affected = activity_manual_links.enforce(cursor, affected)
 
             # The link's canonical assignment and match_status are final once the
             # coordinate is resolved above — projection only rewrites `activities`,
@@ -5789,6 +5805,7 @@ class Database:
             # ADR-0008 (#269): provider-links must be cleared with activities, else
             # a reset leaves orphan links that double-count load on the next sync.
             'activity_provider_links',
+            'activity_manual_links',
             # M1 (#270): sync cursors must be cleared too, else a reset wipes the
             # activities but leaves a high-water boundary and the purged history never
             # re-syncs (next sync starts after an already-deleted date). Cleared →
