@@ -1,14 +1,14 @@
 # #624 — безопасное размещение и перенос рабочей SQLite
 
-Статус: **Spec accepted; M1 merged; M2 implementation candidate**, 25 октября 2026. M0 #724 слит как `276eec6`, M1 #726 как `89fa21a`; live relocation не выполнялся.
+Статус: **Spec accepted; M1/M2 merged; M3 acceptance candidate**, 25 октября 2026. M0 #724 слит как `276eec6`, M1 #726 как `89fa21a`, M2 #727 как `66c7d5f`; live relocation не выполнялся.
 Issue: [#624](https://github.com/rbctmz/ai_trainer/issues/624), parent [#622](https://github.com/rbctmz/ai_trainer/issues/622).
 Author: Spec / Architecture Owner; checker: native spec review 2/2, clean на 9ae7676431; merge owner: rbctmz.
-Baseline: `d977618804d63b43dbb1078be69dae5648f3dacb`. Candidate SHA — текущий docs PR, фиксируется в его evidence bundle.
+Baseline: `d977618804d63b43dbb1078be69dae5648f3dacb`. Candidate SHA — текущий milestone PR, фиксируется в его evidence bundle.
 [ExecPlan](database_path_relocation_execplan.md).
 
 ## Change Class
 
-**Class A / Full** для реализации: меняются default конфигурации, выбор persistent data и operator migration boundary. M0 документировал контракт с соразмерной docs-проверкой; текущий M1 меняет runtime default и preflight, поэтому остаётся Class A / Full. Spec native review: два раунда manual, 2/2; первый `ae554b23ab` — два P2, второй `9ae7676431` — clean; owner слил #724. Scoped verification clean на `9ae7676431`, owner merge #724 подтверждён. M1 #726 завершён: native 2/2, scoped clean на 9146f73, owner merge 89fa21a. Для M2 новый отдельный review budget и новое owner merge decision.
+**Class A / Full** для реализации: меняются default конфигурации, выбор persistent data и operator migration boundary. M0 документировал контракт; M1 меняет runtime default/preflight, M2 вводит offline CLI, M3 завершает synthetic acceptance этого Class A трека без изменения runtime поведения. Spec native review: два раунда manual, 2/2; первый `ae554b23ab` — два P2, второй `9ae7676431` — clean; owner слил #724. Scoped verification clean на `9ae7676431`, owner merge #724 подтверждён. M1 #726 завершён: native 2/2, scoped clean на 9146f73, owner merge 89fa21a. Для M2 новый отдельный review budget и новое owner merge decision.
 
 ## Scope
 
@@ -120,7 +120,8 @@ M0 — эта спецификация и ExecPlan. M1 — RED→GREEN path/defa
 - [x] Merge owner rbctmz; cleanup выполняет integrator после owner-authorized merge.
 - [x] Independent spec review завершён перед кодом; #724 merged.
 - [x] M1 runtime evidence/native/owner acceptance: #726 merged 89fa21a.
-- [ ] M2–M3 runtime evidence и final native/owner acceptance.
+- [x] M2 runtime evidence/native/owner acceptance: #727 merged 66c7d5f, clean 1/2 on d0d36b6.
+- [ ] M3 final native/owner acceptance; author lifecycle evidence in ExecPlan.
 
 ## Evidence Bundle
 
@@ -156,7 +157,7 @@ M1 закрыт: fixed-in 9146f73 опубликован в threads; 95 focused 
 
 ## Final Verdict
 
-**SPEC ACCEPTED; M1 MERGED; M2 CANDIDATE, ACCEPTANCE PENDING.** Два P2 спецификации исправлены и независимо проверены, #724 merged. Три P2 runtime-review #726 fixed-in 9146f73, scoped verification clean; owner слил 89fa21a. Реализация M1–M3 и её runtime acceptance не подменяются spec review. M2 author implementation/validation завершены; следующий handoff Domain/API Implementer → Independent Reviewer по diff M2 и приложенному evidence. Human merge/live migration остаются отдельными решениями. #624/#622 не закрываются по отдельному milestone PR.
+**SPEC ACCEPTED; M1/M2 MERGED; M3 ACCEPTANCE CANDIDATE.** Два P2 спецификации исправлены и независимо проверены, #724 merged. Три P2 runtime-review #726 fixed-in 9146f73, scoped verification clean; owner слил 89fa21a. Реализация M1–M3 и её runtime acceptance не подменяются spec review. M2 native clean на d0d36b6 принят владельцем, #727 merged 66c7d5f. M3 synthetic lifecycle evidence подготовлен; следующий handoff author/integrator → Independent Reviewer по M3 diff/evidence. Human merge/live migration остаются отдельными решениями. #624/#622 не закрываются по отдельному milestone PR.
 
 OS references для выбора каталогов: [Apple Application Support](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPFileSystem/Articles/WhereToPutFiles.html), [XDG Base Directory 0.8](https://specifications.freedesktop.org/basedir/0.8/), [Windows LocalAppData](https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid). Это обоснование выбранного layout, не выполненная cross-platform runtime-проверка.
 
@@ -171,3 +172,23 @@ argparse invalid choice migrate; GREEN: targeted M2 + M1 paths + backup/restore
 self-review находятся в ExecPlan. Case/Unicode ambiguity отказывает
 консервативно; fingerprint хранит O(rows) коротких hashes, без raw rows в stdout.
 M2: 101 relocation cases / 181 focused GREEN, full 4175/18/116 GREEN (three additional test-only cases отдельно в focused, exact boundary in ExecPlan). M2 native/owner acceptance, M3 drill и native Windows/ACL не выполнены.
+
+
+### M3 synthetic acceptance boundary — 2026-10-25
+
+`test_database_relocation_drill.py` проверяет реальный CLI и новый процесс
+приложения (FastAPI lifespan/current-cycle route + shared domain reads),
+committed WAL marker, IDs/provenance/payload, отдельную explicit activation,
+новые записи/повторный запуск, fresh active backup/restore, reset и rollback
+reset-state перед restore. По четырём отказам наблюдаемы JSON blocked/exit2,
+source/config сохранены. Детальные file/copy/integrity/publish races M2 входят
+в combined regression command. Сценарии используют только synthetic temp DB;
+не утверждается проверка native Windows/ACL, браузера, Docker volume, реального
+service restart или user data. Точные final counts/limits — в ExecPlan.
+M2 record выше является историческим author snapshot; его приёмка завершена
+clean 1/2 и merge 66c7d5f, как зафиксировано в M3 section ExecPlan. M3 не меняет
+принятые AC/non-goals и не создаёт новую схему/конфигурацию/backup engine.
+
+M3 author evidence: combined 191 passed, contributor-safe 4184 passed /
+18 skipped / 116 deselected; ruff/diff/46 links GREEN, no product source
+changes after merged M2. Independent M3 review/CI/owner acceptance pending.

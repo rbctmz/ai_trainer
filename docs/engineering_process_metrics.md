@@ -689,3 +689,33 @@ accepted head/merge-tree comparison and owner merge instruction in the task.
 Personal checkout/DB/env/services untouched. No linked escaped defect observed
 as of 2026-10-25; observation window remains open. M2 migrate and M3 drill were
 not part of this merge. Outcome recorded in M2 changeset, no standalone docs PR.
+
+
+## #624 M2 offline migration — #727, owner merged 2026-10-25
+
+[PR #727](https://github.com/rbctmz/ai_trainer/pull/727) opened
+2026-10-25T07:14:18Z and merged at 08:47:22Z as
+66c7d5f71f0d133ff7c5a6f842c8c096df469641: calendar cycle 1h 33m 04s;
+active work/review-wait not captured. Class A runtime milestone, 9 files,
++960/-36, one source commit; #624/#622 remain open for M3.
+
+Observed: one native round, [clean receipt](https://github.com/rbctmz/ai_trainer/pull/727#issuecomment-6395373496)
+on accepted d0d36b669c1c1c001f12e16c8dccd4e89de80e5d, budget 1/2. Zero
+findings/threads or active CHANGES_REQUESTED. No repeat/native exception or
+source push after review. Labels review accepted/ready applied; latest Review
+gate SUCCESS, CLEAN and exact SHA checked immediately before merge. Initial
+merge attempt was refused by permission auto-review for missing explicit
+approval; actual merge followed the owner's specific confirmation. No bypass.
+Historical Review gate failures before acceptance are expected gate state,
+not functional CI failures. Functional CI/Gitleaks green; no failed functional
+run observed for this head, total flakes not captured.
+
+Verified by GitHub PR/merge metadata, authenticated clean ledger status,
+current-head CI and merged-tree equality. Local final focused 181 passed;
+full 4175/18 skipped/116 deselected (three later test-only cases included in
+focused). Linux contributor-safe CI: 4156 passed / 40 skipped / 116 deselected,
+317.18s; report platform skips separately. Native Windows/ACL/live migration
+not run. Primary checkout, .env, personal DB/services unchanged. Completed M2
+branch removed only after ancestor/tree proof; M3 branch fast-forwarded to
+merged main. No linked escaped defect observed in this task as of 2026-10-25;
+observation window open. M3 outcome goes into its changeset, no docs-only PR.
