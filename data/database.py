@@ -269,7 +269,7 @@ class Database:
     }
 
     def __init__(self, db_path=None, *, initialize: bool = True):
-        self.db_path = db_path or Settings.DATABASE_PATH
+        self.db_path = db_path or Settings.runtime_database_path(prepare=initialize)
         if initialize:
             self.init_tables()
 

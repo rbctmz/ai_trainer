@@ -16,6 +16,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
+if __package__ in {None, ""}:  # direct script execution
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from config.database_paths import DatabasePathError  # noqa: E402
+
 
 class SQLiteBackupRestoreError(RuntimeError):
     """Safe, operator-facing backup/restore failure."""
@@ -118,9 +123,13 @@ def _temporary_file(destination: Path) -> Path:
     return temporary
 
 
-def _prepare_temporary_destination(destination: Path, *, label: str) -> Path:
+def _prepare_temporary_destination(
+    destination: Path, *, label: str, private_parent: bool = False,
+) -> Path:
     try:
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.parent.mkdir(
+            parents=True, exist_ok=True, mode=0o700 if private_parent else 0o777,
+        )
         return _temporary_file(destination)
     except OSError as exc:
         raise SQLiteBackupRestoreError(
@@ -315,6 +324,7 @@ def restore_database(
     *,
     confirm_stopped: bool,
     rollback_output: str | Path | None = None,
+    private_parent: bool = False,
 ) -> RestoreReport:
     """Restore a validated snapshot, preserving an existing target first."""
     _require_stopped_confirmation(confirm_stopped)
@@ -328,7 +338,9 @@ def restore_database(
             f"database is not a regular file: {database_path}"
         )
 
-    temporary = _prepare_temporary_destination(database_path, label="database")
+    temporary = _prepare_temporary_destination(
+        database_path, label="database", private_parent=private_parent,
+    )
     rollback_path: Path | None = None
     quarantined: list[tuple[Path, Path]] = []
     try:
@@ -401,15 +413,14 @@ def restore_database(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    default_database = os.environ.get("DATABASE_PATH", "ai_trainer.db")
 
     backup_parser = subparsers.add_parser("backup", help="create a validated snapshot")
-    backup_parser.add_argument("--database", default=default_database)
+    backup_parser.add_argument("--database", default=None)
     backup_parser.add_argument("--output", required=True)
     backup_parser.add_argument("--confirm-stopped", action="store_true")
 
     restore_parser = subparsers.add_parser("restore", help="restore a validated snapshot")
-    restore_parser.add_argument("--database", default=default_database)
+    restore_parser.add_argument("--database", default=None)
     restore_parser.add_argument("--backup", required=True)
     restore_parser.add_argument("--rollback-output")
     restore_parser.add_argument("--confirm-stopped", action="store_true")
@@ -419,6 +430,15 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        private_parent = False
+        if args.database is None:
+            # Lazy: explicit offline paths still work when runtime preflight refuses.
+            from config.settings import Settings
+            args.database = Settings.runtime_database_path()
+            private_parent = (
+                Settings._DATABASE_PATHS.origin == "platform"
+                and args.database == Settings._DATABASE_PATHS.real
+            )
         if args.command == "backup":
             report = backup_database(
                 args.database,
@@ -431,8 +451,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.database,
                 confirm_stopped=args.confirm_stopped,
                 rollback_output=args.rollback_output,
+                private_parent=private_parent,
             )
-    except (SQLiteBackupRestoreError, OSError) as exc:
+    except (SQLiteBackupRestoreError, OSError, DatabasePathError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(asdict(report), ensure_ascii=False, indent=2, sort_keys=True))

@@ -34,6 +34,10 @@ jobs:
         run: python -m ruff check .
 
       - name: Run contributor-safe tests
+        env:
+          DATABASE_PATH: ${{ runner.temp }}/ai-trainer-tests.db
+          DEMO_DATABASE_PATH: ${{ runner.temp }}/ai-trainer-demo-tests.db
+          CHATS_DIR: ${{ runner.temp }}/ai-trainer-test-chats
         run: >
           python -m pytest
           -m "not live and not debug and not e2e"

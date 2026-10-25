@@ -30,3 +30,16 @@ SQLite остаётся primary store, пока продукт — single-athlet
   contributor-safe restore drill (ASR-DEP-2, #293).
 - ⚠️ SaaS/мульти-атлет потребует пересмотра (известный блокер service-readiness шага 2); contention при параллельных sync+coach — риск из ATAM-карты, WAL-режим и тесты гонок — открытый долг.
 - Переход на Postgres — новый ADR с триггером «больше одного атлета на инсталляцию».
+
+
+## Bare-metal runtime path (#624, M1)
+
+Принятая спецификация #724 (merge `276eec6`) уточняет размещение bare-metal
+store без смены SQLite ownership/concurrency. Кандидат M1 использует OS data
+directory (macOS Application Support, Linux XDG data home, Windows LocalAppData),
+сохраняет явный DATABASE_PATH и Docker `/data/ai_trainer.db`. Import Settings
+только разрешает путь; default opening/API startup выполняют legacy preflight.
+Обнаружение отдельного старого store отказывает до создания нового; исходник
+не переносится. Explicit Database(path) не получает глобального guard в _connect.
+Offline relocation/activation/rollback остаются отдельными M2–M3, их guarantees
+не объявляются реализованными результатом одного M1.

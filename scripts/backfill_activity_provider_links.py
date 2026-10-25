@@ -59,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--database",
-        default=Settings.DATABASE_PATH or "ai_trainer.db",
+        default=None,
         help="existing SQLite database path",
     )
     parser.add_argument(
@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         json.dumps(
             repair_database(
-                args.database,
+                args.database if args.database is not None else Settings.runtime_database_path(),
                 apply=args.apply,
                 primary_source=args.primary_source,
             ),

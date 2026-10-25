@@ -827,3 +827,14 @@ shared Python with additive optional API/TS and no backfill; PERF-4 reuses
 captured data and bounded date projections outside writer lock. ADR-0001/0002/
 0005/0006/0009 reused, new ADR N/A. C1 author draft only: no new runtime behavior,
 UI, independent verdict, native acceptance or performance outcome claimed yet.
+
+
+## Runtime database path (#624; M1 candidate after spec #724)
+
+Approved spec/ExecPlan: [contract](../database_path_relocation_slice_spec.md),
+[plan](../database_path_relocation_execplan.md). ASR-DEP-2 / ASR-REL-3: M1
+candidate introduces cwd-independent platform selection and refuses a separate
+legacy main/sidecar family before opening a fresh default. Explicit paths and
+Docker volume contract remain; `_connect` is unchanged. This is partial runtime
+coverage, not delivered relocation/rollback: M2 offline migration and M3
+synthetic drill remain pending, with live migration separately owner-controlled.

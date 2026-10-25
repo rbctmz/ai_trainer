@@ -1,14 +1,14 @@
 # #624 — безопасное размещение и перенос рабочей SQLite
 
-Статус: **Draft / spec only**, 24 октября 2026. Runtime ещё не изменён.
+Статус: **Spec accepted; M1 implementation candidate**, 25 октября 2026. M0 #724 слит как `276eec6`; live relocation не выполнялся.
 Issue: [#624](https://github.com/rbctmz/ai_trainer/issues/624), parent [#622](https://github.com/rbctmz/ai_trainer/issues/622).
-Author: Spec / Architecture Owner; checker: независимый native reviewer (round 1: ae554b23ab; verification pending); merge owner: rbctmz.
+Author: Spec / Architecture Owner; checker: native spec review 2/2, clean на 9ae7676431; merge owner: rbctmz.
 Baseline: `d977618804d63b43dbb1078be69dae5648f3dacb`. Candidate SHA — текущий docs PR, фиксируется в его evidence bundle.
 [ExecPlan](database_path_relocation_execplan.md).
 
 ## Change Class
 
-**Class A / Full** для реализации: меняются default конфигурации, выбор persistent data и operator migration boundary. Текущий срез только документирует контракт; проверка docs соразмерна Class C, это не понижение класса реализации. Первое независимое native spec review выполнено на `ae554b23ab`: два blocking P2, исправления описаны ниже; бюджет 1/2, manual only, acceptance SHA и exception: N/A. Scoped verification исправлений ещё не получена. Переход к коду — после независимого spec review, не по одному наличию этого файла.
+**Class A / Full** для реализации: меняются default конфигурации, выбор persistent data и operator migration boundary. M0 документировал контракт с соразмерной docs-проверкой; текущий M1 меняет runtime default и preflight, поэтому остаётся Class A / Full. Spec native review: два раунда manual, 2/2; первый `ae554b23ab` — два P2, второй `9ae7676431` — clean; owner слил #724. Scoped verification clean на `9ae7676431`, owner merge #724 подтверждён. Далее M1 по принятому контракту; для runtime PR отдельный review budget 1/2 завершённых rounds (две отправки, одна после зависания) и новое owner merge decision.
 
 ## Scope
 
@@ -118,30 +118,45 @@ M0 — эта спецификация и ExecPlan. M1 — RED→GREEN path/defa
 
 - [x] AC/режимы и отказ наблюдаемы; нужные tests названы.
 - [x] Merge owner rbctmz; cleanup выполняет integrator после owner-authorized merge.
-- [ ] Independent spec review завершён перед кодом.
+- [x] Independent spec review завершён перед кодом; #724 merged.
 - [ ] M1–M3 runtime evidence и final native/owner acceptance.
 
 ## Evidence Bundle
 
-M0 baseline: AST inspection `config/settings.py:116` и два temp cwd подтвердили относительный default, SQLite не открывалась. Существующий `test_sqlite_backup_restore.py`: **16 passed / 0.56s**, только tmp_path. Это проверка reuse primitive, не реализованной migration. Проверены `git diff --check`, локальные Markdown links в трёх документах и обязательные sections/checkbox placement ExecPlan. Primary checkout clean на d977618; runtime source не менялся. Native rounds 1/2, manual; review `5639434571` на `ae554b23ab`, оба P2 исправлены в spec, independent verification pending. Pure-path probe подтвердил 18 endpoint/sidecar пересечений и равенство selected target/cwd candidate; файловые/SQLite операции не выполнялись, это не GREEN будущей реализации. Broad runtime/UI suites N/A для spec-only diff. Новый конфигурационный/CLI контракт не реализован. Остаточные риски: native Windows paths/ACL, распознавание legacy schema и unsupported SQLite objects, quiescence доверяется operator.
+M0 baseline: AST inspection `config/settings.py:116` и два temp cwd подтвердили относительный default, SQLite не открывалась. Существующий `test_sqlite_backup_restore.py`: **16 passed / 0.56s**, только tmp_path. Это проверка reuse primitive, не реализованной migration. Проверены `git diff --check`, локальные Markdown links в трёх документах и обязательные sections/checkbox placement ExecPlan. Primary checkout clean на d977618; runtime source не менялся. Spec native rounds 2/2, manual; review `5639434571` на `ae554b23ab`, оба P2 fixed-in `9ae7676`, [verification clean](https://github.com/rbctmz/ai_trainer/pull/724#issuecomment-6388479205); #724 merged. Pure-path probe подтвердил 18 endpoint/sidecar пересечений и равенство selected target/cwd candidate; файловые/SQLite операции не выполнялись, это не GREEN будущей реализации. Broad runtime/UI suites N/A для spec-only diff. На M0 новый конфигурационный/CLI контракт ещё не был реализован. Остаточные риски: native Windows paths/ACL, распознавание legacy schema и unsupported SQLite objects, quiescence доверяется operator.
+
+M1 candidate: общий resolver и default preflight в config, wiring Settings/Database/API startup/dependencies и operator script defaults. SQLite `_connect` и API/TS DTO unchanged. Свежий implicit store создаётся private (POSIX 0600/0700); отдельный legacy блокирует до создания target. Explicit operator/test paths остаются доступны. CI contributor-safe job задаёт свои temp real/demo/chats paths до импорта; это не универсальный guard #625. 64 path/integration cases после corrections; full contributor-safe 4077 passed / 18 skipped / 116 deselected, ruff GREEN (exact isolated source snapshot, details in ExecPlan). Runtime PR #726 native budget 1/2 завершённых rounds, три P2 подтверждены/исправлены в candidate; scoped verification и owner merge pending; live data, native Windows, M2 migrate и M3 drill не выполнены.
 
 ## Review Findings
 
-Первое независимое review: два blocking P2 на `ae554b23ab`, оба приняты и исправлены документально. Commit disposition указан в PR threads; новая runtime implementation отсутствует.
+Spec review #724: два blocking P2 на `ae554b23ab`, оба приняты и исправлены документально. Commit disposition указан в PR threads; в #724 runtime implementation отсутствовала.
 
 | Finding | Observed / Inferred / Verified by | Gate / status |
 |---|---|---|
-| P2 [4368076843](https://github.com/rbctmz/ai_trainer/pull/724#discussion_r4368076843) | Distinct endpoints могут пересекаться с будущими sidecars → snapshot окажется SQLite-owned; pure-path probe подтвердил пример `new.db` / `new.db-wal` и все 18 направленных комбинаций | Исправлено: F(p) disjoint, отказ до artifacts; M2 RED cases planned; scoped verification pending |
-| P2 [4368076850](https://github.com/rbctmz/ai_trainer/pull/724#discussion_r4368076850) | Cwd=data dir даёт legacy candidate == target → ложный migration_required; pure-path подстановка Linux default подтвердила равенство и отдельность checkout candidate | Исправлено: исключить выбранную SQLite family, сохранить отказ для отдельного legacy; M1 RED cases planned; scoped verification pending |
+| P2 [4368076843](https://github.com/rbctmz/ai_trainer/pull/724#discussion_r4368076843) | Distinct endpoints могут пересекаться с будущими sidecars → snapshot окажется SQLite-owned; pure-path probe подтвердил пример `new.db` / `new.db-wal` и все 18 направленных комбинаций | Исправлено: F(p) disjoint, отказ до artifacts; M2 RED cases planned; scoped verification clean на `9ae7676431` |
+| P2 [4368076850](https://github.com/rbctmz/ai_trainer/pull/724#discussion_r4368076850) | Cwd=data dir даёт legacy candidate == target → ложный migration_required; pure-path подстановка Linux default подтвердила равенство и отдельность checkout candidate | Исправлено: исключить выбранную SQLite family, сохранить отказ для отдельного legacy; M1 RED cases planned; scoped verification clean на `9ae7676431` |
+
+### Runtime review #726 — исправления первого результата
+
+| Finding | Observed / Verified by | Disposition |
+|---|---|---|
+| P2 [4369843598](https://github.com/rbctmz/ai_trainer/pull/726#discussion_r4369843598) | Same native parent с другим регистром ошибочно считался отдельной family; model + actual macOS FS RED | parent samefile + тот же basename; main-only aliases по-прежнему blocked; GREEN |
+| P2 [4369843599](https://github.com/rbctmz/ai_trainer/pull/726#discussion_r4369843599) | Lexical normpath менял destination absolute/relative/tilde symlink/..; synthetic SQLite marker RED | absolute freeze без collapse; выбран прежний store и marker; GREEN |
+| P2 [4369843601](https://github.com/rbctmz/ai_trainer/pull/726#discussion_r4369843601) | Fresh implicit restore при umask 022 создавал dir 0755; synthetic restore RED | opt-in private parent 0700 после validation, rollback=None без пустого target; explicit policy unchanged; GREEN |
+
+Точный fixed-in SHA публикуется в PR threads после commit. 95 focused checks и full corrections run (4077 passed / 18 skipped / 116 deselected) GREEN; ruff GREEN. Новый CI и independent runtime acceptance pending.
+Review receipt 5641784989, reviewed 4cd0ca6; один завершённый round из двух,
+при двух запросах (technical retry). Новый автоматический повтор не запускался.
 
 ## Native Review Rounds
 
 | Round | Reviewed SHA | Trigger | Findings / decision |
 |---|---|---|---|
-| 1 | `ae554b23ab` | manual | 2 blocking P2; spec corrected, scoped verification pending; used 1/2 |
+| 1 | `ae554b23ab` | manual | 2 blocking P2; fixed-in `9ae7676` |
+| 2 | `9ae7676431` | manual, scoped verification | clean; owner merged #724 as `276eec6`; stop 2/2 |
 
 ## Final Verdict
 
-**READY FOR SCOPED SPEC VERIFICATION; NOT READY FOR IMPLEMENTATION.** Два P2 исправлены автором; independent acceptance исправлений пока не получен. Следующий role handoff: independent spec reviewer → Domain/API implementer, только после закрытия blocking findings. Human merge/live migration остаются отдельными решениями. #624/#622 не закрываются по этому docs PR.
+**SPEC ACCEPTED; M1 CANDIDATE GREEN, RUNTIME REVIEW PENDING.** Два P2 спецификации исправлены и независимо проверены, #724 merged. Три P2 runtime-review #726 исправлены автором; их scoped verification ещё не выполнена. Реализация M1–M3 и её runtime acceptance не подменяются spec review. Следующий role handoff: independent spec reviewer → Domain/API implementer, только после закрытия blocking findings. Human merge/live migration остаются отдельными решениями. #624/#622 не закрываются по этому docs PR.
 
 OS references для выбора каталогов: [Apple Application Support](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPFileSystem/Articles/WhereToPutFiles.html), [XDG Base Directory 0.8](https://specifications.freedesktop.org/basedir/0.8/), [Windows LocalAppData](https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid). Это обоснование выбранного layout, не выполненная cross-platform runtime-проверка.
