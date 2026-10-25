@@ -41,6 +41,7 @@ from models.planning_build_confirmation import (
 )
 from models.planning_cycle import CycleStateCorrupt
 from models.banister import BanisterModel, tsb_zone
+from models.load_metrics import canonical_activities_frame
 from models.coach_constraints import apply_constraints_to_goal_plan, normalize_constraint_sport, recalc_goal_plan_weekly_totals
 from models.fit_export import build_steps_for_sport, generate_fit_csv
 from models.plan_events import (
@@ -497,7 +498,14 @@ def _current_signals(
     """
     df = db.get_activities(90)
     anchor = as_of or athlete_local_date()
-    return assemble_signals(activities_df=df, as_of=anchor), df
+    # Issue #731: CTL/ATL/TSB считаются по каноническому окну (как в readiness
+    # снапшоте), а не по включительной границе get_activities(90) — иначе числа
+    # «Плана» расходятся с «Обзором» и снапшотом.
+    metrics_df = canonical_activities_frame(db, anchor)
+    return (
+        assemble_signals(activities_df=df, as_of=anchor, metrics_activities_df=metrics_df),
+        df,
+    )
 
 
 def _current_metrics(db: Database):

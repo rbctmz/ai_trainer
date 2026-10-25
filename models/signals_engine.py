@@ -16,6 +16,7 @@ import pandas as pd
 from models.activity_lineage import authoritative_training_load_activities
 from models.acwr import acwr_signal, provider_status_from_training_status
 from models.banister import BanisterModel, tsb_zone
+from models.load_metrics import compute_load_signal, daily_tss_series
 
 
 SIGNALS_SOURCE = "models.signals_engine"
@@ -117,18 +118,17 @@ def _daily_load_series(
         return [], []
 
     if as_of is not None:
-        anchor_ts = pd.Timestamp(as_of)
-        frame = frame[frame["date"] <= anchor_ts]
-        if frame.empty:
-            return [], []
-    else:
-        # Без якоря «сегодня» ряд всё равно обязан быть календарным: одна
-        # тренировка — один день. Прежняя ветка отдавала по сэмплу на строку
-        # активности, поэтому две тренировки в сутки удваивали день, а дни
-        # отдыха исчезали — ACWR считался по ряду, которого не существует, и
-        # завышал history_days. Верхняя граница остаётся последней активностью
-        # (поведение «заморожено на последней тренировке» сохраняется).
-        anchor_ts = pd.Timestamp(frame["date"].max()).normalize()
+        # Канонический пайплайн (issue #731): тот же zero-fill до якоря, что и
+        # у readiness-снапшота, — один общий ряд для TSB и ACWR.
+        return daily_tss_series(activities_df, as_of)
+
+    # Без якоря «сегодня» ряд всё равно обязан быть календарным: одна
+    # тренировка — один день. Прежняя ветка отдавала по сэмплу на строку
+    # активности, поэтому две тренировки в сутки удваивали день, а дни
+    # отдыха исчезали — ACWR считался по ряду, которого не существует, и
+    # завышал history_days. Верхняя граница остаётся последней активностью
+    # (поведение «заморожено на последней тренировке» сохраняется).
+    anchor_ts = pd.Timestamp(frame["date"].max()).normalize()
 
     daily = frame.groupby(frame["date"].dt.normalize())["tss"].sum().sort_index()
     date_range = pd.date_range(start=daily.index.min(), end=anchor_ts, freq="D")
@@ -149,19 +149,23 @@ def training_load_metrics(
     (``models.readiness._tsb_metrics``). Without it the model freezes at the
     last workout date (second instance of #139). ``as_of`` defaults to None to
     keep every existing caller's behavior unchanged.
-    """
-    tss_data, dates = _daily_load_series(activities_df, as_of=as_of)
-    if not tss_data:
-        return {
-            "ctl": 0.0,
-            "atl": 0.0,
-            "tsb": 0.0,
-            "fitness": 0.0,
-            "fatigue": 0.0,
-            "form": "Недостаточно данных",
-        }
 
-    return BanisterModel().get_current_metrics(tss_data, dates)
+    Issue #731: без-якорная ветка и общий ряд живут в ``models.load_metrics``;
+    здесь только совместимость сигнатуры для существующих вызовов.
+    """
+    if as_of is None:
+        tss_data, dates = _daily_load_series(activities_df, as_of=None)
+        if not tss_data:
+            return {
+                "ctl": 0.0,
+                "atl": 0.0,
+                "tsb": 0.0,
+                "fitness": 0.0,
+                "fatigue": 0.0,
+                "form": "Недостаточно данных",
+            }
+        return BanisterModel().get_current_metrics(tss_data, dates)
+    return compute_load_signal(activities_df, as_of)
 
 
 def acwr_metrics(

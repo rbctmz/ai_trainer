@@ -17,7 +17,7 @@ from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
 from models.acwr import ACWR_MIN_HISTORY_DAYS
 from models.banister import tsb_zone
-from models.readiness import load_metrics_window_bounds
+from models.load_metrics import canonical_activities_frame
 from models.dashboard_summary import (
     build_activity_day_tss,
     build_dashboard_summary,
@@ -74,9 +74,7 @@ def dashboard_summary(
     # здесь, поэтому обе половины ответа обязаны читать один и тот же ряд
     # (issue #598).
     metrics_anchor = athlete_local_date()
-    metrics_activities_df = pd.DataFrame(
-        db.get_activities_between(*load_metrics_window_bounds(metrics_anchor))
-    )
+    metrics_activities_df = canonical_activities_frame(db, metrics_anchor)
     current_status = calculate_current_status(
         activities_df,
         hrv_df,
@@ -336,9 +334,7 @@ def dashboard_widgets(
     empty_30 = activities_df_30 is None or activities_df_30.empty
     latest_training_status = get_latest_training_status(db)
     metrics_anchor = athlete_local_date()
-    metrics_activities_df = pd.DataFrame(
-        db.get_activities_between(*load_metrics_window_bounds(metrics_anchor))
-    )
+    metrics_activities_df = canonical_activities_frame(db, metrics_anchor)
     current_status = calculate_current_status(
         activities_df_30 if not empty_30 else pd.DataFrame(),
         hrv_df,

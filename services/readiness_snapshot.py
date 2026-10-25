@@ -5,12 +5,13 @@ compatibility import only, so API code contains no private business rules.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 import pandas as pd
 
 from data.database import Database
+from models.load_metrics import canonical_activities_frame
 from models.readiness import (
     FACTOR_WEIGHTS,
     INTERVENTION_BLOCKED_NO_ELIGIBLE,
@@ -69,11 +70,8 @@ def _build_measured_readiness_snapshot(
         hrv_df = _bounded(db.get_hrv_data(36500), anchor)
         health_df = _bounded(db.get_daily_health(36500), anchor)
         training_df = _bounded(db.get_training_status_history(36500), anchor)
-        activity_rows = db.get_activities_between(
-            (anchor - timedelta(days=LOAD_METRICS_WINDOW_DAYS - 1)).isoformat(),
-            anchor.isoformat(),
-        )
-        activities_df = _bounded(pd.DataFrame(activity_rows), anchor)
+        activity_rows = canonical_activities_frame(db, anchor)
+        activities_df = _bounded(activity_rows, anchor)
     except Exception:
         return _unknown_snapshot(
             reason="Недостаточно данных readiness: не удалось прочитать локальную базу.",

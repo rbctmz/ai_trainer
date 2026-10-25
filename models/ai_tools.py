@@ -19,6 +19,7 @@ from models.planning_checkpoints import (
     restore_goal_plan_from_checkpoint,
 )
 from models.coach_constraints import normalize_constraint_sport
+from models.load_metrics import canonical_activities_frame
 from models.readiness import LOAD_METRICS_WINDOW_DAYS as COACH_LOAD_METRICS_WINDOW_DAYS
 from models.readiness import compute_readiness_today
 from models.signals_engine import assemble_signals
@@ -952,7 +953,9 @@ class AITools:
         metrics_window_days = COACH_LOAD_METRICS_WINDOW_DAYS
         today = athlete_local_date()
         report_df = _bounded_to_date(self.db.get_activities(report_days), today)
-        metrics_df = _bounded_to_date(self.db.get_activities(metrics_window_days), today)
+        # Issue #731: каноническое окно/ряд — как в readiness снапшоте, иначе
+        # метрики коуча расходятся с «Обзором» и «Планом».
+        metrics_df = canonical_activities_frame(self.db, today)
 
         if metrics_df.empty:
             return {
