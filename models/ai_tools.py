@@ -1042,9 +1042,7 @@ class AITools:
             training_df = _bounded_to_date(
                 self.db.get_training_status_history(36500), today
             )
-            activities_df = _bounded_to_date(
-                self.db.get_activities(COACH_LOAD_METRICS_WINDOW_DAYS), today
-            )
+            activities_df = canonical_activities_frame(self.db, today)
         except Exception as exc:
             result = {
                 "success": True, "computed_for": today.isoformat(),

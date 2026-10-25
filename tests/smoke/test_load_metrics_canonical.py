@@ -1,4 +1,4 @@
-"""Единый пайплайн CTL/ATL/TSB — инварианты issue #731.
+"""Единый пайплайн CTL/ATL/TSB — инварианты issue #731 / #660.
 
 Владелец зафиксировал расхождение (скриншоты 2026-10-25): «План» показывал
 CTL 20.8 / ATL 19.4 / TSB 1.4 (planning_service на включительной границе
@@ -6,7 +6,8 @@ CTL 20.8 / ATL 19.4 / TSB 1.4 (planning_service на включительной 
 (канонический readiness snapshot). Канон — ``models/load_metrics.py``: окно
 ``load_metrics_window_bounds``, фильтр мультиспорт-конвертов, zero-fill дней
 отдыха до athlete-якоря, колонка ``activities.tss``. Инвариант: все
-поверхности — снапшот, планирование, dashboard, коуч — читают один ряд.
+поверхности — снапшот, планирование, dashboard, коуч, standalone-тул — читают
+один ряд, а планирование отдаёт persisted ``readiness_snapshots.tsb_json``.
 """
 from __future__ import annotations
 
@@ -16,7 +17,9 @@ import pandas as pd
 import pytest
 
 from api.planning_service import _current_signals
+from api.routers.coach import _load_metrics_context
 from data.database import Database
+from models.ai_tools import AITools
 from models.load_metrics import (
     LOAD_METRICS_WINDOW_DAYS,
     compute_load_metrics,
@@ -25,6 +28,7 @@ from models.load_metrics import (
     load_metrics_window_bounds,
 )
 from models.readiness import _tsb_metrics
+from services.readiness_snapshot import build_readiness_snapshot
 from utils.athlete_time import athlete_local_date
 
 
@@ -35,6 +39,28 @@ _ANCHOR = date(2026, 10, 24)
 #: 3 недели нарастающей нагрузки + 14 дней отдыха — сценарий из acceptance
 #: #598: метрики обязаны гаситься к «сегодня», а не замерзать на тренировке.
 _BLOCK = [100.0] * 7 + [110.0] * 7 + [120.0] * 7
+
+#: Граничный сценарий #660: ровно 91 дневная строка по 50 TSS — ровно столько,
+#: сколько читала включительная граница ``get_activities(90)`` до #731.
+_BOUNDARY_ROWS = 91
+
+
+def _triple(value: dict | None) -> dict:
+    value = value or {}
+    return {key: value.get(key) for key in ("ctl", "atl", "tsb")}
+
+
+def _patch_athlete_anchor(monkeypatch: pytest.MonkeyPatch, anchor: date) -> None:
+    """Закрепить athlete-якорь и cutoff ``get_activities(N)`` на дату (см. #599)."""
+    monkeypatch.setattr("utils.athlete_time.athlete_local_date", lambda: anchor)
+    monkeypatch.setattr("api.planning_service.athlete_local_date", lambda: anchor)
+    monkeypatch.setattr("models.ai_tools.athlete_local_date", lambda: anchor)
+    monkeypatch.setattr("services.readiness_snapshot.athlete_local_date", lambda: anchor)
+    monkeypatch.setattr(
+        Database,
+        "_cutoff_date",
+        staticmethod(lambda days: (anchor - timedelta(days=float(days))).isoformat()),
+    )
 
 
 def test_window_bounds_cover_exactly_90_days() -> None:
@@ -126,3 +152,64 @@ def test_planning_signals_match_canonical_readiness_snapshot(tmp_path) -> None:
         pd.DataFrame(db.get_activities_between(*load_metrics_window_bounds(anchor))),
         anchor,
     ) == canonical
+
+
+def test_all_load_paths_agree_on_91_day_boundary_db(tmp_path, monkeypatch) -> None:
+    """Regression #660: каждый путь обязан дать один и тот же ряд на границе.
+
+    Аудит #733 (6b54ff0): standalone ``get_readiness_today`` продолжал читать
+    91 дату через ``get_activities(90)`` и давал 44.3/50.0/−5.7 против 44.1/
+    50.0/−5.9 у остальных путей. После фикса все пути равны каноническому ряду.
+    """
+    anchor = _ANCHOR
+    _patch_athlete_anchor(monkeypatch, anchor)
+    db = Database(str(tmp_path / "boundary.db"))
+    db.save_activities(
+        [
+            {
+                "activity_id": f"boundary-{n}",
+                "date": (anchor - timedelta(days=n)).isoformat(),
+                "sport": "cycling",
+                "duration_minutes": 60,
+                "distance_km": 25.0,
+                "tss": 50.0,
+            }
+            for n in range(_BOUNDARY_ROWS)
+        ]
+    )
+    canonical = compute_load_metrics(
+        pd.DataFrame(db.get_activities_between(*load_metrics_window_bounds(anchor))),
+        anchor,
+    )
+    assert canonical is not None
+    # Граница реальна: без фильтра окна было бы 91 дата, с каноном — 90.
+    assert len(db.get_activities(LOAD_METRICS_WINDOW_DAYS)) == _BOUNDARY_ROWS
+
+    tools = AITools(db)
+    snapshot = build_readiness_snapshot(db, as_of=anchor)
+    signals, _df = _current_signals(db, as_of=anchor)
+    standalone = tools.get_readiness_today()
+    performance = {days: tools.get_performance_metrics(days) for days in (30, 60, 90, 180, 365)}
+
+    paths = {
+        "canonical_pipeline": canonical,
+        "readiness_snapshot_service": _triple(snapshot.get("tsb")),
+        "planning_signals": _triple(signals["load"]),
+        "standalone_readiness_tool": _triple(standalone.get("readiness", {}).get("tsb")),
+        "coach_meta_context": _triple(_load_metrics_context(tools)),
+    }
+    paths.update(
+        {f"performance_days_{days}": _triple(result) for days, result in performance.items()}
+    )
+    for name, value in paths.items():
+        for key in ("ctl", "atl", "tsb"):
+            assert value[key] == pytest.approx(canonical[key], abs=0.05), f"{name}.{key}"
+
+    # Валидный Today context — тул отдаёт snapshot как есть, без пересчёта.
+    tools.today_decision_context = {
+        "date": anchor.isoformat(),
+        "readiness": snapshot,
+        "story": {"date": anchor.isoformat()},
+    }
+    contextual = tools.get_readiness_today()
+    assert _triple(contextual["readiness"].get("tsb")) == _triple(snapshot.get("tsb"))
