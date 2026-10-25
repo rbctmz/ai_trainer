@@ -336,3 +336,63 @@ def test_planning_metrics_fall_back_live_before_first_capture(tmp_path, monkeypa
     assert canonical is not None
     for key in ("ctl", "atl", "tsb"):
         assert metrics[key] == pytest.approx(canonical[key], abs=0.05), key
+
+
+def test_latest_capture_is_chronological_across_days(tmp_path, monkeypatch) -> None:
+    """Regression: revision сбрасывается per target_key — выбор хронологический.
+
+    Дельта-ревью #733 (7abe865): глобальная сортировка ``revision DESC``
+    выбирала вчерашнюю rev=3 вместо сегодняшней rev=1, потому что target_key
+    содержит local_date (`readiness:<mode>:YYYY-MM-DD`) и счёт начинается
+    заново каждым днём.
+    """
+    anchor = _ANCHOR
+    _patch_athlete_anchor(monkeypatch, anchor)
+    db = Database(str(tmp_path / "crossday.db"))
+    db.save_activities(
+        [
+            {
+                "activity_id": f"crossday-{n}",
+                "date": (anchor - timedelta(days=n)).isoformat(),
+                "sport": "cycling",
+                "duration_minutes": 60,
+                "distance_km": 25.0,
+                "tss": 50.0,
+            }
+            for n in range(90)
+        ]
+    )
+    for hour in (10, 11, 12):
+        record_post_sync_recovery_state(
+            db,
+            capture_run_id=f"issue731-day1-{hour}",
+            observed_at_utc=datetime(2026, 10, 23, hour, tzinfo=timezone.utc),
+        )
+
+    # Сегодняшние данные отличаются (та же дата, +100 TSS) — новая capture.
+    db.save_activities(
+        [
+            {
+                "activity_id": "crossday-same-day",
+                "date": anchor.isoformat(),
+                "sport": "cycling",
+                "duration_minutes": 120,
+                "distance_km": 50.0,
+                "tss": 100.0,
+            }
+        ]
+    )
+    record_post_sync_recovery_state(
+        db,
+        capture_run_id="issue731-day2",
+        observed_at_utc=datetime(2026, 10, 24, 8, tzinfo=timezone.utc),
+    )
+
+    chosen = db.get_latest_readiness_snapshot(
+        capture_mode="prospective", local_date_max=anchor.isoformat()
+    )
+    assert chosen["local_date"] == anchor.isoformat()
+    assert chosen["revision"] == 1
+    assert chosen["capture_run_id"] == "issue731-day2"
+    # Выбранная ревизия содержит сегодняшние числа, а не вчерашние (−5.9).
+    assert chosen["tsb"]["tsb"] == pytest.approx(-16.8, abs=0.05)
