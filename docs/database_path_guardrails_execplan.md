@@ -18,7 +18,7 @@
 - [x] (2026-10-25) Создана цель M1; чистый изолированный worktree, baseline 12615561218bf2b5e5288d3a5ed2f9cf01f11145.
 - [x] (2026-10-25) Прочитаны issue/owner decision, workflow, PLANS и ASR/ADD; сверены основные входы.
 - [x] (2026-10-25) Synthetic probes повторены, спецификация/инвентарь/RED matrix и self-review готовы; Ruff/58 local links/diff GREEN.
-- [ ] M1: публикация отдельного draft PR и current-head CI.
+- [x] (2026-10-25) M1 опубликован отдельным draft PR #734; issue #625 актуализирован, current-head CI выполняется.
 - [ ] M1: независимое review и решение владельца; реализация пока не начинается.
 - [ ] M2: ранняя изоляция pytest и общий helper; RED → GREEN.
 - [ ] M3: acceptance и служебные команды; RED → GREEN.
@@ -52,8 +52,8 @@ guard в `Database._connect` исключён решением владельц�
 ## Outcomes & Retrospective
 
 
-Author M1: подготовлены короткий контракт, актуальный inventory и synthetic
-probe/evidence. Публикация/CI pending; independent review и owner acceptance
+Author M1 завершён: подготовлены короткий контракт, актуальный inventory и synthetic
+probe/evidence. Draft PR #734 опубликован; current-head CI выполняется, independent review и owner acceptance
 ещё не выполнены. Broad Python/UI suite локально N/A, product diff отсутствует.
 Числа старой разведки сентября не являются текущей runtime-оценкой.
 Не объявлять #625 закрытым после spec PR; защитное поведение ещё не поставлено.
@@ -147,3 +147,7 @@ Probe каждый раз создаёт собственный root и удал
 Редакция 2026-10-25 после probes: recorded skip/schema, stub acceptance и
 ignore-no-artifacts; исправлена проверка pre-inspection existence. Public
 contracts/CLI compatibility и остаточная runtime-неопределённость названы явно.
+
+Редакция 2026-10-25 при публикации: draft PR #734 и issue #625 связаны;
+нативное review не запрошено, accepted/ready labels не ставились. Author M1
+готов, source candidate не содержит runtime изменений; CI outcome — PR bundle.
