@@ -750,3 +750,24 @@ not run. Primary checkout/DB/env/services unchanged; completed M3 branch
 removed after tree/ancestor proof. No linked escaped defect observed in this
 task as of 2026-10-25; window remains open. Outcome included in #729 changeset,
 no separate docs-only PR.
+
+
+## #729 review metrics projection — #730, merged 2026-10-25
+
+[PR #730](https://github.com/rbctmz/ai_trainer/pull/730) opened
+2026-10-25T16:10:14Z, merged 16:44:03Z as
+12615561218bf2b5e5288d3a5ed2f9cf01f11145: calendar cycle 33m49s; active coding
+and wait not captured. Class B, 11 files +448/-84, one source commit.
+[One clean native result](https://github.com/rbctmz/ai_trainer/pull/730#issuecomment-6400189273)
+on 813eb73634b3f6ff517439d8ae063192b8d5efdb, 1/2 rounds, zero findings/threads
+at acceptance. Explicit owner acceptance/merge; functional CI, Review gate
+and CLEAN checked before merge, no bypass/source push after review. Local
+44 Node + 7 Python guards; Linux CI 4162 passed / 40 skipped / 116 deselected.
+Functional reruns/flakes not captured; initial gate refusal before acceptance
+was policy state. Trusted workflow actually published the
+[metrics comment](https://github.com/rbctmz/ai_trainer/pull/730#issuecomment-6400332484),
+not just a renderer preview. Closed-state Not ready is not a merge failure.
+Issue #729 closed; branch cleanup after tree equality. No live-data/service
+operation; no linked escaped defect observed in this task as of 2026-10-25,
+observation window open. Outcome included with substantive #625 M1, without a
+separate post-merge docs PR. Metadata/receipt refreshed from GitHub for this record.
