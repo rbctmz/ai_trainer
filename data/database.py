@@ -1343,6 +1343,33 @@ class Database:
         conn.close()
         return [self._deserialize_readiness_snapshot(row) for row in rows]
 
+    def get_latest_readiness_snapshot(
+        self, *, capture_mode=None, local_date_max=None
+    ):
+        """Latest snapshot row at or before `local_date_max` (issue #731).
+
+        Revision is monotonic per target_key, so the highest revision among
+        rows at or before the anchor date is the current persisted state.
+        Returns a deserialized row or None when nothing qualifies.
+        """
+        clauses, params = [], []
+        if capture_mode is not None:
+            clauses.append('capture_mode = ?')
+            params.append(str(capture_mode))
+        if local_date_max is not None:
+            clauses.append('local_date <= ?')
+            params.append(str(local_date_max))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
+        conn = self._connect()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            f'''SELECT * FROM readiness_snapshots {where}
+                ORDER BY revision DESC, id DESC LIMIT 1''',
+            tuple(params),
+        ).fetchone()
+        conn.close()
+        return self._deserialize_readiness_snapshot(row)
+
     def _deserialize_readiness_snapshot(self, row):
         if row is None:
             return None

@@ -16,7 +16,7 @@ from typing import Any
 import pandas as pd
 
 from models.activity_lineage import authoritative_training_load_activities
-from models.banister import BanisterModel
+from models.banister import BanisterModel, tsb_zone
 
 LOAD_METRICS_WINDOW_DAYS = 90
 
@@ -136,4 +136,43 @@ def compute_load_signal(
         "fitness": metrics.get("fitness"),
         "fatigue": metrics.get("fatigue"),
         "form": metrics.get("form", "Недостаточно данных"),
+    }
+
+
+def persisted_load_metrics(db: Any, anchor: date) -> dict[str, Any] | None:
+    """Persisted CTL/ATL/TSB из последней post-sync capture (issue #731).
+
+    Семантика текущей ревизии (решение владельца 2026-10-25, «persisted source
+    of truth»; research/today_v2_recon_2026-10-25.md, решение 2):
+
+    - текущая ревизия — последняя prospective-запись (capture после успешного
+      синка) с ``local_date <= anchor``; ревизия монотонна по target_key, поэтому
+      максимум ``revision`` и есть последняя capture;
+    - **до первой capture** persisted-записей нет: вызывающий код считает
+      метрики живым каноническим пайплайном (``compute_load_metrics``);
+    - **после изменения данных без новой capture** значение остаётся
+      сохранённым — расхождение устраняет следующая capture
+      (``record_post_sync_recovery_state`` при каждом успешном синке), а не
+      пересчёт на чтении; свежесть видна по ``as_of``/``observed_at_utc``.
+    """
+    try:
+        latest = db.get_latest_readiness_snapshot(
+            capture_mode="prospective", local_date_max=anchor.isoformat()
+        )
+    except Exception:
+        return None
+    if not isinstance(latest, dict):
+        return None
+    tsb = latest.get("tsb") if isinstance(latest.get("tsb"), dict) else None
+    if not tsb or tsb.get("tsb") is None:
+        return None
+    zone = tsb_zone(float(tsb["tsb"]))
+    return {
+        "ctl": round(float(tsb.get("ctl") or 0.0), 1),
+        "atl": round(float(tsb.get("atl") or 0.0), 1),
+        "tsb": round(float(tsb.get("tsb") or 0.0), 1),
+        "form": zone["label"],
+        "as_of": latest.get("local_date"),
+        "observed_at_utc": latest.get("observed_at_utc"),
+        "snapshot_id": latest.get("id"),
     }

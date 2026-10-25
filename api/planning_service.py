@@ -41,7 +41,7 @@ from models.planning_build_confirmation import (
 )
 from models.planning_cycle import CycleStateCorrupt
 from models.banister import BanisterModel, tsb_zone
-from models.load_metrics import canonical_activities_frame
+from models.load_metrics import canonical_activities_frame, persisted_load_metrics
 from models.coach_constraints import apply_constraints_to_goal_plan, normalize_constraint_sport, recalc_goal_plan_weekly_totals
 from models.fit_export import build_steps_for_sport, generate_fit_csv
 from models.plan_events import (
@@ -569,6 +569,31 @@ def current_status(db: Database) -> Dict[str, Any]:
     context, selected_checkpoint = current_plan_snapshot(db)
     checkpoint = summarize_planning_checkpoint(selected_checkpoint)
     today = date.fromisoformat(context["athlete_day"])
+    # Issue #731 (persisted source of truth): пока существует post-sync capture,
+    # «План» показывает сохранённую ревизию tsb_json, а не живой пересчёт —
+    # числа обязаны совпадать с persisted readiness_snapshots. Живой канонический
+    # расчёт остаётся fallback до первой capture; после изменения данных без
+    # capture значение остаётся сохранённым до следующей capture (см.
+    # models.load_metrics.persisted_load_metrics).
+    persisted = persisted_load_metrics(db, today)
+    if persisted is not None:
+        metrics = {
+            "ctl": persisted["ctl"],
+            "atl": persisted["atl"],
+            "tsb": persisted["tsb"],
+            "form": persisted["form"],
+        }
+        load = signals.get("load")
+        if isinstance(load, dict):
+            # Тот же прецедент, что dashboard: проекция перекрывает только
+            # ctl/atl/tsb; form/critical/recommendations остаются от живого ряда.
+            load.update(
+                {
+                    "ctl": persisted["ctl"],
+                    "atl": persisted["atl"],
+                    "tsb": persisted["tsb"],
+                }
+            )
     active_constraints = db.get_coach_constraints(
         start_date=today.isoformat(),
         end_date=(today + timedelta(days=30)).isoformat(),
