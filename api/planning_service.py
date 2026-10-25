@@ -41,7 +41,12 @@ from models.planning_build_confirmation import (
 )
 from models.planning_cycle import CycleStateCorrupt
 from models.banister import BanisterModel, tsb_zone
-from models.load_metrics import canonical_activities_frame, persisted_load_metrics
+from models.load_metrics import (
+    canonical_activities_frame,
+    persisted_load_metrics,
+    select_persisted_load_snapshot,
+)
+from models.signals_engine import apply_persisted_load_revision
 from models.coach_constraints import apply_constraints_to_goal_plan, normalize_constraint_sport, recalc_goal_plan_weekly_totals
 from models.fit_export import build_steps_for_sport, generate_fit_csv
 from models.plan_events import (
@@ -565,35 +570,35 @@ def _apply_active_coach_constraints(
 
 def current_status(db: Database) -> Dict[str, Any]:
     signals, _df = _current_signals(db)
-    metrics = _metrics_from_signals(signals)
     context, selected_checkpoint = current_plan_snapshot(db)
     checkpoint = summarize_planning_checkpoint(selected_checkpoint)
     today = date.fromisoformat(context["athlete_day"])
     # Issue #731 (persisted source of truth): пока существует post-sync capture,
-    # «План» показывает сохранённую ревизию tsb_json, а не живой пересчёт —
-    # числа обязаны совпадать с persisted readiness_snapshots. Живой канонический
-    # расчёт остаётся fallback до первой capture; после изменения данных без
+    # весь ответ строится от выбранной ревизии — числа, TSB-зависимые
+    # интерпретации и рекомендации согласованы между собой; живой канонический
+    # расчёт остаётся fallback до первой capture. После изменения данных без
     # capture значение остаётся сохранённым до следующей capture (см.
     # models.load_metrics.persisted_load_metrics).
-    persisted = persisted_load_metrics(db, today)
+    persisted_row = select_persisted_load_snapshot(db, today)
+    persisted = persisted_load_metrics(persisted_row, today)
     if persisted is not None:
+        signals = apply_persisted_load_revision(signals, persisted)
         metrics = {
             "ctl": persisted["ctl"],
             "atl": persisted["atl"],
             "tsb": persisted["tsb"],
             "form": persisted["form"],
+            "source": "persisted",
+            "as_of": persisted["as_of"],
+            "observed_at_utc": persisted["observed_at_utc"],
+            "snapshot_id": persisted["snapshot_id"],
+            "revision": persisted["revision"],
+            "capture_mode": persisted["capture_mode"],
         }
-        load = signals.get("load")
-        if isinstance(load, dict):
-            # Тот же прецедент, что dashboard: проекция перекрывает только
-            # ctl/atl/tsb; form/critical/recommendations остаются от живого ряда.
-            load.update(
-                {
-                    "ctl": persisted["ctl"],
-                    "atl": persisted["atl"],
-                    "tsb": persisted["tsb"],
-                }
-            )
+        readiness_snapshot: Dict[str, Any] = persisted_row or {}
+    else:
+        metrics = {**_metrics_from_signals(signals), "source": "live", "as_of": today.isoformat()}
+        readiness_snapshot = build_readiness_snapshot(db)
     active_constraints = db.get_coach_constraints(
         start_date=today.isoformat(),
         end_date=(today + timedelta(days=30)).isoformat(),
@@ -606,8 +611,14 @@ def current_status(db: Database) -> Dict[str, Any]:
             "atl": round(float(metrics.get("atl") or 0.0), 1),
             "tsb": round(float(metrics.get("tsb") or 0.0), 1),
             "form": metrics.get("form", "Недостаточно данных"),
+            "source": metrics.get("source", "live"),
+            "as_of": metrics.get("as_of", today.isoformat()),
+            "observed_at_utc": metrics.get("observed_at_utc"),
+            "snapshot_id": metrics.get("snapshot_id"),
+            "revision": metrics.get("revision"),
+            "capture_mode": metrics.get("capture_mode"),
         },
-        "readiness_snapshot": build_readiness_snapshot(db),
+        "readiness_snapshot": readiness_snapshot,
         "signals": signals,
         "active_constraint_count": len(active_constraints),
         "active_constraints": active_constraints,

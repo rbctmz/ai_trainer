@@ -139,21 +139,14 @@ def compute_load_signal(
     }
 
 
-def persisted_load_metrics(db: Any, anchor: date) -> dict[str, Any] | None:
-    """Persisted CTL/ATL/TSB из последней post-sync capture (issue #731).
+def select_persisted_load_snapshot(db: Any, anchor: date) -> dict[str, Any] | None:
+    """Последняя post-sync capture готовности на дату или раньше (issue #731).
 
-    Семантика текущей ревизии (решение владельца 2026-10-25, «persisted source
-    of truth»; research/today_v2_recon_2026-10-25.md, решение 2):
-
-    - текущая ревизия — последняя prospective-запись (capture после успешного
-      синка) с ``local_date <= anchor``; ревизия монотонна по target_key, поэтому
-      максимум ``revision`` и есть последняя capture;
-    - **до первой capture** persisted-записей нет: вызывающий код считает
-      метрики живым каноническим пайплайном (``compute_load_metrics``);
-    - **после изменения данных без новой capture** значение остаётся
-      сохранённым — расхождение устраняет следующая capture
-      (``record_post_sync_recovery_state`` при каждом успешном синке), а не
-      пересчёт на чтении; свежесть видна по ``as_of``/``observed_at_utc``.
+    Хронология важнее счётчика: `revision` монотонна только внутри
+    `target_key` (`readiness:<mode>:YYYY-MM-DD`), выбор — самая поздняя
+    `local_date`, внутри неё максимум `revision` (см.
+    `Database.get_latest_readiness_snapshot`). Ошибки чтения трактуем как
+    отсутствие persisted-состояния — вызывающий код уходит в live-fallback.
     """
     try:
         latest = db.get_latest_readiness_snapshot(
@@ -161,9 +154,29 @@ def persisted_load_metrics(db: Any, anchor: date) -> dict[str, Any] | None:
         )
     except Exception:
         return None
-    if not isinstance(latest, dict):
+    return latest if isinstance(latest, dict) else None
+
+
+def persisted_load_metrics(snapshot: dict[str, Any] | None, anchor: date) -> dict[str, Any] | None:
+    """CTL/ATL/TSB и provenance выбранной persisted-ревизии (issue #731).
+
+    Семантика текущей ревизии (решение владельца 2026-10-25, «persisted source
+    of truth»; research/today_v2_recon_2026-10-25.md, решение 2):
+
+    - текущая ревизия — последняя prospective-запись (capture после успешного
+      синка) с ``local_date <= anchor``, хронологический выбор см.
+      ``select_persisted_load_snapshot``;
+    - **до первой capture** persisted-записей нет: вызывающий код считает
+      метрики живым каноническим пайплайном (``compute_load_metrics``);
+    - **после изменения данных без новой capture** значение остаётся
+      сохранённым — расхождение устраняет следующая capture
+      (``record_post_sync_recovery_state`` при каждом успешном синке), а не
+      пересчёт на чтении; свежесть и происхождение едут в ответе в полях
+      ``as_of``/``observed_at_utc``/``snapshot_id``/``revision``/``capture_mode``.
+    """
+    if not isinstance(snapshot, dict):
         return None
-    tsb = latest.get("tsb") if isinstance(latest.get("tsb"), dict) else None
+    tsb = snapshot.get("tsb") if isinstance(snapshot.get("tsb"), dict) else None
     if not tsb or tsb.get("tsb") is None:
         return None
     zone = tsb_zone(float(tsb["tsb"]))
@@ -172,7 +185,11 @@ def persisted_load_metrics(db: Any, anchor: date) -> dict[str, Any] | None:
         "atl": round(float(tsb.get("atl") or 0.0), 1),
         "tsb": round(float(tsb.get("tsb") or 0.0), 1),
         "form": zone["label"],
-        "as_of": latest.get("local_date"),
-        "observed_at_utc": latest.get("observed_at_utc"),
-        "snapshot_id": latest.get("id"),
+        "source": "persisted",
+        "as_of": snapshot.get("local_date") or anchor.isoformat(),
+        "observed_at_utc": snapshot.get("observed_at_utc"),
+        "snapshot_id": snapshot.get("id"),
+        "revision": snapshot.get("revision"),
+        "capture_mode": snapshot.get("capture_mode"),
+        "target_key": snapshot.get("target_key"),
     }

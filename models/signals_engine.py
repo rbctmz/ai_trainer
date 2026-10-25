@@ -572,6 +572,47 @@ def assemble_signals(
     }
 
 
+def apply_persisted_load_revision(
+    signals: dict[str, Any],
+    persisted: dict[str, Any],
+) -> dict[str, Any]:
+    """Спроецировать выбранную persisted-ревизию нагрузки на signals (issue #731).
+
+    Перекрывает ctl/atl/tsb в ``load`` вместе со всеми TSB-зависимыми
+    интерпретациями (form/label/tone/clause/severity), пересчитывает
+    ``critical``/``recommendations`` и ``state`` от спроецированного TSB —
+    иначе один ответ содержал числа одной ревизии и интерпретации другой
+    (находка дельта-ревью #733 от 7abe865). HRV-часть рекомендаций остаётся
+    живой: её ревизия — не та, что у persisted TSB. ``load["acwr"]`` не
+    трогается: у ACWR собственная политика истории (минимум 84 дня).
+    """
+    load = signals.get("load")
+    if not isinstance(load, dict) or not persisted:
+        return signals
+
+    tsb = round(float(persisted["tsb"]), 1)
+    zone = tsb_zone(tsb)
+    load.update(
+        {
+            "ctl": round(float(persisted["ctl"]), 1),
+            "atl": round(float(persisted["atl"]), 1),
+            "tsb": tsb,
+            "form": zone["label"],
+            "label": zone["label"],
+            "tone": zone["tone"],
+            "clause": zone["clause"],
+            "severity": tone_severity(zone["tone"]),
+        }
+    )
+    critical_status, critical_action, recommendations = _recommendations_for_signals(
+        load, signals.get("hrv") or {}
+    )
+    signals["critical"] = {"status": critical_status, "action": critical_action}
+    signals["recommendations"] = recommendations
+    signals["state"] = _state_signal(load, signals.get("readiness") or {}, critical_status)
+    return signals
+
+
 def current_status_from_signals(signals: dict[str, Any]) -> dict[str, Any]:
     """Return the historical dashboard current_status shape from signals."""
     load = signals.get("load", {}) or {}

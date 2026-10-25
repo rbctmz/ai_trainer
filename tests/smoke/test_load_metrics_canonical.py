@@ -24,6 +24,7 @@ from api.routers.coach import _load_metrics_context
 from api.routers.planning import router
 from data.database import Database
 from models.ai_tools import AITools
+from models.banister import tsb_zone
 from models.load_metrics import (
     LOAD_METRICS_WINDOW_DAYS,
     compute_load_metrics,
@@ -31,6 +32,7 @@ from models.load_metrics import (
     daily_tss_series,
     load_metrics_window_bounds,
     persisted_load_metrics,
+    select_persisted_load_snapshot,
 )
 from models.readiness import _tsb_metrics
 from services.readiness_snapshot import build_readiness_snapshot
@@ -62,6 +64,7 @@ def _patch_athlete_anchor(monkeypatch: pytest.MonkeyPatch, anchor: date) -> None
     monkeypatch.setattr("api.planning_service.athlete_local_date", lambda: anchor)
     monkeypatch.setattr("models.ai_tools.athlete_local_date", lambda: anchor)
     monkeypatch.setattr("services.readiness_snapshot.athlete_local_date", lambda: anchor)
+    monkeypatch.setattr("services.planning_cycles.athlete_local_date", lambda: anchor)
     monkeypatch.setattr(
         Database,
         "_cutoff_date",
@@ -228,123 +231,12 @@ def _planning_client(db: Database) -> TestClient:
     return TestClient(app)
 
 
-def test_planning_endpoint_serves_persisted_snapshot(tmp_path, monkeypatch) -> None:
-    """Persisted source of truth: HTTP /api/planning/status == сохранённая строка.
-
-    Аудит #733 (6b54ff0): после capture и добавления активности за тот же день
-    живой пересчёт давал 46.5/63.3/−16.8 против сохранённых 44.1/50.0/−5.9.
-    Контракт (решение владельца 2026-10-25): планирование читает persisted
-    ``readiness_snapshots.tsb_json`` — последнюю prospective-ревизию с
-    ``local_date <= anchor``; расхождение устраняет следующая capture, а не
-    пересчёт на чтении.
-    """
-    anchor = _ANCHOR
-    _patch_athlete_anchor(monkeypatch, anchor)
-    db = Database(str(tmp_path / "persisted.db"))
-    db.save_activities(
-        [
-            {
-                "activity_id": f"persisted-{n}",
-                "date": (anchor - timedelta(days=n)).isoformat(),
-                "sport": "cycling",
-                "duration_minutes": 60,
-                "distance_km": 25.0,
-                "tss": 50.0,
-            }
-            for n in range(90)
-        ]
-    )
-    record_post_sync_recovery_state(
-        db,
-        capture_run_id="issue731-capture",
-        observed_at_utc=datetime(2026, 10, 24, 8, tzinfo=timezone.utc),
-    )
-    saved = db.get_latest_readiness_snapshot(
-        capture_mode="prospective", local_date_max=anchor.isoformat()
-    )
-    assert saved is not None and saved["tsb"].get("tsb") is not None
-
-    # Изменение данных без новой capture: сохранённая строка не меняется.
-    db.save_activities(
-        [
-            {
-                "activity_id": "persisted-same-day",
-                "date": anchor.isoformat(),
-                "sport": "cycling",
-                "duration_minutes": 120,
-                "distance_km": 50.0,
-                "tss": 100.0,
-            }
-        ]
-    )
-    after_add = db.get_latest_readiness_snapshot(
-        capture_mode="prospective", local_date_max=anchor.isoformat()
-    )
-    assert after_add["id"] == saved["id"]
-
-    response = _planning_client(db).get("/api/planning/status")
-    assert response.status_code == 200
-    metrics = response.json()["metrics"]
-    for key in ("ctl", "atl", "tsb"):
-        assert metrics[key] == pytest.approx(saved["tsb"][key], abs=0.05), key
-
-    # Явная новая capture согласует persisted строку с новым рядом данных —
-    # и endpoint продолжает читать сохранённую (уже обновлённую) ревизию.
-    record_post_sync_recovery_state(
-        db,
-        capture_run_id="issue731-capture-2",
-        observed_at_utc=datetime(2026, 10, 24, 9, tzinfo=timezone.utc),
-    )
-    refreshed = db.get_latest_readiness_snapshot(
-        capture_mode="prospective", local_date_max=anchor.isoformat()
-    )
-    assert refreshed["id"] != saved["id"]
-    response = _planning_client(db).get("/api/planning/status")
-    assert response.status_code == 200
-    metrics = response.json()["metrics"]
-    for key in ("ctl", "atl", "tsb"):
-        assert metrics[key] == pytest.approx(refreshed["tsb"][key], abs=0.05), key
-
-
-def test_planning_metrics_fall_back_live_before_first_capture(tmp_path, monkeypatch) -> None:
-    """До первой capture метрики считает живой канонический пайплайн."""
-    anchor = _ANCHOR
-    _patch_athlete_anchor(monkeypatch, anchor)
-    db = Database(str(tmp_path / "fresh.db"))
-    db.save_activities(
-        [
-            {
-                "activity_id": f"fresh-{n}",
-                "date": (anchor - timedelta(days=n)).isoformat(),
-                "sport": "cycling",
-                "duration_minutes": 60,
-                "distance_km": 25.0,
-                "tss": 50.0,
-            }
-            for n in range(90)
-        ]
-    )
-    assert persisted_load_metrics(db, anchor) is None
-
-    response = _planning_client(db).get("/api/planning/status")
-    assert response.status_code == 200
-    metrics = response.json()["metrics"]
-    canonical = compute_load_metrics(
-        pd.DataFrame(db.get_activities_between(*load_metrics_window_bounds(anchor))),
-        anchor,
-    )
-    assert canonical is not None
-    for key in ("ctl", "atl", "tsb"):
-        assert metrics[key] == pytest.approx(canonical[key], abs=0.05), key
-
-
 def test_latest_capture_is_chronological_across_days(tmp_path, monkeypatch) -> None:
     """Regression: revision сбрасывается per target_key — выбор хронологический.
 
     Дельта-ревью #733 (7abe865): глобальная сортировка ``revision DESC``
     выбирала вчерашнюю rev=3 вместо сегодняшней rev=1, потому что target_key
-    содержит local_date (`readiness:<mode>:YYYY-MM-DD`) и счёт начинается
-    заново каждым днём.
+    содержит local_date и счёт начинается заново каждым днём.
     """
     anchor = _ANCHOR
     _patch_athlete_anchor(monkeypatch, anchor)
@@ -396,3 +288,146 @@ def test_latest_capture_is_chronological_across_days(tmp_path, monkeypatch) -> N
     assert chosen["capture_run_id"] == "issue731-day2"
     # Выбранная ревизия содержит сегодняшние числа, а не вчерашние (−5.9).
     assert chosen["tsb"]["tsb"] == pytest.approx(-16.8, abs=0.05)
+
+    latest = persisted_load_metrics(chosen, anchor)
+    assert latest is not None
+    assert latest["tsb"] == pytest.approx(-16.8, abs=0.05)
+    assert latest["revision"] == 1
+    assert latest["as_of"] == anchor.isoformat()
+
+
+def test_planning_endpoint_serves_one_consistent_revision(tmp_path, monkeypatch) -> None:
+    """Весь HTTP-ответ строится от выбранной persisted-ревизии.
+
+    Аудит #733 (7abe865): endpoint возвращал одновременно metrics.tsb −5.9
+    («Стабильная нагрузка»), signals.load.form «Высокая усталость»,
+    readiness_snapshot.tsb −38.7 и critical «Полный отдых 2–3 дня». Теперь
+    числа, TSB-зависимые интерпретации, рекомендации и readiness_snapshot
+    согласованы с выбранной ревизией, а её provenance едет в metrics.
+    """
+    anchor = _ANCHOR
+    _patch_athlete_anchor(monkeypatch, anchor)
+    db = Database(str(tmp_path / "persisted.db"))
+    db.save_activities(
+        [
+            {
+                "activity_id": f"persisted-{n}",
+                "date": (anchor - timedelta(days=n)).isoformat(),
+                "sport": "cycling",
+                "duration_minutes": 60,
+                "distance_km": 25.0,
+                "tss": 50.0,
+            }
+            for n in range(90)
+        ]
+    )
+    record_post_sync_recovery_state(
+        db,
+        capture_run_id="issue731-capture",
+        observed_at_utc=datetime(2026, 10, 24, 8, tzinfo=timezone.utc),
+    )
+
+    def fetch_response() -> dict:
+        response = _planning_client(db).get("/api/planning/status")
+        assert response.status_code == 200
+        return response.json()
+
+    def assert_one_revision(payload: dict, expected: dict) -> None:
+        """Числа, интерпретации и provenance — от одной и той же ревизии."""
+        metrics = payload["metrics"]
+        load = payload["signals"]["load"]
+        snapshot = payload["readiness_snapshot"]
+        for key in ("ctl", "atl", "tsb"):
+            assert metrics[key] == pytest.approx(expected["tsb"][key], abs=0.05), key
+            assert load[key] == pytest.approx(expected["tsb"][key], abs=0.05), key
+            assert snapshot["tsb"][key] == pytest.approx(expected["tsb"][key], abs=0.05), key
+        zone = tsb_zone(float(expected["tsb"]["tsb"]))
+        assert metrics["form"] == zone["label"]
+        assert load["form"] == zone["label"]
+        assert load["label"] == zone["label"]
+        assert load["tone"] == zone["tone"]
+        # Provenance выбранной ревизии доходит до клиента.
+        assert metrics["source"] == "persisted"
+        assert metrics["snapshot_id"] == expected["id"]
+        assert metrics["revision"] == expected["revision"]
+        assert metrics["capture_mode"] == expected["capture_mode"]
+        assert metrics["as_of"] == expected["local_date"]
+        assert metrics["observed_at_utc"] == expected["observed_at_utc"]
+        assert snapshot["id"] == expected["id"]
+        assert snapshot["capture_mode"] == expected["capture_mode"]
+
+    # Фаза A: capture есть, данные не менялись.
+    saved = db.get_latest_readiness_snapshot(
+        capture_mode="prospective", local_date_max=anchor.isoformat()
+    )
+    payload = fetch_response()
+    assert_one_revision(payload, saved)
+    assert payload["signals"]["critical"]["status"] is None
+
+    # Фаза B: данные изменились (та же дата, +300 TSS), capture нет —
+    # ответ всё ещё целиком от сохранённой ревизии.
+    db.save_activities(
+        [
+            {
+                "activity_id": "persisted-same-day",
+                "date": anchor.isoformat(),
+                "sport": "cycling",
+                "duration_minutes": 180,
+                "distance_km": 70.0,
+                "tss": 300.0,
+            }
+        ]
+    )
+    payload = fetch_response()
+    assert_one_revision(payload, saved)
+    assert payload["signals"]["critical"]["status"] is None
+
+    # Фаза C: новая capture — весь ответ переходит на новую ревизию,
+    # включая TSB-зависимые интерпретации (tsb ≈ −38.7 → critical).
+    record_post_sync_recovery_state(
+        db,
+        capture_run_id="issue731-capture-2",
+        observed_at_utc=datetime(2026, 10, 24, 9, tzinfo=timezone.utc),
+    )
+    refreshed = db.get_latest_readiness_snapshot(
+        capture_mode="prospective", local_date_max=anchor.isoformat()
+    )
+    assert refreshed["id"] != saved["id"]
+    assert refreshed["tsb"]["tsb"] < -30
+    payload = fetch_response()
+    assert_one_revision(payload, refreshed)
+    assert payload["signals"]["critical"]["status"] == "Критическое переутомление"
+
+
+def test_planning_metrics_fall_back_live_before_first_capture(tmp_path, monkeypatch) -> None:
+    """До первой capture метрики считает живой канонический пайплайн."""
+    anchor = _ANCHOR
+    _patch_athlete_anchor(monkeypatch, anchor)
+    db = Database(str(tmp_path / "fresh.db"))
+    db.save_activities(
+        [
+            {
+                "activity_id": f"fresh-{n}",
+                "date": (anchor - timedelta(days=n)).isoformat(),
+                "sport": "cycling",
+                "duration_minutes": 60,
+                "distance_km": 25.0,
+                "tss": 50.0,
+            }
+            for n in range(90)
+        ]
+    )
+    assert select_persisted_load_snapshot(db, anchor) is None
+
+    response = _planning_client(db).get("/api/planning/status")
+    assert response.status_code == 200
+    metrics = response.json()["metrics"]
+    canonical = compute_load_metrics(
+        pd.DataFrame(db.get_activities_between(*load_metrics_window_bounds(anchor))),
+        anchor,
+    )
+    assert canonical is not None
+    for key in ("ctl", "atl", "tsb"):
+        assert metrics[key] == pytest.approx(canonical[key], abs=0.05), key
+    assert metrics["source"] == "live"
+    assert metrics["as_of"] == anchor.isoformat()

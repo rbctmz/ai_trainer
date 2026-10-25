@@ -396,7 +396,11 @@ def test_status_shape(tmp_path):
     from api.routers.planning import planning_status
 
     out = planning_status(db=Database(str(tmp_path / "e.db")))
-    assert set(out["metrics"].keys()) == {"ctl", "atl", "tsb", "form"}
+    # Issue #731: metrics всегда содержат числа и источник (live до первой
+    # capture; persisted-ревизия добавляет provenance-поля).
+    assert {"ctl", "atl", "tsb", "form", "source", "as_of"} <= set(out["metrics"].keys())
+    assert out["metrics"]["source"] == "live"
+    assert out["readiness_snapshot"]  # live-фолбэк строит snapshot на месте
     assert out["has_plan"] is False
 
 
