@@ -6,7 +6,7 @@
 ## Purpose / Big Picture
 
 
-Рабочая SQLite должна переживать удаление checkout. Пользователь увидит стабильный абсолютный путь, явный отказ при неоднозначном upgrade и проверенный перенос, который не стирает старую базу. Class A implementation следует уже принятому контракту; текущий slice — M2 offline migrate, без live DB/process операций. M1 merged; полный CLI→restart/reset/rollback drill остаётся M3.
+Рабочая SQLite должна переживать удаление checkout. Пользователь увидит стабильный абсолютный путь, явный отказ при неоднозначном upgrade и проверенный перенос, который не стирает старую базу. Class A implementation следует уже принятому контракту; текущий slice — M3 synthetic CLI→restart/reset/rollback acceptance, без live DB/process операций. M1 и M2 merged; теперь проверяется operator handoff.
 
 ## Progress
 
@@ -21,9 +21,10 @@
 - [x] M1 path/default/preflight: RED → GREEN, explicit path compatibility; 64 path/integration cases после runtime review corrections, full contributor-safe 4077 passed / 18 skipped / 116 deselected.
 - [x] M1 #726 merged 89fa21a 2026-10-25T06:42:58Z: accepted HEAD 9146f73, native 2/2/scoped clean, zero threads, current-head CI/Review gate GREEN; owner явно разрешил merge.
 - [x] M2 offline migrate implementation: RED → GREEN, all-domain/WAL/failure/no-clobber proof; 101 M2 tests, 181 focused regression checks.
-- [ ] M2 published candidate: remote CI, independent review и отдельное owner acceptance pending.
+- [x] M2 #727 merged 66c7d5f 2026-10-25T08:47:22Z: HEAD d0d36b6, native clean 1/2, threads 0, CI/Gitleaks/Review gate GREEN, CLEAN; explicit owner merge confirmation получено.
+- [x] M3 author drill подготовлен: реальные subprocess CLI и fresh API/domain process, synthetic provider/local domains, WAL, new writes/fresh restore/reset/retry и default-startup refusal; final validation ниже.
 - [ ] M3 synthetic acceptance, final checks/native review и явный owner merge.
-- [ ] Отдельный operator handoff; реальный перенос не авторизован этой подготовкой.
+- [x] Operator runbook/handoff подготовлен в docs/sqlite_backup_restore.md; реальные source/target/rollback paths и live stop/activation выбирает владелец отдельно, вне этого implementation goal.
 
 ## Surprises & Discoveries
 
@@ -50,7 +51,7 @@ Observed: review #724 показал пересечение future sidecar names
 ## Outcomes & Retrospective
 
 
-M0 завершён: два P2 исправлены, scoped review clean, owner merge #724 подтверждён. M1 merged #726; M2 candidate реализует CLI/failure controls, focused/full contributor-safe GREEN; remote CI и independent/owner acceptance pending. M3 остаётся. Работающий runtime и личные данные не изменены. Проверки Windows native/полной migration ещё не выполнялись; не подменять их baseline backup tests.
+M0 завершён: два P2 исправлены, scoped review clean, owner merge #724 подтверждён. M1 merged #726; M2 merged #727 как 66c7d5f после clean native review и owner decision. M3 author acceptance candidate включает subprocess lifecycle drill; final CI/review/owner acceptance pending. Работающий runtime и личные данные не изменены. Проверки Windows native/полной migration ещё не выполнялись; не подменять их baseline backup tests.
 
 ## Context and Orientation
 
@@ -226,3 +227,85 @@ application DDL was populated with synthetic storage fixtures and compared
 independently via schema SELECT/all-table raw rows, without model interpretation.
 M3 must still exercise valid domain behavior after CLI/restart/reset and new
 writes/rollback. No independent M2 review or merge acceptance is claimed.
+
+
+## M2 accepted outcome and M3 implementation — 2026-10-25
+
+M2 #727 merged as **66c7d5f71f0d133ff7c5a6f842c8c096df469641** at
+2026-10-25T08:47:22Z; accepted HEAD d0d36b669c1c1c001f12e16c8dccd4e89de80e5d.
+Native receipt [6395373496](https://github.com/rbctmz/ai_trainer/pull/727#issuecomment-6395373496)
+clean on current HEAD, one completed round/2, no findings/threads. CI on Linux:
+4156 passed / 40 skipped / 116 deselected / 317.18s; Web E2E, Web contract,
+Gitleaks and final Review gate GREEN. The larger skip count versus local Mac
+is reported rather than replaced with the local count. Merge gate CLEAN and
+head equality checked immediately before merge; no admin bypass/extra review.
+Owner explicitly confirmed merge after permission auto-review required a
+specific confirmation. Merged tree equals accepted source; only the completed
+M2 branch was removed. M3 ff'd to merged main; primary live checkout unchanged.
+
+M3 is acceptance of the existing contract, not a new backup engine or product
+feature. `test_database_relocation_drill.py` seeds actual domain methods:
+normalized provider ingest + current TSS resolver, exact manual link,
+cycle/checkpoint, confirmed match, feedback, coach event, measured readiness
+capture with provider provenance. A final coach update is committed into WAL;
+main bytes lack its marker. Real CLI plan/apply, fresh Python processes using
+FastAPI lifespan/real DB dependency and the cycle route, plus shared domain
+reads prove identity/content after activation. No listening server, provider
+network call, browser/UI acceptance or running service restart is claimed.
+
+Observed initial M3 run: 1 failed / 5 passed / 9.91s. Copy digests were equal
+before startup; only activities.tss/tss_method changed after application init
+(41.4/power_tss_bike → 75/heuristic_duration_bike). Verified by raw-column
+comparison and Database._repair_legacy_activity_tss: fixture claimed power
+without measured watts. This was fixture setup, not a relocation failure.
+Fixture now uses the same ActivityProcessor.resolve_tss as the existing local
+cascade; no runtime code changed. Six lifecycle cases then passed / 12.33s.
+This is not presented as product RED→GREEN.
+
+Post-activation proof: new provider activity survives another fresh process;
+legacy source and original rollback remain equal to the old baseline. A fresh
+backup of the active target is restored into another explicit path and reads
+all current records. Reset only that active synthetic DB; original/fresh
+snapshots and legacy source remain intact. Restoring over the reset store
+retains its reset-state rollback and recovers the newer records. Preview-stale
+target, missing stopped flag, namespace overlap and corrupt input each produce
+safe CLI blocked/exit2 without switching config or publishing partial output.
+The M2 failure/race matrix is included in the combined focused regression run.
+
+Self-review: no production/CLI/config/API/TS changes in M3. Child bootstrap
+uses sanitized credentials-free env, a disposable HOME/TMPDIR, disables dotenv
+and audits SQLite paths/.env/network before application imports. This is test
+isolation, not the universal runtime guard deferred to #625. Fixtures use
+current domain methods; raw copies and fingerprints still have independent
+M2 coverage. Weak points remain operator quiescence, O(N) hash memory and
+native Windows/ACL; live path selection/activation is owner work. Existing
+reset semantics are characterized, not redesigned. Native M3 budget 0/2;
+final checks/review/owner acceptance pending, no automatic merge.
+
+
+M3 combined author validation: **191 passed / 14.68s** (6 lifecycle cases,
+101 M2 relocation, 64 paths, 16 backup/restore, 4 concurrency policy).
+Ruff всего дерева, diff check и 46 local Markdown links GREEN. Full contributor-
+safe запускается из exact isolated source snapshot с тем же warning policy,
+что CI; итог фиксируется ниже перед publication. Тестовый код/fixtures после
+этого focused run не меняются. Only docs/evidence updates follow results.
+
+
+M3 final author acceptance: **4184 passed / 18 skipped / 116 deselected /
+294.29s** for the contributor-safe suite with
+`-W error::pytest.PytestReturnNotNoneWarning`. Combined focused **191 passed /
+14.68s**. Tested M3 Python SHA-256 matches worktree; production tree is exactly
+merged M2 (66c7d5f), unchanged by M3. Final source contains only the new drill
+and canonical docs/outcome updates. Ruff/diff/local links GREEN. Web build/lint
+and extractor N/A for this tests/docs-only slice; CI still runs standard web
+checks. Full/ focused checks used synthetic source/DB/home only; native Mac
+filesystem exercised, Linux CI pending, native Windows/ACL NOT RUN. No live
+DB, .env, credentials, providers or running services were accessed/changed.
+
+Author verdict: M3 acceptance candidate ready for publication/independent
+review. No findings on an open branch were silently fixed in this slice;
+one test-fixture mismatch was investigated and corrected before publication.
+Native M3 budget 0/2; owner merge and #624 closure happen only after the usual
+current-head gates and explicit owner decision. Parent #622 remains open for
+#625 then #623; off-device #626 deferred. No new docs-only follow-up PR is
+required to record M2 outcome; it is included here.

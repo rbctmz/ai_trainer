@@ -829,17 +829,19 @@ captured data and bounded date projections outside writer lock. ADR-0001/0002/
 UI, independent verdict, native acceptance or performance outcome claimed yet.
 
 
-## Runtime database path (#624; M1 merged, M2 candidate)
+## Runtime database path (#624; M1/M2 merged, M3 acceptance candidate)
 
 Approved [contract](../database_path_relocation_slice_spec.md) and
 [plan](../database_path_relocation_execplan.md). M1 #726 merged as 89fa21a:
 cwd-independent platform selection and separate legacy-family refusal before
 opening a fresh default. Explicit paths/Docker and `_connect` remain unchanged.
-ASR-DEP-2 / ASR-REL-3: M2 reuses Backup API/no-clobber publication, fingerprints
+ASR-DEP-2 / ASR-REL-3: M2 (#727, merge 66c7d5f) reuses Backup API/no-clobber publication, fingerprints
 all saved schema/tables/types/IDs/raw JSON, and preserves verified rollback on
 later failure. `test_database_relocation.py` covers WAL, future filename-family
 collisions, unsupported schema/virtual objects and injected copy/validation/
 publication races. ASR-SEC-1: private outputs, no row contents in JSON. No new
-API/schema/dependency (ASR-MOD-3). This is synthetic candidate evidence; full M3
-CLI→restart/reset/post-write rollback and native Windows acceptance remain open.
+API/schema/dependency (ASR-MOD-3). M3 `test_database_relocation_drill.py` adds actual CLI→fresh API/domain process,
+new-write restart/fresh restore/reset and retained snapshot proof. This is
+synthetic candidate evidence, final M3 review/owner and native Windows acceptance
+remain open; no live data or service operations are included.
 Live migration/activation still requires a separate owner decision.

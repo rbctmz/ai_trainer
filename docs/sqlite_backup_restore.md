@@ -113,7 +113,7 @@ Exit 0: `planned` либо `copied_not_activated`. Последнее означ
 проверена и опубликована, но активный путь не переключён**. Отдельно проверьте
 JSON, сохраните rollback; затем оператор задаёт абсолютный `DATABASE_PATH`
 на target и перезапускает сервис. `.env` команда не меняет, source не удаляет.
-Полный CLI→restart/reset/rollback drill и его owner acceptance относятся к M3.
+Synthetic CLI→restart/reset/rollback drill выполнен в M3 candidate ниже; его final review/owner acceptance остаются отдельными.
 
 Exit 2: JSON `blocked` с `reason`, например `target_exists`,
 `endpoint_namespace_overlap`, `unsupported_source_schema`, `source_changed`,
@@ -129,7 +129,34 @@ Exit 2: JSON `blocked` с `reason`, например `target_exists`,
 Для смены пути снова остановите writers, снимите свежий validated snapshot
 текущей активной БД и используйте отдельный operator restore в проверенный путь.
 Backup retention остаётся ручным до #623; source и rollback не удаляются reset.
-Никакой live migration/остановки сервисов в ходе разработки M2 не выполняется.
+Никакой live migration/остановки сервисов в ходе разработки M1–M3 не выполняется.
+
+## Synthetic acceptance и operator handoff (#624, M3)
+
+Contributor-safe lifecycle drill — `tests/smoke/test_database_relocation_drill.py`.
+Он создаёт временную application DB через domain methods, переносит committed
+WAL и запускает новые Python-процессы приложения с явным DATABASE_PATH. Внутри
+них проверяются FastAPI lifespan/current-cycle route, план, связи провайдеров,
+ручная identity, выполнение, feedback, readiness/provenance и решение коуча.
+Затем идут новые записи → повторный запуск → fresh backup/restore → reset →
+restore с сохранением reset-state snapshot. Старый source и operator backups
+не удаляются и не становятся автоматически активными. Сбой default startup
+при legacy file и CLI refusals проверяются отдельно. Узкие disk/copy/publish
+faults и races — в M2 regression suite.
+
+Это воспроизводимая synthetic acceptance, не выполнение переноса личной БД,
+OS/service restart, Docker-volume drill, UI/browser check или native Windows
+ACL certification. Test audit hooks не являются поставляемым runtime guard
+(#625). API/схема и default правила M1/M2 не меняются.
+
+Для реального handoff оператор отдельно выбирает source, target и rollback
+**абсолютные пути**, проверяет dry-run и согласует остановку writers. После
+apply сохранить JSON/проверенный rollback, отдельно задать DATABASE_PATH на
+новый target и перезапустить приложение. Проверить ожидаемые записи и цикл.
+Данные, добавленные после активации, восстанавливаются из свежего backup
+**активного target**, а не из legacy source или pre-migration snapshot.
+Retaining/удаление старых snapshots — отдельное решение до #623; никакого
+автоматического fallback/retention/off-device transport здесь нет.
 
 ## Bare-metal backup
 
