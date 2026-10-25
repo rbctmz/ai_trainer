@@ -662,3 +662,30 @@ included in this merge. Escaped defects: none linked as of 2026-10-25; observati
 remains open. Verified by GitHub merge metadata, native result
 [6388479205](https://github.com/rbctmz/ai_trainer/pull/724#issuecomment-6388479205)
 and the two fixed-in review threads. M1 code needs its own review/owner merge.
+
+
+## #624 M1 runtime path — #726, owner merged 2026-10-25
+
+[PR #726](https://github.com/rbctmz/ai_trainer/pull/726) opened
+2026-10-24T21:19:04Z and merged 2026-10-25T06:42:58Z as
+89fa21ac1e600e2372b793ca5006c8d3f9160e08: calendar cycle 9h 23m 54s;
+active coding/wait not captured. Class A runtime milestone; #624/#622 remain
+open. Accepted head 9146f73349f517577729497b5325990657fceb7e and merge tree
+matched. 18 files, +958/-38, four commits per GitHub merge metadata.
+
+Observed: native budget 2/2 completed rounds (4cd0ca6 findings, 9146f73 scoped
+clean); one historical technical retry before the first completed result.
+Three blocking P2 fixed-in 9146f73 with written dispositions: native case parent
+identity; symlink/.. explicit-path compatibility; private directory for fresh
+implicit restore. Open threads at acceptance: 0; P0/P1 observed: 0. Functional
+CI/Gitleaks/Review gate GREEN, CLEAN before explicit owner-authorized merge;
+no admin bypass or review-budget exception. Local 4077 passed / 18 skipped /
+116 deselected; 95 focused, ruff GREEN, isolated synthetic source/DB/home only.
+Initial M1 CI had two subprocess PYTHONPATH failures (harness corrected before
+review); no assertion of zero CI reruns/flakes, total not captured.
+
+Verified by PR metadata, [scoped clean receipt](https://github.com/rbctmz/ai_trainer/pull/726#issuecomment-6394413673),
+accepted head/merge-tree comparison and owner merge instruction in the task.
+Personal checkout/DB/env/services untouched. No linked escaped defect observed
+as of 2026-10-25; observation window remains open. M2 migrate and M3 drill were
+not part of this merge. Outcome recorded in M2 changeset, no standalone docs PR.
