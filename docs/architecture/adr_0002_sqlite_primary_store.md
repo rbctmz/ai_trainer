@@ -32,14 +32,18 @@ SQLite остаётся primary store, пока продукт — single-athlet
 - Переход на Postgres — новый ADR с триггером «больше одного атлета на инсталляцию».
 
 
-## Bare-metal runtime path (#624, M1)
+## Bare-metal runtime path and offline relocation (#624, M1–M2)
 
 Принятая спецификация #724 (merge `276eec6`) уточняет размещение bare-metal
-store без смены SQLite ownership/concurrency. Кандидат M1 использует OS data
+store без смены SQLite ownership/concurrency. M1 (#726, merge 89fa21a) использует OS data
 directory (macOS Application Support, Linux XDG data home, Windows LocalAppData),
 сохраняет явный DATABASE_PATH и Docker `/data/ai_trainer.db`. Import Settings
 только разрешает путь; default opening/API startup выполняют legacy preflight.
 Обнаружение отдельного старого store отказывает до создания нового; исходник
 не переносится. Explicit Database(path) не получает глобального guard в _connect.
-Offline relocation/activation/rollback остаются отдельными M2–M3, их guarantees
-не объявляются реализованными результатом одного M1.
+M2 добавляет явный offline migrate к существующему backup/restore CLI:
+read-only plan, WAL-aware rollback, полная logical/schema verification и atomic
+no-clobber target. Успех — copied_not_activated; source/config не меняются.
+Это candidate implementation с synthetic tests, не live relocation acceptance.
+Activation/restart/reset/post-write rollback drill остаётся M3. Новых схем,
+selector/receipt или backup engines нет; operator quiescence обязательна.

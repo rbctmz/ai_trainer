@@ -57,11 +57,79 @@ launch cwd, checkout или primary checkout linked worktree блокирует 
 выбора оператор может задать абсолютный `DATABASE_PATH` или `--database`;
 явные offline paths остаются доступны при runtime refusal.
 
-M1 не перемещает данные и не добавляет `migrate`: этот subcommand относится
-к M2. Существующие `backup`/`restore` ниже сохраняют stopped-service boundary.
+M1 не перемещает данные; явная команда `migrate` добавлена в M2 ниже. Существующие `backup`/`restore` ниже сохраняют stopped-service boundary.
 Не удаляйте старую БД и не переключайте конфигурацию ради устранения отказа
 без отдельного плана переноса. Alias real/demo отвергается до demo seeding.
 Реальный перенос и остановка сервисов в рамках разработки M1 не выполнялись.
+
+## Offline relocation (#624, M2)
+
+`migrate` расширяет этот же CLI; Settings/default startup не импортируются.
+Все пути задаются явно и абсолютно. Пример ниже — шаблон с вымышленными путями,
+а не разрешение выполнить перенос личной БД.
+
+Сначала read-only план, без остановки сервиса и без создания output файлов:
+
+    python scripts/sqlite_backup_restore.py migrate \
+      --source /absolute/legacy/ai_trainer.db \
+      --target /absolute/private-data/ai_trainer.db \
+      --rollback-output /absolute/private-backups/pre-migration.db
+
+Ожидается JSON `status=planned`, `configuration_changed=false`: integrity,
+counts и SHA-256 логического содержимого каждой таблицы, schema digest,
+user_version/application_id/encoding. Строки данных и SQL не печатаются.
+`--rollback-output` в dry-run опционален; без него путь snapshot ещё не проверен.
+SQLite читается через `mode=ro`, без DDL/DML; read-lock/SHM metadata могут меняться.
+
+После отдельного решения оператора остановить **всех** writers (API, Streamlit,
+sync/CLI, другие экземпляры); flag ниже — подтверждение оператора, не детектор
+процессов. Повторный apply заново проверяет source и пути:
+
+    python scripts/sqlite_backup_restore.py migrate \
+      --source /absolute/legacy/ai_trainer.db \
+      --target /absolute/private-data/ai_trainer.db \
+      --rollback-output /absolute/private-backups/pre-migration.db \
+      --apply --confirm-stopped
+
+Команда использует существующий SQLite Backup API: committed WAL pages входят
+в rollback snapshot; target копируется из проверенного snapshot. Сравниваются
+полный catalog таблиц/indexes/views/triggers, **все** сохранённые таблицы и типы
+их значений, IDs, NULL/BLOB, raw JSON и дубликаты строк без PK. Новые домены не
+создаются, schema/JSON не обновляются. Минимум распознавания — обычная таблица
+activities с activity_id TEXT PRIMARY KEY, date, sport, duration_minutes;
+пустая по строкам application DB допустима. Нужна SQLite с `PRAGMA table_list`
+(3.37+); virtual/shadow или недоступные для полного чтения объекты вызывают
+именованный отказ, а не частичную проверку.
+
+Source разрешён в legacy checkout. Target и rollback — вне любого checkout,
+включая resolved parent aliases. Существующие outputs, даже пустые, и их
+sidecars запрещены. Проверяются symlink/inode aliases и пересечения будущих
+семейств `p`, `p-wal`, `p-shm`, `p-journal`; например, target `new.db` и rollback
+`new.db-wal` недопустимы. Case/Unicode ambiguity отклоняется консервативно даже
+на case-sensitive FS. POSIX новые files 0600, конечные новые parent dirs 0700;
+права существующих dirs не меняются. Native Windows/ACL acceptance ещё не выполнен.
+
+Exit 0: `planned` либо `copied_not_activated`. Последнее означает **копия
+проверена и опубликована, но активный путь не переключён**. Отдельно проверьте
+JSON, сохраните rollback; затем оператор задаёт абсолютный `DATABASE_PATH`
+на target и перезапускает сервис. `.env` команда не меняет, source не удаляет.
+Полный CLI→restart/reset/rollback drill и его owner acceptance относятся к M3.
+
+Exit 2: JSON `blocked` с `reason`, например `target_exists`,
+`endpoint_namespace_overlap`, `unsupported_source_schema`, `source_changed`,
+`logical_verification_failed` или `relocation_io_failed`. Не удаляйте найденные
+файлы ради повтора. При отказе до публикации final target отсутствует, source
+и config не изменены; уже опубликованный валидный rollback сохраняется.
+Удаляются только собственные temp files. При ошибке после atomic publication
+(например, fsync/ответ) final файл уже может существовать: повтор не перезапишет
+его и откажет `target_exists`; сохраните artifacts для отдельной проверки.
+
+После активации **не возвращайтесь автоматически к legacy source**: новые
+записи есть только в target. Откат кода сохраняет выбранный target path.
+Для смены пути снова остановите writers, снимите свежий validated snapshot
+текущей активной БД и используйте отдельный operator restore в проверенный путь.
+Backup retention остаётся ручным до #623; source и rollback не удаляются reset.
+Никакой live migration/остановки сервисов в ходе разработки M2 не выполняется.
 
 ## Bare-metal backup
 

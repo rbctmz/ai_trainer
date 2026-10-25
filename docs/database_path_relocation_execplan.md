@@ -6,7 +6,7 @@
 ## Purpose / Big Picture
 
 
-Рабочая SQLite должна переживать удаление checkout. Пользователь увидит стабильный абсолютный путь, явный отказ при неоднозначном upgrade и проверенный перенос, который не стирает старую базу. Class A implementation следует уже принятому контракту; текущий slice — M1 path/default/preflight, без live DB/process операций. Offline migrate и его full drill остаются M2–M3.
+Рабочая SQLite должна переживать удаление checkout. Пользователь увидит стабильный абсолютный путь, явный отказ при неоднозначном upgrade и проверенный перенос, который не стирает старую базу. Class A implementation следует уже принятому контракту; текущий slice — M2 offline migrate, без live DB/process операций. M1 merged; полный CLI→restart/reset/rollback drill остаётся M3.
 
 ## Progress
 
@@ -19,8 +19,9 @@
 - [x] Scoped native verification clean на 9ae7676431 (2/2); owner слил #724 как 276eec6 2026-10-24T20:56:29Z.
 - [x] 2026-10-25: handoff Spec/Architecture → Domain/API Implementer по принятому контракту; M1 в codex/issue-624-m1-database-path, без live writes.
 - [x] M1 path/default/preflight: RED → GREEN, explicit path compatibility; 64 path/integration cases после runtime review corrections, full contributor-safe 4077 passed / 18 skipped / 116 deselected.
-- [ ] M1 runtime PR #726: первое native review 4cd0ca6 получено (1/2 завершённых rounds), три blocking P2 исправляются; remote CI / scoped verification / owner merge pending.
-- [ ] M2 offline migrate: RED → GREEN, all-domain/WAL/failure/no-clobber proof.
+- [x] M1 #726 merged 89fa21a 2026-10-25T06:42:58Z: accepted HEAD 9146f73, native 2/2/scoped clean, zero threads, current-head CI/Review gate GREEN; owner явно разрешил merge.
+- [x] M2 offline migrate implementation: RED → GREEN, all-domain/WAL/failure/no-clobber proof; 101 M2 tests, 181 focused regression checks.
+- [ ] M2 published candidate: remote CI, independent review и отдельное owner acceptance pending.
 - [ ] M3 synthetic acceptance, final checks/native review и явный owner merge.
 - [ ] Отдельный operator handoff; реальный перенос не авторизован этой подготовкой.
 
@@ -49,7 +50,7 @@ Observed: review #724 показал пересечение future sidecar names
 ## Outcomes & Retrospective
 
 
-M0 завершён: два P2 исправлены, scoped review clean, owner merge #724 подтверждён. M1 реализован в candidate branch: focused и contributor-safe GREEN, runtime review/owner merge ещё pending. M2–M3 остаются. Работающий runtime и личные данные не изменены. Проверки Windows native/полной migration ещё не выполнялись; не подменять их baseline backup tests.
+M0 завершён: два P2 исправлены, scoped review clean, owner merge #724 подтверждён. M1 merged #726; M2 candidate реализует CLI/failure controls, focused/full contributor-safe GREEN; remote CI и independent/owner acceptance pending. M3 остаётся. Работающий runtime и личные данные не изменены. Проверки Windows native/полной migration ещё не выполнялись; не подменять их baseline backup tests.
 
 ## Context and Orientation
 
@@ -97,7 +98,7 @@ M0 baseline d977618: AST default `ai_trainer.db`; два temp cwd разреша
 ## Interfaces and Dependencies
 
 
-Использовать standard library pathlib/os/sys/sqlite3; без platformdirs/new dependency. Будущие seams в config: `resolve_database_paths(env, platform, home, cwd)` возвращает normalized real/demo paths + origin, `runtime_database_path()` выполняет узкий implicit-selection preflight и возвращает строку либо именованную configuration error. Import Settings сам не открывает/создаёт SQLite. CLI-facing `plan_database_relocation(...)` и `migrate_database(..., apply, confirm_stopped)` находятся рядом с существующим backup/restore; result/exit contract описан spec. Public REST/TypeScript и схема не меняются. Независимый reviewer проверяет resolved paths/upgrade/default consumers и failure boundaries до Domain/API implementation; merge/live authority остаётся у rbctmz.
+Использовать standard library pathlib/os/sys/sqlite3; без platformdirs/new dependency. Будущие seams в config: `resolve_database_paths(env, platform, home, cwd)` возвращает normalized real/demo paths + origin, `runtime_database_path()` выполняет узкий implicit-selection preflight и возвращает строку либо именованную configuration error. Import Settings сам не открывает/создаёт SQLite. CLI-facing `migrate_database(..., apply=False, confirm_stopped=False)` (plan по умолчанию) и `inspect_relocation_database(...)` находятся рядом с существующим backup/restore; result/exit contract описан spec. Public REST/TypeScript и схема не меняются. Независимый reviewer проверяет resolved paths/upgrade/default consumers и failure boundaries до Domain/API implementation; merge/live authority остаётся у rbctmz.
 
 
 Revision 2026-10-24: по независимому review ae554b23ab уточнены selected-store identity и будущие SQLite namespaces; добавлены M1/M2 cases, evidence и review budget. Изменены только документы, новые runtime tests пока planned.
@@ -173,3 +174,55 @@ Python source в snapshot сверён с worktree. Case-sensitive Linux мож�
 один native filesystem case; model test обязателен везде. Native macOS case
 фактически GREEN в этом прогоне. Metadata нового CI и фиксирующий commit — в
 PR #726; independent verification/owner acceptance ещё не выполнены.
+
+
+## M2 working evidence — 2026-10-25
+
+Observed: isolated branch codex/issue-624-m2-offline-migration от merged M1
+89fa21a; primary checkout оставлен без update/DB/env/service операций. RED:
+новый публичный dry-run test упал с invalid choice migrate, 1 failed / 0.15s.
+После реализации: 177 focused GREEN / 1.82s (M2 97, M1 paths 64, backup 16).
+Последующий self-review добавил cleanup при chmod failure и повторную resolved
+checkout проверку; final validation ниже должна быть обновлена перед commit.
+
+Verified by: suite включает все 18 directed endpoint/sidecar combinations и в
+plan, и в apply, отсутствие artifacts до SQLite; real WAL committed marker;
+all-domain fixture, extra view/index/trigger, raw JSON/NULL/BLOB, duplicate rows,
+sqlite_sequence/user_version/application_id; actual link races для обоих
+outputs; corrupt snapshot/copy/logical/source-change/disk-full/permission/
+publish failures; retry без clobber и без Settings/dotenv import. Только
+synthetic source snapshot в /private/tmp, audit hook запрещает SQLite вне
+изолированного root, чтение .env и external network. Native macOS filesystem
+проверен; Linux CI и Windows/ACL acceptance pending.
+
+Self-review: сравнение O(N log N), память O(N) row hashes для одной таблицы;
+подходит для локального store, не claim о bounded-memory произвольной огромной
+БД. Weak point — quiescence по operator attestation; внешний writer не
+блокируется CLI, source повторно проверяется до публикации. Future case/Unicode
+aliases conservative fail-closed, даже если case-sensitive FS различил бы их.
+После atomic publication сбой fsync/ответа может оставить verified final file;
+не удалять его автоматически, retry отказывает target_exists. До публикации
+source/config неизменны, valid rollback сохраняется. Schema/REST/TS и classic
+backup/restore CLI semantics не меняются; reusable helper cleanup/private-parent
+покрываются существующей regression suite. M3 full application restart/reset/
+post-activation rollback и real owner activation сюда не включены.
+
+
+M2 final author validation (2026-10-25): **181 passed / 1.77s** focused
+(101 relocation + 64 paths + 16 backup/restore). Full contributor-safe command
+with CI warning policy `-W error::pytest.PytestReturnNotNoneWarning`:
+**4175 passed / 18 skipped / 116 deselected / 270.69s**. Full snapshot includes
+chmod-cleanup and resolved-parent correction. Three later test-only cases
+(actual current application DDL + post-link fsync failure at each publication)
+passed in the final focused run; implementation SHA-256 matches between full,
+focused and worktree sources. No further broad rerun after test-only additions.
+First pre-correction full was 4174/18/116, retained as historical evidence.
+
+Ruff entire tree and diff check GREEN; local Markdown links checked before
+commit. No web components or API/TS contracts changed: web lint/build/extract
+N/A. 18 known environment/fixture skips are reported, not counted as proof;
+external network/user DB access remained blocked by the harness. Real current
+application DDL was populated with synthetic storage fixtures and compared
+independently via schema SELECT/all-table raw rows, without model interpretation.
+M3 must still exercise valid domain behavior after CLI/restart/reset and new
+writes/rollback. No independent M2 review or merge acceptance is claimed.

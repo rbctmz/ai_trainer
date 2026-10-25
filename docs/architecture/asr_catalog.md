@@ -829,12 +829,17 @@ captured data and bounded date projections outside writer lock. ADR-0001/0002/
 UI, independent verdict, native acceptance or performance outcome claimed yet.
 
 
-## Runtime database path (#624; M1 candidate after spec #724)
+## Runtime database path (#624; M1 merged, M2 candidate)
 
-Approved spec/ExecPlan: [contract](../database_path_relocation_slice_spec.md),
-[plan](../database_path_relocation_execplan.md). ASR-DEP-2 / ASR-REL-3: M1
-candidate introduces cwd-independent platform selection and refuses a separate
-legacy main/sidecar family before opening a fresh default. Explicit paths and
-Docker volume contract remain; `_connect` is unchanged. This is partial runtime
-coverage, not delivered relocation/rollback: M2 offline migration and M3
-synthetic drill remain pending, with live migration separately owner-controlled.
+Approved [contract](../database_path_relocation_slice_spec.md) and
+[plan](../database_path_relocation_execplan.md). M1 #726 merged as 89fa21a:
+cwd-independent platform selection and separate legacy-family refusal before
+opening a fresh default. Explicit paths/Docker and `_connect` remain unchanged.
+ASR-DEP-2 / ASR-REL-3: M2 reuses Backup API/no-clobber publication, fingerprints
+all saved schema/tables/types/IDs/raw JSON, and preserves verified rollback on
+later failure. `test_database_relocation.py` covers WAL, future filename-family
+collisions, unsupported schema/virtual objects and injected copy/validation/
+publication races. ASR-SEC-1: private outputs, no row contents in JSON. No new
+API/schema/dependency (ASR-MOD-3). This is synthetic candidate evidence; full M3
+CLI→restart/reset/post-write rollback and native Windows acceptance remain open.
+Live migration/activation still requires a separate owner decision.

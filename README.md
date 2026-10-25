@@ -100,10 +100,11 @@ Windows — `%LOCALAPPDATA%\ai_trainer\ai_trainer.db` (иначе
 имеет приоритет; относительный путь закрепляется относительно cwd при старте.
 Docker сохраняет `/data/ai_trainer.db` в named volume.
 Если найдена отдельная старая `ai_trainer.db` или её sidecars в launch/checkout,
-запуск откажет с `database_migration_required` до создания новой БД. На этапе M1
-автоматического переноса и команды `migrate` ещё нет. Для намеренного продолжения
-работы со старым файлом задайте его абсолютный `DATABASE_PATH`; offline перенос
-будет отдельным M2. Подробнее: [путь и backup](docs/sqlite_backup_restore.md).
+запуск откажет с `database_migration_required` до создания новой БД. Команда
+`sqlite_backup_restore.py migrate` сначала делает dry-run; явный offline apply
+копирует и проверяет БД без перезаписи target и без переключения конфигурации.
+Для намеренного продолжения работы со старым файлом задайте его абсолютный
+`DATABASE_PATH`. Реальный перенос требует отдельного решения оператора. Подробнее: [путь и backup](docs/sqlite_backup_restore.md).
 
 Если один из портов уже занят, скрипт остановится до запуска web stack и подскажет
 override. Например:
