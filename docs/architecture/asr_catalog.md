@@ -829,7 +829,7 @@ captured data and bounded date projections outside writer lock. ADR-0001/0002/
 UI, independent verdict, native acceptance or performance outcome claimed yet.
 
 
-## Runtime database path (#624; M1/M2 merged, M3 acceptance candidate)
+## Runtime database path (#624; M1–M3 merged, implementation issue closed)
 
 Approved [contract](../database_path_relocation_slice_spec.md) and
 [plan](../database_path_relocation_execplan.md). M1 #726 merged as 89fa21a:
@@ -842,6 +842,7 @@ collisions, unsupported schema/virtual objects and injected copy/validation/
 publication races. ASR-SEC-1: private outputs, no row contents in JSON. No new
 API/schema/dependency (ASR-MOD-3). M3 `test_database_relocation_drill.py` adds actual CLI→fresh API/domain process,
 new-write restart/fresh restore/reset and retained snapshot proof. This is
-synthetic candidate evidence, final M3 review/owner and native Windows acceptance
-remain open; no live data or service operations are included.
+synthetic accepted evidence: M3 #728 merged b75d510 after clean native review
+and explicit owner merge; #624 closed. Native Windows/ACL remain unverified;
+no live data or service operations are included.
 Live migration/activation still requires a separate owner decision.
