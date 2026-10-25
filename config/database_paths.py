@@ -48,7 +48,9 @@ def resolve_database_paths(
             value = path.join(cwd, value)
         if not absolute(value):
             raise DatabasePathError("database_path_invalid: cannot resolve path")
-        return path.normpath(value)
+        # Freezing cwd is pure; collapsing "link/.." here would change the
+        # file selected after following a symlink. Preserve SQLite path semantics.
+        return value
 
     if "DATABASE_PATH" in env:
         real = normalize(env["DATABASE_PATH"])
@@ -139,7 +141,11 @@ def runtime_database_path(selection: DatabasePaths, *, checkout: Path | None = N
             raise DatabasePathError("database_default_inside_checkout: choose an external DATABASE_PATH")
     for root in roots:
         legacy = root / "ai_trainer.db"
-        if family_name(legacy) == selected_name:
+        same_parent = (
+            os.path.normcase(legacy.name) == os.path.normcase(target.name)
+            and _samefile(legacy.parent, target.parent)
+        )
+        if family_name(legacy) == selected_name or same_parent:
             continue  # The selected store and all of its own sidecars.
         if _samefile(legacy, target):
             raise DatabasePathError("database_path_alias_ambiguous: distinct SQLite base names")

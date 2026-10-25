@@ -18,8 +18,8 @@
 - [x] Первое независимое native spec review на ae554b23ab: два blocking P2; оба подтверждены pure-path probe и исправлены в контракте/матрицах.
 - [x] Scoped native verification clean на 9ae7676431 (2/2); owner слил #724 как 276eec6 2026-10-24T20:56:29Z.
 - [x] 2026-10-25: handoff Spec/Architecture → Domain/API Implementer по принятому контракту; M1 в codex/issue-624-m1-database-path, без live writes.
-- [x] M1 path/default/preflight: RED → GREEN, explicit path compatibility; 54 new path/integration cases, full contributor-safe 4067 passed / 18 skipped / 116 deselected.
-- [ ] M1 runtime PR: remote CI, independent native review и отдельный owner merge (0/2 review rounds).
+- [x] M1 path/default/preflight: RED → GREEN, explicit path compatibility; 64 path/integration cases после runtime review corrections, full contributor-safe 4077 passed / 18 skipped / 116 deselected.
+- [ ] M1 runtime PR #726: первое native review 4cd0ca6 получено (1/2 завершённых rounds), три blocking P2 исправляются; remote CI / scoped verification / owner merge pending.
 - [ ] M2 offline migrate: RED → GREEN, all-domain/WAL/failure/no-clobber proof.
 - [ ] M3 synthetic acceptance, final checks/native review и явный owner merge.
 - [ ] Отдельный operator handoff; реальный перенос не авторизован этой подготовкой.
@@ -136,3 +136,40 @@ Inferred: локальный runner экспортировал source root и м
 dotenv disabled до Settings import, все home/data paths временные. Runtime code
 не менялся. Green на исправленном bootstrap и CI фиксируются в PR metadata;
 исторические 4067 GREEN выше не объявляются повторным full run этого head.
+
+
+Native M1 review correction 2026-10-25 (#726, review 5641784989 on 4cd0ca6):
+три blocking P2 приняты после synthetic reproduction. Case-alias refusal
+подтверждён моделью и реально на case-insensitive filesystem этого Mac;
+absolute/relative/tilde symlink/.. выбрали другой SQLite store; implicit restore
+при umask 022 создал dir 0755. Шесть meaningful assertions были RED до fixes.
+Дополнительное предположение об обязательном отказе SQLite на missing/.. было
+опровергнуто: SQLite умеет свою canonicalization; test теперь сравнивает с raw
+SQLite behavior как characterization, без навязанного платформе результата.
+
+Fixes: parent samefile + одинаковый basename исключает selected family, но
+main-only aliases в разных dirs всё ещё отказывают; resolver фиксирует absolute
+path без lexical normpath; restore получает opt-in private_parent только при
+implicit platform selection. Parent 0700 создаётся в existing restore helper
+после stopped/source/integrity validation, SQLite target заранее не создаётся;
+explicit restore по-прежнему использует прежнюю directory policy. Новых
+REST/TS/schema contracts и migration command нет.
+
+Focused GREEN: 95 checks (64 path/integration cases плюс связанные regression
+suites), ruff всего дерева GREEN. Native case-alias прошёл на реальной macOS FS,
+не только на mock; native Windows/ACL всё ещё NOT RUN. Full contributor-safe
+после corrections запускается отдельно; фактический результат записать после
+завершения, предыдущие 4067 GREEN не подменяют этот прогон.
+
+Review budget: два запросa (один технический retry после >8h Running), один
+опубликованный native receipt. Не считать старый запрос отменённым без evidence;
+если появится ещё один результат, он также учитывается. После corrections
+автоматических повторов не посылать; остаётся scoped verification по решению
+владельца, с проверкой фактического ledger перед запросом. Merge не разрешён.
+
+Correction acceptance 2026-10-25: focused 95 passed; полный contributor-safe
+4077 passed / 18 skipped / 116 deselected in 274.53s, ruff GREEN. Exact modified
+Python source в snapshot сверён с worktree. Case-sensitive Linux может skip
+один native filesystem case; model test обязателен везде. Native macOS case
+фактически GREEN в этом прогоне. Metadata нового CI и фиксирующий commit — в
+PR #726; independent verification/owner acceptance ещё не выполнены.

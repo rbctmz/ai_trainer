@@ -376,3 +376,116 @@ def test_platform_data_override_cannot_put_default_inside_checkout(tmp_path):
     with pytest.raises(paths_module().DatabasePathError, match='database_default_inside_checkout'):
         paths_module().runtime_database_path(selection, checkout=checkout)
     assert not checkout.exists()
+
+
+def test_selected_family_uses_native_parent_identity(tmp_path, monkeypatch):
+    module = paths_module()
+    selection = module.DatabasePaths(
+        real='/users/EXAMPLE/data/ai_trainer.db', demo='/users/EXAMPLE/data/demo.db',
+        origin='platform', launch_cwd='/users/example/data',
+    )
+    monkeypatch.setattr(module, '_legacy_roots', lambda *_: [Path(selection.launch_cwd)])
+    monkeypatch.setattr(module, '_canonical', lambda path: str(path))
+    def native_samefile(first, second):
+        return str(first).casefold() == str(second).casefold()
+    monkeypatch.setattr(module, '_samefile', native_samefile)
+    assert module.runtime_database_path(selection, checkout=tmp_path) == selection.real
+
+
+def test_selected_case_alias_on_native_filesystem(tmp_path):
+    home = tmp_path / 'MiXeDHome'
+    initial = resolve(tmp_path, home=home)
+    target = Path(initial.real)
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b'selected native marker')
+    alias_parent = tmp_path / 'mixedhome' / target.parent.relative_to(home)
+    if not alias_parent.is_dir():
+        pytest.skip('native filesystem is case-sensitive; modeled identity check covers this case')
+    assert alias_parent.samefile(target.parent)
+    selection = resolve(tmp_path, home=home, cwd=alias_parent)
+    assert paths_module().runtime_database_path(selection, checkout=tmp_path/'checkout') == str(target)
+    assert target.read_bytes() == b'selected native marker'
+
+
+@pytest.mark.parametrize('kind', ['absolute', 'relative', 'tilde'])
+def test_explicit_symlink_parent_preserves_filesystem_destination(tmp_path, monkeypatch, kind):
+    launch = tmp_path / 'launch'
+    physical = tmp_path / 'physical'
+    (physical / 'nested').mkdir(parents=True)
+    launch.mkdir()
+    (launch / 'link').symlink_to(physical / 'nested', target_is_directory=True)
+    original = launch / 'link/../marker.db'
+    with sqlite3.connect(str(original)) as conn:
+        conn.execute('CREATE TABLE marker(value TEXT)')
+        conn.execute("INSERT INTO marker VALUES('existing override')")
+    override = {'absolute': str(original), 'relative': 'link/../marker.db', 'tilde': '~/link/../marker.db'}[kind]
+    selection = resolve(tmp_path, {'DATABASE_PATH': override}, home=launch, cwd=launch)
+    assert Path(selection.real).is_absolute()
+    assert Path(selection.real).resolve() == original.resolve()
+    monkeypatch.chdir(tmp_path)
+    with sqlite3.connect(selection.real) as conn:
+        assert conn.execute('SELECT value FROM marker').fetchone()[0] == 'existing override'
+    assert not (launch/'marker.db').exists()
+
+
+def test_explicit_missing_component_preserves_native_sqlite_semantics(tmp_path):
+    raw = str(tmp_path / 'missing/../selected.db')
+    selection = resolve(tmp_path, {'DATABASE_PATH': raw})
+    try:
+        original = sqlite3.connect(raw)
+    except sqlite3.OperationalError:
+        with pytest.raises(sqlite3.OperationalError):
+            sqlite3.connect(selection.real)
+    else:
+        try:
+            original.execute('CREATE TABLE marker(value TEXT)')
+            original.execute("INSERT INTO marker VALUES('direct sqlite')")
+            original.commit()
+        finally:
+            original.close()
+        with sqlite3.connect(selection.real) as conn:
+            assert conn.execute('SELECT value FROM marker').fetchone()[0] == 'direct sqlite'
+
+
+@pytest.mark.parametrize('implicit', [True, False])
+def test_restore_fresh_directory_policy_without_precreating_db(tmp_path, selected_runtime, capsys, implicit):
+    import stat
+    from scripts.sqlite_backup_restore import main
+    backup = tmp_path/'source.db'
+    with sqlite3.connect(backup) as conn:
+        conn.execute('CREATE TABLE marker(value TEXT)')
+        conn.execute("INSERT INTO marker VALUES('restored')")
+    target = Path(selected_runtime.real) if implicit else tmp_path/'explicit-parent/target.db'
+    args = ['restore', '--backup', str(backup), '--confirm-stopped']
+    if not implicit:
+        args += ['--database', str(target)]
+    old_mask = os.umask(0o022)
+    try:
+        assert main(args) == 0
+    finally:
+        os.umask(old_mask)
+    report = json.loads(capsys.readouterr().out)
+    assert report['rollback'] is None
+    assert report['database'] == str(target)
+    if os.name == 'posix':
+        assert stat.S_IMODE(target.parent.stat().st_mode) == (0o700 if implicit else 0o755)
+        assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    with sqlite3.connect(target) as conn:
+        assert conn.execute('SELECT value FROM marker').fetchone()[0] == 'restored'
+
+
+@pytest.mark.parametrize('failure', ['confirmation', 'invalid_backup'])
+def test_implicit_restore_refuses_before_creating_directory(tmp_path, selected_runtime, failure, capsys):
+    from scripts.sqlite_backup_restore import main
+    backup = tmp_path/'snapshot.db'
+    if failure == 'invalid_backup':
+        backup.write_bytes(b'invalid sqlite')
+    else:
+        with sqlite3.connect(backup) as conn:
+            conn.execute('CREATE TABLE marker(value TEXT)')
+    args = ['restore', '--backup', str(backup)]
+    if failure == 'invalid_backup':
+        args.append('--confirm-stopped')
+    assert main(args) == 2
+    assert capsys.readouterr().err.startswith('error: ')
+    assert not Path(selected_runtime.real).parent.exists()

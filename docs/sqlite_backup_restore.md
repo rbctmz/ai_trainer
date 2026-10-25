@@ -45,7 +45,10 @@ macOS `~/Library/Application Support/ai_trainer/ai_trainer.db`; Linux
 `%LOCALAPPDATA%\ai_trainer\ai_trainer.db` с fallback `~/AppData/Local`.
 Docker использует явный `/data/ai_trainer.db`. Непустой `DATABASE_PATH` имеет
 приоритет; пустой/whitespace override — configuration error. Относительный
-explicit override нормализуется при импорте Settings, без создания SQLite.
+explicit override закрепляется как абсолютный при импорте Settings, без создания
+SQLite и без сворачивания symlink-sensitive `..`. Для fresh implicit restore
+application dir создаётся с 0700 после проверки backup и stopped confirmation;
+target заранее не создаётся, поэтому чистый restore не требует rollback.
 
 При implicit default найденный **отдельный** legacy main/WAL/SHM/journal в
 launch cwd, checkout или primary checkout linked worktree блокирует startup
