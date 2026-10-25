@@ -23,7 +23,7 @@
 - [x] M2 offline migrate implementation: RED → GREEN, all-domain/WAL/failure/no-clobber proof; 101 M2 tests, 181 focused regression checks.
 - [x] M2 #727 merged 66c7d5f 2026-10-25T08:47:22Z: HEAD d0d36b6, native clean 1/2, threads 0, CI/Gitleaks/Review gate GREEN, CLEAN; explicit owner merge confirmation получено.
 - [x] M3 author drill подготовлен: реальные subprocess CLI и fresh API/domain process, synthetic provider/local domains, WAL, new writes/fresh restore/reset/retry и default-startup refusal; final validation ниже.
-- [ ] M3 synthetic acceptance, final checks/native review и явный owner merge.
+- [x] M3 #728 merged b75d510 at 2026-10-25T09:55:24Z: native clean 1/2 on 5ed589e, threads 0, CI/Review gate GREEN/CLEAN, explicit owner acceptance; #624 closed COMPLETED.
 - [x] Operator runbook/handoff подготовлен в docs/sqlite_backup_restore.md; реальные source/target/rollback paths и live stop/activation выбирает владелец отдельно, вне этого implementation goal.
 
 ## Surprises & Discoveries
@@ -309,3 +309,16 @@ Native M3 budget 0/2; owner merge and #624 closure happen only after the usual
 current-head gates and explicit owner decision. Parent #622 remains open for
 #625 then #623; off-device #626 deferred. No new docs-only follow-up PR is
 required to record M2 outcome; it is included here.
+
+
+M3 accepted outcome (2026-10-25): #728 merged as
+b75d510a1d236c3f1d9fee080e32597aa6adb5ec, reviewed HEAD
+5ed589e711fb55d536903803274f8835fab17441. Native clean receipt
+[6396026623](https://github.com/rbctmz/ai_trainer/pull/728#issuecomment-6396026623),
+one round/2, zero threads or active CHANGES_REQUESTED. Owner explicitly
+confirmed review/merge with #624 closure. Current-head CI/Gitleaks/latest
+Review gate GREEN, CLEAN verified before merge; merged tree equals reviewed
+source. Completed M3 local/remote branch removed; separate #729 starts at merged
+main. Primary runtime checkout/DB/.env/services untouched. #624 is closed as
+implementation + synthetic acceptance; live migration remains a separate owner
+operation. Native Windows/ACL remain unverified, parent #622 stays open.

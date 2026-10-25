@@ -113,7 +113,7 @@ Exit 0: `planned` либо `copied_not_activated`. Последнее означ
 проверена и опубликована, но активный путь не переключён**. Отдельно проверьте
 JSON, сохраните rollback; затем оператор задаёт абсолютный `DATABASE_PATH`
 на target и перезапускает сервис. `.env` команда не меняет, source не удаляет.
-Synthetic CLI→restart/reset/rollback drill выполнен в M3 candidate ниже; его final review/owner acceptance остаются отдельными.
+Synthetic CLI→restart/reset/rollback drill ниже принят в M3 #728 (merge b75d510); реальная owner activation остаётся отдельной.
 
 Exit 2: JSON `blocked` с `reason`, например `target_exists`,
 `endpoint_namespace_overlap`, `unsupported_source_schema`, `source_changed`,

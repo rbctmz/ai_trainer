@@ -5,6 +5,7 @@ const test = require('node:test');
 
 const {
   MAX_NATIVE_REVIEW_ROUNDS,
+  renderReadinessComment,
   cleanNativeReviewHead,
   cleanNativeReviewStatus,
   countNativeReviewRounds,
@@ -601,4 +602,265 @@ test('a waiver does not excuse a native review that exists for the current head'
 
   assert.equal(decision.ready, true);
   assert.doesNotMatch(decision.reason, /waived/);
+});
+
+// Execute the actual privileged job's inline JS against an in-memory GitHub
+// boundary. No token, network, checkout or repository mutation occurs here.
+const fs = require('node:fs');
+const path = require('node:path');
+const HEAD_A = 'a'.repeat(40);
+const HEAD_B = 'b'.repeat(40);
+
+function readinessHarness(overrides = {}) {
+  const state = {
+    pr: { number: 729, state: 'open', draft: true, mergeable: true,
+      body: 'Closes #729', title: 'Review metrics',
+      head: { sha: HEAD_A, ref: 'codex/issue-729-review-metrics' } },
+    comments: [], reviews: [], statuses: [], events: [], labels: [], threads: [],
+    checks: [{ name: 'Contributor-safe pytest', status: 'completed', conclusion: 'success' }],
+    mutations: [], failures: [], ...overrides,
+  };
+  const issues = {
+    getLabel: async () => ({ data: {} }),
+    get: async () => ({ data: { labels: state.labels } }),
+    addLabels: async ({ labels }) => { state.labels.push(...labels); state.mutations.push(['label', ...labels]); },
+    removeLabel: async ({ name }) => { state.labels = state.labels.filter(v => v !== name); state.mutations.push(['remove', name]); },
+    listComments: async () => ({ data: state.comments }),
+    listEventsForTimeline: async () => ({ data: state.events }),
+    createComment: async ({ body }) => {
+      const comment = { id: 1000 + state.comments.length, body, user: { login: 'github-actions[bot]' } };
+      state.comments.push(comment); state.mutations.push(['create', body]); return { data: comment };
+    },
+    updateComment: async ({ comment_id, body }) => {
+      const found = state.comments.find(c => c.id === comment_id);
+      assert.ok(found, 'update must name an existing comment');
+      found.body = body; state.mutations.push(['update', comment_id, body]);
+    },
+  };
+  const github = {
+    paginate: async (endpoint, args) => (await endpoint(args)).data,
+    graphql: async () => {
+      if (state.reviewError) throw new Error('simulated private API failure');
+      return { repository: { pullRequest: { reviewDecision: state.reviewDecision || null,
+        reviewThreads: { nodes: state.threads, pageInfo: { hasNextPage: false, endCursor: null } } } } };
+    },
+    rest: { issues,
+      pulls: { get: async () => ({ data: { ...state.pr, head: { ...state.pr.head } } }),
+        listReviews: async () => ({ data: state.reviews }),
+        listCommits: async () => ({ data: [{ sha: state.pr.head.sha }] }) },
+      repos: { getCollaboratorPermissionLevel: async () => {
+          if (state.permissionError) throw new Error('simulated permission API failure');
+          return { data: { permission: 'maintain' } };
+        },
+        listCommitStatusesForRef: async () => ({ data: state.statuses }),
+        createCommitStatus: async (item) => { const status = { ...item, creator: { login: 'github-actions[bot]' } }; state.statuses.push(status); return { data: status }; } },
+      checks: { listForRef: async () => {
+        if (state.checkError) throw new Error('simulated check API failure');
+        return { data: { check_runs: state.checks } };
+      } },
+    },
+  };
+  const context = { eventName: 'workflow_dispatch', actor: 'rbctmz', repo: { owner: 'rbctmz', repo: 'ai_trainer' },
+    payload: { inputs: { pr: '729' }, repository: { owner: { login: 'rbctmz' } } } };
+  const core = { info() {}, warning() {}, setFailed: message => state.failures.push(message) };
+  const workflow = fs.readFileSync(path.join(__dirname, '../workflows/pr-ready-to-merge.yml'), 'utf8');
+  const job = workflow.split('  ready-to-merge:')[1].split('\n');
+  const start = job.findIndex(line => line.trim() === 'script: |') + 1;
+  assert.ok(start > 0, 'ready job script must be present');
+  const script = job.slice(start).map(line => line.startsWith('            ') ? line.slice(12) : line).join('\n');
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  return { state, github, context, run: () => new AsyncFunction('github', 'context', 'core', 'require', script)(github, context, core,
+    modulePath => { assert.equal(modulePath, './.github/scripts/review-gate.cjs'); return require('./review-gate.cjs'); }) };
+}
+
+test('Draft gets one review summary before first ready without acquiring readiness', async () => {
+  const h = readinessHarness();
+  await h.run();
+  assert.equal(h.state.comments.length, 1, 'Draft must show its first summary');
+  assert.match(h.state.comments[0].body, /Native rounds \(PR\).*0 \/ 2/);
+  assert.match(h.state.comments[0].body, /Open review threads.*0/);
+  assert.match(h.state.comments[0].body, /PR is draft/);
+  assert.deepEqual(h.state.labels, []);
+});
+
+function reviewedHarness(extra = {}) {
+  const h = readinessHarness({
+    comments: [{ id: 12, user: { login: 'chatgpt-codex-connector[bot]' },
+      body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${HEAD_A}\`` }],
+    labels: ['status: review accepted'],
+    events: [{ event: 'labeled', label: { name: 'status: review accepted' }, actor: { login: 'rbctmz' } }],
+    ...extra,
+  });
+  h.state.pr.draft = false;
+  return h;
+}
+
+function summary(h) {
+  return h.state.comments.find(c => c.user.login === 'github-actions[bot]' && c.body.startsWith('<!-- pr-ready-to-merge -->'));
+}
+
+test('repeated Draft projections update one canonical comment without no-op writes', async () => {
+  const h = readinessHarness();
+  await h.run();
+  h.state.mutations.length = 0;
+  await h.run();
+  assert.equal(h.state.comments.length, 1);
+  assert.deepEqual(h.state.mutations, []);
+});
+
+test('clean comment/ledger is one round; thread resolution updates the same summary and readiness', async () => {
+  const h = reviewedHarness({ threads: [{ isResolved: false }] });
+  await h.run();
+  const id = summary(h).id;
+  assert.match(summary(h).body, /Native rounds \(PR\).*1 \/ 2/);
+  assert.match(summary(h).body, /Native rounds \(current HEAD\).*1/);
+  assert.match(summary(h).body, /Open review threads.*1/);
+  assert.match(summary(h).body, /1 unresolved review thread/);
+  assert.equal(h.state.labels.includes('status: ready to merge'), false);
+  h.state.threads[0].isResolved = true;
+  await h.run();
+  assert.equal(summary(h).id, id);
+  assert.match(summary(h).body, /Open review threads.*0/);
+  assert.match(summary(h).body, /\*\*Ready to merge\*\*/);
+  assert.ok(h.state.labels.includes('status: ready to merge'));
+  assert.equal(h.state.comments.length, 2); // native receipt + our comment
+});
+
+test('a push preserves consumed budget while removing current-head acceptance and review', async () => {
+  const h = reviewedHarness();
+  await h.run();
+  h.state.pr.head.sha = HEAD_B;
+  h.context.eventName = 'pull_request_target';
+  h.context.payload.action = 'synchronize';
+  h.context.payload.pull_request = { number: 729 };
+  await h.run();
+  assert.match(summary(h).body, new RegExp(HEAD_B.slice(0, 12)));
+  assert.match(summary(h).body, /Native rounds \(PR\).*1 \/ 2/);
+  assert.match(summary(h).body, /Native rounds \(current HEAD\).*0/);
+  assert.match(summary(h).body, /Review accepted by owner.*No/);
+  assert.match(summary(h).body, /no submitted native review for the current head/);
+  assert.deepEqual(h.state.labels, []);
+});
+
+for (const draft of [true, false]) {
+  test(`review API failure shows unknown and fails closed (Draft=${draft})`, async () => {
+    const h = readinessHarness({ reviewError: true });
+    h.state.pr.draft = draft;
+    await h.run();
+    assert.match(summary(h).body, /Native rounds \(PR\).*unknown/);
+    assert.match(summary(h).body, /Open review threads.*unknown/);
+    assert.match(summary(h).body, /Review accepted by owner.*unknown/);
+    assert.doesNotMatch(summary(h).body, /simulated private/);
+    assert.match(summary(h).body, /\*\*Not ready to merge\*\*/);
+    assert.ok(h.state.failures.length);
+    assert.deepEqual(h.state.labels, []);
+  });
+}
+
+test('check API failure keeps known review metrics and cannot publish readiness', async () => {
+  const h = reviewedHarness({ checkError: true });
+  await h.run();
+  assert.match(summary(h).body, /Native rounds \(PR\).*1 \/ 2/);
+  assert.match(summary(h).body, /review or check data unavailable/);
+  assert.deepEqual(h.state.labels, ['status: review accepted']);
+  assert.ok(h.state.failures.length);
+});
+
+test('unavailable permission API displays unknown owner acceptance without changing authentication rules', async () => {
+  const h = reviewedHarness({ permissionError: true,
+    events: [{ event: 'labeled', label: { name: 'status: review accepted' }, actor: { login: 'maintainer' } }] });
+  await h.run();
+  assert.match(summary(h).body, /Review accepted by owner.*unknown/);
+  assert.match(summary(h).body, /review result is not accepted/);
+  assert.equal(h.state.labels.includes('status: ready to merge'), false);
+});
+
+test('a changed head before publication suppresses stale comments and readiness labels', async () => {
+  const h = reviewedHarness();
+  const get = h.github.rest.pulls.get;
+  let reads = 0;
+  h.github.rest.pulls.get = async args => {
+    if (++reads === 2) h.state.pr.head.sha = HEAD_B;
+    return get(args);
+  };
+  await h.run();
+  assert.equal(summary(h), undefined);
+  assert.equal(h.state.labels.includes('status: ready to merge'), false);
+});
+
+test('only our bot-owned status is edited; legacy duplicates are neutralized once', async () => {
+  const h = readinessHarness({ comments: [
+    { id: 1, user: { login: 'rbctmz' }, body: '<!-- pr-ready-to-merge --> human' },
+    { id: 2, user: { login: 'chatgpt-codex-connector[bot]' }, body: '<!-- codex-review-state:v1 --> native summary' },
+    { id: 3, user: { login: 'github-actions[bot]' }, body: '<!-- pr-ready-to-merge:old --> old' },
+    { id: 4, user: { login: 'github-actions[bot]' }, body: '<!-- pr-ready-to-merge --> current' },
+  ] });
+  await h.run();
+  assert.equal(h.state.comments.length, 4);
+  assert.equal(summary(h).id, 4);
+  assert.equal(h.state.comments[0].body, '<!-- pr-ready-to-merge --> human');
+  assert.equal(h.state.comments[1].body, '<!-- codex-review-state:v1 --> native summary');
+  assert.match(h.state.comments[2].body, /pr-ready-to-merge-superseded/);
+  h.state.mutations.length = 0;
+  await h.run();
+  assert.deepEqual(h.state.mutations, []);
+});
+
+test('closed PR without prior summary does not get a new notification', async () => {
+  const h = readinessHarness();
+  h.state.pr.state = 'closed';
+  await h.run();
+  assert.equal(h.state.comments.length, 0);
+});
+
+test('partial or wrong-head snapshots cannot be rendered as ready or zero', () => {
+  const pr = { state: 'open', head: { sha: HEAD_A } };
+  for (const metrics of [null, { headSha: HEAD_B, nativeReviewRounds: 1 },
+    { headSha: HEAD_A, nativeReviewRounds: null, currentHeadNativeReviewRounds: 0, unresolvedThreads: NaN, accepted: null }]) {
+    const body = renderReadinessComment({ pr, issueNums: [729], ready: true, reason: '', metrics });
+    assert.match(body, /\*\*Not ready to merge\*\*/);
+    assert.match(body, /Native rounds \(PR\).*unknown/);
+    assert.match(body, /Open review threads.*unknown/);
+    assert.match(body, /Review accepted by owner.*unknown/);
+  }
+});
+
+test('dynamic failure reasons cannot inject extra Markdown rows', () => {
+  const body = renderReadinessComment({ pr: { head: { sha: HEAD_A } }, issueNums: [729],
+    ready: false, reason: 'lint|bad\n| forged row | Yes |', metrics: null });
+  assert.match(body, /lint\\\|bad \\\| forged row/);
+  assert.doesNotMatch(body, /\n\| forged row/);
+});
+
+test('a changed acceptance label before publication suppresses the stale snapshot', async () => {
+  const h = reviewedHarness();
+  const get = h.github.rest.issues.get;
+  let reads = 0;
+  h.github.rest.issues.get = async args => {
+    if (++reads === 2) h.state.labels = [];
+    return get(args);
+  };
+  await h.run();
+  assert.equal(summary(h), undefined);
+  assert.equal(h.state.labels.includes('status: ready to merge'), false);
+});
+
+test('unavailable comment API fails without blindly creating a duplicate', async () => {
+  const h = readinessHarness();
+  h.github.rest.issues.listComments = async () => { throw new Error('comments unavailable'); };
+  await assert.rejects(h.run(), /comments unavailable/);
+  assert.deepEqual(h.state.mutations, []);
+});
+
+test('an early list API rejection is reported as unknown while thread lookup is still pending', async () => {
+  const h = readinessHarness();
+  const graphql = h.github.graphql;
+  h.github.graphql = async args => {
+    await new Promise(resolve => setTimeout(resolve, 5));
+    return graphql(args);
+  };
+  h.github.rest.pulls.listReviews = async () => { throw new Error('reviews unavailable'); };
+  await h.run();
+  assert.match(summary(h).body, /Native rounds \(PR\).*unknown/);
+  assert.ok(h.state.failures.length);
 });

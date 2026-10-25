@@ -719,3 +719,34 @@ not run. Primary checkout, .env, personal DB/services unchanged. Completed M2
 branch removed only after ancestor/tree proof; M3 branch fast-forwarded to
 merged main. No linked escaped defect observed in this task as of 2026-10-25;
 observation window open. M3 outcome goes into its changeset, no docs-only PR.
+
+
+## #624 M3 synthetic relocation acceptance — #728, merged 2026-10-25
+
+[PR #728](https://github.com/rbctmz/ai_trainer/pull/728) opened
+2026-10-25T09:00:14Z and merged at 09:55:24Z as
+b75d510a1d236c3f1d9fee080e32597aa6adb5ec: calendar cycle 55m 10s;
+active work/wait not captured. Seven files, +537/-18, one source commit, no
+production code/API/schema change. #624 closed COMPLETED; parent #622 remains
+open for #625 then #623, off-device #626 deferred.
+
+Observed: [one native clean round](https://github.com/rbctmz/ai_trainer/pull/728#issuecomment-6396026623)
+on accepted 5ed589e711fb55d536903803274f8835fab17441, budget 1/2; zero
+findings/threads/active CHANGES_REQUESTED. Owner explicitly accepted review and
+merge/#624 closure; accepted/ready labels, latest Review gate SUCCESS and CLEAN
+checked immediately before merge. No source push after native review, retry,
+exception or admin bypass. Historical Review gate failures before human
+acceptance were expected, not functional CI failures.
+
+Verified by current-head CI, authenticated clean ledger, GitHub merge/issue
+metadata and merged-tree equality. Local combined 191 passed; full
+4184/18 skipped/116 deselected, 294.29s. Linux contributor-safe
+4162/40 skipped/116 deselected, 496.61s; Web E2E/Web contract/Gitleaks GREEN.
+Initial local M3 1-fail/5-pass was fixture power-TSS metadata without watts;
+raw-column/repair-path check isolated it, fixture uses current resolver, no
+product fix. No failed functional CI run observed for this head; aggregate
+flake count not captured. Native Windows/ACL, live migration/service restart
+not run. Primary checkout/DB/env/services unchanged; completed M3 branch
+removed after tree/ancestor proof. No linked escaped defect observed in this
+task as of 2026-10-25; window remains open. Outcome included in #729 changeset,
+no separate docs-only PR.

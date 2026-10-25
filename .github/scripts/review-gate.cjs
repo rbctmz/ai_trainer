@@ -220,7 +220,70 @@ function evaluateReviewGate({
   return { ready: true, reason };
 }
 
+function renderReadinessComment({ pr, issueNums, ready, reason, metrics }) {
+  const head = pr.head?.sha || '';
+  const bound = metrics?.headSha === head;
+  const count = value => Number.isInteger(value) && value >= 0 ? String(value) : 'unknown';
+  const rounds = bound ? count(metrics.nativeReviewRounds) : 'unknown';
+  const current = bound ? count(metrics.currentHeadNativeReviewRounds) : 'unknown';
+  const threads = bound ? count(metrics.unresolvedThreads) : 'unknown';
+  const accepted = bound && typeof metrics.accepted === 'boolean'
+    ? (metrics.accepted ? 'Yes' : 'No') : 'unknown';
+  const complete = ![rounds, current, threads, accepted].includes('unknown');
+  const shownReady = ready === true && complete;
+  const cell = value => String(value).replace(/[\r\n]+/g, ' ').replace(/\|/g, '\\|');
+  const shortHead = /^[a-f0-9]{7,40}$/i.test(head) ? head.slice(0, 12) : 'unknown';
+  const explanation = ready && !complete ? 'review metrics unavailable' : (reason || 'unknown');
+  return [
+    READY_MARKER,
+    shownReady ? '**Ready to merge**' : '**Not ready to merge**',
+    '',
+    shownReady
+      ? `Linked to ${issueNums.map(num => `#${num}`).join(', ')}; checks and the accepted review gate are green on \`${shortHead}\`.`
+      : `Current head \`${shortHead}\` is not ready: ${cell(explanation)}.`,
+    '',
+    '| Review metrics | Value |',
+    '| --- | --- |',
+    `| Current HEAD | \`${shortHead}\` |`,
+    `| Native rounds (PR) | ${rounds} / ${MAX_NATIVE_REVIEW_ROUNDS} |`,
+    `| Native rounds (current HEAD) | ${current} |`,
+    `| Open review threads | ${threads} |`,
+    `| Review accepted by owner | ${accepted} |`,
+    `| PR state | ${pr.draft ? 'Draft' : cell(pr.state || 'unknown')} |`,
+    '',
+    'Human merge decision is still required.',
+  ].join('\n');
+}
+
+async function updateReadinessComment({ github, owner, repo, pr, issueNums, ready, reason, metrics }) {
+  const comments = await github.paginate(github.rest.issues.listComments, {
+    owner, repo, issue_number: pr.number, per_page: 100,
+  });
+  const { canonical, duplicates } = selectReadinessStatusComments(comments);
+  // Closed PRs without an earlier status do not need a new notification.
+  if (pr.state === 'closed' && !canonical) return;
+  const body = renderReadinessComment({ pr, issueNums, ready, reason, metrics });
+  if (canonical) {
+    if (canonical.body !== body) {
+      await github.rest.issues.updateComment({ owner, repo, comment_id: canonical.id, body });
+    }
+  } else {
+    await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
+  }
+  const supersededBody = [
+    '<!-- pr-ready-to-merge-superseded -->', '**Superseded readiness status**', '',
+    'This legacy per-head signal was replaced by the current readiness comment.',
+  ].join('\n');
+  for (const duplicate of duplicates) {
+    if (duplicate.body !== supersededBody) {
+      await github.rest.issues.updateComment({ owner, repo, comment_id: duplicate.id, body: supersededBody });
+    }
+  }
+}
+
 module.exports = {
+  renderReadinessComment,
+  updateReadinessComment,
   MAX_NATIVE_REVIEW_ROUNDS,
   READY_MARKER,
   selectReadinessStatusComments,

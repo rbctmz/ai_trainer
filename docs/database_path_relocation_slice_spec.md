@@ -1,6 +1,6 @@
 # #624 — безопасное размещение и перенос рабочей SQLite
 
-Статус: **Spec accepted; M1/M2 merged; M3 acceptance candidate**, 25 октября 2026. M0 #724 слит как `276eec6`, M1 #726 как `89fa21a`, M2 #727 как `66c7d5f`; live relocation не выполнялся.
+Статус: **Spec accepted; M1–M3 merged; #624 closed**, 25 октября 2026. M0 #724 слит как `276eec6`, M1 #726 как `89fa21a`, M2 #727 как `66c7d5f`; live relocation не выполнялся.
 Issue: [#624](https://github.com/rbctmz/ai_trainer/issues/624), parent [#622](https://github.com/rbctmz/ai_trainer/issues/622).
 Author: Spec / Architecture Owner; checker: native spec review 2/2, clean на 9ae7676431; merge owner: rbctmz.
 Baseline: `d977618804d63b43dbb1078be69dae5648f3dacb`. Candidate SHA — текущий milestone PR, фиксируется в его evidence bundle.
@@ -121,7 +121,7 @@ M0 — эта спецификация и ExecPlan. M1 — RED→GREEN path/defa
 - [x] Independent spec review завершён перед кодом; #724 merged.
 - [x] M1 runtime evidence/native/owner acceptance: #726 merged 89fa21a.
 - [x] M2 runtime evidence/native/owner acceptance: #727 merged 66c7d5f, clean 1/2 on d0d36b6.
-- [ ] M3 final native/owner acceptance; author lifecycle evidence in ExecPlan.
+- [x] M3 final native/owner acceptance: #728 merged b75d510, clean on 5ed589e, #624 closed; live migration remains separate.
 
 ## Evidence Bundle
 
@@ -157,7 +157,7 @@ M1 закрыт: fixed-in 9146f73 опубликован в threads; 95 focused 
 
 ## Final Verdict
 
-**SPEC ACCEPTED; M1/M2 MERGED; M3 ACCEPTANCE CANDIDATE.** Два P2 спецификации исправлены и независимо проверены, #724 merged. Три P2 runtime-review #726 fixed-in 9146f73, scoped verification clean; owner слил 89fa21a. Реализация M1–M3 и её runtime acceptance не подменяются spec review. M2 native clean на d0d36b6 принят владельцем, #727 merged 66c7d5f. M3 synthetic lifecycle evidence подготовлен; следующий handoff author/integrator → Independent Reviewer по M3 diff/evidence. Human merge/live migration остаются отдельными решениями. #624/#622 не закрываются по отдельному milestone PR.
+**SPEC ACCEPTED; M1–M3 MERGED; #624 CLOSED.** Два P2 спецификации исправлены и независимо проверены, #724 merged. Три P2 runtime-review #726 fixed-in 9146f73, scoped verification clean; owner слил 89fa21a. Реализация M1–M3 и её runtime acceptance не подменяются spec review. M2 native clean на d0d36b6 принят владельцем, #727 merged 66c7d5f. M3 synthetic lifecycle evidence подготовлен; следующий handoff author/integrator → Independent Reviewer по M3 diff/evidence. Human merge/live migration остаются отдельными решениями. #624/#622 не закрываются по отдельному milestone PR.
 
 OS references для выбора каталогов: [Apple Application Support](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPFileSystem/Articles/WhereToPutFiles.html), [XDG Base Directory 0.8](https://specifications.freedesktop.org/basedir/0.8/), [Windows LocalAppData](https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid). Это обоснование выбранного layout, не выполненная cross-platform runtime-проверка.
 
@@ -192,3 +192,10 @@ clean 1/2 и merge 66c7d5f, как зафиксировано в M3 section Exec
 M3 author evidence: combined 191 passed, contributor-safe 4184 passed /
 18 skipped / 116 deselected; ruff/diff/46 links GREEN, no product source
 changes after merged M2. Independent M3 review/CI/owner acceptance pending.
+
+M3 final acceptance supersedes the candidate snapshots above: #728 merged
+b75d510a1d236c3f1d9fee080e32597aa6adb5ec on 2026-10-25T09:55:24Z, reviewed
+HEAD 5ed589e711, clean native 1/2, zero threads, current-head CI/Gitleaks and
+Review gate GREEN/CLEAN, explicit owner merge. #624 closed COMPLETED. No live
+source/target/env/service changes; native Windows/ACL limitations remain. This
+post-merge record is included with #729, without another docs-only PR.
