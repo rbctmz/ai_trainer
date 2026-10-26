@@ -892,11 +892,40 @@ export interface ConstraintApplication {
   }>;
 }
 
+export interface PlanningLoadMetrics {
+  ctl: number;
+  atl: number;
+  tsb: number;
+  form: string;
+  source: "live" | "persisted";
+  as_of: string;
+  observed_at_utc: string | null;
+  snapshot_id: number | null;
+  revision: number | null;
+  capture_mode: "prospective" | null;
+}
+
+export interface PlanningReadinessSnapshot extends ReadinessSnapshot {
+  tsb?: {
+    ctl: number | null;
+    atl: number | null;
+    tsb: number | null;
+    as_of?: string;
+    window_days?: number;
+  };
+  id?: number;
+  revision?: number;
+  capture_mode?: string;
+  local_date?: string;
+  as_of_date?: string;
+  observed_at_utc?: string;
+}
+
 export interface PlanningStatus {
   cycle_context?: CycleContext;
   has_actionable_plan?: boolean;
-  metrics: { ctl: number; atl: number; tsb: number; form: string };
-  readiness_snapshot?: ReadinessSnapshot;
+  metrics: PlanningLoadMetrics;
+  readiness_snapshot?: PlanningReadinessSnapshot;
   active_constraint_count?: number;
   active_constraints?: CoachConstraint[];
   has_plan: boolean;

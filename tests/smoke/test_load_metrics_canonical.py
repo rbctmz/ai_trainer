@@ -12,6 +12,8 @@ CTL 20.8 / ATL 19.4 / TSB 1.4 (planning_service на включительной 
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+import json
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -35,8 +37,12 @@ from models.load_metrics import (
     select_persisted_load_snapshot,
 )
 from models.readiness import _tsb_metrics
-from services.readiness_snapshot import build_readiness_snapshot
+from services.readiness_snapshot import (
+    build_readiness_snapshot,
+    project_persisted_readiness_snapshot,
+)
 from services.recovery_analytics import record_post_sync_recovery_state
+from tests.contracts.conformance import validate
 from utils.athlete_time import athlete_local_date
 
 
@@ -295,6 +301,18 @@ def test_latest_capture_is_chronological_across_days(tmp_path, monkeypatch) -> N
     assert latest["revision"] == 1
     assert latest["as_of"] == anchor.isoformat()
 
+    # Neither a later backfill nor a capture after the requested date replaces
+    # the eligible prospective row.
+    record_post_sync_recovery_state(
+        db, capture_run_id="issue731-backfill", capture_mode="backfilled",
+        observed_at_utc=datetime(2026, 10, 24, 12, tzinfo=timezone.utc),
+    )
+    record_post_sync_recovery_state(
+        db, capture_run_id="issue731-future",
+        observed_at_utc=datetime(2026, 10, 25, 8, tzinfo=timezone.utc),
+    )
+    assert select_persisted_load_snapshot(db, anchor)["id"] == chosen["id"]
+
 
 def test_planning_endpoint_serves_one_consistent_revision(tmp_path, monkeypatch) -> None:
     """Весь HTTP-ответ строится от выбранной persisted-ревизии.
@@ -355,6 +373,16 @@ def test_planning_endpoint_serves_one_consistent_revision(tmp_path, monkeypatch)
         assert metrics["observed_at_utc"] == expected["observed_at_utc"]
         assert snapshot["id"] == expected["id"]
         assert snapshot["capture_mode"] == expected["capture_mode"]
+        # Persisted-чтение сохраняет существующий ReadinessSnapshot contract,
+        # а не отдаёт вместо него внутреннюю строку журнала SQLite.
+        artifact = json.loads(
+            (Path(__file__).parents[1] / "contracts" / "ts_contract.json").read_text()
+        )
+        assert validate(payload, artifact["types"]["PlanningStatus"], artifact["types"]) == []
+        assert snapshot["freshness"] == expected["snapshot"]["freshness"]
+        assert snapshot["intervention_score"] == expected["snapshot"]["intervention_score"]
+        assert payload["signals"]["readiness"]["value"] == expected["score"]
+        assert payload["signals"]["readiness"]["drivers"] == expected["drivers"]
 
     # Фаза A: capture есть, данные не менялись.
     saved = db.get_latest_readiness_snapshot(
@@ -363,6 +391,19 @@ def test_planning_endpoint_serves_one_consistent_revision(tmp_path, monkeypatch)
     payload = fetch_response()
     assert_one_revision(payload, saved)
     assert payload["signals"]["critical"]["status"] is None
+    stored_before = db.get_readiness_snapshots()
+    assert fetch_response()["metrics"] == payload["metrics"]
+    assert db.get_readiness_snapshots() == stored_before
+
+    # Older captured rows without snapshot JSON retain the public shape using
+    # only stored columns, without inventing a fresh recovery observation.
+    legacy = project_persisted_readiness_snapshot({**saved, "snapshot": {}})
+    artifact = json.loads(
+        (Path(__file__).parents[1] / "contracts" / "ts_contract.json").read_text()
+    )
+    assert validate(legacy, artifact["types"]["ReadinessSnapshot"], artifact["types"]) == []
+    assert legacy["tsb"] == saved["tsb"]
+    assert legacy["computed_at"] == saved["as_of_date"]
 
     # Фаза B: данные изменились (та же дата, +300 TSS), capture нет —
     # ответ всё ещё целиком от сохранённой ревизии.

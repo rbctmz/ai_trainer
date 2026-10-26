@@ -41,6 +41,8 @@ from models.planning_build_confirmation import (
 )
 from models.planning_cycle import CycleStateCorrupt
 from models.banister import BanisterModel, tsb_zone
+from models.dashboard_summary import project_readiness_snapshot
+from services.readiness_snapshot import project_persisted_readiness_snapshot
 from models.load_metrics import (
     canonical_activities_frame,
     persisted_load_metrics,
@@ -582,6 +584,12 @@ def current_status(db: Database) -> Dict[str, Any]:
     persisted_row = select_persisted_load_snapshot(db, today)
     persisted = persisted_load_metrics(persisted_row, today)
     if persisted is not None:
+        readiness_snapshot = project_persisted_readiness_snapshot(persisted_row)
+        # Reuse canonical readiness presentation so its TSB driver and score
+        # follow the same capture as the metrics and the public snapshot.
+        signals = project_readiness_snapshot(
+            {"signals": signals}, readiness_snapshot
+        )["signals"]
         signals = apply_persisted_load_revision(signals, persisted)
         metrics = {
             "ctl": persisted["ctl"],
@@ -595,7 +603,6 @@ def current_status(db: Database) -> Dict[str, Any]:
             "revision": persisted["revision"],
             "capture_mode": persisted["capture_mode"],
         }
-        readiness_snapshot: Dict[str, Any] = persisted_row or {}
     else:
         metrics = {**_metrics_from_signals(signals), "source": "live", "as_of": today.isoformat()}
         readiness_snapshot = build_readiness_snapshot(db)
