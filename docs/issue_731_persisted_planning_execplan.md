@@ -22,7 +22,10 @@ scoped fixes from `7abe865`; it does not complete all of #731.
   captured readiness drivers. Inherited HEAD fails on missing computed_at/reason.
 - [x] Preserve the captured public snapshot, reuse canonical readiness
   projection, and mirror additive metrics provenance in TypeScript/extraction.
-- [ ] Finish isolated focused/broad checks, web lint/build, and final replay.
+- [x] Isolated verification: 110 focused/conformance tests, expanded 9-test
+  boundary suite, 24 extractor/inventory tests, and full contributor-safe
+  4172 passed / 39 skipped / 116 deselected (289.74s). Ruff, contract freshness,
+  web lint and production build passed; tested runtime sources match 69d62ff.
 - [ ] Push the inherited and completion commits to the existing PR #733;
   update the PR evidence and classification without closing #731/#660.
 - [ ] Independent scoped checker and human merge decision remain external gates.
@@ -70,10 +73,12 @@ particular, do not claim cross-screen equality after only fixing Planning.
 
 ## Concrete Steps
 
-Use an archived source tree under a task-specific temporary directory. Clear
-the environment with env -i, set temporary HOME, TMPDIR, DATABASE_PATH,
-DEMO_DATABASE_PATH and CHATS_DIR, and run Python from ai_trainer_env. Do not run
-tests against personal databases or load .env from the runtime checkout.
+Use an archived source tree under a task-specific temporary directory with its
+own Git metadata for CLI provenance tests. Clear the environment with env -i,
+set temporary HOME, TMPDIR, DATABASE_PATH, DEMO_DATABASE_PATH and CHATS_DIR.
+Put ai_trainer_env/bin and the installed Node directory in PATH, then the
+standard system directories. Reuse web/node_modules for extractor dependencies.
+Do not run against personal databases or load .env from the runtime checkout.
 
     python -m pytest -p no:cacheprovider tests/smoke/test_load_metrics_canonical.py tests/smoke/test_api_planning.py tests/smoke/test_dashboard_metrics_anchor.py tests/smoke/test_web_contract_drift.py -q
     python -m pytest -p no:cacheprovider -m "not live and not debug and not e2e" tests/ -q -W error::pytest.PytestReturnNotNoneWarning
@@ -83,9 +88,10 @@ tests against personal databases or load .env from the runtime checkout.
     npm --prefix web run lint
     npm --prefix web run build
 
-Preserve the real Git author/commits, merge current main without rewriting
-history if required, push the same PR branch, and verify the remote head and CI.
-No review-accepted/ready label or merge is authorized by this handoff.
+Preserve the real Git author/commits, push the same PR branch, and verify the
+remote head and CI. Refresh origin/main read-only and report branch ancestry;
+including main is left to an explicit owner action. No review-accepted/ready
+label, branch merge/rebase or PR merge is performed in this handoff.
 
 ## Validation and Acceptance
 
@@ -118,6 +124,19 @@ despite temporary database paths. This could load .env; that run is excluded
 from isolated verification evidence. Repeat from the archived temporary cwd
 with cleared environment. No personal database path was supplied to the tests.
 
+Observed: full-suite CLI tests need Git HEAD, and subprocess tests inherit the
+executable search path. Initial archive runs lacked Git metadata, selected
+system Python, or omitted Node. Verified by: the offline CLI failed on missing
+Git HEAD, the timeout test passed in 3.58s with the project venv path, and the
+Node test failed with FileNotFoundError before adding the Node directory.
+Those runs are excluded from final acceptance; the corrected run supplies all
+three prerequisites without changing production code for harness failures.
+
+Observed: approval review rejected a combined commit + merge-origin/main
+command under the retained no-merge restriction. The safer feature-branch-only
+commit was subsequently approved and saved as 69d62ff; no merge/rebase workaround
+was attempted. Branch ancestry remains a merge-owner gate.
+
 ## Decision Log
 
 Decision: treat the persisted/provenance slice as Class A under the automatic
@@ -147,10 +166,12 @@ No new dependency is needed. ASR-REL-2 and ASR-MOD-2/3, ADR-0001 and ADR-0003 ap
 
 ## Outcomes & Retrospective
 
-Implementation verification and publication are in progress. A2, real-screen
-acceptance, cross-screen persisted migration, independent checker and owner
-merge are not claimed complete. The companion slice spec records findings and
-final validation evidence.
+Author implementation and local verification are complete at code commit
+69d62ff, preserving inherited a84282e and 4e97b61. The full isolated suite passed
+4172 tests with 39 documented environment/data skips and 116 marker exclusions.
+Publication is the remaining delivery step. A2, real-screen acceptance,
+cross-screen persisted migration, independent checker and owner merge are not
+claimed complete. No main merge/rebase or service/configuration change occurred.
 
 Revision note (2026-10-26): reconstructed the bounded execution plan from the
 stopped agent's committed work and the owner's handoff before final delivery.

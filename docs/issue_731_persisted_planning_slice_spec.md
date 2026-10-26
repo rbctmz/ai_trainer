@@ -44,8 +44,8 @@ their existing distinct input histories; ACWR is not truncated to this window.
 
 RED at inherited 4e97b61: added real-router PlanningStatus validation fails on
 missing readiness_snapshot.computed_at and reason. Additional assertions cover
-captured drivers and intervention/freshness evidence. Final GREEN evidence is
-recorded below after validation.
+captured drivers and intervention/freshness evidence. Final GREEN is recorded
+below.
 
 ## State, failure, rollback and traceability
 
@@ -68,11 +68,20 @@ implement the bounded Python/contract fix.
 | Standalone 91-day input | fixed-in 41c2f03; preserve fix |
 | Global revision ordering | fixed-in a84282e; verify multidate case |
 | Persisted numbers with live TSB interpretation | fixed-in 4e97b61; finish public shape/drivers/TS before publication |
-| Public snapshot shape and captured drivers | meaningful HTTP RED; completion GREEN pending |
+| Public snapshot shape and captured drivers | fixed-in 69d62ff; HTTP conformance and capture phases GREEN |
 
 ## Evidence bundle and final gate
 
-Focused/broad tests, lint/build/extractor, remote SHA and CI: pending final run.
+Code head 69d62ff includes inherited a84282e and 4e97b61. Isolated checks:
+110 focused/conformance passed, the expanded boundary suite 9 passed,
+extractor/inventory 24 passed, full contributor-safe 4172 passed / 39 skipped /
+116 deselected in 289.74s. Ruff, web lint/build, contract freshness and diff-check
+passed. All nine changed runtime/test/TS artifacts match the isolated source
+tree used for verification. No user database was supplied to the tests.
+
+Remote publication/current-head CI are pending the final push. The initial
+archive/limited-PATH harness failures were investigated and excluded; final
+verification used an isolated Git snapshot, project Python and installed Node.
 Current screen values and personal backtest are untested. Owner acceptance,
 independent checker and merge remain pending. This document does not authorize
 another full-diff review, acceptance labels, closing #731/#660 or starting #732.
