@@ -79,7 +79,8 @@ extractor/inventory 24 passed, full contributor-safe 4172 passed / 39 skipped /
 passed. All nine changed runtime/test/TS artifacts match the isolated source
 tree used for verification. No user database was supplied to the tests.
 
-Remote publication/current-head CI are pending the final push. The initial
+Code publication verified at remote cb0cbe7 in PR #733; final documentation
+is delivered on the same branch. Current-head CI remains a separate gate. The initial
 archive/limited-PATH harness failures were investigated and excluded; final
 verification used an isolated Git snapshot, project Python and installed Node.
 Current screen values and personal backtest are untested. Owner acceptance,

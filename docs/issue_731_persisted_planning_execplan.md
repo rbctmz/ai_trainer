@@ -26,8 +26,9 @@ scoped fixes from `7abe865`; it does not complete all of #731.
   boundary suite, 24 extractor/inventory tests, and full contributor-safe
   4172 passed / 39 skipped / 116 deselected (289.74s). Ruff, contract freshness,
   web lint and production build passed; tested runtime sources match 69d62ff.
-- [ ] Push the inherited and completion commits to the existing PR #733;
-  update the PR evidence and classification without closing #731/#660.
+- [x] Publish inherited and completion commits in existing PR #733 (first
+  verified remote checkpoint cb0cbe7), update PR evidence and Class A/ExecPlan
+  links in #731. Both issues remain open; no B work or merge performed.
 - [ ] Independent scoped checker and human merge decision remain external gates.
 
 ## Context and Orientation
@@ -169,7 +170,8 @@ No new dependency is needed. ASR-REL-2 and ASR-MOD-2/3, ADR-0001 and ADR-0003 ap
 Author implementation and local verification are complete at code commit
 69d62ff, preserving inherited a84282e and 4e97b61. The full isolated suite passed
 4172 tests with 39 documented environment/data skips and 116 marker exclusions.
-Publication is the remaining delivery step. A2, real-screen acceptance,
+Code is published in PR #733; current-head remote CI and the external scoped
+checker remain review gates. A2, real-screen acceptance,
 cross-screen persisted migration, independent checker and owner merge are not
 claimed complete. No main merge/rebase or service/configuration change occurred.
 
