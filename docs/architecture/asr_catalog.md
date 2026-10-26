@@ -846,3 +846,15 @@ synthetic accepted evidence: M3 #728 merged b75d510 after clean native review
 and explicit owner merge; #624 closed. Native Windows/ACL remain unverified;
 no live data or service operations are included.
 Live migration/activation still requires a separate owner decision.
+
+
+## Scratch DB boundary (#625; M1 specification only)
+
+[Proposed contract](../database_path_guardrails_slice_spec.md) and
+[ExecPlan](../database_path_guardrails_execplan.md): ASR-REL-3 / ASR-DEP-2
+require test/acceptance/maintenance refusal before opening an unowned target;
+ASR-SEC-1 requires credential-free scratch execution and safe diagnostics.
+Existing resolver/SQLite Backup API are reused, ordinary product writes and
+`Database._connect` stay unchanged. M1 synthetic probes characterize current
+gaps, not a delivered guard: runtime isolation/alias/cleanup acceptance remains
+pending M2–M4. No new ASR or ADR, API/schema/UI or live-data operation.
