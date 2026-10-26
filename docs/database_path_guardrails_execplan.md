@@ -1,8 +1,9 @@
 # #625 — защита тестовых и служебных входов в SQLite
 
 Этот ExecPlan ведётся по [.agent/PLANS.md](../.agent/PLANS.md). Он описывает
-весь срез, но текущая команда владельца разрешает только M1: разведку,
-спецификацию и безопасные эксперименты. Runtime-реализация — следующий handoff.
+весь срез. M1 принят владельцем и merged #734 как b68fc69; цель M2 разрешена
+26 октября: Domain/API Implementer реализует helper/раннюю pytest isolation.
+Acceptance/maintenance M3 и личная БД/services остаются вне текущего scope.
 
 ## Purpose / Big Picture
 
@@ -19,8 +20,8 @@
 - [x] (2026-10-25) Прочитаны issue/owner decision, workflow, PLANS и ASR/ADD; сверены основные входы.
 - [x] (2026-10-25) Synthetic probes повторены, спецификация/инвентарь/RED matrix и self-review готовы; Ruff/58 local links/diff GREEN.
 - [x] (2026-10-25) M1 опубликован отдельным draft PR #734; issue #625 актуализирован, current-head CI выполняется.
-- [ ] M1: независимое review и решение владельца; реализация пока не начинается.
-- [ ] M2: ранняя изоляция pytest и общий helper; RED → GREEN.
+- [x] (2026-10-26) M1 clean native 1/2 на 2c08b95, owner accepted/merged #734 b68fc69; reviewed/merged trees identical.
+- [ ] M2 в работе: early collection/foreign-basetemp/scratch-family/alias tests; RED до helper и bootstrap.
 - [ ] M3: acceptance и служебные команды; RED → GREEN.
 - [ ] M4: общая synthetic приёмка, совместимость, итоговое review/owner merge.
 
@@ -151,3 +152,5 @@ contracts/CLI compatibility и остаточная runtime-неопределё
 Редакция 2026-10-25 при публикации: draft PR #734 и issue #625 связаны;
 нативное review не запрошено, accepted/ready labels не ставились. Author M1
 готов, source candidate не содержит runtime изменений; CI outcome — PR bundle.
+
+Редакция 2026-10-26: owner handoff M1 → M2, изолированная ветка codex/issue-625-m2-pytest-isolation от b68fc69. RED cases не запускаются на personal DB.
