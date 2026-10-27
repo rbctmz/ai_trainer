@@ -10,7 +10,7 @@ import stat
 import tempfile
 from typing import Any
 
-from config.database_paths import ScratchPathError, database_family, sqlite_target_path
+from config.database_paths import ScratchPathError, database_family, database_namespace_key, sqlite_target_path
 
 _SCOPE_ENV = "AI_TRAINER_SCRATCH_SCOPE"
 _MARKER = ".scratch-owner.json"
@@ -27,8 +27,8 @@ class ScratchScope:
         self._closed = False
         self._families: dict[str, str] = {}
         for name in ("runtime.db", "demo.db"):
-            base = os.path.normcase(str(root / name))
-            self._families.update({os.path.normcase(str(item)): base for item in database_family(root / name)})
+            base = database_namespace_key(root / name)
+            self._families.update({database_namespace_key(item): base for item in database_family(root / name)})
 
     @classmethod
     def create(cls, *, parent: Path | None = None) -> ScratchScope:
@@ -123,8 +123,8 @@ class ScratchScope:
                     continue
                 if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
                     raise ScratchPathError("scratch_identity_unknown", purpose=purpose)
-            base = os.path.normcase(str(resolved))
-            keys = [os.path.normcase(str(item.resolve())) for item in database_family(path)]
+            base = database_namespace_key(resolved)
+            keys = [database_namespace_key(item) for item in database_family(path)]
             if any(key in self._families and self._families[key] != base for key in keys):
                 raise ScratchPathError("scratch_protected_family", purpose=purpose)
             self._families.update(dict.fromkeys(keys, base))

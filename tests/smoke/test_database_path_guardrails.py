@@ -379,3 +379,54 @@ def test_custom_child_env_cannot_silently_drop_the_guard(tmp_path):
         subprocess.run([sys.executable, "-c", "import os,sqlite3; sqlite3.connect(os.environ['DATABASE_PATH'])"],
                        cwd=tmp_path, env=env, check=True, capture_output=True, timeout=10)
     assert not sentinel.exists()
+
+
+@pytest.mark.parametrize("operation", ["attach", "vacuum"])
+@pytest.mark.parametrize("inside", [False, True])
+@pytest.mark.parametrize("clear_caller_authorizer", [False, True])
+def test_sql_open_operations_respect_scope_before_creating_destination(tmp_path, operation, inside, clear_caller_authorizer):
+    import json
+    from scripts.scratch_runtime import ScratchScope
+
+    scope = ScratchScope.create(parent=tmp_path)
+    destination = (scope.root if inside else tmp_path) / "destination.db"
+    env = child_env(tmp_path / "child-home")
+    env.update({"AI_TRAINER_SCRATCH_SCOPE": json.dumps(scope.descriptor()),
+                "MAIN": str(scope.root / "main.db"), "DEST": str(destination), "OP": operation,
+                "CLEAR_AUTH": "1" if clear_caller_authorizer else "0"})
+    script = (
+        "import os,sqlite3; c=sqlite3.connect(os.environ['MAIN']); "
+        "c.execute('CREATE TABLE keep(value TEXT)'); c.commit(); "
+        "c.set_authorizer(None) if os.environ['CLEAR_AUTH']=='1' else None; "
+        "quoted=\"'\"+os.environ['DEST'].replace(\"'\",\"''\")+\"'\"; "
+        "sql=('ATTACH DATABASE '+quoted+' AS other') if os.environ['OP']=='attach' else ('VACUUM INTO '+quoted); c.execute(sql)"
+    )
+    result = subprocess.run([sys.executable, "-c", script], env=env, cwd=tmp_path, capture_output=True, text=True, timeout=15)
+    if inside:
+        assert result.returncode == 0, result.stderr
+        assert destination.exists()
+    else:
+        assert result.returncode != 0
+        assert "scratch_target_unowned" in result.stderr
+        assert str(destination) not in result.stderr
+        assert not destination.exists()
+    scope.cleanup()
+
+
+@pytest.mark.parametrize("main,sidecar", [("Future.db", "future.DB-WAL"), ("caf\u00e9.db", "cafe\u0301.DB-shm")])
+def test_future_family_names_refuse_case_and_unicode_ambiguity(tmp_path, main, sidecar):
+    from config.database_paths import ScratchPathError, assert_disjoint_database_families
+
+    with pytest.raises(ScratchPathError, match="scratch_protected_family"):
+        assert_disjoint_database_families(tmp_path / main, [tmp_path / sidecar])
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_reserved_family_refuses_uppercase_sidecar_before_creation(tmp_path):
+    from config.database_paths import ScratchPathError
+    from scripts.scratch_runtime import ScratchScope
+
+    scope = ScratchScope.create(parent=tmp_path)
+    with pytest.raises(ScratchPathError, match="scratch_protected_family"):
+        scope.validate_target(scope.root / "RUNTIME.DB-WAL", purpose="test")
+    scope.cleanup()

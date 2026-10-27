@@ -247,3 +247,35 @@ Pilot + guard focused: 84 passed / 1 historical missing-session skip, 36.05s.
 на замороженных runtime files запускается перед публикацией; результаты и
 remote CI будут в одном PR evidence bundle. Base main повторно проверен и
 остаётся b68fc69; M1 raw evidence и принятые AC не переписываются.
+
+
+M2 SQL boundary correction before native review: a synthetic child probe on
+f0d306e returned exit0 and outside_child_scope_created=true for both parameterized
+ATTACH DATABASE and VACUUM INTO. Connect-only audit was therefore insufficient.
+Test-only connection construction now installs a SQLite authorizer after native
+initialization and composes caller authorizers; literal owned destinations work,
+foreign/unknown destinations fail before file creation even after caller clears
+its policy. Direct factory/connect/dbapi2 entrypoints retain early path audit.
+The first handle-event prototype was rejected after ProgrammingError (native
+Connection.__init__ was not finished); post-construction GuardedConnection plus
+connect wiring is covered by cycle storage/read-only/backup regressions. SQLite
+temp path is owned; PRAGMA attempts to redirect temp/data directories refuse.
+This policy lives entirely in the test harness, never in product _connect.
+
+A separate pure future-name probe observed native_case_insensitive=true and
+future_case_family_blocked=false for absent Future.db / future.DB-WAL. Future
+namespace keys now conservatively fold case/Unicode ambiguity without selecting
+or renaming files; live selection semantics remain unchanged. Added ASCII/Unicode
+and uppercase-sidecar regressions. Final related contour: 310 passed /1 existing
+Starlette warning, 19.59s; parent SQLite audit allowed=1383/blocked=0.
+
+Full-3 on the earlier connect-only head: 1 failed /4221 passed /16 skipped /
+116 deselected, 307.12s. Busy-port fixture could bind now but its shell PATH had
+no python command; run_web fell through to a dependency-install attempt, which
+external/network containment blocked before API startup. Fixture now prepends
+Path(sys.executable).parent and proves busy refusal before any install/start;
+product run_web is unchanged. SQL authorizer and future-name corrections require
+a new full contour; previous full results do not qualify the final head.
+
+Candidate draft PR #738 is published; no review requested yet, 0/2 native rounds.
+The final post-correction full/CI outcome is pending in its evidence bundle.

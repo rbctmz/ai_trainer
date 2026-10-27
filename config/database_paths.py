@@ -234,6 +234,12 @@ def database_family(path: str | os.PathLike[str]) -> tuple[Path, ...]:
     return tuple(Path(str(target) + suffix) for suffix in SIDECAR_SUFFIXES)
 
 
+def database_namespace_key(path: Path) -> str:
+    """Conservative future-name ambiguity key, never a file-selection rule."""
+    import unicodedata
+    return unicodedata.normalize("NFD", _canonical(path)).casefold()
+
+
 def assert_disjoint_database_families(
     target: str | os.PathLike[str], protected: list[Path] | tuple[Path, ...],
 ) -> None:
@@ -242,7 +248,7 @@ def assert_disjoint_database_families(
         for first in database_family(target):
             for store in protected:
                 for second in database_family(store):
-                    if _canonical(first) == _canonical(second) or _samefile(first, second):
+                    if database_namespace_key(first) == database_namespace_key(second) or _samefile(first, second):
                         raise ScratchPathError("scratch_protected_family")
     except ScratchPathError:
         raise

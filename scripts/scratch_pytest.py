@@ -83,6 +83,54 @@ def install_sqlite_guard(scope: ScratchScope) -> None:
     else:
         dotenv.load_dotenv = lambda *args, **kwargs: False
 
+    import sqlite3
+    temporary = scope.validate_directory(scope.root / "tmp")
+    temporary.mkdir(mode=0o700, exist_ok=True)
+    os.environ["SQLITE_TMPDIR"] = str(temporary)
+
+    def authorize(action, first, second, _database, _source):
+        # ATTACH and VACUUM INTO open files inside SQLite C code, without a new
+        # Python connect audit. Unknown dynamic destinations also fail closed.
+        if action == sqlite3.SQLITE_ATTACH and first != "":
+            try:
+                scope.validate_target(first, purpose="sqlite")
+            except ScratchPathError as exc:
+                _sqlite_audit["blocked"] += 1
+                sys.stderr.write(str(exc) + "\n")
+                return sqlite3.SQLITE_DENY
+        if action == sqlite3.SQLITE_PRAGMA and first in {"temp_store_directory", "data_store_directory"} and second is not None:
+            return sqlite3.SQLITE_DENY
+        return sqlite3.SQLITE_OK
+
+    native_connection = sqlite3.Connection
+    native_connect = sqlite3.connect
+
+    class GuardedConnection(native_connection):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.set_authorizer(None)
+
+        def set_authorizer(self, callback):
+            def combined(*args):
+                result = authorize(*args)
+                if result != sqlite3.SQLITE_OK:
+                    return result
+                return callback(*args) if callback is not None else sqlite3.SQLITE_OK
+            return super().set_authorizer(combined)
+
+    def connect(*args, **kwargs):
+        if len(args) <= 5 and "factory" not in kwargs:
+            kwargs["factory"] = GuardedConnection
+        connection = native_connect(*args, **kwargs)
+        if isinstance(connection, native_connection) and not isinstance(connection, GuardedConnection):
+            connection.set_authorizer(authorize)
+        return connection
+
+    # The handle audit occurs before Connection.__init__ finishes, too early
+    # for set_authorizer. Install after construction; preserve caller policies.
+    sqlite3.Connection = sqlite3.dbapi2.Connection = GuardedConnection
+    sqlite3.connect = sqlite3.dbapi2.connect = connect
+
     def audit(event: str, args: tuple[Any, ...]) -> None:
         if event == "sqlite3.connect":
             try:
