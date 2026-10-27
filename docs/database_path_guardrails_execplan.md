@@ -298,3 +298,9 @@ SQLite namespace; DB policy is unchanged. Only CI YAML/docs changed after the
 local full contour, so that Python result remains applicable. Current-head
 remote E2E/contributor-safe/contract outcomes are recorded in the PR evidence
 bundle, independently from native review and owner merge. No UI behavior changed.
+
+The initial e9e17ba cache configuration was rejected by GitHub workflow
+validation before CI jobs: runner context is unavailable in job-level env.
+The final configuration supplies the same runner.temp path in the two step-level
+env blocks (install and launch), where that context is available. The failed
+workflow is recorded, not counted as an E2E rerun or GREEN evidence.

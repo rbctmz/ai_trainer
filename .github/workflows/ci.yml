@@ -84,9 +84,6 @@ jobs:
     name: Web E2E (Playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    env:
-      # pytest isolates HOME; install and launch must share the binary cache.
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ai-trainer-playwright
 
     steps:
       - name: Check out repository
@@ -117,10 +114,15 @@ jobs:
       - name: Install web dependencies
         run: npm --prefix web ci
 
+      # pytest isolates HOME; install and launch share the binary cache.
       - name: Install Chromium for Playwright
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ai-trainer-playwright
         run: python -m playwright install chromium --with-deps
 
       - name: Run E2E web stack smoke
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ai-trainer-playwright
         run: python -m pytest -m e2e tests/e2e -q
 
       - name: Upload failure artifacts (screenshots, logs)
