@@ -22,7 +22,7 @@ Acceptance/maintenance M3 и личная БД/services остаются вне 
 - [x] (2026-10-25) M1 опубликован отдельным draft PR #734; issue #625 актуализирован, current-head CI выполняется.
 - [x] (2026-10-26) M1 clean native 1/2 на 2c08b95, owner accepted/merged #734 b68fc69; reviewed/merged trees identical.
 - [x] (2026-10-27) M2 helper, bootstrap до Settings/collection, launcher/CI и необходимые fixtures реализованы; focused 238 passed.
-- [ ] M2: final full contributor-safe, self-review/evidence и отдельный draft PR.
+- [x] (2026-10-27) M2 self-review/RED→GREEN: focused 310 passed; full 4233 passed /16 skipped /116 deselected. Draft PR #738 опубликован; current-head remote CI проверяется отдельно.
 - [ ] M2: independent review и отдельное owner acceptance/merge.
 - [ ] M3: acceptance и служебные команды; RED → GREEN.
 - [ ] M4: общая synthetic приёмка, совместимость, итоговое review/owner merge.
@@ -58,7 +58,7 @@ guard в `Database._connect` исключён решением владельц�
 Author M1 завершён: подготовлены короткий контракт, актуальный inventory и synthetic
 probe/evidence. M1 #734 принят владельцем и merged b68fc69 после clean native 1/2 на 2c08b95, zero threads/CI GREEN. Исторические pending snapshots ниже не являются текущим статусом. Broad Python/UI suite локально N/A, product diff отсутствует.
 Числа старой разведки сентября не являются текущей runtime-оценкой.
-Не объявлять #625 закрытым после spec PR; защитное поведение ещё не поставлено.
+M2 author implementation и локальная приёмка готовы в draft #738; independent review/owner merge, M3/M4 остаются впереди. #625 не закрывается этим этапом.
 
 ## Context and Orientation
 
@@ -279,3 +279,22 @@ a new full contour; previous full results do not qualify the final head.
 
 Candidate draft PR #738 is published; no review requested yet, 0/2 native rounds.
 The final post-correction full/CI outcome is pending in its evidence bundle.
+
+
+Final local M2 contour on e47ad37: 4233 passed /16 skipped /116 deselected,
+7 existing warnings, 308.05s under CI warning policy. Parent-only SQLite counters:
+allowed=28060 /blocked=1 (exercised refusal, not a process-tree census). The 16
+runtime Python/YAML files matched the tested source snapshot; product
+Database/Settings have no diff. Ruff/diff and 59 local Markdown links GREEN.
+Earlier full/focused results above are historical investigation checkpoints.
+
+Observed in e47ad37 Linux CI: Web contract GREEN, Chromium installation GREEN,
+but all browser launches looked under the new scratch HOME's empty
+.cache/ms-playwright directory. Verified by job 122061698996, run 40466083013:
+BrowserType.launch reported Executable doesn't exist inside scratch home.
+The E2E job now sets one explicit PLAYWRIGHT_BROWSERS_PATH under runner.temp for
+both install and launch. This is a browser executable cache, not a permitted
+SQLite namespace; DB policy is unchanged. Only CI YAML/docs changed after the
+local full contour, so that Python result remains applicable. Current-head
+remote E2E/contributor-safe/contract outcomes are recorded in the PR evidence
+bundle, independently from native review and owner merge. No UI behavior changed.

@@ -84,6 +84,9 @@ jobs:
     name: Web E2E (Playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      # pytest isolates HOME; install and launch must share the binary cache.
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ai-trainer-playwright
 
     steps:
       - name: Check out repository
