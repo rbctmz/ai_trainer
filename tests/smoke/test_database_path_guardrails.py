@@ -430,3 +430,52 @@ def test_reserved_family_refuses_uppercase_sidecar_before_creation(tmp_path):
     with pytest.raises(ScratchPathError, match="scratch_protected_family"):
         scope.validate_target(scope.root / "RUNTIME.DB-WAL", purpose="test")
     scope.cleanup()
+
+
+@pytest.mark.parametrize("options", [
+    ["-W", "ignore", "-S"],
+    ["-X", "dev", "-E"],
+    ["-IS"],
+    ["-vS"],
+    ["-Wignore", "-S"],
+    ["-Xdev", "-I"],
+])
+def test_python_startup_options_cannot_bypass_child_guard(tmp_path, options):
+    from config.database_paths import ScratchPathError
+    from scripts.scratch_pytest import child_environment
+
+    target = tmp_path / "synthetic-child-escape.db"
+    env = child_environment({"PATH": os.defpath, "ESCAPE_TARGET": str(target)})
+    script = "import os,sqlite3; sqlite3.connect(os.environ['ESCAPE_TARGET'])"
+    with pytest.raises(ScratchPathError, match="scratch_identity_unknown"):
+        subprocess.run([sys.executable, *options, "-c", script], env=env, cwd=tmp_path,
+                       capture_output=True, text=True, timeout=15)
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("control", ["\n", "\r", "\t"])
+def test_uri_control_character_cannot_disguise_foreign_file_as_memory(tmp_path, control):
+    import json
+    from scripts.scratch_runtime import ScratchScope
+
+    scope = ScratchScope.create(parent=tmp_path)
+    target = tmp_path / "synthetic-uri-escape.db"
+    env = child_env(tmp_path / "uri-child-home")
+    env.update({"AI_TRAINER_SCRATCH_SCOPE": json.dumps(scope.descriptor()),
+                "ESCAPE_URI": target.as_uri() + "?mo" + control + "de=memory"})
+    result = subprocess.run([sys.executable, "-c", "import os,sqlite3; sqlite3.connect(os.environ['ESCAPE_URI'], uri=True)"],
+                            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=15)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert not target.exists()
+    scope.cleanup()
+
+
+@pytest.mark.parametrize("options", [["-W", "ignore"], ["-X", "dev"], ["-Wignore"], ["-Xdev"]])
+def test_python_handoff_allows_safe_options_and_script_arguments(tmp_path, options):
+    from scripts.scratch_pytest import child_environment
+
+    env = child_environment({"PATH": os.defpath})
+    result = subprocess.run([sys.executable, *options, "-c", "import sys; print(sys.argv[1])", "-S"],
+                            env=env, cwd=tmp_path, capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "-S"

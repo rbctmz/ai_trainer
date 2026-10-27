@@ -57,11 +57,28 @@ def _validate_child_handoff(args: tuple[Any, ...], scope: ScratchScope) -> None:
             raise ValueError
         executable = os.path.basename(os.fsdecode(args[0])).lower()
         if executable.startswith("python"):
-            for arg in args[1][1:]:
-                if arg in {"-I", "-S", "-E"}:
-                    raise ValueError
-                if arg in {"-m", "-c"} or not arg.startswith("-"):
+            argv = iter(args[1][1:])
+            for item in argv:
+                arg = os.fsdecode(item)
+                if arg == "--" or arg == "-" or not arg.startswith("-"):
                     break
+                if arg == "--check-hash-based-pycs":
+                    next(argv, None)
+                    continue
+                if arg.startswith("--"):
+                    continue
+                # Python accepts combined short options. -W/-X consume the
+                # rest of the token or the next argv item; -c/-m end startup
+                # parsing and all following text belongs to the child script.
+                for index, option in enumerate(arg[1:]):
+                    if option in "ISE":
+                        raise ValueError
+                    if option in "cm":
+                        return
+                    if option in "WX":
+                        if index == len(arg) - 2:
+                            next(argv, None)
+                        break
     except (KeyError, TypeError, ValueError, OSError, RuntimeError):
         raise ScratchPathError("scratch_identity_unknown", purpose="bootstrap") from None
 

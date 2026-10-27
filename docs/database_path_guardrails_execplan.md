@@ -304,3 +304,28 @@ validation before CI jobs: runner context is unavailable in job-level env.
 The final configuration supplies the same runner.temp path in the two step-level
 env blocks (install and launch), where that context is available. The failed
 workflow is recorded, not counted as an E2E rerun or GREEN evidence.
+
+
+## M2 native review round 1 — 2026-10-27
+
+Native review on 01b0f978cd22 returned two P1 findings, 1/2 rounds. Both
+were reproduced before changes in a tracked synthetic source copy: seven
+RED cases. Four child invocations allowed startup flags that disable the
+site guard when hidden after option arguments or combined with other flags;
+three URI probes with literal LF/CR/TAB returned exit 0 rather than refusing
+an unowned child-scope SQLite destination. No personal data or services used.
+
+The child handoff parses Python startup options, skips values of -W/-X and
+--check-hash-based-pycs, rejects -I/-S/-E even in combined flags, and stops
+at -c/-m, script or --. Tests cover both split and attached option values and
+verify that safe startup flags and script arguments remain usable. SQLite URI
+parsing rejects literal C0/DEL controls before urlsplit can strip any of them;
+valid memory URIs remain supported. These are test-runner changes only.
+
+GREEN: initial 7/7 reviewed reproductions; expanded related contour 323 passed,
+1 existing Starlette warning, 19.98s, parent-only SQLite counts 1383/0. Full
+contributor-safe and current-head CI pending; their final result belongs in the
+PR evidence bundle. Each native finding is answered in its own thread with
+fixed-in SHA and verification; a possible second native round is delta-only
+and requires its own request. The unresolved HTTP500 investigation remains
+#739 and is not asserted to be caused or fixed by these two changes.

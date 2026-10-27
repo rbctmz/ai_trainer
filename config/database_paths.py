@@ -206,6 +206,10 @@ def sqlite_target_path(value: str | os.PathLike[str]) -> Path | None:
         if raw == ":memory:":
             return None
         if raw.startswith("file:"):
+            # urlsplit silently strips TAB/CR/LF, while SQLite receives the
+            # original URI. Never classify a normalized URI as a memory DB.
+            if any(ord(char) < 32 or ord(char) == 127 for char in raw):
+                raise ValueError
             uri = urlsplit(raw)
             query = parse_qsl(uri.query, keep_blank_values=True, strict_parsing=True)
             options = dict(query)
