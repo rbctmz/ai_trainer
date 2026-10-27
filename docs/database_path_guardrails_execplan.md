@@ -21,7 +21,9 @@ Acceptance/maintenance M3 и личная БД/services остаются вне 
 - [x] (2026-10-25) Synthetic probes повторены, спецификация/инвентарь/RED matrix и self-review готовы; Ruff/58 local links/diff GREEN.
 - [x] (2026-10-25) M1 опубликован отдельным draft PR #734; issue #625 актуализирован, current-head CI выполняется.
 - [x] (2026-10-26) M1 clean native 1/2 на 2c08b95, owner accepted/merged #734 b68fc69; reviewed/merged trees identical.
-- [ ] M2 в работе: early collection/foreign-basetemp/scratch-family/alias tests; RED до helper и bootstrap.
+- [x] (2026-10-27) M2 helper, bootstrap до Settings/collection, launcher/CI и необходимые fixtures реализованы; focused 238 passed.
+- [ ] M2: final full contributor-safe, self-review/evidence и отдельный draft PR.
+- [ ] M2: independent review и отдельное owner acceptance/merge.
 - [ ] M3: acceptance и служебные команды; RED → GREEN.
 - [ ] M4: общая synthetic приёмка, совместимость, итоговое review/owner merge.
 
@@ -54,8 +56,7 @@ guard в `Database._connect` исключён решением владельц�
 
 
 Author M1 завершён: подготовлены короткий контракт, актуальный inventory и synthetic
-probe/evidence. Draft PR #734 опубликован; current-head CI выполняется, independent review и owner acceptance
-ещё не выполнены. Broad Python/UI suite локально N/A, product diff отсутствует.
+probe/evidence. M1 #734 принят владельцем и merged b68fc69 после clean native 1/2 на 2c08b95, zero threads/CI GREEN. Исторические pending snapshots ниже не являются текущим статусом. Broad Python/UI suite локально N/A, product diff отсутствует.
 Числа старой разведки сентября не являются текущей runtime-оценкой.
 Не объявлять #625 закрытым после spec PR; защитное поведение ещё не поставлено.
 
@@ -154,3 +155,95 @@ contracts/CLI compatibility и остаточная runtime-неопределё
 готов, source candidate не содержит runtime изменений; CI outcome — PR bundle.
 
 Редакция 2026-10-26: owner handoff M1 → M2, изолированная ветка codex/issue-625-m2-pytest-isolation от b68fc69. RED cases не запускаются на personal DB.
+
+
+## M2 runtime implementation and evidence — 2026-10-27
+
+
+Domain/API Implementer работает по принятому M1, baseline b68fc69. В
+`config/database_paths.py` добавлены safe URI parser, SQLite-family predicates и
+pre-override candidates capture. `scripts/scratch_runtime.py` создаёт private
+root и transient private owner receipt; проверки inode/owner/receipt не позволяют
+объекту произвольно присвоить существующий каталог. Cleanup доступен создателю,
+не идёт по nested symlink и отказывает при замене root. Продуктовые таблицы,
+Settings и Database._connect не меняются.
+
+`tests/conftest.py` вызывает bootstrap до Settings; launcher
+`scripts/run_isolated_tests.py` — ещё до pytest/plugin loading. Тестовый audit
+проверяет SQLite opens, чтение credentials, non-loopback network и наличие
+наследуемого scope/site guard у subprocess env. Custom env без handoff
+отказывает, helpers child_environment/fresh_child_environment дают явную
+передачу той же либо новой дочерней области. Это защита test runner от ошибок,
+не sandbox для hostile shell/native programs. Startup Python с -I/-S/-E,
+который отключает site audit, не допускается. Исторические explicit child env
+в DB path/migration fixtures подключены к тому же handoff; семантика migrate
+без Settings/при invalid DATABASE_PATH сохранена.
+
+Исходный pre-implementation RED dce8844: collector с explicit external
+synthetic DATABASE_PATH завершился 0/1 passed; требуемого отказа не было.
+Default collector не получал подготовленного scratch store, basetemp guard
+отсутствовал, helper imports ещё отсутствовали: 13 failed / 1 passed после
+исправления внешней experiment fixture. Самая первая попытка не является
+product RED: старый внешний audit запретил создать даже synthetic .env;
+он уточнён только внутри принадлежащего experiment root, вне него отказ сохранён.
+
+Observed: первый full contour с начальной защитой дал 7 failed / 4201 passed /
+18 skipped / 116 deselected, 329.15s. Все 7 отказов — относительные DB paths в
+трёх legacy test files. Inferred: им нужна temp cwd fixture, а не разрешение
+checkout как scratch. Verified by: fixture в test_data_management,
+test_final_app_integration и test_phase1_sync_methods; focused с этими suites
+и backup/restore/migrate/concurrency прошёл. Это исправление tests, не regression
+в product writer и не маркировка диагностик для сокрытия failures.
+
+Self-review отдельно воспроизвёл два отказа первоначальной реализации. Объект
+ScratchScope с известным inode чужого private directory мог удалить его без
+созданного данным запуском receipt (RED DID NOT RAISE); обязательная повторная
+проверка receipt перед validate/cleanup закрыла случай. Custom child env терял
+site audit (RED DID NOT RAISE); test-only Popen handoff guard и helpers закрыли
+его. Синтетические sentinel за пределами дочерней области сохранились после
+GREEN. SQLite ~ трактуется буквально, в отличие от Settings expansion; parser
+сохраняет native semantics, а memory URI проверен с uri=True и False без файла.
+
+Основной focused: 238 passed / 1 existing Starlette warning, 16.84s; parent
+SQLite audit allowed=840 / blocked=0. Негативные дочерние probes проверяют свои
+отказы отдельно; parent counters не выдаются за global process-tree census.
+Final full contour в работе; для каждого нового изменения повторяется только
+затронутый focused, после freeze — полный contributor-safe с CI warning policy.
+Source snapshot сравнивается по hashes перед публикацией; после тестов только
+docs/evidence не требуют нового runtime RED. Ruff/diff check должны быть GREEN.
+
+Отдельный fresh product probe с disabled dotenv/external containment, без
+импорта M2 test hooks: Database() создал synthetic store, INSERT/SELECT вернул
+ok, without_M2_test_hooks=true. Это совместно с неизменностью product source
+подтверждает обычную запись, а не объявляет личную миграцию выполненной.
+
+Transient root/receipt — test artifacts, не продуктовая БД или durable registry.
+Нормальный exit создателя удаляет свой root; interrupted run может оставить
+private temp directory, новый bootstrap его автоматически не присваивает.
+Мёртвый owner/заменённый root/невалидный receipt дают safe отказ. Windows использует
+conservative direct-parent handoff, native Windows/ACL не проверены; macOS native
+symlink/hardlink/case/Unicode и Linux CI считаются отдельно. Adversarial OS races
+не обещаны. M3 acceptance/maintenance и общий M4 остаются отдельными handoffs.
+
+M1 post-merge: #734 merged b68fc69 on 2026-10-26T11:05:43Z, owner explicitly
+accepted clean 1/2 at 2c08b95; zero threads, functional CI/Gitleaks/Review gate
+GREEN and CLEAN, exact-head normal merge. Reviewed/merged trees identical;
+completed M1 branch deleted, M2 branch created from merged main. Outcome included
+here without a new docs-only PR; #625/#622 stay open. Никакой personal DB/.env/
+backup/provider/service операции; primary runtime checkout не менялся.
+
+Редакция 2026-10-27: M2 implementation/RED и полный первый failure contour
+зафиксированы; финальные full/CI/native verdict ещё не заявлены.
+
+
+M2 finalization checkpoint: full-2 дал 42 failed / 4178 passed / 18 skipped /
+116 deselected, 291.44s; все failures — Pilot.env без нового child handoff.
+После fixture handoff осталось 20 failures в monotonic helper: системный
+Python 3.10 при fake HOME не видит user-site dotenv. Отдельная stdlib probe
+подтвердила dotenv_with_fake_home=False; site audit теперь не требует dotenv
+для stdlib-only child, но по-прежнему блокирует SQLite/file/network escapes.
+Pilot + guard focused: 84 passed / 1 historical missing-session skip, 36.05s.
+Это synthetic harness compatibility, не provider/live call. Финальный full-3
+на замороженных runtime files запускается перед публикацией; результаты и
+remote CI будут в одном PR evidence bundle. Base main повторно проверен и
+остаётся b68fc69; M1 raw evidence и принятые AC не переписываются.

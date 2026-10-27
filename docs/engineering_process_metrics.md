@@ -771,3 +771,22 @@ Issue #729 closed; branch cleanup after tree equality. No live-data/service
 operation; no linked escaped defect observed in this task as of 2026-10-25,
 observation window open. Outcome included with substantive #625 M1, without a
 separate post-merge docs PR. Metadata/receipt refreshed from GitHub for this record.
+
+
+## #625 M1 specification — #734, merged 2026-10-26
+
+[PR #734](https://github.com/rbctmz/ai_trainer/pull/734) opened
+2026-10-25T19:45:38Z and merged 2026-10-26T11:05:43Z as
+b68fc69013d15701e8cfb928ab790248149b69c3: calendar cycle 15h20m05s;
+active work/review or owner wait not captured. Class A specification, six files
++576/-0, two source commits. One [clean native receipt](https://github.com/rbctmz/ai_trainer/pull/734#issuecomment-6402616927)
+on accepted 2c08b95eb56adb5af8089d14d64341560d0e22a4, 1/2 rounds, no findings/threads.
+Explicit owner acceptance/merge, latest Review gate/functional CI/Gitleaks GREEN
+and CLEAN verified before normal exact-head merge; no source push after review
+or bypass. Historical failed review gates preceded human acceptance, not
+functional failures. Functional reruns/flakes and active coding time not captured.
+Local synthetic characterization, Ruff, diff and 58 local links GREEN; reviewed
+and merged trees identical. #625/#622 remain open for M2 onward; completed M1
+branch removed after ancestor/tree proof. No linked escaped defect observed in
+this task as of 2026-10-27; observation window open. No personal DB/env/service
+operation. Outcome included in substantive M2 changeset, no extra docs-only PR.

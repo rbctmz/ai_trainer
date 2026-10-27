@@ -325,6 +325,8 @@ def test_cli_avoids_settings_and_dotenv(endpoints, tmp_path):
         'PATH', 'TMPDIR', 'PYTHONPATH', 'AI_TRAINER_TEST_ROOT', 'PYTHONDONTWRITEBYTECODE',
     )}
     env.update(HOME=str(tmp_path), DATABASE_PATH=' ', XDG_DATA_HOME=str(tmp_path / 'home'))
+    from scripts.scratch_pytest import child_environment
+    env = child_environment(env)
     result = subprocess.run([sys.executable, str(script), 'migrate', '--source', str(source),
                              '--target', str(target)], cwd=tmp_path, env=env,
                             text=True, capture_output=True)

@@ -15,6 +15,15 @@ except ImportError:
 
 from datetime import datetime, timedelta
 
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def owned_test_working_directory(tmp_path, monkeypatch):
+    """Legacy relative DB names and cleanup stay in this test's owned leaf."""
+    monkeypatch.chdir(tmp_path)
+
 def test_sleep_data_sync():
     """Тестирование синхронизации данных сна"""
     print("🧪 Тестирование синхронизации данных сна...")

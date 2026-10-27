@@ -427,7 +427,8 @@ class _Pilot:
                 env.pop(key, None)
             else:
                 env[key] = value
-        return env
+        from scripts.scratch_pytest import child_environment
+        return child_environment(env)
 
     def start(self, *args: str, env: dict[str, str]) -> subprocess.Popen[str]:
         return subprocess.Popen(
