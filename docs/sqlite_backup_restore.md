@@ -312,3 +312,30 @@ fail-before-replace. Отдельные гейты доказывают quaranti
 восстановление sidecars при ошибке публикации, atomic no-clobber и короткую
 operator error при невозможности создать destination. Реальная БД и Docker
 volume не открываются.
+
+## Защищённые acceptance и служебные команды (#625 M3)
+
+`./run_acceptance.sh` создаёт собственную временную БД; внешние пути DB/demo
+и chats отклоняются до запуска приложения. Не используйте acceptance для
+работы с личной БД. E2E и standalone-тесты также используют свои временные
+области. Старые генераторы данных без аргументов работают с временной БД.
+
+Для явной работы с существующей БД сначала остановите все процессы записи и
+создайте свежую проверенную копию SQLite Backup API, например:
+
+    python scripts/sqlite_backup_restore.py backup --database /absolute/path/working.db \
+      --output /absolute/path/fresh-backup.db --confirm-stopped
+
+Пути в примере нужно заменить. Preview выполняется только для чтения:
+
+    python scripts/backfill_activity_provider_links.py --database /absolute/path/working.db
+
+Для записи отдельно укажите `--apply --confirm-working-database
+--confirm-stopped --backup /absolute/path/fresh-backup.db`. Проверка сравнивает
+содержимое и структуру БД с backup до операции; после изменения БД нужна новая
+копия. Остановка writers подтверждается оператором, автоматически не проверяется.
+Эти же флаги действуют для repair/backfill и генераторов, которые допускают
+явную рабочую БД. Удаление всех HRV дополнительно требует отдельного флага.
+Сетевой backfill выполняется только при явном apply после проверки; live browser
+acceptance требует `--base-url` и `--confirm-live-acceptance`. Не передавайте
+credentials в scratch-запуски.

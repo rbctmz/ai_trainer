@@ -790,3 +790,14 @@ and merged trees identical. #625/#622 remain open for M2 onward; completed M1
 branch removed after ancestor/tree proof. No linked escaped defect observed in
 this task as of 2026-10-27; observation window open. No personal DB/env/service
 operation. Outcome included in substantive M2 changeset, no extra docs-only PR.
+
+## #625 M2 guardrails — #738, merged 2026-10-28
+
+[PR #738](https://github.com/rbctmz/ai_trainer/pull/738), opened
+2026-10-27T06:57:13Z and merged 2026-10-28T07:13:01Z as
+1c2e4c42f628af8965c2afa912c9027f6358dfe8, completed two review rounds.
+Two confirmed P1 findings were fixed; zero unresolved review threads at owner
+acceptance. Exact-head CI and accepted review gate were green before merge.
+The separate intermittent E2E HTTP 500 is tracked in #739; its cause was not
+established. M2 establishes pytest boundaries, not M3/M4 acceptance; #625 and
+#622 remain open. No personal database or service was modified.

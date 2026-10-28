@@ -870,3 +870,12 @@ schema/API/UI remain unchanged. Synthetic RED/GREEN and limits are recorded in
 is pending; standalone acceptance/maintenance protection is M3, not implied by
 this test-only audit. ASR-REL-3 / DEP-2 / SEC-1 guarantees are not promoted to
 complete for the whole #625/#622 track.
+
+### #625 M3 candidate: acceptance and maintenance boundaries
+
+M3 extends the M2 scratch boundary to standalone acceptance, E2E, diagnostics
+and explicit maintenance flows; it validates before a SQLite write or provider
+call. Working-store writes require an operator-attested stop and a matching
+verified backup. Ordinary product Database connections remain unchanged.
+Evidence and unverified platforms are recorded in the ExecPlan; M4 and overall
+#625/#622 acceptance remain pending.

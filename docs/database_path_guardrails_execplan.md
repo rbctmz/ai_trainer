@@ -1,9 +1,9 @@
 # #625 — защита тестовых и служебных входов в SQLite
 
 Этот ExecPlan ведётся по [.agent/PLANS.md](../.agent/PLANS.md). Он описывает
-весь срез. M1 принят владельцем и merged #734 как b68fc69; цель M2 разрешена
-26 октября: Domain/API Implementer реализует helper/раннюю pytest isolation.
-Acceptance/maintenance M3 и личная БД/services остаются вне текущего scope.
+весь срез. M1 принят и merged #734 как b68fc69; M2 принят и merged #738
+как 1c2e4c4. Текущий scope — M3: подключение защиты к acceptance и
+служебным командам. Личная БД и работающие services вне scope.
 
 ## Purpose / Big Picture
 
@@ -23,8 +23,8 @@ Acceptance/maintenance M3 и личная БД/services остаются вне 
 - [x] (2026-10-26) M1 clean native 1/2 на 2c08b95, owner accepted/merged #734 b68fc69; reviewed/merged trees identical.
 - [x] (2026-10-27) M2 helper, bootstrap до Settings/collection, launcher/CI и необходимые fixtures реализованы; focused 238 passed.
 - [x] (2026-10-27) M2 self-review/RED→GREEN: focused 310 passed; full 4233 passed /16 skipped /116 deselected. Draft PR #738 опубликован; current-head remote CI проверяется отдельно.
-- [ ] M2: independent review и отдельное owner acceptance/merge.
-- [ ] M3: acceptance и служебные команды; RED → GREEN.
+- [x] (2026-10-28) M2: два review-раунда, исправления и owner merge #738.
+- [ ] M3: acceptance и служебные команды; реализация/RED → GREEN в работе, независимое review и merge ещё не выполнены.
 - [ ] M4: общая synthetic приёмка, совместимость, итоговое review/owner merge.
 
 ## Surprises & Discoveries
@@ -397,3 +397,40 @@ child scope, and validates cleanup. Combined focused: 94 passed; forced E2E
 setup failure: 1 passed. Synthetic TestClient capture returned 37 endpoints;
 non-200: planning/build-context 422 and planning/events 503, so this is safety
 and execution evidence, not a claim all endpoints succeeded or baseline parity.
+
+M3 standalone and legacy checkpoint: **Observed** a standalone diagnostic,
+run without pytest, accepted a synthetic external DATABASE_PATH and added
+37 schema tables to the sentinel store. **Inferred** pytest-only bootstrap
+could not protect direct script execution. **Verified by** a credential-free
+subprocess against an owned synthetic sentinel: before 38 tables total; after
+startup guard, 1 unchanged sentinel table and nonzero exit. Twenty-one legacy
+standalone test files with implicit Database() now bootstrap before product
+imports. No personal path was accessed. Legacy add/cleanup scripts now use a
+private synthetic store by default, guard explicit working writes, and preview
+without writes. Cleanup preserves similar non-test identifiers and HRV unless
+separately selected. Direct generator bodies also refuse an unvalidated path.
+Focused contour: 190 passed, one existing Starlette warning. The first local
+attempt's socket bind was sandbox-denied; a permitted isolated loopback rerun
+passed, including actual temporary Streamlit health. No user service was run.
+
+M3 integrated author checks on code tree 6a05198: focused 195 passed. An
+operator-flow test accepts a matching synthetic backup; direct generator body
+calls with an unvalidated path refuse before Database. Imports of the two
+repair modules do not load application Settings before their gate. An earlier
+complete contributor-safe snapshot produced 4281 passed / 16 skipped / 116
+deselected (its shell wrapper then exited nonzero because `status` is read-only
+in zsh; the pytest summary itself reported no failures). A final full repeat
+on 6a05198 is recorded separately below.
+
+Browser E2E on the matching synthetic code snapshot: 91 passed, 1 failed in
+`test_edit_different_horizon_has_dated_before_and_after[900-light]`: after the
+cycle-close success message, the expected no-current-cycle heading did not
+appear within 5 s. One isolated repeat of that exact test passed. The cause is
+not established and this is not a green full-E2E claim or evidence linking it
+to #739. No browser test used the user's service or database.
+
+Final contributor-safe run against identical code/test contents of 6a05198:
+4286 passed, 16 skipped, 116 deselected, 7 warnings, exit 0 in 311.79 s.
+Ruff, diff check and 55 local documentation links passed. Snapshot comparison
+found no mismatch in all 46 changed code/test files. Browser limitation above
+remains open; the remote current-head CI and independent review are separate.
