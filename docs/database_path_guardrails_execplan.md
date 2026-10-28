@@ -452,3 +452,15 @@ synthetic marker in the real store; the marker survived and both routes returned
 root; this is not live service or personal DB evidence. Reproducible acceptance
 and complete runtime audit, full suite, E2E and native Windows assessment remain
 pending.
+
+M4 reproducible product compatibility probe:
+`docs/reports/issue-625-m4/product_compatibility_probe.py`. It owns a private
+root, starts two credential-free ordinary product Python processes without the
+scratch runtime guard, records and bounds actual SQLite opens with a probe-only
+pre-import audit hook, blocks network/dotenv, seeds demo, restarts, clears demo,
+and verifies an independent synthetic real-store marker survives. Run from an
+isolated source snapshot: seed 18 opens PASS; restart/clear 8 opens PASS. The
+probe is acceptance instrumentation, not a new product guard. The pre-existing
+normal product `_connect` remains unchanged. `git check-ignore --no-index
+--stdin` separately matched the four SQLite family names without creating any
+files. Complete suite and browser checks are running; native Windows is NOT RUN.
