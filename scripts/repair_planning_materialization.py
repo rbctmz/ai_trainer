@@ -13,8 +13,14 @@ from typing import Any
 if __package__ in {None, ""}:  # pragma: no cover - direct script execution
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from api.planning_service import repair_active_plan_materialization  # noqa: E402
-from data.database import Database  # noqa: E402
+def repair_active_plan_materialization(*args, **kwargs):
+    from api.planning_service import repair_active_plan_materialization as repair
+    return repair(*args, **kwargs)
+
+
+def Database(path):
+    from data.database import Database as product_database
+    return product_database(path)
 
 
 class _ReadOnlyPlanningStore:
@@ -95,11 +101,14 @@ def repair_database(
     database_path: str | Path,
     *,
     apply: bool = False,
+    confirm_working_database: bool = False,
+    confirm_stopped: bool = False,
+    backup: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run the repair against an existing SQLite file; dry-run by default."""
-    path = Path(database_path).expanduser().resolve()
-    if not path.is_file():
-        raise FileNotFoundError(f"database does not exist: {path}")
+    from config.maintenance_guard import validate_maintenance_target
+    path = validate_maintenance_target(database_path, apply=apply, confirmed=confirm_working_database,
+                                       stopped=confirm_stopped, backup=backup)
     db = Database(str(path)) if apply else _ReadOnlyPlanningStore(path)
     legacy_preview = False
     if not apply:
@@ -134,18 +143,29 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--database",
-        default="ai_trainer.db",
-        help="existing SQLite database path (default: ai_trainer.db)",
+        required=True,
+        help="explicit existing SQLite database path",
     )
     parser.add_argument(
         "--apply",
         action="store_true",
         help="append the repair checkpoint; omitted means read-only dry-run",
     )
+    parser.add_argument("--confirm-working-database", action="store_true")
+    parser.add_argument("--confirm-stopped", action="store_true")
+    parser.add_argument("--backup", help="verified offline backup")
     args = parser.parse_args(argv)
+    from config.database_paths import ScratchPathError
+    try:
+        result = repair_database(args.database, apply=args.apply,
+                                 confirm_working_database=args.confirm_working_database,
+                                 confirm_stopped=args.confirm_stopped, backup=args.backup)
+    except (ScratchPathError, FileNotFoundError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     print(
         json.dumps(
-            repair_database(args.database, apply=args.apply),
+            result,
             ensure_ascii=False,
             indent=2,
             sort_keys=True,

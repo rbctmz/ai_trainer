@@ -2,14 +2,12 @@
 
 Connects with real Garmin credentials, then visits Planning, Activities,
 HRV, Sleep, and AI Coach in turn, capturing exceptions + characteristic
-content that proves real data flows through each surface. The target URL can
-be overridden via ACCEPTANCE_BASE_URL; otherwise the probe falls back to
-http://localhost:${ACCEPTANCE_PORT:-8521}/.
+content that proves real data flows through each surface. The operator must supply --base-url and --confirm-live-acceptance.
 """
 from __future__ import annotations
 
+import argparse
 import json
-import os
 import re
 import sys
 import time
@@ -34,15 +32,21 @@ AI_LOADING_MARKERS = (
 )
 
 
-def resolve_base_url() -> str:
-    explicit_url = os.getenv("ACCEPTANCE_BASE_URL", "").strip()
-    if explicit_url:
-        return explicit_url.rstrip("/") + "/"
-    port = os.getenv("ACCEPTANCE_PORT", "8521").strip() or "8521"
-    return f"http://localhost:{port}/"
+def resolve_base_url(explicit_url: str | None = None) -> str:
+    """Require the operator to name the live server explicitly."""
+    from urllib.parse import urlsplit
+
+    if not explicit_url:
+        raise RuntimeError("operator_confirmation_required: live acceptance")
+    parsed = urlsplit(explicit_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        raise RuntimeError("operator_confirmation_required: live acceptance")
+    return explicit_url.rstrip("/") + "/"
 
 
-def load_env_creds() -> tuple[str, str]:
+def load_env_creds(*, confirmed: bool = False) -> tuple[str, str]:
+    if not confirmed:
+        raise RuntimeError("operator_confirmation_required: live acceptance")
     env = Path(".env")
     if not env.exists():
         raise SystemExit("`.env` not found. Live acceptance requires GARMIN credentials.")
@@ -179,11 +183,21 @@ def goto_page(page, label: str) -> dict:
     return result
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--confirm-live-acceptance", action="store_true")
+    args = parser.parse_args(argv)
+    if not args.confirm_live_acceptance:
+        parser.error("--confirm-live-acceptance is required")
+    try:
+        url = resolve_base_url(args.base_url)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-    email, password = load_env_creds()
+    email, password = load_env_creds(confirmed=True)
     findings: dict = {"flows": {}}
-    url = resolve_base_url()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)

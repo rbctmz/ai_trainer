@@ -1,9 +1,9 @@
 # #625 — защита тестовых и служебных входов в SQLite
 
 Этот ExecPlan ведётся по [.agent/PLANS.md](../.agent/PLANS.md). Он описывает
-весь срез. M1 принят владельцем и merged #734 как b68fc69; цель M2 разрешена
-26 октября: Domain/API Implementer реализует helper/раннюю pytest isolation.
-Acceptance/maintenance M3 и личная БД/services остаются вне текущего scope.
+весь срез. M1 принят и merged #734 как b68fc69; M2 принят и merged #738
+как 1c2e4c4. Текущий scope — M3: подключение защиты к acceptance и
+служебным командам. Личная БД и работающие services вне scope.
 
 ## Purpose / Big Picture
 
@@ -23,8 +23,8 @@ Acceptance/maintenance M3 и личная БД/services остаются вне 
 - [x] (2026-10-26) M1 clean native 1/2 на 2c08b95, owner accepted/merged #734 b68fc69; reviewed/merged trees identical.
 - [x] (2026-10-27) M2 helper, bootstrap до Settings/collection, launcher/CI и необходимые fixtures реализованы; focused 238 passed.
 - [x] (2026-10-27) M2 self-review/RED→GREEN: focused 310 passed; full 4233 passed /16 skipped /116 deselected. Draft PR #738 опубликован; current-head remote CI проверяется отдельно.
-- [ ] M2: independent review и отдельное owner acceptance/merge.
-- [ ] M3: acceptance и служебные команды; RED → GREEN.
+- [x] (2026-10-28) M2: два review-раунда, исправления и owner merge #738.
+- [ ] M3: acceptance и служебные команды; реализация/RED → GREEN в работе, независимое review и merge ещё не выполнены.
 - [ ] M4: общая synthetic приёмка, совместимость, итоговое review/owner merge.
 
 ## Surprises & Discoveries
@@ -329,3 +329,108 @@ PR evidence bundle. Each native finding is answered in its own thread with
 fixed-in SHA and verification; a possible second native round is delta-only
 and requires its own request. The unresolved HTTP500 investigation remains
 #739 and is not asserted to be caused or fixed by these two changes.
+
+## M3 execution — 2026-10-28
+
+M2 #738 merged as 1c2e4c42f628af8965c2afa912c9027f6358dfe8 after
+owner acceptance of delta review 2/2. M3 branch starts from that exact main.
+M3 applies the accepted M1 contract to acceptance/E2E, diagnostic and
+maintenance callers and operator guidance. Product Database._connect remains
+unchanged. The parent issue stays open until M4 acceptance.
+
+The first slice characterizes acceptance startup before doctor/seed/server and
+provides a private owned root with revalidated child settings; subsequent
+slices cover service reset and ordinary demo-family checks, then diagnostic and
+maintenance write/preview paths, browser opt-in, and finally integrated
+regression plus runbook. Each slice records RED and GREEN without personal data.
+Only artificial temporary stores and credential-free subprocesses are allowed;
+no live server, provider, user database, .env or backups are read or changed.
+
+M3 acceptance checkpoint: **Observed** baseline run_acceptance.sh accepted an
+external synthetic ACCEPTANCE_DB_PATH and invoked a stub runtime, exit 0.
+**Inferred** an override could reach doctor/server before ownership validation.
+**Verified by** synthetic RED test test_acceptance_refuses_external_database;
+no actual server or user DB was used. The new launcher creates a private scope,
+rejects external DB/demo/chats overrides before runtime, clears credentials,
+passes a verified receipt to the child and rechecks the selected store before
+seed/reset. Ordinary product selection/Database._connect are unchanged.
+
+The accepted default synthetic launch reaches an actual Streamlit health check
+on a temporary loopback port and is stopped afterward; this is not a browser
+acceptance or live-user restart. An initial health attempt exited at Streamlit's
+first-run email prompt because HOME was intentionally fresh. Verified against
+installed Streamlit configuration, headless mode and disabled usage statistics
+remove that prompt; rerun GREEN. Acceptance, child recheck, reset and M2 guard
+contour: 75 passed. Full M3 entrypoint coverage, operator backup workflow,
+browser/live opt-in and M4 acceptance remain pending.
+
+M3 product demo-family checkpoint: **Observed** real/demo validation accepted
+future real database `-wal`, `-shm`, and `-journal` names as separate demo
+names. **Inferred** a future sidecar could collide with a demo target.
+**Verified by** three synthetic RED cases with no files; all became GREEN after
+family validation. Existing product demo/path/acceptance contour: 84 passed,
+1 existing Starlette warning. The ordinary product does not receive a scratch
+root requirement; only overlapping database families are refused.
+
+M3 maintenance checkpoint: **Observed** direct provider-link apply invoked
+preview/write helpers without confirmation, and distance backfill reached its
+client before validating a target. **Inferred** explicit operator boundaries
+were bypassable through direct Python calls. **Verified by** two synthetic RED
+cases with stubs (no database/provider call), then GREEN. Four maintenance
+entrypoints now require explicit CLI target, preview read-only, and validate
+before apply/provider calls. Owned scratch targets use scope identity; working
+writes require --apply, --confirm-working-database, --confirm-stopped and an
+existing backup. The helper compares integrity/schema/content fingerprints of
+the stopped target and backup; stopped state remains operator-attested.
+A synthetic WAL-aware backup matched; an altered source refused the stale
+backup. Focused maintenance/acceptance/planning contour: 40 passed, one existing
+Starlette warning. Remaining M3: legacy add/clean diagnostics, acceptance/E2E
+and live entrypoint guards, operator docs and full integration/CI.
+
+M3 E2E and parity checkpoint: two legacy live browser probes read synthetic
+credentials without opt-in in RED. They now require an explicit named URL and
+--confirm-live-acceptance before credentials, browser, output or network; no
+live probe was executed. E2E creates a child owned session scope, verifies
+DB/demo/chats in parent and in child site startup, and cleanup rechecks the
+session identity. Parity capture bootstraps before Settings, uses an owned
+child scope, and validates cleanup. Combined focused: 94 passed; forced E2E
+setup failure: 1 passed. Synthetic TestClient capture returned 37 endpoints;
+non-200: planning/build-context 422 and planning/events 503, so this is safety
+and execution evidence, not a claim all endpoints succeeded or baseline parity.
+
+M3 standalone and legacy checkpoint: **Observed** a standalone diagnostic,
+run without pytest, accepted a synthetic external DATABASE_PATH and added
+37 schema tables to the sentinel store. **Inferred** pytest-only bootstrap
+could not protect direct script execution. **Verified by** a credential-free
+subprocess against an owned synthetic sentinel: before 38 tables total; after
+startup guard, 1 unchanged sentinel table and nonzero exit. Twenty-one legacy
+standalone test files with implicit Database() now bootstrap before product
+imports. No personal path was accessed. Legacy add/cleanup scripts now use a
+private synthetic store by default, guard explicit working writes, and preview
+without writes. Cleanup preserves similar non-test identifiers and HRV unless
+separately selected. Direct generator bodies also refuse an unvalidated path.
+Focused contour: 190 passed, one existing Starlette warning. The first local
+attempt's socket bind was sandbox-denied; a permitted isolated loopback rerun
+passed, including actual temporary Streamlit health. No user service was run.
+
+M3 integrated author checks on code tree 6a05198: focused 195 passed. An
+operator-flow test accepts a matching synthetic backup; direct generator body
+calls with an unvalidated path refuse before Database. Imports of the two
+repair modules do not load application Settings before their gate. An earlier
+complete contributor-safe snapshot produced 4281 passed / 16 skipped / 116
+deselected (its shell wrapper then exited nonzero because `status` is read-only
+in zsh; the pytest summary itself reported no failures). A final full repeat
+on 6a05198 is recorded separately below.
+
+Browser E2E on the matching synthetic code snapshot: 91 passed, 1 failed in
+`test_edit_different_horizon_has_dated_before_and_after[900-light]`: after the
+cycle-close success message, the expected no-current-cycle heading did not
+appear within 5 s. One isolated repeat of that exact test passed. The cause is
+not established and this is not a green full-E2E claim or evidence linking it
+to #739. No browser test used the user's service or database.
+
+Final contributor-safe run against identical code/test contents of 6a05198:
+4286 passed, 16 skipped, 116 deselected, 7 warnings, exit 0 in 311.79 s.
+Ruff, diff check and 55 local documentation links passed. Snapshot comparison
+found no mismatch in all 46 changed code/test files. Browser limitation above
+remains open; the remote current-head CI and independent review are separate.

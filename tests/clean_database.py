@@ -1,178 +1,82 @@
 #!/usr/bin/env python3
-"""
-Скрипт для очистки базы данных от тестовых данных
-"""
+"""Preview or explicitly clean synthetic test rows from a selected SQLite DB."""
+from __future__ import annotations
 
-import sys
+import argparse
+from pathlib import Path
 import sqlite3
+import sys
 
-sys.path.append('.')
-from config.settings import Settings
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-def analyze_database():
-    """Анализирует содержимое базы данных перед очисткой"""
-    conn = sqlite3.connect(Settings.DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    print("🔍 Анализ базы данных перед очисткой:")
-    print("=" * 50)
-    
-    # Активности
-    cursor.execute('SELECT COUNT(*) FROM activities')
-    total_activities = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM activities WHERE activity_id LIKE "test_%"')
-    test_activities = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM activities WHERE activity_id LIKE "date_test_%"')
-    date_test_activities = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM activities WHERE activity_id LIKE "test_df_%"')
-    df_test_activities = cursor.fetchone()[0]
-    
-    # Реальные данные (не начинаются с "test")
-    cursor.execute('SELECT COUNT(*) FROM activities WHERE activity_id NOT LIKE "test%"')
-    real_activities = cursor.fetchone()[0]
-    
-    print(f"📊 Всего активностей: {total_activities}")
-    print(f"🧪 Тестовых активностей: {test_activities}")
-    print(f"📅 Тестов дат: {date_test_activities}")
-    print(f"📋 DataFrame тестов: {df_test_activities}")
-    print(f"✅ Реальных активностей: {real_activities}")
-    
-    # HRV данные
-    cursor.execute('SELECT COUNT(*) FROM hrv_data')
-    total_hrv = cursor.fetchone()[0]
-    print(f"💓 HRV записей: {total_hrv}")
-    
-    # Показываем реальные активности (если есть)
-    if real_activities > 0:
-        print("\n✅ Реальные активности (будут сохранены):")
-        cursor.execute('''
-            SELECT activity_id, date, sport, duration_minutes 
-            FROM activities 
-            WHERE activity_id NOT LIKE "test%" 
-            ORDER BY date DESC LIMIT 5
-        ''')
-        for row in cursor.fetchall():
-            print(f"  {row[0]}: {row[1]} - {row[2]} ({row[3]} мин)")
-    
-    conn.close()
-    return {
-        'total_activities': total_activities,
-        'test_activities': test_activities + date_test_activities + df_test_activities,
-        'real_activities': real_activities,
-        'total_hrv': total_hrv
-    }
+from config.database_paths import ScratchPathError  # noqa: E402
+from config.maintenance_guard import validate_maintenance_target  # noqa: E402
+from scripts.maintenance_runtime import writable_target  # noqa: E402
 
-def clean_database(confirm=True):
-    """Очищает тестовые данные из базы данных"""
-    
-    if confirm:
-        response = input("\n⚠️  Вы уверены, что хотите очистить тестовые данные? (yes/no): ")
-        if response.lower() not in ['yes', 'y', 'да']:
-            print("🚫 Очистка отменена")
-            return False
-    
-    conn = sqlite3.connect(Settings.DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    print("\n🧹 Начинаем очистку...")
-    
-    # Удаляем тестовые активности
-    test_patterns = ['test_%', 'date_test_%', 'test_df_%']
-    total_deleted = 0
-    
-    for pattern in test_patterns:
-        cursor.execute('SELECT COUNT(*) FROM activities WHERE activity_id LIKE ?', (pattern,))
-        count = cursor.fetchone()[0]
-        
-        if count > 0:
-            cursor.execute('DELETE FROM activities WHERE activity_id LIKE ?', (pattern,))
-            print(f"🗑️  Удалено {count} активностей с паттерном '{pattern}'")
-            total_deleted += count
-    
-    # Удаляем все HRV данные (так как они тестовые)
-    cursor.execute('SELECT COUNT(*) FROM hrv_data')
-    hrv_count = cursor.fetchone()[0]
-    
-    if hrv_count > 0:
-        cursor.execute('DELETE FROM hrv_data')
-        print(f"🗑️  Удалено {hrv_count} HRV записей")
-    
-    # Очищаем пользовательские настройки (если нужно)
-    cursor.execute('SELECT COUNT(*) FROM user_settings')
-    settings_count = cursor.fetchone()[0]
-    
-    if settings_count > 0:
-        response = input(f"❓ Удалить {settings_count} пользовательских настроек? (yes/no): ")
-        if response.lower() in ['yes', 'y', 'да']:
-            cursor.execute('DELETE FROM user_settings')
-            print(f"🗑️  Удалено {settings_count} пользовательских настроек")
-    
-    conn.commit()
-    conn.close()
-    
-    print("\n✅ Очистка завершена!")
-    print(f"🗑️  Всего удалено: {total_deleted} активностей, {hrv_count} HRV записей")
-    
+
+def analyze_database(database_path: str | Path | None = None) -> dict[str, int]:
+    """Return aggregate preview only; never create a missing database."""
+    path = validate_maintenance_target(database_path, apply=False)
+    with sqlite3.connect(f'{path.as_uri()}?mode=ro', uri=True) as conn:
+        total = conn.execute('SELECT COUNT(*) FROM activities').fetchone()[0]
+        tests = conn.execute("SELECT COUNT(*) FROM activities WHERE activity_id GLOB 'test_*' OR activity_id GLOB 'date_test_*' OR activity_id GLOB 'test_df_*'").fetchone()[0]
+        hrv = conn.execute('SELECT COUNT(*) FROM hrv_data').fetchone()[0]
+    return {'total_activities': total, 'test_activities': tests, 'total_hrv': hrv}
+
+
+def clean_database(confirm: bool = True, database_path: str | Path | None = None, *,
+                   apply: bool = False, confirm_working_database: bool = False,
+                   confirm_stopped: bool = False, backup: str | Path | None = None,
+                   delete_all_hrv: bool = False) -> bool:
+    """Refuse implicit target; deleting all HRV requires a separate option."""
+    if not apply:
+        raise ScratchPathError('operator_confirmation_required', purpose='bootstrap')
+    path = validate_maintenance_target(database_path, apply=True, confirmed=confirm_working_database,
+                                       stopped=confirm_stopped, backup=backup)
+    if confirm and input('Подтвердить очистку? (yes/no): ').lower() not in {'yes', 'y', 'да'}:
+        return False
+    with sqlite3.connect(str(path)) as conn:
+        for pattern in ('test_*', 'date_test_*', 'test_df_*'):
+            conn.execute('DELETE FROM activities WHERE activity_id GLOB ?', (pattern,))
+        if delete_all_hrv:
+            conn.execute('DELETE FROM hrv_data')
+        conn.commit()
     return True
 
-def verify_cleanup():
-    """Проверяет результаты очистки"""
-    conn = sqlite3.connect(Settings.DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    print("\n🔍 Проверка после очистки:")
-    print("=" * 30)
-    
-    cursor.execute('SELECT COUNT(*) FROM activities')
-    activities_count = cursor.fetchone()[0]
-    print(f"📊 Активностей осталось: {activities_count}")
-    
-    cursor.execute('SELECT COUNT(*) FROM activities WHERE activity_id LIKE "test%"')
-    test_remaining = cursor.fetchone()[0]
-    print(f"🧪 Тестовых активностей: {test_remaining}")
-    
-    cursor.execute('SELECT COUNT(*) FROM hrv_data')
-    hrv_count = cursor.fetchone()[0]
-    print(f"💓 HRV записей: {hrv_count}")
-    
-    if activities_count > 0:
-        print("\n📋 Оставшиеся активности:")
-        cursor.execute('SELECT activity_id, date, sport FROM activities ORDER BY date DESC LIMIT 3')
-        for row in cursor.fetchall():
-            print(f"  {row[0]}: {row[1]} - {row[2]}")
-    else:
-        print("📝 База данных полностью очищена и готова для новых данных!")
-    
-    conn.close()
 
-def main():
-    """Главная функция"""
-    print("🧹 Очистка базы данных AI Trainer")
-    print("=" * 50)
-    
-    # Анализируем текущее состояние
-    stats = analyze_database()
-    
-    if stats['test_activities'] == 0 and stats['total_hrv'] == 0:
-        print("\n✨ База данных уже чистая!")
-        return
-    
-    print("\n📋 План очистки:")
-    print(f"  🗑️  Удалить {stats['test_activities']} тестовых активностей")
-    print(f"  🗑️  Удалить {stats['total_hrv']} HRV записей")
-    print(f"  ✅ Оставить {stats['real_activities']} реальных активностей")
-    
-    # Выполняем очистку
-    if clean_database():
-        verify_cleanup()
-        print("\n🎉 База данных готова для загрузки реальных данных из Garmin!")
-        print("\n📱 Теперь можете:")
-        print("  1. Запустить: streamlit run app.py")
-        print("  2. Подключиться к Garmin Connect")
-        print("  3. Синхронизировать реальные данные")
+def verify_cleanup(database_path: str | Path | None = None) -> dict[str, int]:
+    return analyze_database(database_path)
 
-if __name__ == "__main__":
-    main()
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--database')
+    parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--confirm-working-database', action='store_true')
+    parser.add_argument('--confirm-stopped', action='store_true')
+    parser.add_argument('--confirm-delete-all-hrv', action='store_true')
+    parser.add_argument('--backup')
+    args = parser.parse_args(argv)
+    try:
+        if args.database is None:
+            if args.apply:
+                raise ScratchPathError('operator_confirmation_required', purpose='bootstrap')
+            with writable_target() as target:
+                from data.database import Database
+                Database(str(target))
+                print(analyze_database(target))
+            return 0
+        if args.apply:
+            clean_database(confirm=False, database_path=args.database, apply=True,
+                           confirm_working_database=args.confirm_working_database,
+                           confirm_stopped=args.confirm_stopped, backup=args.backup,
+                           delete_all_hrv=args.confirm_delete_all_hrv)
+        print(analyze_database(args.database))
+        return 0
+    except (ScratchPathError, FileNotFoundError, sqlite3.Error) as exc:
+        print(str(exc) if isinstance(exc, ScratchPathError) else 'scratch_identity_unknown: bootstrap', file=sys.stderr)
+        return 2
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

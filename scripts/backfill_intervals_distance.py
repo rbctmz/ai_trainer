@@ -25,8 +25,11 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from data.activity_store import ACTIVITY_COLUMN_ORDER  # noqa: E402
-from config.settings import Settings  # noqa: E402
-from services.intervals_icu import IntervalsICUError, get_client  # noqa: E402
+
+
+def get_client():
+    from services.intervals_icu import get_client as factory
+    return factory()
 
 
 def _meters_to_km(value: Any) -> float | None:
@@ -41,8 +44,20 @@ def _meters_to_km(value: Any) -> float | None:
     return round(metres / 1000.0, 2)
 
 
-def main(*, client=None, database_path: str | None = None) -> int:
-    """Run the backfill; injectable boundaries keep the real path hermetic in tests."""
+def main(*, client=None, database_path: str | None = None,
+         confirm_working_database: bool = False, confirm_stopped: bool = False,
+         backup: str | None = None) -> int:
+    """Run only after the chosen target has been authorised."""
+    from config.database_paths import ScratchPathError
+    from config.maintenance_guard import validate_maintenance_target
+    try:
+        target = validate_maintenance_target(database_path, apply=True, confirmed=confirm_working_database,
+                                             stopped=confirm_stopped, backup=backup)
+    except (ScratchPathError, FileNotFoundError):
+        print("operator_confirmation_required: bootstrap", file=sys.stderr)
+        return 2
+    from config.settings import Settings
+    from services.intervals_icu import IntervalsICUError
     client = client or get_client()
     if not client.is_configured():
         print(
@@ -51,7 +66,7 @@ def main(*, client=None, database_path: str | None = None) -> int:
         )
         return 2
 
-    conn = sqlite3.connect(database_path or Settings.runtime_database_path())
+    conn = sqlite3.connect(str(target))
     try:
         cursor = conn.cursor()
         primary_source = str(
@@ -170,5 +185,31 @@ def main(*, client=None, database_path: str | None = None) -> int:
         conn.close()
 
 
+def cli(argv: list[str] | None = None) -> int:
+    import argparse
+    from config.database_paths import ScratchPathError
+    from config.maintenance_guard import validate_maintenance_target
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--database", required=True)
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--confirm-working-database", action="store_true")
+    parser.add_argument("--confirm-stopped", action="store_true")
+    parser.add_argument("--backup")
+    args = parser.parse_args(argv)
+    if args.apply:
+        return main(database_path=args.database, confirm_working_database=args.confirm_working_database,
+                    confirm_stopped=args.confirm_stopped, backup=args.backup)
+    try:
+        target = validate_maintenance_target(args.database, apply=False)
+        with sqlite3.connect(f"{target.as_uri()}?mode=ro", uri=True) as conn:
+            count = conn.execute("SELECT COUNT(*) FROM activity_provider_links WHERE provider='intervals'").fetchone()[0]
+        print(f"Read-only preview: {count} Intervals links; no provider request")
+        return 0
+    except (ScratchPathError, FileNotFoundError, sqlite3.Error):
+        print("scratch_identity_unknown: bootstrap", file=sys.stderr)
+        return 2
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(cli())
