@@ -54,7 +54,10 @@ backup на другом файле не обещается. До окончан
 ## Что считать изменением
 
 Готовый temporary snapshot проверяется и получает детерминированный логический
-отпечаток: схема, SQLite schema version и типизированное содержимое всех таблиц.
+отпечаток: SQL-digest схемы (`schema_sha256`), `user_version`, `application_id`,
+encoding и типизированные row digests/counts всех таблиц, ровно как в результате
+`inspect_relocation_database`. `PRAGMA schema_version` (schema cookie) в digest
+не входит: VACUUM меняет этот внутренний счётчик без изменения логических данных.
 Переиспользовать `inspect_relocation_database` с теми же отказами для неизвестных
 schema objects; digest считается из канонического JSON его результата. Это
 `source_generation`, а не wall clock, `mtime`, число строк или hash main-файла.
@@ -100,12 +103,17 @@ connections → integrity_check + logical fingerprint + SHA-256 snapshot →
 fsync → atomic no-clobber публикация каталога snapshot с manifest → fsync parent.
 Snapshot DB и manifest публикуются одним rename собственного temp-каталога,
 так что пара не разделяется. Manifest version 1: snapshot_id, source_namespace,
-source_generation, created_at_utc, SQLite user/schema version, size, sha256,
+source_generation, created_at_utc, user_version, schema_sha256, size, sha256,
 integrity result, table row counts/digests. Никаких персональных строк/payload.
+Schema cookie допускается лишь как необязательная диагностическая metadata,
+никогда как часть generation или критерий изменения.
 Неизвестные manifest versions/invalid digests не являются restore candidates.
 До публикации любой отказ сохраняет source и предыдущую копию. После публикации
 сбой записи state не удаляет валидный snapshot: restart восстанавливает состояние
-по проверенным manifests. Частичный каталог не становится кандидатом.
+по проверенным manifests. Если status с reset pins потерян/повреждён, health
+можно восстановить из manifests, но pruning запрещён до явного operator
+разрешения: нельзя угадывать утраченные сроки защиты. Частичный каталог не
+становится кандидатом.
 
 Общий deadline одной попытки — 10 секунд, включая lock/copy/check/hash; проверки
 должны уметь прерываться между порциями работы. Busy/retry не бесконечны.
@@ -123,7 +131,9 @@ backup_io_error, backup_integrity_failed, backup_identity_unknown,
 backup_state_unwritable. Не возвращать raw exception/путь/SQL в ответ.
 
 Один атомарно заменяемый `status.json` вне source DB хранит последнюю проверку
-и ошибку; это не очередь. При сбое записи status нельзя показывать stale ready:
+и ошибку, а также короткий map `reset_pins` (snapshot_id → protect_until_utc);
+это не очередь. Reset pin — только запрет retention удалять выбранную копию
+до указанного времени. Карта меняется под тем же namespace lock. При сбое записи status нельзя показывать stale ready:
 текущий ответ degraded, startup перепроверяет каталог. Ошибки event backup не
 меняют `saved=true`, но возвращают backup status/warning. Для sync его данные
 остаются сохранёнными, итог становится partial со стабильным warning
@@ -147,7 +157,9 @@ Web — основной интерфейс; Streamlit через общий с�
 
 После новой валидной публикации оставлять последний снимок каждого из последних
 14 непустых UTC-дней и последних 8 непустых ISO-недель; объединение наборов,
-плюс последний валидный snapshot безусловно. Промежуточные версии в одном
+плюс последний валидный snapshot безусловно и все неистёкшие reset pins.
+Истечение pin снимает только дополнительную защиту; daily/weekly/latest
+правила продолжают действовать. Истёкшие записи карты удаляются под lock. Промежуточные версии в одном
 дне/неделе могут удаляться лишь после проверки нового кандидата. Если изменений
 в день не было, новую физическую копию ради календарной даты не создавать:
 последняя валидная копия остаётся защищённой. Удалять только каталоги текущего
@@ -156,9 +168,19 @@ namespace с распознанным manifest; manual backups/rollback и чу�
 corrupt artifacts не кандидаты и не замена последней копии, автоматически не
 удаляются. Ошибка удаления даёт warning, следующий запуск повторяем.
 
-Полный product reset очищает source данные, но backup history намеренно сохраняет
-до-reset копии и публикует новое поколение после успешной очистки. Его warning
-при сбое видим. Изолированные demo/test reset удаляют только свои artifacts.
+Перед полным product reset общий сервис сначала проверяет актуальную копию
+текущих данных и атомарно сохраняет её pin в status.json на 14 × 24 часа с
+момента подготовки reset. Snapshot с тем же generation переиспользуется, новая
+копия ради pin не создаётся. Только после успешного snapshot/check и durable pin
+разрешена очистка source; при отказе до очистки reset не выполняется, пользователь
+видит причину. Это precondition разрушительной операции, не откат commit.
+После очистки публикуется новое поколение; ошибка post-reset backup не отменяет
+уже выполненный reset и показывается как warning. Если reset не состоялся или
+процесс упал после pin, дополнительная защита просто истечёт через 14 суток.
+Несколько reset защищают свои копии независимо; повторный pin одной копии
+продлевает срок до максимума. До истечения pin копия не удаляется, даже если
+пустой post-reset snapshot стал последним в том же дне/неделе.
+Изолированные demo/test reset удаляют только свои artifacts.
 Удаление всей истории — только отдельная явная operator процедура с preview,
 не кнопка очистки кэша. Restore остаётся stopped-service CLI из runbook; оператор
 выбирает валидный снимок, проверяет hash/integrity, извлекает DB в private temp,
@@ -177,7 +199,7 @@ corrupt artifacts не кандидаты и не замена последне�
 | Copy/verify/hash/manifest/publish/state failure | ENOSPC, permission, corruption, subprocess kill на каждой границе; source и предыдущая валидная копия целы |
 | New UTC day/offline/retry | fake clock: unchanged no publish, changed snapshot, restart после пропущенных дней, failed попытки ≤1/60s |
 | Concurrent runtimes | два процесса одного namespace: сериализация, deadline и OS release после kill, никаких duplicate/pruning races |
-| Retention и reset | fake dates 14d/8w, pinned latest, unchanged days, corrupt/unknown/foreign entries preserved; reset не теряет pre-reset backup |
+| Retention и reset | fake dates 14d/8w, pinned latest, unchanged days, corrupt/unknown/foreign entries preserved; pre/post в один день сохраняют pinned pre-reset 14 суток; после expiry применим обычный union; failed pre-check/pin блокирует reset |
 | Restore | существующий #624 lifecycle drill с checkpoint/coach/match/feedback/readiness из auto snapshot |
 | Безопасность/совместимость | #625 suite, foreign path до open, no secrets/rows/paths, обычный product DB и manual CLI работают |
 

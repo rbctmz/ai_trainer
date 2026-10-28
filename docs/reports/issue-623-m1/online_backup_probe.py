@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic SQLite characterization; not the automatic backup implementation."""
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import sqlite3
@@ -59,10 +60,22 @@ def main():
             assert conn.execute('SELECT COUNT(*) FROM pairs').fetchone()[0]==1000
         first = inspect_relocation_database(output)
         with sqlite3.connect(output) as conn:
+            cookie_before = conn.execute('PRAGMA schema_version').fetchone()[0]
             conn.execute('VACUUM')
+            cookie_after = conn.execute('PRAGMA schema_version').fetchone()[0]
+        assert cookie_after != cookie_before
+        assert 'schema_version' not in first
         assert first == inspect_relocation_database(output)
         generation=hashlib.sha256(json.dumps(first,sort_keys=True).encode()).hexdigest()
-        print(json.dumps({'online_consistency':'PASS','overlapping_writer':True,
+        # Characterize the proposed retention rule, not a shipped implementation.
+        reset_at = datetime(2026, 10, 28, 10, tzinfo=timezone.utc)
+        ordinary_keep = {'post-reset'}  # Latest of the same UTC day and ISO week.
+        pins = {'pre-reset': reset_at + timedelta(days=14)}
+        def retained(at):
+            return ordinary_keep | {key for key, until in pins.items() if until > at}
+        assert retained(reset_at + timedelta(hours=1)) == {'pre-reset', 'post-reset'}
+        assert retained(reset_at + timedelta(days=14)) == {'post-reset'}
+        print(json.dumps({'reset_pin_and_expiry_model': 'PASS', 'schema_cookie_excluded': 'PASS', 'online_consistency':'PASS','overlapping_writer':True,
                           'unchanged_logical_generation':'PASS','generation_length':len(generation)}))
 
 

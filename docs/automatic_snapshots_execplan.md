@@ -52,7 +52,7 @@ Decision 2026-10-28: generation — digest готового snapshot через 
 Повтор может сделать временную копию, но не публикует новую без изменений.
 
 Decision 2026-10-28: rollout opt-in, два configuration поля, один общий сервис,
-один небольшой status-файл и OS-lock. Причина: включение на личных данных
+один небольшой status-файл с reset pins и OS-lock. Причина: включение на личных данных
 требует решения владельца, а параллельные runtimes не должны удалять копии
 друг друга. Распределённый scheduler и event bus не нужны.
 
@@ -95,7 +95,10 @@ pattern по утверждённому API. Интерфейс объясняе
 отдельно, без raw path. Нет автоматического включения на личной БД.
 
 В M4 реализовать retention по union daily/weekly + pinned latest под тем же
-lock, не удалять manual/unknown/corrupt artifacts. Прогнать существующий restore
+lock, включая 14-суточную защиту pre-reset snapshot через reset_pins в status.
+Перед destructive reset проверить snapshot и durable pin; отказ блокирует
+очистку. После потери status не делать pruning, пока operator не разрешит.
+Не удалять manual/unknown/corrupt artifacts. Прогнать существующий restore
 lifecycle drill на автоматически созданной копии, включая локальные evidence
 и reset. Включение feature для пользователя допускается только после M4.
 
@@ -147,3 +150,20 @@ BackupStatus и API envelope (M3); исходная DB schema не меняет�
 брокеры, CDC и новые runtime dependencies не требуются. Если M2 не подтверждает
 online consistency/deadline на доступном механизме, вернуть evidence и пересмотреть
 spec; не обходить stopped confirmation и не подменять критерии зелёными mocks.
+
+
+## M1 review round 1 — 2026-10-28
+
+Два P2 на 0d68b54 подтверждены. Observed: union daily/weekly для pre-reset
+10:00 и post-reset 11:00 оставил только post; schema cookie на synthetic SQLite
+после VACUUM изменился 1 → 2 при одинаковых rows. Inferred: исходный текст мог
+удалить защищаемую копию и ошибочно включить cookie в generation. Verified by:
+короткий stdlib synthetic расчёт/SQLite probe, оба противоречия воспроизведены.
+
+Исправление: generation точно равен digest результата существующего инспектора,
+без schema cookie; reset pins в существующем status.json защищают актуальную
+pre-reset копию 14 суток независимо от union. Snapshot/check и durable pin —
+precondition до очистки, failure не делает reset. Повреждённый status блокирует
+pruning, health может восстанавливаться отдельно. Новый сервис или очередь для
+этого не добавляются. Матрица приёмки расширена на same-day reset и expiry.
+Второй review допускается только по этой delta; runtime acceptance NOT RUN.

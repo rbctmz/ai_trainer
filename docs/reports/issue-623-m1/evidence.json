@@ -1,1 +1,1 @@
-{"online_consistency": "PASS", "overlapping_writer": true, "unchanged_logical_generation": "PASS", "generation_length": 64}
+{"reset_pin_and_expiry_model": "PASS", "schema_cookie_excluded": "PASS", "online_consistency": "PASS", "overlapping_writer": true, "unchanged_logical_generation": "PASS", "generation_length": 64}
