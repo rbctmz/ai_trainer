@@ -434,3 +434,21 @@ Final contributor-safe run against identical code/test contents of 6a05198:
 Ruff, diff check and 55 local documentation links passed. Snapshot comparison
 found no mismatch in all 46 changed code/test files. Browser limitation above
 remains open; the remote current-head CI and independent review are separate.
+
+## M4 acceptance started — 2026-10-28
+
+M3 owner accepted and merged #740 as 1fd39a82a61f9358971e93c7ec36cffe08ed1721;
+reviewed and merged trees match. M4 branch starts from that main. The issue
+#625 remains open pending the complete synthetic acceptance and independent
+review. #741 tracks an existing UI refresh problem separately.
+
+First combined specified contour on the isolated source at 1fd39a8: 291
+passed, 1 Starlette warning in 19.22s; test audit reported 839 allowed SQLite
+connections, 0 blocked in the parent process. This does not by itself certify
+all subprocess connections. An exploratory ordinary product run without the
+scratch guard used two artificial stores, TestClient demo seed/clear, and a
+synthetic marker in the real store; the marker survived and both routes returned
+200. The outer test process still blocked network/SQLite outside its private
+root; this is not live service or personal DB evidence. Reproducible acceptance
+and complete runtime audit, full suite, E2E and native Windows assessment remain
+pending.
