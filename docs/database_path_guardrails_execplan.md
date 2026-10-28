@@ -24,8 +24,8 @@
 - [x] (2026-10-27) M2 helper, bootstrap до Settings/collection, launcher/CI и необходимые fixtures реализованы; focused 238 passed.
 - [x] (2026-10-27) M2 self-review/RED→GREEN: focused 310 passed; full 4233 passed /16 skipped /116 deselected. Draft PR #738 опубликован; current-head remote CI проверяется отдельно.
 - [x] (2026-10-28) M2: два review-раунда, исправления и owner merge #738.
-- [ ] M3: acceptance и служебные команды; реализация/RED → GREEN в работе, независимое review и merge ещё не выполнены.
-- [ ] M4: общая synthetic приёмка, совместимость, итоговое review/owner merge.
+- [x] (2026-10-28) M3: owner accepted review и merged #740 как 1fd39a8.
+- [ ] M4: локальная synthetic приёмка/совместимость завершены; draft PR, CI, независимое review и owner merge впереди.
 
 ## Surprises & Discoveries
 
@@ -434,3 +434,47 @@ Final contributor-safe run against identical code/test contents of 6a05198:
 Ruff, diff check and 55 local documentation links passed. Snapshot comparison
 found no mismatch in all 46 changed code/test files. Browser limitation above
 remains open; the remote current-head CI and independent review are separate.
+
+## M4 acceptance started — 2026-10-28
+
+M3 owner accepted and merged #740 as 1fd39a82a61f9358971e93c7ec36cffe08ed1721;
+reviewed and merged trees match. M4 branch starts from that main. The issue
+#625 remains open pending the complete synthetic acceptance and independent
+review. #741 tracks an existing UI refresh problem separately.
+
+First combined specified contour on the isolated source at 1fd39a8: 291
+passed, 1 Starlette warning in 19.22s; test audit reported 839 allowed SQLite
+connections, 0 blocked in the parent process. This does not by itself certify
+all subprocess connections. An exploratory ordinary product run without the
+scratch guard used two artificial stores, TestClient demo seed/clear, and a
+synthetic marker in the real store; the marker survived and both routes returned
+200. The outer test process still blocked network/SQLite outside its private
+root; this is not live service or personal DB evidence. Reproducible acceptance
+and complete runtime audit, full suite, E2E and native Windows assessment remain
+pending.
+
+M4 reproducible product compatibility probe:
+`docs/reports/issue-625-m4/product_compatibility_probe.py`. It owns a private
+root, starts two credential-free ordinary product Python processes without the
+scratch runtime guard, records and bounds actual SQLite opens with a probe-only
+pre-import audit hook, blocks network/dotenv, seeds demo, restarts, clears demo,
+and verifies an independent synthetic real-store marker survives. Run from an
+isolated source snapshot: seed 18 opens PASS; restart/clear 8 opens PASS. The
+probe is acceptance instrumentation, not a new product guard. The pre-existing
+normal product `_connect` remains unchanged. `git check-ignore --no-index
+--stdin` separately matched the four SQLite family names without creating any
+files. Complete suite and browser checks are running; native Windows is NOT RUN.
+
+M4 author acceptance on synthetic source snapshot: combined 291 passed; full
+contributor-safe 4286 passed / 16 skipped / 116 deselected, 7 warnings,
+315.09s; browser E2E 92 passed, one warning, 237.97s. Probe-only ordinary
+product lifecycle/restart and git-ignore stdin evidence above remain separate.
+Runtime audit reported 28116 SQLite opens and zero denials in the main full
+pytest process; E2E parent reported 261/0. These counts are process-local, not
+an aggregate claim for every child. Targeted child escape tests and early child
+bootstrap are the child evidence. 819 tracked source/config files in the test
+snapshot match this branch byte-for-byte; changes since the tested main are the
+acceptance probe and documentation. Ruff and diff check pass. Native macOS was
+used; Linux is remote CI pending and native Windows/ACL NOT RUN. Previous #741
+E2E symptom is not declared diagnosed or fixed by this green run. Evidence map:
+[acceptance matrix](reports/issue-625-m4/acceptance_matrix.md).

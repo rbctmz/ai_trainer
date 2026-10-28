@@ -105,6 +105,7 @@ Conventional Commits (`feat:`, `fix:`, `refactor:`, `chore:`), subjects <72 char
 - Secrets only in `.env` (never tracked); keys come from env — empty provider fields in the UI mean "fall back to `.env`", keep that behavior.
 - Back up/migrate `ai_trainer.db` with `scripts/sqlite_backup_restore.py` (`backup ... --confirm-stopped` / `restore ...`) — a plain copy misses committed pages in the `-wal` file.
 - `logs/` may contain personal training metrics — redact before publishing branches.
+- Scratch tests, acceptance, and maintenance must follow the owned-path and explicit operator flow in `docs/database_path_guardrails_slice_spec.md` and `docs/sqlite_backup_restore.md`; test-only guards do not replace ordinary product database paths.
 
 ## Web Dev Surfaces
 `/decisions`, `/recovery`, and the shadow `/today` module are hidden behind build-time flag `NEXT_PUBLIC_SHOW_DEV_TOOLS=true` (inlined at build — restarting the dev server after the change is required).

@@ -801,3 +801,17 @@ acceptance. Exact-head CI and accepted review gate were green before merge.
 The separate intermittent E2E HTTP 500 is tracked in #739; its cause was not
 established. M2 establishes pytest boundaries, not M3/M4 acceptance; #625 and
 #622 remain open. No personal database or service was modified.
+
+## #625 M3 entrypoints — #740, merged 2026-10-28
+
+[PR #740](https://github.com/rbctmz/ai_trainer/pull/740) was merged as
+1fd39a82a61f9358971e93c7ec36cffe08ed1721 after one clean native review on
+069bd8707b7674a586e9b61d643cd172da366a58, owner acceptance and green current
+checks; no unresolved review threads, reviewed and merged trees identical.
+Initial Linux E2E was 91/92 with stale cycle UI; one same-head CI retry passed
+92/92. The cause of the original failure remains unknown. A distinct UI failure
+when status refresh fails was reproduced synthetically on main and recorded in
+[#741](https://github.com/rbctmz/ai_trainer/issues/741); it is not asserted as
+the cause of the CI failure. No personal DB or service was accessed. M4 remains
+necessary for #625; #622 stays open. Outcome recorded in substantive M4 work,
+without a separate docs-only PR.
