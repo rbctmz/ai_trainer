@@ -1,6 +1,7 @@
 # #625 M1 — граница временных и рабочих БД
 
-Статус: **draft спецификации, runtime не реализован**, 2026-10-25.
+Статус: **M1 принят и merged #734; M2 runtime candidate в работе**, 2026-10-27.
+Ниже сохранён контракт M1; M3/M4 и финальная приёмка #625 ещё не выполнены.
 Issue [#625](https://github.com/rbctmz/ai_trainer/issues/625), parent [#622](https://github.com/rbctmz/ai_trainer/issues/622).
 Baseline `12615561218bf2b5e5288d3a5ed2f9cf01f11145`; [ExecPlan](database_path_guardrails_execplan.md).
 Author: Spec / Architecture Owner; independent checker: pending; merge owner: rbctmz.
@@ -206,3 +207,9 @@ Independent native review: manual, **0/2**, пока не запрошено; и
 Merge/cleanup owner rbctmz; #625/#622 остаются открытыми. Spec PR не означает,
 что работающая защита уже есть. Runtime этап начинается отдельным handoff
 после принятой спецификации; branch HEAD/CI фиксируются в PR evidence bundle.
+
+
+M1 final outcome supersedes pending review fields above: owner accepted clean
+native 1/2 at 2c08b95 and merged #734 as b68fc69 on 2026-10-26. M2 follows the
+approved contract without changing AC/non-goals; its candidate evidence and
+review budget belong to the separate M2 PR/ExecPlan, not the M1 round ledger.

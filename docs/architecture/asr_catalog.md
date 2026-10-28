@@ -858,3 +858,15 @@ Existing resolver/SQLite Backup API are reused, ordinary product writes and
 `Database._connect` stay unchanged. M1 synthetic probes characterize current
 gaps, not a delivered guard: runtime isolation/alias/cleanup acceptance remains
 pending M2–M4. No new ASR or ADR, API/schema/UI or live-data operation.
+
+
+### #625 M2 candidate: pytest boundary (not final M3/M4 acceptance)
+
+The candidate adds owned scratch scopes, safe family/URI parsing, early pytest
+bootstrap and child handoff validation, with failure before foreign SQLite open
+or unsafe basetemp cleanup. Ordinary product Settings/Database._connect and
+schema/API/UI remain unchanged. Synthetic RED/GREEN and limits are recorded in
+[ExecPlan](../database_path_guardrails_execplan.md). Final full/native acceptance
+is pending; standalone acceptance/maintenance protection is M3, not implied by
+this test-only audit. ASR-REL-3 / DEP-2 / SEC-1 guarantees are not promoted to
+complete for the whole #625/#622 track.

@@ -183,3 +183,95 @@ def prepare_private_database_path(path: str) -> None:
         raise DatabasePathError(f"database_path_unwritable: {target}") from exc
     else:
         os.close(descriptor)
+
+
+class ScratchPathError(DatabasePathError):
+    """Safe refusal: a reason and caller purpose, never a user filesystem path."""
+
+    def __init__(self, reason: str, *, purpose: str = "scratch") -> None:
+        self.reason = reason
+        # Purposes are labels, not arbitrary values from an exception or argv.
+        safe_purpose = purpose if purpose in {"scratch", "sqlite", "pytest", "cleanup", "test", "bootstrap"} else "scratch"
+        super().__init__(f"{reason}: {safe_purpose}")
+
+
+def sqlite_target_path(value: str | os.PathLike[str]) -> Path | None:
+    """Parse SQLite filenames/URIs before containment checks; None is memory."""
+    from urllib.parse import parse_qsl, unquote, urlsplit
+
+    try:
+        raw = os.fspath(value)
+        if not isinstance(raw, str) or not raw or "\x00" in raw:
+            raise ValueError
+        if raw == ":memory:":
+            return None
+        if raw.startswith("file:"):
+            # urlsplit silently strips TAB/CR/LF, while SQLite receives the
+            # original URI. Never classify a normalized URI as a memory DB.
+            if any(ord(char) < 32 or ord(char) == 127 for char in raw):
+                raise ValueError
+            uri = urlsplit(raw)
+            query = parse_qsl(uri.query, keep_blank_values=True, strict_parsing=True)
+            options = dict(query)
+            allowed = {"mode": {"ro", "rw", "rwc", "memory"}, "cache": {"private", "shared"}, "immutable": {"0", "1"}}
+            if (uri.netloc not in {"", "localhost"} or uri.fragment
+                    or len(query) != len(options)
+                    or any(key not in allowed or val not in allowed[key] for key, val in query)):
+                raise ValueError
+            if unquote(uri.path) == ":memory:" or options.get("mode") == "memory":
+                return None
+            raw = unquote(uri.path)
+            if os.name == "nt" and len(raw) > 3 and raw[0] == "/" and raw[2] == ":":
+                raw = raw[1:]
+        elif ":" in raw and not (os.name == "nt" and ntpath.splitdrive(raw)[0]):
+            raise ValueError
+        if not raw or "\x00" in raw:
+            raise ValueError
+        return Path(raw).absolute()  # SQLite treats ~ literally; Settings expands it earlier.
+    except (TypeError, ValueError, OSError, RuntimeError):
+        raise ScratchPathError("scratch_identity_unknown") from None
+
+
+def database_family(path: str | os.PathLike[str]) -> tuple[Path, ...]:
+    """SQLite's main and all three sidecar names, including absent files."""
+    target = Path(path)
+    return tuple(Path(str(target) + suffix) for suffix in SIDECAR_SUFFIXES)
+
+
+def database_namespace_key(path: Path) -> str:
+    """Conservative future-name ambiguity key, never a file-selection rule."""
+    import unicodedata
+    return unicodedata.normalize("NFD", _canonical(path)).casefold()
+
+
+def assert_disjoint_database_families(
+    target: str | os.PathLike[str], protected: list[Path] | tuple[Path, ...],
+) -> None:
+    """Reject lexical/native aliases and future namespace collisions, no opens."""
+    try:
+        for first in database_family(target):
+            for store in protected:
+                for second in database_family(store):
+                    if database_namespace_key(first) == database_namespace_key(second) or _samefile(first, second):
+                        raise ScratchPathError("scratch_protected_family")
+    except ScratchPathError:
+        raise
+    except (OSError, RuntimeError):
+        raise ScratchPathError("scratch_identity_unknown") from None
+
+
+def database_path_candidates(
+    env: Mapping[str, str], *, platform: str, home: str | None, cwd: str,
+    checkout: Path = CHECKOUT_ROOT,
+) -> tuple[Path, ...]:
+    """Capture selection/default/legacy names before a runner rebinds env."""
+    try:
+        selected = resolve_database_paths(env, platform=platform, home=home, cwd=cwd)
+        defaults = resolve_database_paths(
+            {key: value for key, value in env.items() if key not in {"DATABASE_PATH", "DEMO_DATABASE_PATH"}},
+            platform=platform, home=home, cwd=cwd,
+        )
+        legacy = [root / "ai_trainer.db" for root in _legacy_roots(checkout, Path(cwd))]
+        return tuple(dict.fromkeys(map(Path, [selected.real, selected.demo, defaults.real, defaults.demo, *legacy])))
+    except (OSError, RuntimeError, ValueError):
+        raise ScratchPathError("scratch_identity_unknown", purpose="bootstrap") from None

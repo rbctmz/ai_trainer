@@ -15,6 +15,15 @@ except ImportError:
     from data.database import Database
     from data.data_processor_phase1 import Phase1DataProcessor
 
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def owned_test_working_directory(tmp_path, monkeypatch):
+    """Legacy relative DB names and cleanup stay in this test's owned leaf."""
+    monkeypatch.chdir(tmp_path)
+
 def test_database_integration():
     """Тестирование интеграции базы данных"""
     print("🧪 Тестирование интеграции базы данных...")
