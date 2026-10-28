@@ -386,3 +386,14 @@ A synthetic WAL-aware backup matched; an altered source refused the stale
 backup. Focused maintenance/acceptance/planning contour: 40 passed, one existing
 Starlette warning. Remaining M3: legacy add/clean diagnostics, acceptance/E2E
 and live entrypoint guards, operator docs and full integration/CI.
+
+M3 E2E and parity checkpoint: two legacy live browser probes read synthetic
+credentials without opt-in in RED. They now require an explicit named URL and
+--confirm-live-acceptance before credentials, browser, output or network; no
+live probe was executed. E2E creates a child owned session scope, verifies
+DB/demo/chats in parent and in child site startup, and cleanup rechecks the
+session identity. Parity capture bootstraps before Settings, uses an owned
+child scope, and validates cleanup. Combined focused: 94 passed; forced E2E
+setup failure: 1 passed. Synthetic TestClient capture returned 37 endpoints;
+non-200: planning/build-context 422 and planning/events 503, so this is safety
+and execution evidence, not a claim all endpoints succeeded or baseline parity.

@@ -53,18 +53,20 @@ def test_acceptance_default_runs_in_owned_scope_and_cleans_it(tmp_path):
     assert not Path(db).parent.exists()
 
 
-def test_acceptance_child_rechecks_environment_before_main(tmp_path):
+@pytest.mark.parametrize("mode", ["ACCEPTANCE_MODE", "AI_TRAINER_E2E_SCOPE"])
+def test_acceptance_child_rechecks_environment_before_main(tmp_path, mode):
     import json
     import sys
     from scripts.scratch_runtime import ScratchScope
 
     scope = ScratchScope.create(parent=tmp_path)
     marker = tmp_path / 'child-main-ran'
-    env = dict(os.environ, ACCEPTANCE_MODE='1',
+    env = dict(os.environ,
                AI_TRAINER_SCRATCH_SCOPE=json.dumps(scope.descriptor()),
                DATABASE_PATH=str(tmp_path / 'foreign.db'),
                DEMO_DATABASE_PATH=str(scope.root / 'demo.db'),
                CHATS_DIR=str(scope.root / 'chats'), MARKER=str(marker))
+    env[mode] = '1'
     result = subprocess.run([sys.executable, '-c', 'import os; open(os.environ["MARKER"], "w").close()'],
                             env=env, cwd=tmp_path, capture_output=True, text=True, timeout=15)
     assert result.returncode != 0
@@ -229,3 +231,32 @@ def test_maintenance_previews_are_read_only_and_do_not_call_provider(tmp_path, m
     missing = tmp_path / 'missing.db'
     assert backfill_bike_hr_pairs.main(['--database', str(missing)]) == 2
     assert not missing.exists()
+
+
+@pytest.mark.parametrize('module_name', ['tests.e2e_acceptance_live', 'tests.e2e_acceptance_flows'])
+def test_live_acceptance_credentials_require_explicit_opt_in(tmp_path, monkeypatch, module_name):
+    import importlib
+
+    module = importlib.import_module(module_name)
+    (tmp_path / '.env').write_text('GARMIN_EMAIL=fake\nGARMIN_PASSWORD=fake\n')
+    monkeypatch.chdir(tmp_path)
+    touched = []
+    monkeypatch.setattr(Path, 'read_text', lambda *args, **kwargs: touched.append('read') or 'GARMIN_EMAIL=fake\nGARMIN_PASSWORD=fake')
+    with pytest.raises(RuntimeError, match='operator_confirmation_required'):
+        module.load_env_creds()
+    assert touched == []
+
+
+@pytest.mark.parametrize('module_name', ['tests.e2e_acceptance_live', 'tests.e2e_acceptance_flows'])
+def test_live_acceptance_refuses_before_server_or_output_without_opt_in(tmp_path, monkeypatch, module_name):
+    import importlib
+
+    module = importlib.import_module(module_name)
+    touched = []
+    monkeypatch.setattr(module, 'SCREENSHOT_DIR', tmp_path / 'screenshots')
+    monkeypatch.setattr(module, 'sync_playwright', lambda: touched.append('browser'))
+    with pytest.raises(SystemExit) as error:
+        module.main(['--base-url', 'http://127.0.0.1:1'])
+    assert error.value.code == 2
+    assert touched == []
+    assert not (tmp_path / 'screenshots').exists()

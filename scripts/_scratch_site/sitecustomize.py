@@ -8,7 +8,8 @@ if os.environ.get("AI_TRAINER_SCRATCH_SCOPE"):
         from scripts.scratch_pytest import install_sqlite_guard
 
         scope = scope_from_environment()
-        if os.environ.get("ACCEPTANCE_MODE", "0").strip().lower() in {"1", "true", "yes", "on"}:
+        if (os.environ.get("ACCEPTANCE_MODE", "0").strip().lower() in {"1", "true", "yes", "on"}
+                or os.environ.get("AI_TRAINER_E2E_SCOPE") == "1"):
             from scripts.acceptance_launcher import validate_acceptance_child_environment
             validate_acceptance_child_environment(dict(os.environ))
         install_sqlite_guard(scope)

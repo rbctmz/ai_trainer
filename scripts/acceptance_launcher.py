@@ -11,7 +11,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config.database_paths import ScratchPathError, assert_disjoint_database_families
-from scripts.scratch_runtime import ScratchScope, scope_from_environment
+from scripts.scratch_runtime import ScratchScope
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "scripts" / "_scratch_site"
@@ -19,10 +19,8 @@ SITE = ROOT / "scripts" / "_scratch_site"
 
 def validate_acceptance_child_environment(env: dict[str, str]) -> ScratchScope:
     """Refuse unknown identity or changed targets before application imports."""
-    scope = scope_from_environment()
-    if scope is None:
-        raise ScratchPathError("scratch_identity_unknown", purpose="bootstrap")
     try:
+        scope = ScratchScope.inherit(env["AI_TRAINER_SCRATCH_SCOPE"])
         real = scope.validate_target(env["DATABASE_PATH"], purpose="bootstrap")
         demo = scope.validate_target(env["DEMO_DATABASE_PATH"], purpose="bootstrap")
         scope.validate_directory(Path(env["CHATS_DIR"]))
