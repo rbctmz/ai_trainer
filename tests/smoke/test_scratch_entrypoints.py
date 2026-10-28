@@ -146,3 +146,86 @@ def test_product_demo_path_cannot_overlap_real_future_sidecar(tmp_path, suffix):
     with pytest.raises(DatabasePathError, match='database_demo_alias'):
         validate_demo_path(str(real), str(real) + suffix)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_direct_repair_apply_requires_operator_consent_before_preview_or_write(tmp_path, monkeypatch):
+    from config.database_paths import ScratchPathError
+    from scripts import backfill_activity_provider_links as operation
+    from scripts import scratch_runtime
+
+    target = tmp_path / 'synthetic-working.db'
+    target.write_bytes(b'unchanged')
+    monkeypatch.setattr(scratch_runtime, 'scope_from_environment', lambda: None)
+    touched = []
+    monkeypatch.setattr(operation, 'preview_provider_link_backfill', lambda *args: touched.append('preview'))
+    monkeypatch.setattr(operation, 'Database', lambda *args: touched.append('database'))
+    with pytest.raises(ScratchPathError, match='operator_confirmation_required'):
+        operation.repair_database(target, apply=True, primary_source='garmin')
+    assert touched == []
+    assert target.read_bytes() == b'unchanged'
+
+
+def test_network_backfill_requires_explicit_target_before_client_or_sqlite(monkeypatch):
+    from scripts import backfill_intervals_distance as operation
+    from scripts import scratch_runtime
+
+    touched = []
+    monkeypatch.setattr(scratch_runtime, 'scope_from_environment', lambda: None)
+    monkeypatch.setattr(operation, 'get_client', lambda: touched.append('provider'))
+    monkeypatch.setattr(operation.sqlite3, 'connect', lambda *args, **kwargs: touched.append('database'))
+    assert operation.main() == 2
+    assert touched == []
+
+
+def test_operator_backup_must_match_selected_working_database(tmp_path, monkeypatch):
+    from config.database_paths import ScratchPathError
+    from config.maintenance_guard import validate_maintenance_target
+    from data.database import Database
+    from scripts import scratch_runtime
+    from scripts.sqlite_backup_restore import backup_database
+
+    target = tmp_path / 'synthetic-working.db'
+    backup = tmp_path / 'synthetic-backup.db'
+    Database(str(target))
+    backup_database(target, backup, confirm_stopped=True)
+    monkeypatch.setattr(scratch_runtime, 'scope_from_environment', lambda: None)
+    validated = validate_maintenance_target(target, apply=True, confirmed=True, stopped=True, backup=backup)
+    assert validated == target
+    import sqlite3
+    with sqlite3.connect(target) as connection:
+        connection.execute("INSERT INTO user_settings (key, value) VALUES ('probe', 'changed')")
+    with pytest.raises(ScratchPathError, match='operator_confirmation_required'):
+        validate_maintenance_target(target, apply=True, confirmed=True, stopped=True, backup=backup)
+
+
+@pytest.mark.parametrize('kind', ['provider', 'planning', 'bike', 'distance'])
+def test_maintenance_cli_apply_requires_confirmation_before_write(tmp_path, monkeypatch, kind):
+    from scripts import scratch_runtime
+    from scripts import backfill_activity_provider_links, backfill_bike_hr_pairs
+    from scripts import backfill_intervals_distance, repair_planning_materialization
+
+    target = tmp_path / 'synthetic-working.db'
+    target.write_bytes(b'unchanged')
+    monkeypatch.setattr(scratch_runtime, 'scope_from_environment', lambda: None)
+    calls = {'provider': backfill_activity_provider_links.main,
+             'planning': repair_planning_materialization.main,
+             'bike': backfill_bike_hr_pairs.main,
+             'distance': backfill_intervals_distance.cli}
+    assert calls[kind](['--database', str(target), '--apply']) == 2
+    assert target.read_bytes() == b'unchanged'
+
+
+def test_maintenance_previews_are_read_only_and_do_not_call_provider(tmp_path, monkeypatch):
+    from data.database import Database
+    from scripts import backfill_bike_hr_pairs, backfill_intervals_distance
+
+    target = tmp_path / 'preview.db'
+    Database(str(target))
+    touched = []
+    monkeypatch.setattr(backfill_intervals_distance, 'get_client', lambda: touched.append('provider'))
+    assert backfill_bike_hr_pairs.main(['--database', str(target)]) == 0
+    assert backfill_intervals_distance.cli(['--database', str(target)]) == 0
+    assert touched == []
+    missing = tmp_path / 'missing.db'
+    assert backfill_bike_hr_pairs.main(['--database', str(missing)]) == 2
+    assert not missing.exists()

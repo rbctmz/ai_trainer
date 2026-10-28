@@ -371,3 +371,18 @@ names. **Inferred** a future sidecar could collide with a demo target.
 family validation. Existing product demo/path/acceptance contour: 84 passed,
 1 existing Starlette warning. The ordinary product does not receive a scratch
 root requirement; only overlapping database families are refused.
+
+M3 maintenance checkpoint: **Observed** direct provider-link apply invoked
+preview/write helpers without confirmation, and distance backfill reached its
+client before validating a target. **Inferred** explicit operator boundaries
+were bypassable through direct Python calls. **Verified by** two synthetic RED
+cases with stubs (no database/provider call), then GREEN. Four maintenance
+entrypoints now require explicit CLI target, preview read-only, and validate
+before apply/provider calls. Owned scratch targets use scope identity; working
+writes require --apply, --confirm-working-database, --confirm-stopped and an
+existing backup. The helper compares integrity/schema/content fingerprints of
+the stopped target and backup; stopped state remains operator-attested.
+A synthetic WAL-aware backup matched; an altered source refused the stale
+backup. Focused maintenance/acceptance/planning contour: 40 passed, one existing
+Starlette warning. Remaining M3: legacy add/clean diagnostics, acceptance/E2E
+and live entrypoint guards, operator docs and full integration/CI.
