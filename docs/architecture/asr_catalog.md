@@ -879,3 +879,13 @@ call. Working-store writes require an operator-attested stop and a matching
 verified backup. Ordinary product Database connections remain unchanged.
 Evidence and unverified platforms are recorded in the ExecPlan; M4 and overall
 #625/#622 acceptance remain pending.
+
+## Automatic local snapshots (#623 M1, specification candidate)
+
+[Contract](../automatic_snapshots_slice_spec.md) and
+[ExecPlan](../automatic_snapshots_execplan.md) apply ASR-REL-3 / ASR-DEP-2 /
+ASR-SEC-1: post-commit snapshot or visible degradation, validated atomic artifact
+publication and bounded daily/weekly retention. Ordinary source schema stays
+unchanged; manual CLI stopped-service boundary remains. M1 only characterizes
+online SQLite consistency on synthetic data; automatic service, deadline/fault
+handling, API/UI and retention are NOT IMPLEMENTED. Off-device RPO remains #626.

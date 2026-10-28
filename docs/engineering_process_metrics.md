@@ -815,3 +815,14 @@ when status refresh fails was reproduced synthetically on main and recorded in
 the cause of the CI failure. No personal DB or service was accessed. M4 remains
 necessary for #625; #622 stays open. Outcome recorded in substantive M4 work,
 without a separate docs-only PR.
+
+## #625 M4 acceptance — #742, merged 2026-10-28
+
+[PR #742](https://github.com/rbctmz/ai_trainer/pull/742) merged as
+15797260f5abb05f24ea3052358cb8dfb31627ff after one clean native review on
+c6bec1edcbec14dea635b6d5b4acdb5ac92b696a, owner acceptance, CLEAN and current
+functional CI green. No unresolved threads; reviewed and merged trees identical.
+Local 291 focused / 4286 full / 92 E2E; Linux 4260 full / 42 skipped / 116
+deselected, E2E green. Native Windows/ACL NOT RUN. #625 closed; #622 remains
+open, #741 distinct. Outcome recorded in substantive #623 M1, no docs-only
+follow-up PR; no personal DB or service operation.
