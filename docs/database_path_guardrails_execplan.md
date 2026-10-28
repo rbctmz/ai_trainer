@@ -24,8 +24,8 @@
 - [x] (2026-10-27) M2 helper, bootstrap до Settings/collection, launcher/CI и необходимые fixtures реализованы; focused 238 passed.
 - [x] (2026-10-27) M2 self-review/RED→GREEN: focused 310 passed; full 4233 passed /16 skipped /116 deselected. Draft PR #738 опубликован; current-head remote CI проверяется отдельно.
 - [x] (2026-10-28) M2: два review-раунда, исправления и owner merge #738.
-- [ ] M3: acceptance и служебные команды; реализация/RED → GREEN в работе, независимое review и merge ещё не выполнены.
-- [ ] M4: общая synthetic приёмка, совместимость, итоговое review/owner merge.
+- [x] (2026-10-28) M3: owner accepted review и merged #740 как 1fd39a8.
+- [ ] M4: локальная synthetic приёмка/совместимость завершены; draft PR, CI, независимое review и owner merge впереди.
 
 ## Surprises & Discoveries
 
@@ -464,3 +464,17 @@ probe is acceptance instrumentation, not a new product guard. The pre-existing
 normal product `_connect` remains unchanged. `git check-ignore --no-index
 --stdin` separately matched the four SQLite family names without creating any
 files. Complete suite and browser checks are running; native Windows is NOT RUN.
+
+M4 author acceptance on synthetic source snapshot: combined 291 passed; full
+contributor-safe 4286 passed / 16 skipped / 116 deselected, 7 warnings,
+315.09s; browser E2E 92 passed, one warning, 237.97s. Probe-only ordinary
+product lifecycle/restart and git-ignore stdin evidence above remain separate.
+Runtime audit reported 28116 SQLite opens and zero denials in the main full
+pytest process; E2E parent reported 261/0. These counts are process-local, not
+an aggregate claim for every child. Targeted child escape tests and early child
+bootstrap are the child evidence. 819 tracked source/config files in the test
+snapshot match this branch byte-for-byte; changes since the tested main are the
+acceptance probe and documentation. Ruff and diff check pass. Native macOS was
+used; Linux is remote CI pending and native Windows/ACL NOT RUN. Previous #741
+E2E symptom is not declared diagnosed or fixed by this green run. Evidence map:
+[acceptance matrix](reports/issue-625-m4/acceptance_matrix.md).
