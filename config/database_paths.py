@@ -162,8 +162,12 @@ def runtime_database_path(selection: DatabasePaths, *, checkout: Path | None = N
 def validate_demo_path(real: str, demo: str) -> None:
     """Refuse real/demo aliases before destructive demo seeding or clearing."""
     first, second = Path(real), Path(demo)
-    if _canonical(first) == _canonical(second) or _samefile(first, second):
-        raise DatabasePathError("database_demo_alias: real and demo must be different files")
+    try:
+        assert_disjoint_database_families(first, [second])
+    except ScratchPathError as exc:
+        if exc.reason == "scratch_protected_family":
+            raise DatabasePathError("database_demo_alias: real and demo families must be different") from None
+        raise DatabasePathError("database_path_inspection_failed: demo identity unknown") from None
 
 
 def prepare_private_database_path(path: str) -> None:

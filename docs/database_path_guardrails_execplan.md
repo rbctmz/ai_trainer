@@ -363,3 +363,11 @@ installed Streamlit configuration, headless mode and disabled usage statistics
 remove that prompt; rerun GREEN. Acceptance, child recheck, reset and M2 guard
 contour: 75 passed. Full M3 entrypoint coverage, operator backup workflow,
 browser/live opt-in and M4 acceptance remain pending.
+
+M3 product demo-family checkpoint: **Observed** real/demo validation accepted
+future real database `-wal`, `-shm`, and `-journal` names as separate demo
+names. **Inferred** a future sidecar could collide with a demo target.
+**Verified by** three synthetic RED cases with no files; all became GREEN after
+family validation. Existing product demo/path/acceptance contour: 84 passed,
+1 existing Starlette warning. The ordinary product does not receive a scratch
+root requirement; only overlapping database families are refused.

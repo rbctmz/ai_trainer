@@ -136,3 +136,13 @@ def test_acceptance_starts_real_isolated_streamlit_health(tmp_path):
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             process.communicate(timeout=5)
+
+
+@pytest.mark.parametrize('suffix', ['-wal', '-shm', '-journal'])
+def test_product_demo_path_cannot_overlap_real_future_sidecar(tmp_path, suffix):
+    from config.database_paths import DatabasePathError, validate_demo_path
+
+    real = tmp_path / 'future.db'
+    with pytest.raises(DatabasePathError, match='database_demo_alias'):
+        validate_demo_path(str(real), str(real) + suffix)
+    assert list(tmp_path.iterdir()) == []
