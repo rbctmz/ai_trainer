@@ -13,8 +13,14 @@ from typing import Any
 if __package__ in {None, ""}:  # pragma: no cover - direct script execution
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from api.planning_service import repair_active_plan_materialization  # noqa: E402
-from data.database import Database  # noqa: E402
+def repair_active_plan_materialization(*args, **kwargs):
+    from api.planning_service import repair_active_plan_materialization as repair
+    return repair(*args, **kwargs)
+
+
+def Database(path):
+    from data.database import Database as product_database
+    return product_database(path)
 
 
 class _ReadOnlyPlanningStore:

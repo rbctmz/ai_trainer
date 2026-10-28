@@ -260,3 +260,143 @@ def test_live_acceptance_refuses_before_server_or_output_without_opt_in(tmp_path
     assert error.value.code == 2
     assert touched == []
     assert not (tmp_path / 'screenshots').exists()
+
+
+@pytest.mark.parametrize(('module_name', 'function_name'), [
+    ('tests.add_test_data', 'add_test_activities'),
+    ('tests.add_test_data', 'add_test_hrv'),
+    ('tests.add_test_hrv_data', 'add_test_hrv_data'),
+    ('tests.add_training_data_for_correlation', 'add_realistic_training_data'),
+])
+def test_legacy_generators_never_use_implicit_working_database(monkeypatch, module_name, function_name):
+    import importlib
+    module = importlib.import_module(module_name)
+    touched = []
+    class Observed(Exception):
+        pass
+    def fake_database(*args):
+        touched.append(args)
+        raise Observed
+    monkeypatch.setattr(module, 'Database', fake_database)
+    with pytest.raises(Observed):
+        getattr(module, function_name)()
+    assert touched and len(touched[0]) == 1
+    from scripts.scratch_runtime import scope_from_environment
+    scope = scope_from_environment()
+    assert Path(touched[0][0]).resolve().is_relative_to(scope.root)
+
+
+def test_legacy_cleanup_direct_call_refuses_implicit_target_before_open(monkeypatch):
+    from config.database_paths import ScratchPathError
+    from tests import clean_database
+
+    touched = []
+    monkeypatch.setattr(clean_database.sqlite3, 'connect', lambda *args, **kwargs: touched.append('open'))
+    with pytest.raises(ScratchPathError, match='operator_confirmation_required'):
+        clean_database.clean_database(confirm=False)
+    assert touched == []
+
+
+def test_cleanup_preserves_hrv_without_separate_explicit_option(tmp_path):
+    import sqlite3
+    from data.database import Database
+    from tests.clean_database import clean_database
+
+    target = tmp_path / 'synthetic-clean.db'
+    db = Database(str(target))
+    db.save_hrv_data({'2026-10-01': {'rmssd': 45.0}})
+    with sqlite3.connect(target) as conn:
+        before = conn.execute('SELECT COUNT(*) FROM hrv_data').fetchone()[0]
+    assert before > 0
+    assert clean_database(confirm=False, database_path=target, apply=True)
+    with sqlite3.connect(target) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM hrv_data').fetchone()[0] == before
+    assert clean_database(confirm=False, database_path=target, apply=True, delete_all_hrv=True)
+    with sqlite3.connect(target) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM hrv_data').fetchone()[0] == 0
+
+
+def test_cleanup_preserves_non_test_identifier_with_similar_prefix(tmp_path):
+    import sqlite3
+    from data.database import Database
+    from tests.clean_database import analyze_database, clean_database
+
+    target = tmp_path / 'synthetic-prefix.db'
+    Database(str(target))
+    with sqlite3.connect(target) as conn:
+        conn.executemany('INSERT INTO activities (activity_id, date, sport) VALUES (?, ?, ?)',
+                         [('test_1', '2026-10-01', 'running'), ('testX1', '2026-10-01', 'running')])
+    assert analyze_database(target)['test_activities'] == 1
+    assert clean_database(confirm=False, database_path=target, apply=True)
+    with sqlite3.connect(target) as conn:
+        assert conn.execute('SELECT activity_id FROM activities').fetchall() == [('testX1',)]
+
+
+@pytest.mark.parametrize(('module_name', 'function_name'), [
+    ('tests.add_test_data', 'add_test_activities'),
+    ('tests.add_test_data', 'add_test_hrv'),
+    ('tests.add_test_hrv_data', 'add_test_hrv_data'),
+    ('tests.add_training_data_for_correlation', 'add_realistic_training_data'),
+])
+def test_generator_body_rejects_unvalidated_direct_path(monkeypatch, tmp_path, module_name, function_name):
+    import importlib
+    from config.database_paths import ScratchPathError
+
+    module = importlib.import_module(module_name)
+    touched = []
+    monkeypatch.setattr(module, 'Database', lambda *args: touched.append(args))
+    with pytest.raises(ScratchPathError, match='operator_confirmation_required'):
+        getattr(module, function_name).__wrapped__(tmp_path / 'unvalidated.db')
+    assert touched == []
+
+
+def test_hrv_diagnostic_reports_sort_mismatch_without_exposing_rows(tmp_path):
+    from data.database import Database
+    from tests.check_hrv_table_sorting import check_data_types_and_sorting
+
+    target = tmp_path / 'synthetic-hrv.db'
+    db = Database(str(target))
+    db.save_hrv_data({'2026-09-30': {'rmssd': 45}, '2026-10-01': {'rmssd': 46}})
+    report = check_data_types_and_sorting(target)
+    assert report['rows'] == 2
+    assert report['formatted_sort_matches_chronological'] is False
+    assert '2026-' not in str(report)
+
+
+def test_live_sleep_sync_requires_confirmation_before_target_validation(monkeypatch):
+    from tests import force_fresh_sync_test
+
+    touched = []
+    monkeypatch.setattr(force_fresh_sync_test, 'validate_maintenance_target', lambda *a, **kw: touched.append('target'))
+    assert not force_fresh_sync_test.force_sync_yesterday('/unused', apply=True)
+    assert touched == []
+
+
+def test_confirmed_operator_repair_accepts_matching_synthetic_backup(tmp_path, monkeypatch):
+    from data.database import Database
+    from scripts import scratch_runtime
+    from scripts.backfill_activity_provider_links import repair_database
+    from scripts.sqlite_backup_restore import backup_database
+
+    target = tmp_path / 'operator-test.db'
+    backup = tmp_path / 'operator-test-backup.db'
+    Database(str(target))
+    backup_database(target, backup, confirm_stopped=True)
+    monkeypatch.setattr(scratch_runtime, 'scope_from_environment', lambda: None)
+    result = repair_database(target, apply=True, primary_source='garmin',
+                             confirm_working_database=True, confirm_stopped=True, backup=backup)
+    assert result['mode'] == 'apply'
+    assert 'applied' in result
+
+
+@pytest.mark.parametrize('module_name', [
+    'scripts.backfill_activity_provider_links', 'scripts.repair_planning_materialization',
+])
+def test_maintenance_module_import_does_not_load_settings_before_gate(module_name):
+    import subprocess
+    import sys
+
+    probe = ('import importlib, sys; importlib.import_module(sys.argv[1]); '
+             "assert 'config.settings' not in sys.modules")
+    result = subprocess.run([sys.executable, '-c', probe, module_name], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

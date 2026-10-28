@@ -12,13 +12,24 @@ from typing import Any
 if __package__ in {None, ""}:  # pragma: no cover - direct script execution
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from config.settings import Settings  # noqa: E402
-from data.database import Database  # noqa: E402
-from services.activity_ingest import (  # noqa: E402
-    backfill_provider_links,
-    classify_activity_id,
-)
-from services.activity_provider_backfill import preview_provider_link_backfill  # noqa: E402
+def preview_provider_link_backfill(*args, **kwargs):
+    from services.activity_provider_backfill import preview_provider_link_backfill as preview
+    return preview(*args, **kwargs)
+
+
+def classify_activity_id(*args, **kwargs):
+    from services.activity_ingest import classify_activity_id as classify
+    return classify(*args, **kwargs)
+
+
+def backfill_provider_links(*args, **kwargs):
+    from services.activity_ingest import backfill_provider_links as backfill
+    return backfill(*args, **kwargs)
+
+
+def Database(path):
+    from data.database import Database as product_database
+    return product_database(path)
 
 
 def repair_database(
@@ -34,9 +45,10 @@ def repair_database(
     from config.maintenance_guard import validate_maintenance_target
     path = validate_maintenance_target(database_path, apply=apply, confirmed=confirm_working_database,
                                        stopped=confirm_stopped, backup=backup)
-    resolved_primary = str(
-        primary_source or Settings.PRIMARY_ACTIVITY_SOURCE
-    ).strip().lower()
+    if primary_source is None:
+        from config.settings import Settings
+        primary_source = Settings.PRIMARY_ACTIVITY_SOURCE
+    resolved_primary = str(primary_source).strip().lower()
     if resolved_primary not in {"garmin", "intervals"}:
         raise ValueError("primary_source must be 'garmin' or 'intervals'")
 
@@ -68,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--primary-source",
         choices=("garmin", "intervals"),
-        default=Settings.PRIMARY_ACTIVITY_SOURCE,
+        default=None,
         help="authoritative canonical projection source",
     )
     parser.add_argument(

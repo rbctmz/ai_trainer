@@ -26,11 +26,14 @@ def validate_maintenance_target(
         target = Path(database_path).expanduser()
         if target.is_symlink() or not target.is_file():
             raise FileNotFoundError("database missing or not a regular file")
-        target = target.resolve(strict=True)
         if scope is not None:
-            if scope.validate_target(target, purpose="bootstrap") is None:
+            validated = scope.validate_target(target, purpose="bootstrap")
+            if validated is None:
                 raise ScratchPathError("scratch_target_unowned", purpose="bootstrap")
-        elif apply:
+            target = validated
+        else:
+            target = target.resolve(strict=True)
+        if scope is None and apply:
             from scripts.sqlite_backup_restore import inspect_relocation_database
             backup_path = Path(backup).expanduser()
             if backup_path.is_symlink() or not backup_path.is_file():
