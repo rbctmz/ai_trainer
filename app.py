@@ -1,3 +1,10 @@
+import os
+
+# Acceptance must establish ownership before Settings or application imports.
+if os.environ.get("ACCEPTANCE_MODE", "0").strip().lower() in {"1", "true", "yes", "on"}:
+    from scripts.acceptance_launcher import validate_acceptance_child_environment
+    validate_acceptance_child_environment(dict(os.environ))
+
 import streamlit as st
 from typing import Any, Dict
 

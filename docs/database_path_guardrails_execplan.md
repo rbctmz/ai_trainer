@@ -329,3 +329,37 @@ PR evidence bundle. Each native finding is answered in its own thread with
 fixed-in SHA and verification; a possible second native round is delta-only
 and requires its own request. The unresolved HTTP500 investigation remains
 #739 and is not asserted to be caused or fixed by these two changes.
+
+## M3 execution — 2026-10-28
+
+M2 #738 merged as 1c2e4c42f628af8965c2afa912c9027f6358dfe8 after
+owner acceptance of delta review 2/2. M3 branch starts from that exact main.
+M3 applies the accepted M1 contract to acceptance/E2E, diagnostic and
+maintenance callers and operator guidance. Product Database._connect remains
+unchanged. The parent issue stays open until M4 acceptance.
+
+The first slice characterizes acceptance startup before doctor/seed/server and
+provides a private owned root with revalidated child settings; subsequent
+slices cover service reset and ordinary demo-family checks, then diagnostic and
+maintenance write/preview paths, browser opt-in, and finally integrated
+regression plus runbook. Each slice records RED and GREEN without personal data.
+Only artificial temporary stores and credential-free subprocesses are allowed;
+no live server, provider, user database, .env or backups are read or changed.
+
+M3 acceptance checkpoint: **Observed** baseline run_acceptance.sh accepted an
+external synthetic ACCEPTANCE_DB_PATH and invoked a stub runtime, exit 0.
+**Inferred** an override could reach doctor/server before ownership validation.
+**Verified by** synthetic RED test test_acceptance_refuses_external_database;
+no actual server or user DB was used. The new launcher creates a private scope,
+rejects external DB/demo/chats overrides before runtime, clears credentials,
+passes a verified receipt to the child and rechecks the selected store before
+seed/reset. Ordinary product selection/Database._connect are unchanged.
+
+The accepted default synthetic launch reaches an actual Streamlit health check
+on a temporary loopback port and is stopped afterward; this is not a browser
+acceptance or live-user restart. An initial health attempt exited at Streamlit's
+first-run email prompt because HOME was intentionally fresh. Verified against
+installed Streamlit configuration, headless mode and disabled usage statistics
+remove that prompt; rerun GREEN. Acceptance, child recheck, reset and M2 guard
+contour: 75 passed. Full M3 entrypoint coverage, operator backup workflow,
+browser/live opt-in and M4 acceptance remain pending.
