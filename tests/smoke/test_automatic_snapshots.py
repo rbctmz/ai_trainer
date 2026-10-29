@@ -1,6 +1,8 @@
 """Synthetic acceptance of #623 M2; no automatic runtime activation."""
 import sqlite3
 
+import pytest
+
 
 from services.automatic_snapshots import check_snapshot
 
@@ -327,3 +329,55 @@ def test_existing_snapshot_sidecar_alias_refuses_before_inspection(tmp_path):
     assert result['reason_code'] == 'backup_identity_unknown'
     assert external.read_bytes() == b'keep'
     assert sidecar.is_symlink()
+
+
+@pytest.mark.parametrize('bad_state', ['{broken synthetic state', '[]', '{"reset_pins":null}', None])
+def test_corrupt_status_recovers_health_but_keeps_pins_unknown(tmp_path, bad_state):
+    import json
+    source, root = source_store(tmp_path), tmp_path / 'backups'
+    first = check_snapshot(source, root, 'test')
+    state_path = snapshots(root)[0].parents[2] / 'status.json'
+    if bad_state is None:
+        state_path.unlink()
+    else:
+        state_path.write_text(bad_state)
+    for _ in range(2):
+        result = check_snapshot(source, root, 'retry')
+        assert result['state'] == 'ready'
+        assert result['last_snapshot_id'] == first['last_snapshot_id']
+        state = json.loads(state_path.read_text())
+        assert state['reset_pins_unknown'] is True
+    with sqlite3.connect(source) as conn:
+        conn.execute('UPDATE activities SET duration_minutes=40')
+    conn.close()
+    changed = check_snapshot(source, root, 'changed')
+    assert changed['state'] == 'ready'
+    assert changed['last_snapshot_id'] != first['last_snapshot_id']
+    assert json.loads(state_path.read_text())['reset_pins_unknown'] is True
+
+
+def test_sqlite_copy_error_persists_degraded_and_known_snapshot(tmp_path):
+    import json
+    source, root = source_store(tmp_path), tmp_path / 'backups'
+    first = check_snapshot(source, root, 'test')
+    state_path = snapshots(root)[0].parents[2] / 'status.json'
+    source.write_bytes(b'not sqlite anymore')
+    result = check_snapshot(source, root, 'corrupt-source')
+    state = json.loads(state_path.read_text())
+    assert result['state'] == state['state'] == 'degraded'
+    assert result['last_snapshot_id'] == state['last_snapshot_id'] == first['last_snapshot_id']
+    assert state['reason_code'] == result['reason_code'] == 'backup_integrity_failed'
+
+
+def test_status_identity_refusal_is_not_swallowed_by_recovery(tmp_path):
+    source, root = source_store(tmp_path), tmp_path / 'backups'
+    assert check_snapshot(source, root, 'test')['state'] == 'ready'
+    state_path = snapshots(root)[0].parents[2] / 'status.json'
+    external = tmp_path / 'external-state'
+    external.write_text('{synthetic foreign state')
+    state_path.unlink()
+    state_path.symlink_to(external)
+    result = check_snapshot(source, root, 'retry')
+    assert result['reason_code'] == 'backup_identity_unknown'
+    assert state_path.is_symlink()
+    assert external.read_text() == '{synthetic foreign state'

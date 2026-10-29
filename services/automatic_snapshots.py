@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -196,6 +197,29 @@ def _read_json(path: Path) -> dict:
     return value
 
 
+def _load_state(path: Path, *, has_history: bool) -> tuple[dict, dict, bool]:
+    """Recover health separately from reset-pin certainty; never infer lost pins.
+
+    Identity refusals still propagate. Only corrupt metadata content is repaired.
+    The sticky unknown flag must prohibit pruning until explicit operator repair.
+    """
+    if not path.exists() and not path.is_symlink():
+        return {}, {}, has_history
+    try:
+        old = _read_json(path)
+    except (ValueError, UnicodeError):
+        return {}, {}, True
+    except SnapshotError as exc:
+        if str(exc) != 'backup_integrity_failed':
+            raise
+        return {}, {}, True
+    pins = old.get('reset_pins')
+    unknown = old.get('reset_pins_unknown', False)
+    if not isinstance(pins, dict):
+        return old, {}, True
+    return old, pins, unknown is not False
+
+
 def _latest(directory: Path, namespace: str) -> tuple[dict | None, dict | None]:
     candidates = []
     for item in directory.iterdir():
@@ -276,11 +300,9 @@ def _run(source: str | Path, root: str | Path, temporary: Path | None = None, *,
         output = namespace / 'snapshots'
         _private_directory(output)
         state_path = namespace / 'status.json'
-        old = _read_json(state_path) if state_path.exists() else {}
-        pins = old.get('reset_pins', {})
-        if not isinstance(pins, dict):
-            raise SnapshotError('backup_state_unwritable')
         previous, _ = _latest(output, identity)
+        _, pins, pins_unknown = _load_state(state_path, has_history=previous is not None)
+        retention = {'reset_pins': pins, 'reset_pins_unknown': pins_unknown}
         known = {'last_snapshot_id': previous['snapshot_id'], 'last_snapshot_at': previous['created_at_utc']} if previous else {}
         if temporary is None:
             temporary = Path(tempfile.mkdtemp(prefix='.candidate-', dir=root))
@@ -309,15 +331,16 @@ def _run(source: str | Path, root: str | Path, temporary: Path | None = None, *,
                 _publish(temporary, output / snapshot_id)
                 status = _status('ready', previous={'last_snapshot_id': snapshot_id, 'last_snapshot_at': created})
             try:
-                _write_json(state_path, {**status, 'reset_pins': pins}, replace=True)
+                _write_json(state_path, {**status, **retention}, replace=True)
             except (OSError, ValueError, SnapshotError):
                 return _status('degraded', 'backup_state_unwritable', status)
             return status
-        except (SnapshotInspectionError, OSError) as exc:
-            reason = 'backup_integrity_failed' if isinstance(exc, SnapshotInspectionError) else 'backup_io_error'
+        except (SnapshotInspectionError, sqlite3.Error, OSError) as exc:
+            corrupt = isinstance(exc, SnapshotInspectionError) or getattr(exc, 'sqlite_errorcode', None) in {sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB}
+            reason = 'backup_integrity_failed' if corrupt else 'backup_io_error'
             status = _status('degraded', reason, known)
             try:
-                _write_json(state_path, {**status, 'reset_pins': pins}, replace=True)
+                _write_json(state_path, {**status, **retention}, replace=True)
             except (OSError, ValueError, SnapshotError):
                 pass  # Current response remains degraded even if status cannot persist.
             return status
@@ -337,12 +360,10 @@ def _record_timeout(root: Path, namespace_id: str) -> dict:
             if _read_json(directory / 'namespace.json') != expected:
                 return status
             path = directory / 'status.json'
-            old = _read_json(path) if path.exists() else {}
-            pins = old.get('reset_pins', {})
-            if not isinstance(pins, dict):
-                return status
+            old, pins, pins_unknown = _load_state(path, has_history=True)
+            retention = {'reset_pins': pins, 'reset_pins_unknown': pins_unknown}
             status = _status('degraded', 'backup_timeout', old)
-            _write_json(path, {**status, 'reset_pins': pins}, replace=True)
+            _write_json(path, {**status, **retention}, replace=True)
     except (OSError, ValueError, SnapshotError):
         pass  # The caller still receives degraded if persistence is unavailable.
     return status

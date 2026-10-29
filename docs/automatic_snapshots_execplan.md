@@ -226,3 +226,27 @@ files; final helper validates the entire snapshot family before inspection.
 Dedicated final contour: 19 passed, including unchanged external sentinel.
 The exact final remote CI supersedes the earlier local full snapshots; no UI
 or lifecycle hook is added by this correction.
+
+## M2 native review round 1 — 2026-10-29
+
+Два P2 на 25f344f подтверждены двумя RED regression tests в изолированной
+synthetic копии: malformed status постоянно возвращал degraded вместо recovery,
+а SQLite DatabaseError давал degraded ответ при persisted ready. Никаких личных
+БД/сервисов не использовалось. Это подтверждённые reliability contradictions
+к принятому контракту, а не расширение scope.
+
+Исправлено: manifest health проверяется независимо от status; malformed/missing
+status и malformed pins восстанавливаются со sticky `reset_pins_unknown=true`.
+Этот признак хранится отдельно от snapshot readiness и запрещает pruning до
+явного operator repair в будущем M4. Валидные известные pins сохраняются; recovery
+никогда не превращает неизвестные pins в известный пустой набор. Identity
+refusals (symlink/hardlink) не заглатываются. Timeout persistence также сохраняет
+признак неизвестности. SQLite backup errors теперь ловятся под namespace lock;
+NOTADB/CORRUPT дают backup_integrity_failed, другие SQLite failures — safe
+backup_io_error, previous snapshot metadata сохраняется вместе с degraded.
+
+GREEN: 25 dedicated tests, включая два исходных RED, повторный recovery,
+изменение source после recovery, invalid JSON/list/pins, missing state и отказ
+на state symlink. Ruff GREEN. Полный contributor-safe и related contour
+записываются отдельно. Review budget 1/2; автоматический повтор не запрошен.
+Runtime hooks/retention по-прежнему M3/M4 и не включены.
