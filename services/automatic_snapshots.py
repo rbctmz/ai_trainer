@@ -57,6 +57,13 @@ def _regular(path: Path) -> None:
         raise SnapshotError('backup_identity_unknown')
 
 
+def _database_file(path: Path) -> None:
+    _regular(path)
+    for member in database_family(path):
+        if member.exists() or member.is_symlink():
+            _regular(member)
+
+
 def _private_directory(path: Path) -> bool:
     try:
         path.mkdir(mode=0o700)
@@ -92,10 +99,7 @@ def _paths(source: str | Path, root: str | Path) -> tuple[Path, Path, str]:
     source, root = Path(source), Path(root)
     if not source.is_absolute() or not root.is_absolute():
         raise SnapshotError('backup_identity_unknown')
-    _regular(source)
-    for member in database_family(source):
-        if member.exists() or member.is_symlink():
-            _regular(member)
+    _database_file(source)
     # Reject linked endpoints and aliases through existing parents. The caller
     # supplies the canonical selected path, as the ordinary path resolver does.
     for path in (source, root):
@@ -209,7 +213,7 @@ def _latest(directory: Path, namespace: str) -> tuple[dict | None, dict | None]:
     for _, item, manifest in sorted(candidates, reverse=True):
         try:
             db = item / 'snapshot.db'
-            _regular(db)
+            _database_file(db)
             fingerprint = inspect_database(db)
             if _hash(db) != manifest['sha256'] or db.stat().st_size != manifest['size']:
                 continue

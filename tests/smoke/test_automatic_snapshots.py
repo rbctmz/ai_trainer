@@ -313,3 +313,17 @@ def test_unknown_namespace_is_not_adopted_or_deleted(tmp_path):
     assert result['reason_code'] == 'backup_identity_unknown'
     assert (unknown / 'foreign.txt').read_text() == 'keep'
     assert not (unknown / 'namespace.json').exists()
+
+
+def test_existing_snapshot_sidecar_alias_refuses_before_inspection(tmp_path):
+    source, root = source_store(tmp_path), tmp_path / 'backups'
+    assert check_snapshot(source, root, 'test')['state'] == 'ready'
+    external = tmp_path / 'foreign-sentinel'
+    external.write_bytes(b'keep')
+    db = snapshots(root)[0].parent / 'snapshot.db'
+    sidecar = db.with_name(db.name + '-journal')
+    sidecar.symlink_to(external)
+    result = check_snapshot(source, root, 'test')
+    assert result['reason_code'] == 'backup_identity_unknown'
+    assert external.read_bytes() == b'keep'
+    assert sidecar.is_symlink()

@@ -218,3 +218,11 @@ persist that result under the OS lock after terminating the worker; if the state
 is unwritable/contended, the current result still reports the failure. Existing
 reset pins are retained. Final dedicated contour: 18 passed; full suite running
 on f703862 before the timeout-status delta, final exact-head CI is separate.
+
+M2 sidecar self-review: a saved synthetic de79c75 core accepted an existing
+snapshot with a journal symlink (reason_code=None), contradicting the family
+boundary. The added actual child check reproduced RED without touching user
+files; final helper validates the entire snapshot family before inspection.
+Dedicated final contour: 19 passed, including unchanged external sentinel.
+The exact final remote CI supersedes the earlier local full snapshots; no UI
+or lifecycle hook is added by this correction.
