@@ -1,8 +1,9 @@
 # #623 — минимальные автоматические локальные снимки
 
 Этот ExecPlan поддерживается по [.agent/PLANS.md](../.agent/PLANS.md).
-Текущий scope — M1: спецификация и characterization. Runtime и включение на
-личных данных требуют следующих этапов. Merge owner — Greg.
+M1 принят владельцем и merged #743 как 4230a9d. Текущий scope — M2:
+явный snapshot core и synthetic проверки. Runtime hooks и включение на
+личных данных относятся к следующим этапам. Merge owner — Greg.
 
 ## Purpose / Big Picture
 
@@ -17,7 +18,7 @@
 - [x] (2026-10-28) Сверены #623, main после #742, существующий backup, sync и operational state.
 - [x] (2026-10-28) Synthetic online/WAL characterization и логический fingerprint после VACUUM PASS.
 - [x] (2026-10-28) Подготовлен проект контракта с политикой, failure/reset/retention и RED matrix.
-- [ ] M1: проверки документов, draft PR, independent review и owner acceptance.
+- [x] (2026-10-28) M1: два review-раунда, два P2 исправлены, owner accepted и merged #743.
 - [ ] M2: bounded online snapshot, публикация, concurrency/faults.
 - [ ] M3: shared post-commit hooks, lifecycle check, status/API/web/Streamlit.
 - [ ] M4: retention и restore drill, полная synthetic приёмка и отдельный owner merge.
@@ -167,3 +168,85 @@ precondition до очистки, failure не делает reset. Повреж�
 pruning, health может восстанавливаться отдельно. Новый сервис или очередь для
 этого не добавляются. Матрица приёмки расширена на same-day reset и expiry.
 Второй review допускается только по этой delta; runtime acceptance NOT RUN.
+
+
+## M2 implementation checkpoint — 2026-10-29
+
+Domain/API Implementer продолжает принятый контракт по поручению владельца.
+Новых lifecycle hooks, Settings, API или UI нет: core вызывается только явно.
+`services/sqlite_snapshot_core.py` переиспользует логический инспектор и SQLite
+copy; adapter в ручном CLI сохраняет stopped confirmation и monkeypatch seams.
+`services/automatic_snapshots.py` реализует private namespace, OS-lock,
+проверенный snapshot/manifest, no-clobber публикацию и логическую дедупликацию.
+
+Для bounded copy/SQLite integrity/Python sort используется один дочерний процесс
+на попытку, не очередь. Parent прекращает worker по deadline и удаляет только
+свой идентифицированный staging directory. OS освобождает lock при kill.
+Полная публикация snapshot+manifest идёт atomic rename поверх исключительно
+своей пустой reservation, созданной mkdir без exist_ok; reservation без manifest
+не является restore candidate. Любой чужой существующий destination сохраняется.
+Read-only source не получает новую schema. Status хранится отдельно, reset_pins
+сохраняются, но управление pins, hooks и retention будут в M3/M4.
+
+Observed: первые новые тесты на baseline не импортировали отсутствующий модуль
+(ModuleNotFoundError), ноль SQLite opens. Inferred: нового core ещё нет.
+Verified by: isolated pytest RED, затем GREEN нового контракта и старого CLI.
+Первый corrupt-source тест был некорректен из-за открытого WAL connection:
+после закрытия фикстуры проверка отказа стала однозначной. Это исправление
+тестового setup, не product regression claim.
+
+Observed: native macOS firmlink не всегда даёт одинаковые DirEntry.inode() и
+stat().st_ino. Verified by: namespace probe первоначально отказал для обычного
+synthetic path; после сопоставления stat device/inode native alias tests GREEN.
+Casefold/NFC не используется как identity разных файлов на case-sensitive FS.
+Native Windows lock/ACL NOT RUN, unsupported paths/platform fail closed.
+
+Focused checkpoint: 135 passed (18 new M2 + 101 relocation + 16 backup/restore),
+включая kill до/после publish, busy/timeout/lock release, параллельных callers,
+конкурентный writer, no-clobber и неизвестный namespace. Дополнительный combined
+контур до последнего namespace test: 208 passed. Synthetic 10,280,960-byte DB:
+0.119s first snapshot, 0.120s unchanged check, одна опубликованная версия.
+Это не benchmark личной БД. Product seed/restart/demo-clear probe: 18 и 8
+bounded SQLite opens PASS. Full final/CI и independent review записываются
+отдельно; hooks/retention ещё NOT IMPLEMENTED и feature не включена.
+
+M2 self-review: namespace initialization refuses pre-existing unknown private
+folders, including an empty folder with the predicted name. It waits briefly
+for a concurrent creator's marker rather than adopting the folder. Checkout
+markers include dangling symlinks. Timeout returns degraded and attempts to
+persist that result under the OS lock after terminating the worker; if the state
+is unwritable/contended, the current result still reports the failure. Existing
+reset pins are retained. Final dedicated contour: 18 passed; full suite running
+on f703862 before the timeout-status delta, final exact-head CI is separate.
+
+M2 sidecar self-review: a saved synthetic de79c75 core accepted an existing
+snapshot with a journal symlink (reason_code=None), contradicting the family
+boundary. The added actual child check reproduced RED without touching user
+files; final helper validates the entire snapshot family before inspection.
+Dedicated final contour: 19 passed, including unchanged external sentinel.
+The exact final remote CI supersedes the earlier local full snapshots; no UI
+or lifecycle hook is added by this correction.
+
+## M2 native review round 1 — 2026-10-29
+
+Два P2 на 25f344f подтверждены двумя RED regression tests в изолированной
+synthetic копии: malformed status постоянно возвращал degraded вместо recovery,
+а SQLite DatabaseError давал degraded ответ при persisted ready. Никаких личных
+БД/сервисов не использовалось. Это подтверждённые reliability contradictions
+к принятому контракту, а не расширение scope.
+
+Исправлено: manifest health проверяется независимо от status; malformed/missing
+status и malformed pins восстанавливаются со sticky `reset_pins_unknown=true`.
+Этот признак хранится отдельно от snapshot readiness и запрещает pruning до
+явного operator repair в будущем M4. Валидные известные pins сохраняются; recovery
+никогда не превращает неизвестные pins в известный пустой набор. Identity
+refusals (symlink/hardlink) не заглатываются. Timeout persistence также сохраняет
+признак неизвестности. SQLite backup errors теперь ловятся под namespace lock;
+NOTADB/CORRUPT дают backup_integrity_failed, другие SQLite failures — safe
+backup_io_error, previous snapshot metadata сохраняется вместе с degraded.
+
+GREEN: 25 dedicated tests, включая два исходных RED, повторный recovery,
+изменение source после recovery, invalid JSON/list/pins, missing state и отказ
+на state symlink. Ruff GREEN. Полный contributor-safe и related contour
+записываются отдельно. Review budget 1/2; автоматический повтор не запрошен.
+Runtime hooks/retention по-прежнему M3/M4 и не включены.
