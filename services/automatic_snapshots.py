@@ -57,13 +57,18 @@ def _regular(path: Path) -> None:
         raise SnapshotError('backup_identity_unknown')
 
 
-def _private_directory(path: Path) -> None:
-    path.mkdir(mode=0o700, exist_ok=True)
+def _private_directory(path: Path) -> bool:
+    try:
+        path.mkdir(mode=0o700)
+        created = True
+    except FileExistsError:
+        created = False
     info = path.lstat()
     if not stat.S_ISDIR(info.st_mode):
         raise SnapshotError('backup_identity_unknown')
     if os.name == 'posix' and (info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
         raise SnapshotError('backup_identity_unknown')
+    return created
 
 
 def _source_namespace(source: Path) -> str:
@@ -97,7 +102,7 @@ def _paths(source: str | Path, root: str | Path) -> tuple[Path, Path, str]:
         if any(parent.is_symlink() for parent in (path, *path.parents)):
             raise SnapshotError('backup_identity_unknown')
     source, root = source.resolve(strict=True), root.resolve()
-    if any((parent / '.git').exists() for parent in (root, *root.parents)):
+    if any((parent / '.git').exists() or (parent / '.git').is_symlink() for parent in (root, *root.parents)):
         raise SnapshotError('backup_identity_unknown')
     if root == source or source.is_relative_to(root):
         raise SnapshotError('backup_identity_unknown')
@@ -248,16 +253,22 @@ def _run(source: str | Path, root: str | Path, temporary: Path | None = None, *,
     source, root, identity = _paths(source, root)
     _prepare_root(root)
     namespace = root / identity
-    _private_directory(namespace)
+    created = _private_directory(namespace)
+    marker = namespace / 'namespace.json'
+    expected = {'version': 1, 'source_namespace': identity}
+    if created:
+        _write_json(marker, expected)
+    else:
+        # A concurrent creator may be publishing its marker; never adopt an
+        # existing empty/unknown directory merely because its name matches.
+        limit = time.monotonic() + .5
+        while not marker.exists() and time.monotonic() < limit:
+            time.sleep(.01)
+        if not marker.exists():
+            raise SnapshotError('backup_identity_unknown')
     with namespace_lock(namespace, deadline=deadline):
-        marker = namespace / 'namespace.json'
-        if marker.exists():
-            if _read_json(marker) != {'version': 1, 'source_namespace': identity}:
-                raise SnapshotError('backup_identity_unknown')
-        else:
-            if any(p.name != 'lock' for p in namespace.iterdir()):
-                raise SnapshotError('backup_identity_unknown')
-            _write_json(marker, {'version': 1, 'source_namespace': identity})
+        if _read_json(marker) != expected:
+            raise SnapshotError('backup_identity_unknown')
         output = namespace / 'snapshots'
         _private_directory(output)
         state_path = namespace / 'status.json'

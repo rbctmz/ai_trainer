@@ -131,7 +131,7 @@ def test_two_callers_serialize_and_deduplicate(tmp_path):
     assert len(snapshots(root)) == 1
 
 
-def test_lock_released_after_owner_killed(tmp_path):
+def test_lock_released_after_owner_killed(tmp_path, monkeypatch):
     import subprocess
     import sys
     from services.automatic_snapshots import _paths
@@ -145,6 +145,10 @@ def test_lock_released_after_owner_killed(tmp_path):
     process = subprocess.Popen([sys.executable, '-c', code, str(root / namespace)], stdout=subprocess.PIPE, text=True)
     try:
         assert process.stdout.readline().strip() == 'locked'
+        import services.automatic_snapshots as core
+        with monkeypatch.context() as patch:
+            patch.setattr(core, 'DEADLINE_SECONDS', 2.0)
+            assert check_snapshot(source, root, 'busy')['reason_code'] == 'backup_busy'
     finally:
         process.kill()
         process.wait(timeout=5)
@@ -291,3 +295,17 @@ core._run(sys.argv[1],sys.argv[2])
         assert old.read_bytes() == old_bytes
         assert check_snapshot(source, root, 'restart')['state'] == 'ready'
         assert old.read_bytes() == old_bytes
+
+
+def test_unknown_namespace_is_not_adopted_or_deleted(tmp_path):
+    from services.automatic_snapshots import _paths
+    source, root = source_store(tmp_path), tmp_path / 'backups'
+    _, _, identity = _paths(source, root)
+    root.mkdir(mode=0o700)
+    unknown = root / identity
+    unknown.mkdir(mode=0o700)
+    (unknown / 'foreign.txt').write_text('keep')
+    result = check_snapshot(source, root, 'test')
+    assert result['reason_code'] == 'backup_identity_unknown'
+    assert (unknown / 'foreign.txt').read_text() == 'keep'
+    assert not (unknown / 'namespace.json').exists()

@@ -1,8 +1,9 @@
 # #623 — минимальные автоматические локальные снимки
 
 Этот ExecPlan поддерживается по [.agent/PLANS.md](../.agent/PLANS.md).
-Текущий scope — M1: спецификация и characterization. Runtime и включение на
-личных данных требуют следующих этапов. Merge owner — Greg.
+M1 принят владельцем и merged #743 как 4230a9d. Текущий scope — M2:
+явный snapshot core и synthetic проверки. Runtime hooks и включение на
+личных данных относятся к следующим этапам. Merge owner — Greg.
 
 ## Purpose / Big Picture
 
@@ -17,7 +18,7 @@
 - [x] (2026-10-28) Сверены #623, main после #742, существующий backup, sync и operational state.
 - [x] (2026-10-28) Synthetic online/WAL characterization и логический fingerprint после VACUUM PASS.
 - [x] (2026-10-28) Подготовлен проект контракта с политикой, failure/reset/retention и RED matrix.
-- [ ] M1: проверки документов, draft PR, independent review и owner acceptance.
+- [x] (2026-10-28) M1: два review-раунда, два P2 исправлены, owner accepted и merged #743.
 - [ ] M2: bounded online snapshot, публикация, concurrency/faults.
 - [ ] M3: shared post-commit hooks, lifecycle check, status/API/web/Streamlit.
 - [ ] M4: retention и restore drill, полная synthetic приёмка и отдельный owner merge.
@@ -167,3 +168,44 @@ precondition до очистки, failure не делает reset. Повреж�
 pruning, health может восстанавливаться отдельно. Новый сервис или очередь для
 этого не добавляются. Матрица приёмки расширена на same-day reset и expiry.
 Второй review допускается только по этой delta; runtime acceptance NOT RUN.
+
+
+## M2 implementation checkpoint — 2026-10-29
+
+Domain/API Implementer продолжает принятый контракт по поручению владельца.
+Новых lifecycle hooks, Settings, API или UI нет: core вызывается только явно.
+`services/sqlite_snapshot_core.py` переиспользует логический инспектор и SQLite
+copy; adapter в ручном CLI сохраняет stopped confirmation и monkeypatch seams.
+`services/automatic_snapshots.py` реализует private namespace, OS-lock,
+проверенный snapshot/manifest, no-clobber публикацию и логическую дедупликацию.
+
+Для bounded copy/SQLite integrity/Python sort используется один дочерний процесс
+на попытку, не очередь. Parent прекращает worker по deadline и удаляет только
+свой идентифицированный staging directory. OS освобождает lock при kill.
+Полная публикация snapshot+manifest идёт atomic rename поверх исключительно
+своей пустой reservation, созданной mkdir без exist_ok; reservation без manifest
+не является restore candidate. Любой чужой существующий destination сохраняется.
+Read-only source не получает новую schema. Status хранится отдельно, reset_pins
+сохраняются, но управление pins, hooks и retention будут в M3/M4.
+
+Observed: первые новые тесты на baseline не импортировали отсутствующий модуль
+(ModuleNotFoundError), ноль SQLite opens. Inferred: нового core ещё нет.
+Verified by: isolated pytest RED, затем GREEN нового контракта и старого CLI.
+Первый corrupt-source тест был некорректен из-за открытого WAL connection:
+после закрытия фикстуры проверка отказа стала однозначной. Это исправление
+тестового setup, не product regression claim.
+
+Observed: native macOS firmlink не всегда даёт одинаковые DirEntry.inode() и
+stat().st_ino. Verified by: namespace probe первоначально отказал для обычного
+synthetic path; после сопоставления stat device/inode native alias tests GREEN.
+Casefold/NFC не используется как identity разных файлов на case-sensitive FS.
+Native Windows lock/ACL NOT RUN, unsupported paths/platform fail closed.
+
+Focused checkpoint: 135 passed (18 new M2 + 101 relocation + 16 backup/restore),
+включая kill до/после publish, busy/timeout/lock release, параллельных callers,
+конкурентный writer, no-clobber и неизвестный namespace. Дополнительный combined
+контур до последнего namespace test: 208 passed. Synthetic 10,280,960-byte DB:
+0.119s first snapshot, 0.120s unchanged check, одна опубликованная версия.
+Это не benchmark личной БД. Product seed/restart/demo-clear probe: 18 и 8
+bounded SQLite opens PASS. Full final/CI и independent review записываются
+отдельно; hooks/retention ещё NOT IMPLEMENTED и feature не включена.
