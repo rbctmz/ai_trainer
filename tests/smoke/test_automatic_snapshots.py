@@ -112,6 +112,7 @@ def test_timeout_kills_worker_and_cleans_parent_owned_temp(tmp_path, monkeypatch
     import subprocess
     import services.automatic_snapshots as core
     source, root = source_store(tmp_path), tmp_path / 'backups'
+    assert core.check_snapshot(source, root, 'first')['state'] == 'ready'
     native = subprocess.Popen
     def slow(*args, **kwargs):
         return native([sys.executable, '-c', 'import time; time.sleep(30)'], **kwargs)
@@ -119,6 +120,9 @@ def test_timeout_kills_worker_and_cleans_parent_owned_temp(tmp_path, monkeypatch
     monkeypatch.setattr(core, 'DEADLINE_SECONDS', .2)
     assert core.check_snapshot(source, root, 'test')['reason_code'] == 'backup_timeout'
     assert not list(root.glob('.attempt-*'))
+    import json
+    state_path = snapshots(root)[0].parents[2] / 'status.json'
+    assert json.loads(state_path.read_text())['reason_code'] == 'backup_timeout'
 
 
 def test_two_callers_serialize_and_deduplicate(tmp_path):

@@ -322,6 +322,28 @@ def _run(source: str | Path, root: str | Path, temporary: Path | None = None, *,
                 shutil.rmtree(temporary)  # Only this call's freshly created candidate.
 
 
+def _record_timeout(root: Path, namespace_id: str) -> dict:
+    status = _status('degraded', 'backup_timeout')
+    directory = root / namespace_id
+    try:
+        if not directory.is_dir() or directory.is_symlink():
+            return status
+        with namespace_lock(directory, deadline=time.monotonic() + .05):
+            expected = {'version': 1, 'source_namespace': namespace_id}
+            if _read_json(directory / 'namespace.json') != expected:
+                return status
+            path = directory / 'status.json'
+            old = _read_json(path) if path.exists() else {}
+            pins = old.get('reset_pins', {})
+            if not isinstance(pins, dict):
+                return status
+            status = _status('degraded', 'backup_timeout', old)
+            _write_json(path, {**status, 'reset_pins': pins}, replace=True)
+    except (OSError, ValueError, SnapshotError):
+        pass  # The caller still receives degraded if persistence is unavailable.
+    return status
+
+
 def check_snapshot(database_path: str | Path, backup_root: str | Path, reason: str) -> dict:
     """One explicitly requested attempt; the worker bounds even SQLite C calls.
 
@@ -331,7 +353,7 @@ def check_snapshot(database_path: str | Path, backup_root: str | Path, reason: s
     temporary = None
     identity = None
     try:
-        source, root, _ = _paths(database_path, backup_root)
+        source, root, namespace_id = _paths(database_path, backup_root)
         _prepare_root(root)
         temporary = Path(tempfile.mkdtemp(prefix='.attempt-', dir=root))
         info = temporary.lstat()
@@ -346,7 +368,7 @@ def check_snapshot(database_path: str | Path, backup_root: str | Path, reason: s
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.communicate()
-                return _status('degraded', 'backup_timeout')
+                return _record_timeout(root, namespace_id)
             if process.returncode:
                 return _status('degraded', 'backup_io_error')
             return json.loads(output)

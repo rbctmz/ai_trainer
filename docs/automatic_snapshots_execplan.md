@@ -209,3 +209,12 @@ Focused checkpoint: 135 passed (18 new M2 + 101 relocation + 16 backup/restore),
 Это не benchmark личной БД. Product seed/restart/demo-clear probe: 18 и 8
 bounded SQLite opens PASS. Full final/CI и independent review записываются
 отдельно; hooks/retention ещё NOT IMPLEMENTED и feature не включена.
+
+M2 self-review: namespace initialization refuses pre-existing unknown private
+folders, including an empty folder with the predicted name. It waits briefly
+for a concurrent creator's marker rather than adopting the folder. Checkout
+markers include dangling symlinks. Timeout returns degraded and attempts to
+persist that result under the OS lock after terminating the worker; if the state
+is unwritable/contended, the current result still reports the failure. Existing
+reset pins are retained. Final dedicated contour: 18 passed; full suite running
+on f703862 before the timeout-status delta, final exact-head CI is separate.
