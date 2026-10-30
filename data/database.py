@@ -1343,6 +1343,38 @@ class Database:
         conn.close()
         return [self._deserialize_readiness_snapshot(row) for row in rows]
 
+    def get_latest_readiness_snapshot(
+        self, *, capture_mode=None, local_date_max=None
+    ):
+        """Chronologically latest snapshot row at or before `local_date_max`.
+
+        `revision` монотонна только внутри одного `target_key`, а target key
+        содержит local_date (`readiness:<mode>:YYYY-MM-DD`, issue #731) —
+        для нового дня счёт начинается заново. Поэтому хронологический выбор —
+        сначала самая поздняя `local_date`, затем максимальная `revision`
+        внутри неё, `id` как tie-break. Глобальная сортировка по `revision`
+        выбирала бы вчерашнюю revision=3 вместо сегодняшней revision=1
+        (находка дельта-ревью #733 от 7abe865). Returns a deserialized row
+        or None when nothing qualifies.
+        """
+        clauses, params = [], []
+        if capture_mode is not None:
+            clauses.append('capture_mode = ?')
+            params.append(str(capture_mode))
+        if local_date_max is not None:
+            clauses.append('local_date <= ?')
+            params.append(str(local_date_max))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
+        conn = self._connect()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            f'''SELECT * FROM readiness_snapshots {where}
+                ORDER BY local_date DESC, revision DESC, id DESC LIMIT 1''',
+            tuple(params),
+        ).fetchone()
+        conn.close()
+        return self._deserialize_readiness_snapshot(row)
+
     def _deserialize_readiness_snapshot(self, row):
         if row is None:
             return None

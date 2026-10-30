@@ -5,12 +5,15 @@ compatibility import only, so API code contains no private business rules.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from copy import deepcopy
+
+from datetime import date, datetime, timezone
 from typing import Any
 
 import pandas as pd
 
 from data.database import Database
+from models.load_metrics import canonical_activities_frame
 from models.readiness import (
     FACTOR_WEIGHTS,
     INTERVENTION_BLOCKED_NO_ELIGIBLE,
@@ -69,11 +72,8 @@ def _build_measured_readiness_snapshot(
         hrv_df = _bounded(db.get_hrv_data(36500), anchor)
         health_df = _bounded(db.get_daily_health(36500), anchor)
         training_df = _bounded(db.get_training_status_history(36500), anchor)
-        activity_rows = db.get_activities_between(
-            (anchor - timedelta(days=LOAD_METRICS_WINDOW_DAYS - 1)).isoformat(),
-            anchor.isoformat(),
-        )
-        activities_df = _bounded(pd.DataFrame(activity_rows), anchor)
+        activity_rows = canonical_activities_frame(db, anchor)
+        activities_df = _bounded(activity_rows, anchor)
     except Exception:
         return _unknown_snapshot(
             reason="Недостаточно данных readiness: не удалось прочитать локальную базу.",
@@ -357,6 +357,28 @@ def _reason(
         labels = ", ".join(FACTOR_LABELS.get(key, key) for key in missing_inputs)
         return f"Readiness рассчитан по частичным данным; отсутствуют: {labels}."
     return "Readiness рассчитан по полному набору основных recovery-сигналов."
+
+
+def project_persisted_readiness_snapshot(row: dict[str, Any]) -> dict[str, Any]:
+    """Restore the public snapshot shape from one immutable capture row.
+
+    Preserve captured freshness/intervention evidence instead of recomputing
+    it against newer inputs. Older rows without snapshot_json use their stored
+    columns; no current measurements are read to fill a historical capture.
+    """
+    captured = deepcopy(row.get("snapshot") or {})
+    for key in (
+        "score", "status", "confidence", "is_provisional", "source_completeness",
+        "factors", "drivers", "missing_inputs", "stale", "tsb",
+    ):
+        if key in row:
+            captured[key] = deepcopy(row[key])
+    captured.setdefault("computed_at", row.get("as_of_date"))
+    captured.setdefault("reason", "Сохранённый снимок готовности.")
+    for key in ("id", "revision", "capture_mode", "local_date", "observed_at_utc"):
+        captured[key] = row.get(key)
+    captured["as_of_date"] = row.get("as_of_date") or row.get("local_date")
+    return captured
 
 
 def build_readiness_snapshot(
