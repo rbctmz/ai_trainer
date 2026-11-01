@@ -4,17 +4,24 @@
 """
 
 import sys
+from pathlib import Path
 from datetime import datetime, timedelta
 import numpy as np
 
 # Добавляем путь к модулям
-sys.path.append('.')
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from data.database import Database
+from scripts.maintenance_runtime import generator_cli, isolated_generator, require_generator_target
 
-def add_test_activities():
+
+def Database(path):
+    from data.database import Database as ProductDatabase
+    return ProductDatabase(path)
+
+@isolated_generator
+def add_test_activities(database_path):
     """Добавление тестовых активностей"""
-    db = Database()
+    db = Database(str(require_generator_target(database_path)))
     
     # Создаем тестовые данные за последние 30 дней
     activities = []
@@ -75,9 +82,10 @@ def add_test_activities():
     db.save_activities(activities)
     print(f"✅ Добавлено {len(activities)} тестовых активностей")
 
-def add_test_hrv():
+@isolated_generator
+def add_test_hrv(database_path):
     """Добавление тестовых данных HRV"""
-    db = Database()
+    db = Database(str(require_generator_target(database_path)))
     
     hrv_data = {}
     base_date = datetime.now() - timedelta(days=30)
@@ -112,20 +120,9 @@ def add_test_hrv():
     db.save_hrv_data(hrv_data)
     print(f"✅ Добавлено {len(hrv_data)} записей HRV данных")
 
-def main():
-    print("🧪 Добавление тестовых данных...")
-    print("=" * 50)
-    
-    add_test_activities()
-    add_test_hrv()
-    
-    print("=" * 50)
-    print("✅ Тестовые данные успешно добавлены!")
-    print("\n📱 Теперь можете протестировать новые разделы:")
-    print("   streamlit run app.py")
-    print("\n🔍 Проверьте разделы:")
-    print("   - 🏃‍♂️ Активности")
-    print("   - 💓 Анализ HRV")
+def main(argv=None):
+    return generator_cli((add_test_activities, add_test_hrv), argv)
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

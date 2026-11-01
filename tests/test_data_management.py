@@ -20,6 +20,15 @@ except ImportError:
 from tests.sync_fixtures import legacy_upsert_activities
 from datetime import datetime, timedelta
 
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def owned_test_working_directory(tmp_path, monkeypatch):
+    """Legacy relative DB names and cleanup stay in this test's owned leaf."""
+    monkeypatch.chdir(tmp_path)
+
 def test_database_operations():
     """Тестирование операций с базой данных"""
     print("🧪 Тестирование операций с базой данных...")

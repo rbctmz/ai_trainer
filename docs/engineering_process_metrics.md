@@ -719,3 +719,110 @@ not run. Primary checkout, .env, personal DB/services unchanged. Completed M2
 branch removed only after ancestor/tree proof; M3 branch fast-forwarded to
 merged main. No linked escaped defect observed in this task as of 2026-10-25;
 observation window open. M3 outcome goes into its changeset, no docs-only PR.
+
+
+## #624 M3 synthetic relocation acceptance — #728, merged 2026-10-25
+
+[PR #728](https://github.com/rbctmz/ai_trainer/pull/728) opened
+2026-10-25T09:00:14Z and merged at 09:55:24Z as
+b75d510a1d236c3f1d9fee080e32597aa6adb5ec: calendar cycle 55m 10s;
+active work/wait not captured. Seven files, +537/-18, one source commit, no
+production code/API/schema change. #624 closed COMPLETED; parent #622 remains
+open for #625 then #623, off-device #626 deferred.
+
+Observed: [one native clean round](https://github.com/rbctmz/ai_trainer/pull/728#issuecomment-6396026623)
+on accepted 5ed589e711fb55d536903803274f8835fab17441, budget 1/2; zero
+findings/threads/active CHANGES_REQUESTED. Owner explicitly accepted review and
+merge/#624 closure; accepted/ready labels, latest Review gate SUCCESS and CLEAN
+checked immediately before merge. No source push after native review, retry,
+exception or admin bypass. Historical Review gate failures before human
+acceptance were expected, not functional CI failures.
+
+Verified by current-head CI, authenticated clean ledger, GitHub merge/issue
+metadata and merged-tree equality. Local combined 191 passed; full
+4184/18 skipped/116 deselected, 294.29s. Linux contributor-safe
+4162/40 skipped/116 deselected, 496.61s; Web E2E/Web contract/Gitleaks GREEN.
+Initial local M3 1-fail/5-pass was fixture power-TSS metadata without watts;
+raw-column/repair-path check isolated it, fixture uses current resolver, no
+product fix. No failed functional CI run observed for this head; aggregate
+flake count not captured. Native Windows/ACL, live migration/service restart
+not run. Primary checkout/DB/env/services unchanged; completed M3 branch
+removed after tree/ancestor proof. No linked escaped defect observed in this
+task as of 2026-10-25; window remains open. Outcome included in #729 changeset,
+no separate docs-only PR.
+
+
+## #729 review metrics projection — #730, merged 2026-10-25
+
+[PR #730](https://github.com/rbctmz/ai_trainer/pull/730) opened
+2026-10-25T16:10:14Z, merged 16:44:03Z as
+12615561218bf2b5e5288d3a5ed2f9cf01f11145: calendar cycle 33m49s; active coding
+and wait not captured. Class B, 11 files +448/-84, one source commit.
+[One clean native result](https://github.com/rbctmz/ai_trainer/pull/730#issuecomment-6400189273)
+on 813eb73634b3f6ff517439d8ae063192b8d5efdb, 1/2 rounds, zero findings/threads
+at acceptance. Explicit owner acceptance/merge; functional CI, Review gate
+and CLEAN checked before merge, no bypass/source push after review. Local
+44 Node + 7 Python guards; Linux CI 4162 passed / 40 skipped / 116 deselected.
+Functional reruns/flakes not captured; initial gate refusal before acceptance
+was policy state. Trusted workflow actually published the
+[metrics comment](https://github.com/rbctmz/ai_trainer/pull/730#issuecomment-6400332484),
+not just a renderer preview. Closed-state Not ready is not a merge failure.
+Issue #729 closed; branch cleanup after tree equality. No live-data/service
+operation; no linked escaped defect observed in this task as of 2026-10-25,
+observation window open. Outcome included with substantive #625 M1, without a
+separate post-merge docs PR. Metadata/receipt refreshed from GitHub for this record.
+
+
+## #625 M1 specification — #734, merged 2026-10-26
+
+[PR #734](https://github.com/rbctmz/ai_trainer/pull/734) opened
+2026-10-25T19:45:38Z and merged 2026-10-26T11:05:43Z as
+b68fc69013d15701e8cfb928ab790248149b69c3: calendar cycle 15h20m05s;
+active work/review or owner wait not captured. Class A specification, six files
++576/-0, two source commits. One [clean native receipt](https://github.com/rbctmz/ai_trainer/pull/734#issuecomment-6402616927)
+on accepted 2c08b95eb56adb5af8089d14d64341560d0e22a4, 1/2 rounds, no findings/threads.
+Explicit owner acceptance/merge, latest Review gate/functional CI/Gitleaks GREEN
+and CLEAN verified before normal exact-head merge; no source push after review
+or bypass. Historical failed review gates preceded human acceptance, not
+functional failures. Functional reruns/flakes and active coding time not captured.
+Local synthetic characterization, Ruff, diff and 58 local links GREEN; reviewed
+and merged trees identical. #625/#622 remain open for M2 onward; completed M1
+branch removed after ancestor/tree proof. No linked escaped defect observed in
+this task as of 2026-10-27; observation window open. No personal DB/env/service
+operation. Outcome included in substantive M2 changeset, no extra docs-only PR.
+
+## #625 M2 guardrails — #738, merged 2026-10-28
+
+[PR #738](https://github.com/rbctmz/ai_trainer/pull/738), opened
+2026-10-27T06:57:13Z and merged 2026-10-28T07:13:01Z as
+1c2e4c42f628af8965c2afa912c9027f6358dfe8, completed two review rounds.
+Two confirmed P1 findings were fixed; zero unresolved review threads at owner
+acceptance. Exact-head CI and accepted review gate were green before merge.
+The separate intermittent E2E HTTP 500 is tracked in #739; its cause was not
+established. M2 establishes pytest boundaries, not M3/M4 acceptance; #625 and
+#622 remain open. No personal database or service was modified.
+
+## #625 M3 entrypoints — #740, merged 2026-10-28
+
+[PR #740](https://github.com/rbctmz/ai_trainer/pull/740) was merged as
+1fd39a82a61f9358971e93c7ec36cffe08ed1721 after one clean native review on
+069bd8707b7674a586e9b61d643cd172da366a58, owner acceptance and green current
+checks; no unresolved review threads, reviewed and merged trees identical.
+Initial Linux E2E was 91/92 with stale cycle UI; one same-head CI retry passed
+92/92. The cause of the original failure remains unknown. A distinct UI failure
+when status refresh fails was reproduced synthetically on main and recorded in
+[#741](https://github.com/rbctmz/ai_trainer/issues/741); it is not asserted as
+the cause of the CI failure. No personal DB or service was accessed. M4 remains
+necessary for #625; #622 stays open. Outcome recorded in substantive M4 work,
+without a separate docs-only PR.
+
+## #625 M4 acceptance — #742, merged 2026-10-28
+
+[PR #742](https://github.com/rbctmz/ai_trainer/pull/742) merged as
+15797260f5abb05f24ea3052358cb8dfb31627ff after one clean native review on
+c6bec1edcbec14dea635b6d5b4acdb5ac92b696a, owner acceptance, CLEAN and current
+functional CI green. No unresolved threads; reviewed and merged trees identical.
+Local 291 focused / 4286 full / 92 E2E; Linux 4260 full / 42 skipped / 116
+deselected, E2E green. Native Windows/ACL NOT RUN. #625 closed; #622 remains
+open, #741 distinct. Outcome recorded in substantive #623 M1, no docs-only
+follow-up PR; no personal DB or service operation.

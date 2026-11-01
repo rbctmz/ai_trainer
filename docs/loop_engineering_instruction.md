@@ -239,6 +239,18 @@ The repository ruleset therefore remains the immediate merge guard through
 `required_review_thread_resolution`, while a 15-minute scheduled reconciliation
 removes stale readiness labels and neutralizes legacy per-head Ready comments.
 
+The single readiness comment also projects the review snapshot on Draft and
+not-ready PRs: current HEAD, completed native rounds for the PR and for that
+HEAD, unresolved review threads, authenticated owner acceptance, and readiness
+reason. It uses the gate's existing counters/ledger; a submitted review is not
+inferred to be clean. Unavailable values are `unknown`, never zero or approval.
+One bot-owned comment is updated only when content changes; Codex-native
+comments are not edited. Existing head/label freshness checks, trusted-code
+checkout and token permissions stay in place. API read failure keeps the check
+failed; an unavailable comment API cannot publish a new snapshot. The visible
+comment is the last successful projection, not an atomic GitHub transaction;
+thread reopenings still use the existing 15-minute reconciliation above.
+
 This is a signal, not an auto-merge. The maintainer still makes the merge
 decision.
 

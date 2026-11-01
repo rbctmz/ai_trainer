@@ -76,6 +76,23 @@ def _is_demo_dataset(state: HeadlessState) -> bool:
     return demo_mode_service.dataset_origin(state) == demo_mode_service.DATASET_ORIGIN_DEMO
 
 
+def _validate_state_database(state: HeadlessState) -> None:
+    """Recheck the selected owned store before any acceptance seed/reset."""
+    import os
+    from config.database_paths import ScratchPathError
+    from scripts.acceptance_launcher import validate_acceptance_child_environment
+
+    scope = validate_acceptance_child_environment(dict(os.environ))
+    try:
+        selected = scope.validate_target(Settings.DATABASE_PATH, purpose="bootstrap")
+        actual = scope.validate_target(state.database.db_path, purpose="bootstrap")
+        expected = scope.validate_target(os.environ["DATABASE_PATH"], purpose="bootstrap")
+        if selected is None or actual != selected or selected != expected:
+            raise ScratchPathError("scratch_target_unowned", purpose="bootstrap")
+    except (AttributeError, KeyError, TypeError):
+        raise ScratchPathError("scratch_identity_unknown", purpose="bootstrap") from None
+
+
 def bootstrap_session(state: HeadlessState) -> dict[str, Any]:
     """Seed the isolated acceptance dataset once per browser session."""
     info = runtime_info(state)
@@ -85,6 +102,7 @@ def bootstrap_session(state: HeadlessState) -> dict[str, Any]:
     if not info["enabled"]:
         return info
 
+    _validate_state_database(state)
     if getattr(state, "acceptance_bootstrapped", False):
         return info
 
@@ -112,6 +130,7 @@ def reset_acceptance_dataset(state: HeadlessState) -> dict[str, int]:
     if not is_acceptance_mode():
         raise RuntimeError("Acceptance reset is available only in acceptance mode.")
 
+    _validate_state_database(state)
     state.acceptance_bootstrapped = True
     return demo_mode_service.activate_demo_mode(state)
 

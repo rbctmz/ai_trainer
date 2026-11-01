@@ -34,7 +34,6 @@ import json
 import os
 import re
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -138,6 +137,11 @@ def _seed(db: Any) -> None:
 
 def capture() -> dict[str, Any]:
     """Return the normalised response of every parameterless GET endpoint."""
+    from scripts.scratch_pytest import bootstrap_pytest
+    selected_chats = os.environ.get("CHATS_DIR")
+    scope = bootstrap_pytest()
+    if selected_chats:
+        scope.validate_directory(Path(selected_chats))
     from fastapi.testclient import TestClient
 
     from api.deps import get_database
@@ -151,13 +155,14 @@ def capture() -> dict[str, Any]:
         if "get" in {method.lower() for method in ops} and "{" not in path
     )
 
-    tmp = Path(tempfile.mkdtemp())
-    db = Database(str(tmp / "parity.db"))
-    _seed(db)
-    app.dependency_overrides[get_database] = lambda: db
-
+    from scripts.scratch_runtime import ScratchScope
+    capture_scope = ScratchScope.create(parent=scope.root / "tmp")
     captured: dict[str, Any] = {}
     try:
+        target = capture_scope.validate_target(capture_scope.root / "parity.db", purpose="bootstrap")
+        db = Database(str(target))
+        _seed(db)
+        app.dependency_overrides[get_database] = lambda: db
         client = TestClient(app)
         for path in paths:
             response = client.get(path)
@@ -176,6 +181,7 @@ def capture() -> dict[str, Any]:
             }
     finally:
         app.dependency_overrides.clear()
+        capture_scope.cleanup()
     return captured
 
 
@@ -196,11 +202,8 @@ def _walk(left: Any, right: Any, trail: str = "") -> list[tuple[str, Any, Any]]:
 
 
 def _command_capture(args: argparse.Namespace) -> int:
-    # Hermetic: chat endpoints read Settings.CHATS_DIR, which defaults to the
-    # operator's real chats. Set before the app is imported.
-    tmp = Path(tempfile.mkdtemp())
-    os.environ["CHATS_DIR"] = str(tmp / "chats")
-
+    # capture() installs the owned bootstrap before Settings/app imports;
+    # bootstrap selects its own chats directory and removes credentials.
     captured = capture()
     payload = normalise(json.dumps(captured, ensure_ascii=False, sort_keys=True, default=str))
     Path(args.out).write_text(payload, encoding="utf-8")

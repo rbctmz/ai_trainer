@@ -3,6 +3,15 @@
 Тест интеграции нового инструмента get_activities_by_date_range в основное приложение
 """
 
+if __name__ == "__main__":
+    import sys as _scratch_sys
+    from pathlib import Path as _ScratchPath
+
+    _scratch_sys.path.insert(0, str(_ScratchPath(__file__).resolve().parents[1]))
+    from scripts.scratch_pytest import bootstrap_pytest as _bootstrap_pytest
+
+    _bootstrap_pytest()
+
 import sys
 sys.path.append('..')
 

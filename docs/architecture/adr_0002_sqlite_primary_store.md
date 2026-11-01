@@ -44,7 +44,7 @@ directory (macOS Application Support, Linux XDG data home, Windows LocalAppData)
 M2 добавляет явный offline migrate к существующему backup/restore CLI:
 read-only plan, WAL-aware rollback, полная logical/schema verification и atomic
 no-clobber target. Успех — copied_not_activated; source/config не меняются.
-M2 merged #727 (66c7d5f); M3 candidate добавляет synthetic fresh-process
+M2 merged #727 (66c7d5f); M3 #728 merged b75d510, synthetic fresh-process
 FastAPI/domain restart, новые записи, fresh snapshot restore/reset/rollback.
 Это не live relocation/Windows acceptance и не restart личного сервиса. Новых схем,
 selector/receipt или backup engines нет; operator quiescence обязательна.

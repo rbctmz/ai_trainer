@@ -1,0 +1,57 @@
+{
+  "baseline_sha": "12615561218bf2b5e5288d3a5ed2f9cf01f11145",
+  "observations": {
+    "rebound_path_differs": true,
+    "symlink_samefile": true,
+    "hardlink_samefile": true,
+    "demo_sidecar_selection": "allowed",
+    "legacy_pytest_exit": 0,
+    "legacy_case_outcomes": [
+      "skipped"
+    ],
+    "legacy_created_database_before_inspection": true,
+    "legacy_table_count": 37,
+    "gitignore_ignored_candidates": [
+      "ai_trainer.db",
+      "ai_trainer.db-wal",
+      "ai_trainer.db-shm",
+      "ai_trainer.db-journal"
+    ],
+    "gitignore_created_artifacts": false,
+    "acceptance_exit": 0,
+    "acceptance_passed_external_target_to_stub": true
+  },
+  "direct_zero_argument_Database_calls_static_only": [
+    "tests/add_test_data.py:17",
+    "tests/add_test_data.py:80",
+    "tests/add_test_hrv_data.py:21",
+    "tests/add_training_data_for_correlation.py:21",
+    "tests/check_hrv_table_sorting.py:18",
+    "tests/force_fresh_sync_test.py:83",
+    "tests/smoke/test_database_paths.py:242",
+    "tests/smoke/test_database_paths.py:265",
+    "tests/test_ai_chat_integration.py:21",
+    "tests/test_ai_providers_advanced.py:34",
+    "tests/test_ai_tools_system.py:22",
+    "tests/test_app_sync_integration.py:74",
+    "tests/test_csv_vs_database.py:62",
+    "tests/test_date_range_tool.py:22",
+    "tests/test_final_app.py:20",
+    "tests/test_final_app_integration.py:23",
+    "tests/test_final_chat_features.py:85",
+    "tests/test_full_hrv_sync.py:26",
+    "tests/test_full_sync_cycle.py:22",
+    "tests/test_gemini_prompts.py:32",
+    "tests/test_hrv_data_display.py:22",
+    "tests/test_hrv_display.py:17",
+    "tests/test_hrv_logic.py:19",
+    "tests/test_hrv_sync.py:23",
+    "tests/test_hrv_trend.py:20",
+    "tests/test_improved_formatting.py:22",
+    "tests/test_main_app_integration.py:16",
+    "tests/test_mock_ai_with_tools.py:103",
+    "tests/test_training_prompts.py:22",
+    "tests/test_training_prompts.py:145"
+  ],
+  "runtime_scope": "one legacy pytest case, pure paths, stub acceptance; NOT full-suite coverage"
+}

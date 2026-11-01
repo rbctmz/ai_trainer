@@ -12,12 +12,12 @@ pytestmark = pytest.mark.smoke
 class _StubDatabase:
     def __init__(
         self,
-        db_path: str = "/tmp/acceptance.db",
+        db_path: str | None = None,
         stats: dict[str, int] | None = None,
         latest_checkpoint: dict[str, object] | None = None,
         dataset_origin: str | None = None,
     ):
-        self.db_path = db_path
+        self.db_path = db_path or Settings.DATABASE_PATH
         self._stats = stats or {
             "activities": 0,
             "hrv_data": 0,
@@ -72,7 +72,7 @@ def test_runtime_info_reports_isolated_database_path(monkeypatch: pytest.MonkeyP
     assert info["enabled"] is True
     assert info["auto_demo"] is True
     assert info["garmin_disabled"] is True
-    assert info["database_path"] == "/tmp/acceptance.db"
+    assert info["database_path"] == Settings.DATABASE_PATH
 
 
 def test_bootstrap_session_seeds_demo_once_for_empty_isolated_database(monkeypatch: pytest.MonkeyPatch):

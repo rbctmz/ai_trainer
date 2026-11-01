@@ -20,7 +20,6 @@ import signal
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -187,7 +186,12 @@ class WebStack:
 
 @pytest.fixture(scope="module")
 def web_stack():
-    tmp_dir = Path(tempfile.mkdtemp(prefix="ai-trainer-e2e-"))
+    from scripts.scratch_runtime import ScratchScope, scope_from_environment
+    parent_scope = scope_from_environment()
+    if parent_scope is None:
+        raise RuntimeError("scratch_identity_unknown: bootstrap")
+    session_scope = ScratchScope.create(parent=parent_scope.root / "tmp")
+    tmp_dir = session_scope.root
     api_port = _free_port()
     web_port = _free_port()
     api_base = f"http://127.0.0.1:{api_port}"
@@ -215,7 +219,11 @@ def web_stack():
             "GARMIN_PASSWORD": "",
             "INTERVALS_ICU_API_KEY": "",
             "PYTHONUNBUFFERED": "1",
+            "AI_TRAINER_E2E_SCOPE": "1",
+            "AI_TRAINER_SCRATCH_SCOPE": json.dumps(session_scope.descriptor()),
         }
+        from scripts.acceptance_launcher import validate_acceptance_child_environment
+        validate_acceptance_child_environment(api_env)
         with api_log.open("wb") as log_handle:
             api_proc = subprocess.Popen(
                 [sys.executable, "-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", str(api_port)],
@@ -331,4 +339,4 @@ def web_stack():
             playwright_driver.stop()
         _stop_process_group(next_proc)
         _stop_process_group(api_proc)
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        session_scope.cleanup()

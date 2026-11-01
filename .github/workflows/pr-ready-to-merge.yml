@@ -301,7 +301,6 @@ jobs:
           script: |
             const {
               MAX_NATIVE_REVIEW_ROUNDS,
-              READY_MARKER,
               cleanNativeReviewHead,
               countNativeReviewRounds,
               countNativeReviewRoundsForHead,
@@ -309,7 +308,7 @@ jobs:
               isPrivilegedRepositoryPermission,
               latestLabelActor,
               persistCleanReviewStatuses,
-              selectReadinessStatusComments,
+              updateReadinessComment,
               shouldInvalidateAcceptance,
             } = require('./.github/scripts/review-gate.cjs');
 
@@ -407,6 +406,8 @@ jobs:
             };
 
             const permissionByActor = new Map();
+            const unavailablePermissionActors = new Set();
+            const unavailableLabelReads = new WeakMap();
             const isPrivilegedActor = async (login) => {
               if (!login || login.endsWith('[bot]')) return false;
               if (login === context.payload.repository.owner.login) return true;
@@ -420,6 +421,7 @@ jobs:
                     });
                     return isPrivilegedRepositoryPermission(data.permission);
                   } catch (error) {
+                    unavailablePermissionActors.add(login);
                     core.warning(`Cannot authenticate label actor ${login}: ${error.message}`);
                     return false;
                   }
@@ -436,6 +438,11 @@ jobs:
                 ? context.actor
                 : latestLabelActor(events, name);
               const authenticated = await isPrivilegedActor(actor);
+              if (unavailablePermissionActors.has(actor)) {
+                const failed = unavailableLabelReads.get(labels) || new Set();
+                failed.add(name);
+                unavailableLabelReads.set(labels, failed);
+              }
               if (!authenticated) core.warning(`${name} has no privileged current actor`);
               return authenticated;
             };
@@ -562,6 +569,10 @@ jobs:
                 per_page: 100,
               });
               const eventsPromise = issueEvents(pr.number);
+              // Observe list failures immediately, even while GraphQL is pending.
+              const listResultsPromise = Promise.allSettled([
+                reviewsPromise, commentsPromise, eventsPromise,
+              ]);
               let after = null;
               let unresolvedThreads = 0;
               let reviewDecision = null;
@@ -591,11 +602,10 @@ jobs:
                 after = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null;
               } while (after);
 
-              const [reviews, comments, events] = await Promise.all([
-                reviewsPromise,
-                commentsPromise,
-                eventsPromise,
-              ]);
+              const listResults = await listResultsPromise;
+              const failedList = listResults.find(result => result.status === 'rejected');
+              if (failedList) throw failedList.reason;
+              const [reviews, comments, events] = listResults.map(result => result.value);
               const cleanReviewStatuses = await persistCleanReviewStatuses({
                 github,
                 owner: context.repo.owner,
@@ -620,6 +630,13 @@ jobs:
                 authenticatedLabel(WAIVER_LABEL, labels, events),
               ]);
               return {
+                metrics: {
+                  headSha: pr.head.sha,
+                  nativeReviewRounds,
+                  currentHeadNativeReviewRounds,
+                  unresolvedThreads,
+                  accepted: unavailableLabelReads.get(labels)?.has(ACCEPTED_LABEL) ? null : accepted,
+                },
                 decision: evaluateReviewGate({
                   accepted,
                   nativeReviewRounds,
@@ -631,62 +648,6 @@ jobs:
                 }),
                 budgetExceeded: nativeReviewRounds > MAX_NATIVE_REVIEW_ROUNDS && !hasBudgetException,
               };
-            };
-
-            const updateReadyComment = async (pr, issueNums, ready, reason) => {
-              const comments = await github.paginate(github.rest.issues.listComments, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                per_page: 100,
-              });
-              const { canonical, duplicates } = selectReadinessStatusComments(comments);
-              if (!ready && !canonical) return;
-
-              const issueText = issueNums.map(num => `#${num}`).join(', ');
-              const body = [
-                READY_MARKER,
-                ready ? '**Ready to merge**' : '**Not ready to merge**',
-                '',
-                ready
-                  ? `Linked to ${issueText}; checks and the accepted review gate are green on \`${pr.head.sha.slice(0, 12)}\`.`
-                  : `Current head \`${pr.head.sha.slice(0, 12)}\` is not ready: ${reason}.`,
-                '',
-                'Human merge decision is still required.',
-              ].join('\n');
-              if (canonical) {
-                if ((canonical.body || '') !== body) {
-                  await github.rest.issues.updateComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    comment_id: canonical.id,
-                    body,
-                  });
-                }
-              } else {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number,
-                  body,
-                });
-              }
-
-              const supersededBody = [
-                '<!-- pr-ready-to-merge-superseded -->',
-                '**Superseded readiness status**',
-                '',
-                'This legacy per-head signal was replaced by the current readiness comment.',
-              ].join('\n');
-              for (const duplicate of duplicates) {
-                if ((duplicate.body || '') === supersededBody) continue;
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: duplicate.id,
-                  body: supersededBody,
-                });
-              }
             };
 
             await Promise.all([
@@ -727,13 +688,17 @@ jobs:
                 reason = 'PR has merge conflicts or mergeability is unknown';
               }
 
-              let review = null;
-              let checks = null;
+              const knownIneligible = Boolean(reason);
+              // Metrics are useful before readiness, especially on Draft PRs.
+              const [reviewResult, checksResult] = await Promise.allSettled([
+                reviewState(pr, labels),
+                knownIneligible ? Promise.resolve(null) : checkState(pr),
+              ]);
+              const review = reviewResult.status === 'fulfilled' ? reviewResult.value : null;
+              const checks = checksResult.status === 'fulfilled' ? checksResult.value : null;
+              const readError = reviewResult.status === 'rejected' || checksResult.status === 'rejected';
+              if (!reason && readError) reason = 'review or check data unavailable';
               if (!reason) {
-                [review, checks] = await Promise.all([
-                  reviewState(pr, labels),
-                  checkState(pr),
-                ]);
                 if (review.budgetExceeded && !labels.has(EXCEEDED_LABEL)) {
                   await addLabel(prNumber, EXCEEDED_LABEL);
                 } else if (!review.budgetExceeded && labels.has(EXCEEDED_LABEL)) {
@@ -754,8 +719,16 @@ jobs:
                 core.info(`PR #${prNumber}: stale evaluation skipped`);
                 continue;
               }
-              if (ready && !labels.has(READY_LABEL)) await addLabel(prNumber, READY_LABEL);
-              if (!ready && labels.has(READY_LABEL)) await removeLabel(prNumber, READY_LABEL);
-              await updateReadyComment(latestPr, issueNums, ready, reason);
+              // On an otherwise eligible PR, API failure previously aborted
+              // before label mutations. Preserve that policy and publish unknown.
+              if (!readError || knownIneligible) {
+                if (ready && !labels.has(READY_LABEL)) await addLabel(prNumber, READY_LABEL);
+                if (!ready && labels.has(READY_LABEL)) await removeLabel(prNumber, READY_LABEL);
+              }
+              await updateReadinessComment({
+                github, owner: context.repo.owner, repo: context.repo.repo,
+                pr: latestPr, issueNums, ready, reason, metrics: review?.metrics || null,
+              });
+              if (readError) core.setFailed('review or check data unavailable');
               core.info(`PR #${prNumber}: ${ready ? 'ready' : `not ready (${reason})`}`);
             }

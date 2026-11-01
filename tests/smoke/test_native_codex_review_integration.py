@@ -65,7 +65,7 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
         "countNativeReviewRoundsForHead",
         "persistCleanReviewStatuses",
         "evaluateReviewGate",
-        "selectReadinessStatusComments",
+        "updateReadinessComment",
         "shouldInvalidateAcceptance",
         "latestLabelActor",
         "getCollaboratorPermissionLevel",
@@ -74,7 +74,6 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
         'schedule:',
         'cron: "*/15 * * * *"',
         "['workflow_dispatch', 'schedule'].includes(context.eventName)",
-        "pr-ready-to-merge-superseded",
     ):
         assert contract in text
     assert "pull_request:" not in trigger_block
@@ -93,7 +92,10 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
     assert "context.payload.comment," in text
     assert "removeLabel(ACCEPTED_LABEL)" in text
     assert "latestPr.head.sha !== pr.head.sha" in text
-    assert "READY_MARKER," in text
+    policy = REVIEW_GATE_POLICY.read_text(encoding="utf-8")
+    assert "selectReadinessStatusComments" in policy
+    assert "pr-ready-to-merge-superseded" in policy
+    assert "READY_MARKER," in policy
     assert "const marker = `${READY_MARKER_PREFIX}${pr.head.sha} -->`;" not in text
 
 

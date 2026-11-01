@@ -156,7 +156,8 @@ def _environment(root: Path, database: Path | None) -> dict[str, str]:
         env['AI_TRAINER_TEST_ROOT'] = os.environ['AI_TRAINER_TEST_ROOT']
     if database is not None:
         env['DATABASE_PATH'] = str(database)
-    return env
+    from scripts.scratch_pytest import child_environment
+    return child_environment(env)
 
 
 def _cli(root: Path, *args: str, expected: int = 0) -> dict:

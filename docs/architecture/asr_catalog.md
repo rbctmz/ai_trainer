@@ -829,7 +829,7 @@ captured data and bounded date projections outside writer lock. ADR-0001/0002/
 UI, independent verdict, native acceptance or performance outcome claimed yet.
 
 
-## Runtime database path (#624; M1/M2 merged, M3 acceptance candidate)
+## Runtime database path (#624; M1–M3 merged, implementation issue closed)
 
 Approved [contract](../database_path_relocation_slice_spec.md) and
 [plan](../database_path_relocation_execplan.md). M1 #726 merged as 89fa21a:
@@ -842,6 +842,50 @@ collisions, unsupported schema/virtual objects and injected copy/validation/
 publication races. ASR-SEC-1: private outputs, no row contents in JSON. No new
 API/schema/dependency (ASR-MOD-3). M3 `test_database_relocation_drill.py` adds actual CLI→fresh API/domain process,
 new-write restart/fresh restore/reset and retained snapshot proof. This is
-synthetic candidate evidence, final M3 review/owner and native Windows acceptance
-remain open; no live data or service operations are included.
+synthetic accepted evidence: M3 #728 merged b75d510 after clean native review
+and explicit owner merge; #624 closed. Native Windows/ACL remain unverified;
+no live data or service operations are included.
 Live migration/activation still requires a separate owner decision.
+
+
+## Scratch DB boundary (#625; M1 specification only)
+
+[Proposed contract](../database_path_guardrails_slice_spec.md) and
+[ExecPlan](../database_path_guardrails_execplan.md): ASR-REL-3 / ASR-DEP-2
+require test/acceptance/maintenance refusal before opening an unowned target;
+ASR-SEC-1 requires credential-free scratch execution and safe diagnostics.
+Existing resolver/SQLite Backup API are reused, ordinary product writes and
+`Database._connect` stay unchanged. M1 synthetic probes characterize current
+gaps, not a delivered guard: runtime isolation/alias/cleanup acceptance remains
+pending M2–M4. No new ASR or ADR, API/schema/UI or live-data operation.
+
+
+### #625 M2 candidate: pytest boundary (not final M3/M4 acceptance)
+
+The candidate adds owned scratch scopes, safe family/URI parsing, early pytest
+bootstrap and child handoff validation, with failure before foreign SQLite open
+or unsafe basetemp cleanup. Ordinary product Settings/Database._connect and
+schema/API/UI remain unchanged. Synthetic RED/GREEN and limits are recorded in
+[ExecPlan](../database_path_guardrails_execplan.md). Final full/native acceptance
+is pending; standalone acceptance/maintenance protection is M3, not implied by
+this test-only audit. ASR-REL-3 / DEP-2 / SEC-1 guarantees are not promoted to
+complete for the whole #625/#622 track.
+
+### #625 M3 candidate: acceptance and maintenance boundaries
+
+M3 extends the M2 scratch boundary to standalone acceptance, E2E, diagnostics
+and explicit maintenance flows; it validates before a SQLite write or provider
+call. Working-store writes require an operator-attested stop and a matching
+verified backup. Ordinary product Database connections remain unchanged.
+Evidence and unverified platforms are recorded in the ExecPlan; M4 and overall
+#625/#622 acceptance remain pending.
+
+## Automatic local snapshots (#623 M1, specification candidate)
+
+[Contract](../automatic_snapshots_slice_spec.md) and
+[ExecPlan](../automatic_snapshots_execplan.md) apply ASR-REL-3 / ASR-DEP-2 /
+ASR-SEC-1: post-commit snapshot or visible degradation, validated atomic artifact
+publication and bounded daily/weekly retention. Ordinary source schema stays
+unchanged; manual CLI stopped-service boundary remains. M1 only characterizes
+online SQLite consistency on synthetic data; automatic service, deadline/fault
+handling, API/UI and retention are NOT IMPLEMENTED. Off-device RPO remains #626.
