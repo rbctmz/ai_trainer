@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "aad6c9534de55fd4147b81d4d264261978ba65acb97718882e284e7fb0d05de6",
+    "source_sha256": "6e6a0a1f02ea7bd7b763ee63a937607a279a135620f3aeb4ec4914c75378c519",
     "registry": "tests/contracts/registry.json",
     "registry_sha256": "fa1b59a216c5967472c6d242cd09b1a9abc24037681acc741101aa6db5982ea1"
   },
@@ -20446,6 +20446,200 @@
       "record_values": null,
       "array_length": null
     },
+    "PlanningLoadMetrics": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "as_of": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "atl": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "capture_mode": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [
+              "prospective"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "ctl": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "form": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "observed_at_utc": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "revision": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "snapshot_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "source": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "live",
+              "persisted"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "tsb": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
     "PlanningOnboarding": {
       "kinds": [
         "object"
@@ -22917,6 +23111,565 @@
       "record_values": null,
       "array_length": null
     },
+    "PlanningReadinessSnapshot": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "as_of_date": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "capture_mode": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "computed_at": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "eligible_inputs": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "string"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": null,
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "factors": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "ReadinessSnapshotFactor",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "freshness": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "ReadinessFreshness",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "id": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "ineligible_inputs": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "ReadinessIneligibleInput",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "intervention_blocked_reason": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "intervention_confidence": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "intervention_score": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "is_provisional": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "local_date": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "missing_inputs": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "string"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": null,
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "observed_at_utc": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "reason": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "revision": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "score": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "source_completeness": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "stale": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "status": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "limited",
+              "low",
+              "ready",
+              "stale",
+              "strong",
+              "unknown"
+            ],
+            "widened": true,
+            "items": null,
+            "fields": null,
+            "ref": "ReadinessSnapshotStatus",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "subjective_wellness": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "SubjectiveWellness",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "tsb": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "as_of": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "atl": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "ctl": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "tsb": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "window_days": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
     "PlanningStatus": {
       "kinds": [
         "object"
@@ -23097,77 +23850,8 @@
             "literals": [],
             "widened": false,
             "items": null,
-            "fields": {
-              "atl": {
-                "optional": false,
-                "spec": {
-                  "kinds": [
-                    "number"
-                  ],
-                  "literals": [],
-                  "widened": false,
-                  "items": null,
-                  "fields": null,
-                  "ref": null,
-                  "wildcard": false,
-                  "variants": null,
-                  "record_values": null,
-                  "array_length": null
-                }
-              },
-              "ctl": {
-                "optional": false,
-                "spec": {
-                  "kinds": [
-                    "number"
-                  ],
-                  "literals": [],
-                  "widened": false,
-                  "items": null,
-                  "fields": null,
-                  "ref": null,
-                  "wildcard": false,
-                  "variants": null,
-                  "record_values": null,
-                  "array_length": null
-                }
-              },
-              "form": {
-                "optional": false,
-                "spec": {
-                  "kinds": [
-                    "string"
-                  ],
-                  "literals": [],
-                  "widened": false,
-                  "items": null,
-                  "fields": null,
-                  "ref": null,
-                  "wildcard": false,
-                  "variants": null,
-                  "record_values": null,
-                  "array_length": null
-                }
-              },
-              "tsb": {
-                "optional": false,
-                "spec": {
-                  "kinds": [
-                    "number"
-                  ],
-                  "literals": [],
-                  "widened": false,
-                  "items": null,
-                  "fields": null,
-                  "ref": null,
-                  "wildcard": false,
-                  "variants": null,
-                  "record_values": null,
-                  "array_length": null
-                }
-              }
-            },
-            "ref": null,
+            "fields": null,
+            "ref": "PlanningLoadMetrics",
             "wildcard": false,
             "variants": null,
             "record_values": null,
@@ -23184,7 +23868,7 @@
             "widened": false,
             "items": null,
             "fields": null,
-            "ref": "ReadinessSnapshot",
+            "ref": "PlanningReadinessSnapshot",
             "wildcard": false,
             "variants": null,
             "record_values": null,
