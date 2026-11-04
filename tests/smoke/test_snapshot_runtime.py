@@ -107,7 +107,7 @@ def test_sync_snapshot_follows_final_audit_and_terminal_waits(tmp_path, monkeypa
         return {'sync_state': 'succeeded', 'title': 'done'}
     manager.start_or_get(days=1, run_sync=run_sync, db=db, source='intervals')
     try:
-        assert entered.wait(2)
+        assert entered.wait(2), manager.status(db)
         assert manager.status(db)['sync_state'] == 'running'
     finally:
         release.set()
@@ -463,3 +463,45 @@ def test_locked_source_provenance_refuses_without_waiting_for_writer_timeout(tmp
     runner = runtime.get_runtime(db)
     runner.now = lambda: datetime.now(timezone.utc) + timedelta(seconds=61)
     assert runner.check('retry_after_unlock')['state'] == 'ready'
+
+
+def test_delayed_ready_never_hides_newer_unpersisted_failure(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    import services.automatic_snapshots as core
+    db = enabled(tmp_path, monkeypatch)
+    runner = runtime.get_runtime(db)
+    published, release = Event(), Event()
+    native = runtime.check_snapshot
+    def check(source, root, reason):
+        result = native(source, root, reason)
+        if reason == 'first':
+            published.set()
+            assert release.wait(3)
+        return result
+    monkeypatch.setattr(runtime, 'check_snapshot', check)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        first = pool.submit(runner.check, 'first')
+        try:
+            assert published.wait(3)
+            db.set_user_setting('later_generation', 'not protected yet')
+            native_temp = core.tempfile.mkdtemp
+            def no_space(*args, **kwargs):
+                if kwargs.get('prefix') == '.attempt-':
+                    raise OSError('synthetic ENOSPC')
+                return native_temp(*args, **kwargs)
+            with monkeypatch.context() as patch:
+                patch.setattr(core.tempfile, 'mkdtemp', no_space)
+                failed = runner.check('second')
+            assert failed['state'] == 'degraded'
+        finally:
+            release.set()
+        assert first.result(timeout=3)['state'] == 'ready'
+    assert runner.status()['state'] == 'degraded'
+    assert runner.status()['last_checked_at'] == failed['last_checked_at']
+    runner.now = lambda: datetime.now(timezone.utc) + timedelta(seconds=61)
+    retried = runner.check_due()
+    assert retried['state'] == 'ready'
+    copy = next((tmp_path / 'backups').glob(f"*/snapshots/{retried['last_snapshot_id']}/snapshot.db"))
+    with sqlite3.connect(copy) as conn:
+        assert conn.execute("SELECT value FROM user_settings WHERE key='later_generation'").fetchone()[0] == 'not protected yet'

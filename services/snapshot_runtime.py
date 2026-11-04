@@ -71,6 +71,7 @@ class BackupRuntime:
         self._stop = Event()
         self._thread: Thread | None = None
         self._lifecycle = Lock()
+        self._receipt_lock = Lock()
 
     def _preflight_failure(self) -> dict[str, Any]:
         if self._current is None or self._current['state'] != 'degraded':
@@ -117,9 +118,16 @@ class BackupRuntime:
             status = {**status, 'last_snapshot_id': previous.get('last_snapshot_id'),
                       'last_snapshot_at': previous.get('last_snapshot_at')}
         completed = self.now()
-        self._current = {**status, 'last_checked_at': status.get('last_checked_at') or completed.isoformat()}
+        receipt = {**status, 'last_checked_at': status.get('last_checked_at') or completed.isoformat()}
+        # This short assignment lock never encloses the backup. A delayed old
+        # success cannot erase a newer failure that could not reach status.json.
+        with self._receipt_lock:
+            current_at = _instant((self._current or {}).get('last_checked_at'))
+            incoming_at = _instant(receipt['last_checked_at'])
+            if current_at is None or (incoming_at is not None and incoming_at >= current_at):
+                self._current = receipt
         self._day = completed.date()
-        return dict(self._current)
+        return receipt
 
     def check_due(self, *, startup: bool = False) -> dict[str, Any]:
         status = self.status()

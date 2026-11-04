@@ -312,3 +312,19 @@ writer PRAGMAs. Unknown provenance remains degraded in the runtime until a
 successful eligible check; no unauthorized namespace write is attempted. Final
 combined protocol/runtime/API/contract contour: 214 passed, 7 existing warnings,
 40.48s. Final candidate is frozen for full native + remote CI; no live enablement.
+
+
+## M3 independent review round 1 — 2026-11-04
+
+Observed: native review 5766719588 on 165a97a raised P2 thread4466238963.
+Inferred: delayed ready can erase a later error that could not persist to disk.
+Verified by: test_delayed_ready_never_hides_newer_unpersisted_failure reproduced
+ready instead of degraded using actual initial snapshot + ENOSPC on later temp
+creation; no mocks of the failure result. A short receipt assignment lock now
+orders local receipts by core timestamp, without serializing/skipping backup.
+Dedicated regression also checks timer retry after61s captures the new commit.
+Delta core/runtime/API:50 passed (17.02s), Ruff/diff GREEN; remote CI pending.
+An existing sync wait(2) assertion failed twice before the hook was entered; its
+standalone diagnostic and final combined rerun pass. Cause not established;
+assertion now includes terminal/progress state for any recurrence; timeout was
+not increased. Round2 not requested automatically. M4 remains separate.
