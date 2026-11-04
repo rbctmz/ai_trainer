@@ -43,7 +43,7 @@ export function BackupStatusView({ status, loading = false, pending = false, ret
           : "Время последней проверенной копии неизвестно."}
         {ready && status.last_checked_at ? ` Проверка: ${timeLabel(status.last_checked_at)}.` : ""}
       </p>
-      {maintenance ? <p className="mt-2 text-xs text-tone-warning">Резервная копия сохранена. Очистка старых копий приостановлена; требуется проверка.</p> : null}
+      {maintenance ? <p className="mt-2 text-xs text-ink-soft">Резервная копия сохранена. Очистка старых копий приостановлена; требуется проверка.</p> : null}
       {(!ready || maintenance) && onRetry ? (
         <button type="button" onClick={onRetry} disabled={pending}
           className="mt-2 rounded-lg border border-surface-border bg-surface px-3 py-2 text-xs font-medium text-ink transition hover:bg-surface-muted disabled:cursor-wait disabled:opacity-60">

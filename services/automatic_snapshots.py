@@ -1,4 +1,4 @@
-"""Bounded snapshot core. No lifecycle hooks, Settings or automatic activation."""
+"""Bounded snapshot worker, retention and durable pre-reset protection."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -365,7 +365,7 @@ def _run(source: str | Path, root: str | Path, temporary: Path | None = None, *,
         _private_directory(output)
         state_path = namespace / 'status.json'
         previous, _ = _latest(output, identity)
-        _, pins, pins_unknown = _load_state(state_path, has_history=previous is not None)
+        _, pins, pins_unknown = _load_state(state_path, has_history=any(_ID.fullmatch(item.name) for item in output.iterdir()))
         retention = {'reset_pins': pins, 'reset_pins_unknown': pins_unknown}
         known = {'last_snapshot_id': previous['snapshot_id'], 'last_snapshot_at': previous['created_at_utc']} if previous else {}
         if temporary is None:

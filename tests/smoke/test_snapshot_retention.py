@@ -248,3 +248,52 @@ def test_iso_year_boundary_and_nonempty_periods(tmp_path, monkeypatch):
     # No new generation just because many calendar days passed.
     assert core._run(source, root)['last_snapshot_id'] == identities[-1]
     assert len(copies(root)) == 4
+
+
+def test_concurrent_pin_and_checks_keep_durable_protection(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    source, root = source_store(tmp_path), tmp_path / 'copies'
+    first = core.check_snapshot(source, root, 'pre_reset')
+    change(source, 67)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(pool.map(lambda reason: core.check_snapshot(source, root, reason), ['check', 'pre_reset', 'check']))
+    assert all(row['state'] == 'ready' for row in results)
+    assert len({row['last_snapshot_id'] for row in results}) == 1
+    assert set(copies(root)) == {first['last_snapshot_id'], results[0]['last_snapshot_id']}
+    assert set(state(root)['reset_pins']) == set(copies(root))
+
+
+def test_failed_delete_transaction_keeps_original_and_pin(tmp_path, monkeypatch):
+    db = selected(tmp_path, monkeypatch)
+    db.save_coach_decision('Monitor', 'rollback original')
+    def fail(conn):
+        conn.execute('DELETE FROM coach_decisions')
+        raise sqlite3.OperationalError('synthetic reset failure')
+    monkeypatch.setattr(db, '_clear_all_data', fail)
+    with pytest.raises(sqlite3.OperationalError):
+        db.clear_all_data()
+    assert db.get_coach_decisions(days=36500)[0]['reason'] == 'rollback original'
+    assert len(state(tmp_path / 'copies')['reset_pins']) == 1
+    assert len(copies(tmp_path / 'copies')) == 1
+
+
+def test_pin_extension_never_shortens_existing_deadline(tmp_path, monkeypatch):
+    source, root = source_store(tmp_path), tmp_path / 'copies'
+    clock(monkeypatch, BASE)
+    first = core._run(source, root, reason='pre_reset')
+    clock(monkeypatch, BASE - timedelta(hours=1))
+    assert core._run(source, root, reason='pre_reset')['last_snapshot_id'] == first['last_snapshot_id']
+    assert state(root)['reset_pins'][first['last_snapshot_id']] == (BASE + timedelta(days=14)).isoformat()
+
+
+def test_missing_state_with_only_corrupt_history_keeps_pin_uncertainty(tmp_path):
+    source, root = source_store(tmp_path), tmp_path / 'copies'
+    first = core._run(source, root, reason='pre_reset')
+    folder = namespace(root)
+    (folder / 'status.json').unlink()
+    (folder / 'snapshots' / first['last_snapshot_id'] / 'snapshot.db').write_bytes(b'broken')
+    result = core._run(source, root)
+    assert result['state'] == 'ready'
+    assert result['reason_code'] == 'backup_reset_pins_unknown'
+    assert state(root)['reset_pins_unknown'] is True
+    assert first['last_snapshot_id'] in copies(root)
