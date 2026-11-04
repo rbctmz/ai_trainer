@@ -27,7 +27,9 @@ not a requirement to copy its physiology model.
   prior warm-up; independently verify all TSB/ACWR values and denominators.
 - [x] 129 focused/ACWR/lineage/canonical tests pass through isolated launcher;
   whole-tree Ruff and diff-check pass. Nine new anonymous evidence tests.
-- [ ] Publish a bounded evidence PR and B0 handoff; no merge or issue closure.
+- [x] Publish [Draft PR #748](https://github.com/rbctmz/ai_trainer/pull/748)
+  with code checkpoint `43c3e2f`, B0 role/file handoff and explicit residual
+  gaps. Current-head CI is external evidence, not inferred from local tests.
 
 ## Context and Orientation
 
@@ -160,7 +162,10 @@ requiring a separate active-time/zone policy and genuine swim control before
 any future correction. Thresholds remain provisional; the replay is current
 retrospective activity reconstruction, not original readiness-capture history.
 B0 has not started, no merge/review acceptance was performed, and #731/#660/#616
-remain open. Publish/CI checkpoint is recorded below after it is verified.
+remain open. Draft PR #748 is attached to the task; no independent native review
+was requested. Local verification covers code checkpoint `43c3e2f`; this final
+publication note changes no runtime/helper/test code. Remote CI is checked on
+the pushed final head and reported separately rather than promised GREEN.
 
 Revision 2026-11-04: created before new provider reads to freeze the owner-
 accepted experiment, conditional fix gate and privacy boundary.
