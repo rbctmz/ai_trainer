@@ -16,9 +16,12 @@ def _render(database) -> None:
         st.warning('Состояние резервной копии неизвестно.')
     else:
         st.caption('Резервная копия проверена.')
+    maintenance = status.get('reason_code') in {'backup_retention_failed', 'backup_reset_pins_unknown'}
+    if maintenance:
+        st.warning('Резервная копия сохранена. Очистка старых копий приостановлена; требуется проверка.')
     timestamp = status['last_snapshot_at']
     st.caption(f'Последняя проверенная копия: {timestamp}' if timestamp else 'Время последней проверенной копии неизвестно.')
-    if status['state'] != 'ready' and st.button('Повторить проверку резервной копии', key='retry_backup_check'):
+    if (status['state'] != 'ready' or maintenance) and st.button('Повторить проверку резервной копии', key='retry_backup_check'):
         runner.check('manual_retry')
         st.rerun()
 

@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "3dd635c87b24bc67f63d99789fca2702e3f2efd6e45ae7edc64ac4db602c6372",
+    "source_sha256": "efbac936b05722c0ff9c8b2c170548fcb64400c28a6b5a7fcce1898ba7ab9b20",
     "registry": "tests/contracts/registry.json",
     "registry_sha256": "dec3fa7bf789bf9e29bc42adb7a0417e20aabf2e5e7fbe074f93e9268fde3ae4"
   },
@@ -2629,6 +2629,8 @@
               "backup_identity_unknown",
               "backup_integrity_failed",
               "backup_io_error",
+              "backup_reset_pins_unknown",
+              "backup_retention_failed",
               "backup_state_unwritable",
               "backup_timeout"
             ],

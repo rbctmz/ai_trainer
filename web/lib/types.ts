@@ -4,7 +4,7 @@ export interface BackupStatus {
   last_checked_at: string | null;
   last_snapshot_at: string | null;
   last_snapshot_id: string | null;
-  reason_code: "backup_busy" | "backup_timeout" | "backup_io_error" | "backup_integrity_failed" | "backup_identity_unknown" | "backup_state_unwritable" | null;
+  reason_code: "backup_busy" | "backup_timeout" | "backup_io_error" | "backup_integrity_failed" | "backup_identity_unknown" | "backup_state_unwritable" | "backup_retention_failed" | "backup_reset_pins_unknown" | null;
 }
 
 export interface OperationalState {

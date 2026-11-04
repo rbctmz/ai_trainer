@@ -95,3 +95,46 @@ def test_retry_is_bounded_and_does_not_repeat_business_save(web_stack, width, th
         page.remove_listener('request', request_seen)
         page.unroute('**/api/backup/status*', status_handler)
         page.unroute('**/api/backup/check*', retry_handler)
+
+
+@pytest.mark.parametrize('reason,width,theme', [
+    ('backup_retention_failed', 390, 'light'),
+    ('backup_reset_pins_unknown', 1280, 'dark'),
+])
+def test_verified_copy_with_maintenance_warning_can_retry_only_backup(web_stack, reason, width, theme):
+    page = web_stack.page
+    status = {**payload('ready'), 'reason_code': reason}
+    posts = []
+    def read(route):
+        route.fulfill(status=200, content_type='application/json', body=json.dumps(status))
+    def retry(route):
+        posts.append(route.request.url.split('/api/', 1)[-1].split('?', 1)[0])
+        assert route.request.post_data_json == {}
+        route.fulfill(status=200, content_type='application/json', body=json.dumps(payload('ready')))
+    page.route('**/api/backup/status*', read)
+    page.route('**/api/backup/check*', retry)
+    page.set_viewport_size({'width': width, 'height': 900})
+    page.add_init_script(f"localStorage.setItem('theme', '{theme}');")
+    try:
+        page.goto(web_stack.web_base + '/today')
+        banner = page.get_by_test_id('backup-status')
+        expect(banner).to_contain_text('Резервная копия проверена.')
+        expect(banner).to_contain_text('Очистка старых копий приостановлена')
+        expect(banner).not_to_contain_text('резервная копия не обновлена')
+        assert reason not in banner.inner_text()
+        assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+        evidence = ROOT / 'docs/design/evidence/issue-623-m4'
+        evidence.mkdir(parents=True, exist_ok=True)
+        banner.screenshot(path=str(evidence / f'maintenance-{width}-{theme}.png'))
+        button = banner.get_by_role('button', name='Повторить проверку резервной копии', exact=True)
+        button.focus()
+        button.press('Enter')
+        expect(banner).not_to_contain_text('Очистка старых копий приостановлена')
+        expect(button).to_have_count(0)
+        assert posts == ['backup/check']
+    except Exception:
+        web_stack.capture_failure()
+        raise
+    finally:
+        page.unroute('**/api/backup/status*', read)
+        page.unroute('**/api/backup/check*', retry)
