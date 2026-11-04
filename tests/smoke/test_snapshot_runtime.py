@@ -96,6 +96,7 @@ def test_sync_snapshot_follows_final_audit_and_terminal_waits(tmp_path, monkeypa
     db = enabled(tmp_path, monkeypatch)
     manager = SyncJobManager()
     entered, release = threading.Event(), threading.Event()
+    allow_sync = threading.Event()
     native = runtime.check_snapshot
     def blocking(*args):
         entered.set()
@@ -103,9 +104,15 @@ def test_sync_snapshot_follows_final_audit_and_terminal_waits(tmp_path, monkeypa
         return native(*args)
     monkeypatch.setattr(runtime, 'check_snapshot', blocking)
     def run_sync(on_progress, *, capture_run_id):
+        assert allow_sync.wait(3)
         db.set_user_setting('synthetic_sync', capture_run_id)
         return {'sync_state': 'succeeded', 'title': 'done'}
-    manager.start_or_get(days=1, run_sync=run_sync, db=db, source='intervals')
+    # This happy-path test controls stages: initial status/provenance reads
+    # finish before the writer. Busy provenance has its own fail-closed test.
+    try:
+        manager.start_or_get(days=1, run_sync=run_sync, db=db, source='intervals')
+    finally:
+        allow_sync.set()
     try:
         assert entered.wait(2), manager.status(db)
         assert manager.status(db)['sync_state'] == 'running'

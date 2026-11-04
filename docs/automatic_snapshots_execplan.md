@@ -424,3 +424,15 @@ warning. Demo real-path direct reset and actual deactivate_demo_mode both keep
 backup root absent. Unknown retired artifacts remain unchanged. Initial extended
 demo fixture used plain dict instead of supported SessionDict factory; corrected
 to make_headless_state without changing the facade. Full exact-head CI pending.
+
+M4 full fix-head run f88127d:4373 passed/16 skipped/124 deselected,1 failed in
+the existing sync happy-path test (315.81s). Its diagnostic captured degraded
+backup_io_error before the expected callback. A bounded10-case probe reproduced
+1 failure/9 pass with actual read-only provenance OperationalError codes261
+(SQLITE_BUSY_RECOVERY) and5 (SQLITE_BUSY). Inferred: initial status-read and sync
+writer overlap mixes an allowed fail-closed path into this success-only test.
+Verified by: coordinate callback start after initial response reads finish;10/10
+then PASS with0 provenance errors. Assertions/timeouts/guards unchanged; existing
+locked-provenance test still covers the fail-closed product path. This is a test
+scheduling correction, no product eligibility/concurrency change. Final-head
+full/CI evidence remains pending. Earlier failure records are retained above.
