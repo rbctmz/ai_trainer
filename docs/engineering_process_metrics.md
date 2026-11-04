@@ -837,3 +837,20 @@ that head, both threads resolved. Owner accepted, current CI and CLEAN checked
 before merge; reviewed/merged trees identical. Specification only, no personal
 DB/service/feature activation. #623/#622 stay open for M2–M4. Outcome is included
 with substantive M2 work, without a separate post-merge docs PR.
+
+## #731 A1 partial delivery — #733, merged 2026-11-03
+
+[PR #733](https://github.com/rbctmz/ai_trainer/pull/733) opened
+2026-10-25T17:07:05Z and merged 2026-11-03T18:55:41Z as
+4f00dc3ab7bec3882391a0b08a9535d5f2275451: calendar cycle 9d01h48m36s;
+active author/checker time and owner wait are not separated. Fourteen changed
+files, +1920/-152. Two clean native delta receipts, on 212023f and final
+b71a994; zero unresolved threads. Owner explicitly accepted review and merge;
+current functional CI, Gitleaks and Review gate GREEN, CLEAN checked before an
+expected-head normal merge. Reviewed and merged trees identical; main CI later
+passed. No third review or bypass. Historical isolated local 4172 passed /
+39 skipped / 116 deselected belongs to 212023f, not the later integration head;
+functional retries/flakes were not measured. No personal DB/service write.
+#731/#660 remain open for residual scope; #616 remains separate. Private A2
+and the duration experiment are separate evidence, not proof of live-screen
+acceptance. Outcome recorded in this substantive experiment, no outcome-only PR.

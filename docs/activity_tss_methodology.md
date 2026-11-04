@@ -53,7 +53,7 @@ swim_threshold_pace_seconds_per_100m)`; `resolve_athlete_ftp_lthr()` остаё�
 
 ## Каскад по видам спорта
 
-`resolve_tss()` пробует методы по убыванию точности и берёт первый, для которого хватает данных. Длительность для всех формул — `moving_duration_minutes`, если она есть и > 0, иначе `duration_minutes` (`_tss_duration_minutes`).
+`resolve_tss()` пробует методы по убыванию точности и берёт первый, для которого хватает данных. Для power/HR/pace TSS и эвристик длительность — `moving_duration_minutes`, если она есть и > 0, иначе `duration_minutes` (`_tss_duration_minutes`). Зонально-взвешенные методы используют непосредственно сохранённые `hr_time_in_zone_*_seconds`: `_zone_weighted_tss` суммирует их с весами и не обрезает по moving duration. Это описание существующей реализации, а не новое правило обработки пауз. Агрегированных длительностей недостаточно, чтобы восстановить, в каких именно зонах находился атлет на движущихся участках; результат проверки и ограничения — в `docs/reports/issue-731-tss-pause/findings.md`.
 
 **Bike:**
 1. `power_tss_bike` — Power TSS по `normalized_power` (приоритетно) или `avg_power`

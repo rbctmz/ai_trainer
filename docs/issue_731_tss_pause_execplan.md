@@ -16,13 +16,17 @@ not a requirement to copy its physiology model.
 
 - [x] 2026-11-04: verify #731/#732 and create
   `codex/issue-731-tss-pause-evidence` from fresh origin/main `e98b138`.
-- [ ] Freeze four problematic runs, one swim and one low-pause control per sport.
-- [ ] Complete one diagnostic pass within one hour; record confirmed rules/gaps.
-- [ ] If a violated accepted invariant and correct input semantics are proved,
-  escalate the slice to Class A and prepare a separate RED/GREEN fix. Otherwise
-  preserve production math and identify the exact follow-up evidence needed.
-- [ ] Repeat TSB/ACWR threshold backtest on frozen history; distinguish current
-  local baseline from any hypothetical external comparison.
+- [x] Freeze four problematic runs, one swim and the closest-clock same-method
+  control per sport. Real no-pause swim control is unavailable; named gap retained.
+- [x] Complete one seven-GET diagnostic pass within one hour. Primary fields
+  distinguish recording/moving clocks and provider HR/power/pace loads.
+- [x] Runtime correction gate not met: aggregate zones cannot identify active
+  zone history. Preserve production math, correct the documentation mismatch
+  and specify the narrow evidence/policy follow-up instead of inventing a fix.
+- [x] Replay ninety daily anchors on unchanged frozen history with lineage and
+  prior warm-up; independently verify all TSB/ACWR values and denominators.
+- [x] 129 focused/ACWR/lineage/canonical tests pass through isolated launcher;
+  whole-tree Ruff and diff-check pass. Nine new anonymous evidence tests.
 - [ ] Publish a bounded evidence PR and B0 handoff; no merge or issue closure.
 
 ## Context and Orientation
@@ -37,6 +41,8 @@ TSS column. `models/signals_engine.py::acwr_metrics` owns ACWR EWMA semantics an
 minimum history. The approved research decision is on branch
 `research/today-v2-recon`, file `research/today_v2_recon_2026-10-25.md`:
 TSB watch < -5, attention < -10; ACWR watch > 1.3, attention > 1.5, all provisional.
+The current source is the ASR catalog; the ADD3 historical risk notes describe
+older gaps and do not override delivered safeguards or authorize new scope.
 
 ## Plan of Work and Milestones
 
@@ -99,12 +105,23 @@ requested; no owner acceptance, merge or live write is performed.
 
 ## Surprises & Discoveries
 
-Observed: A2 has four runs with zone-time totals greater than moving duration
-and one swim with different moving durations between sources. Inferred:
-duration semantics may explain the outliers. Verified by: A2 pure formula
-reconstruction matched all five values; exact provider pause semantics and
-active zone distribution are not yet proved. The cheapest falsification is to
-check primary duration fields and a no-pause same-method control.
+Observed: problem runs have local zones closer to recording time while provider
+HR-zone totals are closer to moving time. Three selected provider load values
+equal power_load and differ from hr_load; the fourth has equal source load
+values. Inferred: cross-method/time-population differences contribute; a unique
+pause correction is not established. Verified by: seven primary detail GETs,
+exact identity/UTC checks, current-formula reproduction and an anonymous
+counterexample with identical aggregate fields but different active-zone load.
+
+Observed: no real same-method no-pause swim control exists in the frozen sample.
+Inferred: the selected closest-clock control cannot establish the correct clock.
+Verified by: deterministic duration-ratio selection; this remains a gap.
+
+Observed: the long frozen lookback includes a multisport envelope. Inferred:
+omitting provider lineage could double-count event and stages. Verified by:
+the early scratch replay is discarded; final history adds the same lineage
+projection used by Database without changing IDs/dates/TSS. A complete-envelope
+synthetic control passes, and independent recurrences verify ninety anchors.
 
 ## Decision Log
 
@@ -130,9 +147,25 @@ statuses are not changed by an evidence-only experiment.
 
 ## Outcomes & Retrospective
 
-Pending diagnosis and backtest. B0 is not started. The one-hour limit applies
-to diagnosis; unavailable input becomes a documented gap, not an excuse to
-invent a correction or enlarge the experiment indefinitely.
+Diagnosis and retrospective threshold replay are complete. No runtime defect
+with a correct recoverable algorithm was proved, so there is no manufactured
+RED/GREEN fix. The confirmed documentation mismatch is corrected; production
+TSS, stored activities/captures and thresholds are unchanged. Private tables,
+input hashes and ninety independent checks are delivered in
+`output/issue-731-a2-2026-11-03/pause_experiment/report.md`, outside Git.
+The tracked conclusion is `docs/reports/issue-731-tss-pause/findings.md`.
+
+The experiment supports keeping the scale and moving B0 independently, while
+requiring a separate active-time/zone policy and genuine swim control before
+any future correction. Thresholds remain provisional; the replay is current
+retrospective activity reconstruction, not original readiness-capture history.
+B0 has not started, no merge/review acceptance was performed, and #731/#660/#616
+remain open. Publish/CI checkpoint is recorded below after it is verified.
 
 Revision 2026-11-04: created before new provider reads to freeze the owner-
 accepted experiment, conditional fix gate and privacy boundary.
+
+Revision 2026-11-04: record completed bounded diagnosis, unavailable real swim
+control, cross-method/time-population evidence, lineage correction and verified
+backtest. The proposed numerical fix is deliberately not promoted from an
+underdetermined hypothesis.
