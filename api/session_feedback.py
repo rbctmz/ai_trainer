@@ -1,5 +1,6 @@
 """Headless orchestration for post-workout feedback and forecast evaluation."""
 from __future__ import annotations
+from services.snapshot_runtime import backup_boundary
 
 from collections import Counter
 from datetime import date, datetime, timezone
@@ -898,6 +899,7 @@ def _append_feedback(
     }
 
 
+@backup_boundary("feedback_mutation")
 def submit_session_feedback(
     db: Database,
     payload: Mapping[str, Any],
@@ -942,6 +944,7 @@ def submit_session_feedback(
     return _append_feedback(db, payload, evidence=evidence, now_utc=now, source=source)
 
 
+@backup_boundary("feedback_mutation")
 def correct_session_feedback(
     db: Database,
     feedback_id: int,
@@ -967,6 +970,7 @@ def correct_session_feedback(
     )
 
 
+@backup_boundary("feedback_mutation")
 def tombstone_session_feedback(
     db: Database,
     feedback_id: int,
@@ -1252,6 +1256,7 @@ def _admin_match_evidence(
     }, match
 
 
+@backup_boundary("feedback_mutation")
 def resolve_prediction_via_feedback(
     db: Database,
     prediction_id: int,

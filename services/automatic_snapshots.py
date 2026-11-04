@@ -435,3 +435,41 @@ def _main() -> None:
 
 if __name__ == '__main__':
     _main()
+
+
+def read_snapshot_status(database_path: str | Path, backup_root: str | Path) -> dict:
+    """Read only the last check receipt; never create artifacts or claim freshness."""
+    empty = {'state': 'unknown', 'reason_code': None, 'last_checked_at': None,
+             'last_snapshot_at': None, 'last_snapshot_id': None}
+    try:
+        _, root, identity = _paths(database_path, backup_root)
+        directory = root / identity
+        path = directory / 'status.json'
+        if not directory.exists():
+            return empty
+        info = directory.lstat()
+        if not stat.S_ISDIR(info.st_mode):
+            raise SnapshotError('backup_identity_unknown')
+        if _read_json(directory / 'namespace.json') != {'version': 1, 'source_namespace': identity}:
+            raise SnapshotError('backup_identity_unknown')
+        if not path.exists() and not path.is_symlink():
+            return empty
+        value = _read_json(path)
+        if value.get('state') not in {'ready', 'degraded', 'unknown'}:
+            raise ValueError
+        allowed = {'backup_busy', 'backup_timeout', 'backup_io_error', 'backup_integrity_failed',
+                   'backup_identity_unknown', 'backup_state_unwritable', None}
+        if value.get('reason_code') not in allowed:
+            raise ValueError
+        for key in ('last_checked_at', 'last_snapshot_at'):
+            if value.get(key) is not None:
+                parsed = datetime.fromisoformat(value[key].replace('Z', '+00:00'))
+                if parsed.tzinfo is None:
+                    raise ValueError
+        if value.get('last_snapshot_id') is not None and not _ID.fullmatch(value['last_snapshot_id']):
+            raise ValueError
+        if value['state'] == 'ready' and not all(value.get(key) for key in ('last_checked_at', 'last_snapshot_at', 'last_snapshot_id')):
+            raise ValueError
+        return {key: value.get(key) for key in empty}
+    except (OSError, ValueError, TypeError, AttributeError, SnapshotError):
+        return {**empty, 'state': 'degraded', 'reason_code': 'backup_state_unwritable'}

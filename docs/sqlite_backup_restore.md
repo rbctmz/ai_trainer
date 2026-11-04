@@ -339,3 +339,31 @@ volume не открываются.
 Сетевой backfill выполняется только при явном apply после проверки; live browser
 acceptance требует `--base-url` и `--confirm-live-acceptance`. Не передавайте
 credentials в scratch-запуски.
+
+## Automatic snapshots — #623 M3 integration boundary
+
+M2 core (#744) is explicit-only. M3 adds opt-in shared post-commit/lifecycle hooks
+and read-only status/retry API; **keep `AUTO_BACKUP_ENABLED=false` on live data
+until M4 retention/reset/restore acceptance and the owner's separate activation
+choice**. This work does not set environment variables or restart user services.
+
+`BACKUP_DIR` is optional and must be absolute when set. Its default is the
+platform application-data `ai_trainer/backups` directory, independent of an
+explicit source `DATABASE_PATH`; checkout/alias/overlap refusals remain M2.
+Demo/acceptance and other stores cannot use the real backup selection. The test
+launcher forces backup off and an owned scratch directory before Settings loads.
+
+`GET /api/backup/status` reads the last receipt without creating a snapshot.
+`POST /api/backup/check` accepts only no body / `{}` and performs a bounded backup
+retry, never a business command or caller-selected path. Failed attempts are
+retried no faster than once per minute. Web and Streamlit display the same status,
+copy time and retry action. Older Streamlit versions without fragments refresh
+that display on rerun; the shared lifecycle timer still runs independently.
+`ready` reports the last successful check; it does not prove no later writes.
+
+Provider sync becomes partial with warning code `backup_failed` if only its
+backup fails; a provider's original failed/partial outcome and error stay intact.
+Committed plan/decision/match/feedback IDs and business receipts do not change
+because of backup health. Read-owned recovery audit writes are checked by the
+daily safety pass, not by each page read. Manual backup/restore/migrate retain
+their stopped confirmation contract. No automatic restore/downgrade is added.

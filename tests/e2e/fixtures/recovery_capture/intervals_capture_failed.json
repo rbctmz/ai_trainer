@@ -68,13 +68,27 @@
       "stale": false,
       "latest_data_at": null,
       "sync_state": "partial",
-      "error": null
+      "error": null,
+      "backup": {
+        "state": "disabled",
+        "last_checked_at": null,
+        "last_snapshot_at": null,
+        "last_snapshot_id": null,
+        "reason_code": null
+      }
     },
     "session_quality_forecast": {
       "prediction": null,
       "reason": "no_active_plan"
     },
-    "session_quality_forecast_error": null
+    "session_quality_forecast_error": null,
+    "backup": {
+      "state": "disabled",
+      "last_checked_at": null,
+      "last_snapshot_at": null,
+      "last_snapshot_id": null,
+      "reason_code": null
+    }
   },
   "error": null,
   "reused": false,
@@ -87,6 +101,21 @@
     "stale": false,
     "latest_data_at": null,
     "sync_state": "partial",
-    "error": null
-  }
+    "error": null,
+    "backup": {
+      "state": "disabled",
+      "last_checked_at": null,
+      "last_snapshot_at": null,
+      "last_snapshot_id": null,
+      "reason_code": null
+    }
+  },
+  "backup": {
+    "state": "disabled",
+    "last_checked_at": null,
+    "last_snapshot_at": null,
+    "last_snapshot_id": null,
+    "reason_code": null
+  },
+  "warning_codes": []
 }

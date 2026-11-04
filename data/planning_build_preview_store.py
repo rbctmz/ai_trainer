@@ -1,5 +1,6 @@
 """Single-purpose retained Planning previews; no scheduler or provider calls."""
 from __future__ import annotations
+from services.snapshot_runtime import backup_boundary, mark_committed
 
 from datetime import datetime, timedelta
 import json
@@ -270,6 +271,7 @@ def bind_coach_preview(conn: sqlite3.Connection, proposal: dict[str, Any], *, no
                  (proposal["id"], saved["preview_id"]))
 
 
+@backup_boundary("plan_confirm")
 def apply_preview(
     db: Database, preview_id: str, *, origin: str, now: Callable[[], datetime],
     recheck: Callable[[sqlite3.Connection, dict[str, Any]], bool],
@@ -352,6 +354,7 @@ def apply_preview(
                 (row["applied_response_json"], row["applied_at"], row["applied_checkpoint_id"], proposal_id),
             )
         conn.commit()
+        mark_committed(db)
         return result
     except Exception:
         conn.rollback()

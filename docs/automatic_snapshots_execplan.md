@@ -1,8 +1,9 @@
 # #623 — минимальные автоматические локальные снимки
 
 Этот ExecPlan поддерживается по [.agent/PLANS.md](../.agent/PLANS.md).
-M1 принят владельцем и merged #743 как 4230a9d. Текущий scope — M2:
-явный snapshot core и synthetic проверки. Runtime hooks и включение на
+M1 принят владельцем и merged #743 как 4230a9d. Текущий scope — M3:
+shared operation/lifecycle hooks, API/contracts и warning UI по принятой spec.
+M2 #744 merged e98b138; M3 работает в отдельной managed worktree. Runtime hooks и включение на
 личных данных относятся к следующим этапам. Merge owner — Greg.
 
 ## Purpose / Big Picture
@@ -19,8 +20,9 @@ M1 принят владельцем и merged #743 как 4230a9d. Текущи
 - [x] (2026-10-28) Synthetic online/WAL characterization и логический fingerprint после VACUUM PASS.
 - [x] (2026-10-28) Подготовлен проект контракта с политикой, failure/reset/retention и RED matrix.
 - [x] (2026-10-28) M1: два review-раунда, два P2 исправлены, owner accepted и merged #743.
-- [ ] M2: bounded online snapshot, публикация, concurrency/faults.
-- [ ] M3: shared post-commit hooks, lifecycle check, status/API/web/Streamlit.
+- [x] (2026-11-04) M2 #744 merged e98b138: bounded online snapshot, публикация, concurrency/faults; owner review-budget-exception after main integration.
+- [x] (2026-11-04) M3 code: shared post-commit hooks, lifecycle check, status/API/web/Streamlit; synthetic focused acceptance complete.
+- [ ] M3: final full/CI evidence, draft PR and independent review/owner merge handoff.
 - [ ] M4: retention и restore drill, полная synthetic приёмка и отдельный owner merge.
 
 ## Surprises & Discoveries
@@ -250,3 +252,79 @@ GREEN: 25 dedicated tests, включая два исходных RED, повт�
 на state symlink. Ruff GREEN. Полный contributor-safe и related contour
 записываются отдельно. Review budget 1/2; автоматический повтор не запрошен.
 Runtime hooks/retention по-прежнему M3/M4 и не включены.
+
+
+## M3 implementation checkpoint — 2026-11-04
+
+Перед кодом зафиксирован [inventory/contract и Class A review record](automatic_snapshots_m3_inventory.md).
+Новый shared runtime использует explicit committed Database writers и внешние
+operation boundaries: sync после audit, plan/cycle, coach decision, match,
+feedback/correction/tombstone, readiness capture. Вложенные записи одного store
+объединяются, даже при разных handles. Preview и read-owned recovery projection
+не запускают event backup. Копии для внешних/производных записей делает UTC-day
+safety check; restart не полагается на memory pending flag. Failed retry ≥60s;
+M2 advisory lock/deadline остаётся единственным lock на snapshot operation.
+
+Ровно два новых Settings поля; default off. API lifespan запускает/останавливает
+свой timer вне event loop. GET status/POST check строгие и path-free; typed backup
+в operational/mutation/SSE responses не переписывает durable business receipts.
+Streamlit использует тот же runtime; современный fragment обновляет warning раз
+в минуту, старые версии — при rerun. UI handoff выполнен по этим contracts:
+BackupStatusBanner + global mutation/stream refresh, copy time, safe bounded retry.
+Скриншоты synthetic элемента 390/light и 1280/dark визуально проверены:
+`docs/design/evidence/issue-623-m3/`. Никакого изменения личной БД/настроек/сервисов.
+
+На этом checkpoint: dedicated runtime/API 16 PASS до отдельного read-derived
+регрессионного случая; recovery/coach focused с ним 191 PASS. Contract conformance,
+extractor/inventory 99 PASS на предыдущем контрактном checkpoint; после SSE delta
+extractor обновлён, финальный broad/contract прогон впереди. Шесть isolated UI
+scenarios PASS до final keyboard/stream delta; финальный rerun впереди. Web lint и
+build GREEN. Первичный UI query/plan fixture mismatch описан в inventory, не
+выдан за product regression. Current-head full, remote CI и независимое review
+ещё не подтверждены. M4 retention/reset/restore и live activation не заявляются.
+
+## M3 final author handoff — 2026-11-04
+
+The implementation now has 24 dedicated runtime/API acceptance cases, including
+actual fresh-interpreter FastAPI startup/shutdown, committed-gap capture, shared
+legacy checkpoint and cycle close, feedback correction/tombstone, partial sync,
+read suppression, disabled no-source-open, rejected confirm and delayed concurrent
+receipt ordering. Evidence uses only owned synthetic stores; no user service was
+restarted. Full local pre-final-boundary run: 4345 passed /16 skipped /122
+deselected, 7 existing warnings, 299.97s. The four-file commit-boundary/timestamp
+delta is separately checked with the whole Planning commit/cycle and contract
+contour; final candidate full/remote results are recorded in the draft PR.
+Full isolated browser suite: 98 passed (237.85s); final backup keyboard/retry
+contour: 6 passed (6.82s). Web lint/build, contract extraction freshness, Ruff and
+54 local Markdown links GREEN. Existing capture fixture values are unchanged,
+with only new additive health fields; old receipt database invariance still
+passes. No historical evidence images were added to this slice.
+
+Independent native review remains a separate manual handoff (0/2); no review
+acceptance/merge permission for M3 has been given. M4/live activation remain out
+of scope. This is author implementation/draft delivery, not a claim that #623 or
+#622 is complete. M2 post-merge metrics are recorded in this substantive change.
+
+Final provenance delta: a real exclusive-lock probe reproduced waiting in the
+ordinary Database writer connection before the snapshot deadline. Provenance
+now reuses the shared readonly connection with immediate busy refusal, never
+writer PRAGMAs. Unknown provenance remains degraded in the runtime until a
+successful eligible check; no unauthorized namespace write is attempted. Final
+combined protocol/runtime/API/contract contour: 214 passed, 7 existing warnings,
+40.48s. Final candidate is frozen for full native + remote CI; no live enablement.
+
+
+## M3 independent review round 1 — 2026-11-04
+
+Observed: native review 5766719588 on 165a97a raised P2 thread4466238963.
+Inferred: delayed ready can erase a later error that could not persist to disk.
+Verified by: test_delayed_ready_never_hides_newer_unpersisted_failure reproduced
+ready instead of degraded using actual initial snapshot + ENOSPC on later temp
+creation; no mocks of the failure result. A short receipt assignment lock now
+orders local receipts by core timestamp, without serializing/skipping backup.
+Dedicated regression also checks timer retry after61s captures the new commit.
+Delta core/runtime/API:50 passed (17.02s), Ruff/diff GREEN; remote CI pending.
+An existing sync wait(2) assertion failed twice before the hook was entered; its
+standalone diagnostic and final combined rerun pass. Cause not established;
+assertion now includes terminal/progress state for any recurrence; timeout was
+not increased. Round2 not requested automatically. M4 remains separate.
