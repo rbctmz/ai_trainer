@@ -826,3 +826,14 @@ Local 291 focused / 4286 full / 92 E2E; Linux 4260 full / 42 skipped / 116
 deselected, E2E green. Native Windows/ACL NOT RUN. #625 closed; #622 remains
 open, #741 distinct. Outcome recorded in substantive #623 M1, no docs-only
 follow-up PR; no personal DB or service operation.
+
+## #623 M1 specification — #743, merged 2026-10-28
+
+[PR #743](https://github.com/rbctmz/ai_trainer/pull/743) merged as
+4230a9db77cc1538d3055ad5ac949d893224109c after two native rounds. Two confirmed
+P2 inconsistencies (pre-reset retention and schema-cookie generation) were
+reproduced synthetically and fixed in 695e3ac; second delta review clean on
+that head, both threads resolved. Owner accepted, current CI and CLEAN checked
+before merge; reviewed/merged trees identical. Specification only, no personal
+DB/service/feature activation. #623/#622 stay open for M2–M4. Outcome is included
+with substantive M2 work, without a separate post-merge docs PR.
