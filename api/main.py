@@ -29,6 +29,7 @@ configure_logging()
 
 from api.routers import (  # noqa: E402  (after env setup)
     activities,
+    backup,
     adherence,
     athlete_profile,
     coach,
@@ -56,7 +57,18 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     Settings.runtime_database_path()
     validate_demo_path(Settings.DATABASE_PATH, DEMO_DB_PATH)
-    yield
+    from services.snapshot_runtime import get_runtime
+    from starlette.concurrency import run_in_threadpool
+    runner = None
+    if Settings.AUTO_BACKUP_ENABLED and not Settings.ACCEPTANCE_MODE:
+        from api.deps import real_database
+        runner = get_runtime(await run_in_threadpool(real_database))
+        await run_in_threadpool(runner.start)
+    try:
+        yield
+    finally:
+        if runner is not None:
+            await run_in_threadpool(runner.stop)
 
 
 app = FastAPI(
@@ -113,6 +125,7 @@ app.include_router(session_quality.router)
 app.include_router(settings.router)
 app.include_router(sleep.router)
 app.include_router(system.router)
+app.include_router(backup.router)
 app.include_router(today.router)
 
 

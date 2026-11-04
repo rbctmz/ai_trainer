@@ -34,6 +34,7 @@ Contract refinements enforced here (review round, slice-spec §3):
   the high-water boundary.
 """
 from __future__ import annotations
+from services.snapshot_runtime import backup_boundary
 
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -106,6 +107,7 @@ class IntervalsSyncResult:
     # Issue #562 M3: структурный блок общего capture. Внутреннее поле: в payload
     # он попадёт только в M4, поэтому билдер здесь не меняется.
     recovery_capture: dict[str, Any] | None = None
+    backup: dict[str, Any] | None = None
 
 
 def _validate_days(days: Any) -> int | None:
@@ -159,6 +161,7 @@ def _build_fetch_chunk(
     return fetch_chunk
 
 
+@backup_boundary("provider_sync", database_arg="database", response=True, changed=True)
 def sync_intervals_data(
     database: Database,
     *,
@@ -397,7 +400,8 @@ def build_intervals_sync_status_payload(
     capture = project_recovery_capture(result.recovery_capture)
     if capture is not None:
         payload["recovery_capture"] = capture
-    return payload
+    from services.snapshot_runtime import attach_sync_backup
+    return attach_sync_backup(payload, result.backup)
 
 
 __all__ = [

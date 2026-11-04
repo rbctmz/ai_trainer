@@ -1,5 +1,6 @@
 """Safe cycle boundary; reads never select, commands require explicit identity."""
 from __future__ import annotations
+from services.snapshot_runtime import backup_boundary
 
 import sqlite3
 from uuid import UUID
@@ -81,6 +82,7 @@ def history(limit: int = Query(50, ge=1, le=50), db: Database = Depends(get_data
 
 
 @router.post("/constraint-scope", response_model=CycleCommandResponse)
+@backup_boundary("user_command", response=True)
 def resolve_scope(req: ResolveConstraintScopeRequest, db: Database = Depends(get_database)):
     return execute_cycle_command(db, "resolve_constraint_scope", req.model_dump(mode="json"),
                                  validate_response=_validate_command_response)
@@ -92,12 +94,14 @@ def historical(cycle_id: UUID, db: Database = Depends(get_database)):
 
 
 @router.post("/{cycle_id}/close", response_model=CycleCommandResponse)
+@backup_boundary("user_command", response=True)
 def close(cycle_id: UUID, req: CloseCycleRequest, db: Database = Depends(get_database)):
     return execute_cycle_command(db, "close", req.model_dump(mode="json"), cycle_id=str(cycle_id),
                                  validate_response=_validate_command_response)
 
 
 @router.post("/{cycle_id}/event-outcome", response_model=CycleCommandResponse)
+@backup_boundary("user_command", response=True)
 def set_outcome(cycle_id: UUID, req: SetEventOutcomeRequest, db: Database = Depends(get_database)):
     return execute_cycle_command(db, "set_event_outcome", req.model_dump(mode="json"), cycle_id=str(cycle_id),
                                  validate_response=_validate_command_response)

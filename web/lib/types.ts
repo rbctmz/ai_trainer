@@ -1,3 +1,24 @@
+// Automatic snapshots (#623 M3); all paths and eligibility stay server-owned.
+export interface BackupStatus {
+  state: "disabled" | "unknown" | "ready" | "degraded";
+  last_checked_at: string | null;
+  last_snapshot_at: string | null;
+  last_snapshot_id: string | null;
+  reason_code: "backup_busy" | "backup_timeout" | "backup_io_error" | "backup_integrity_failed" | "backup_identity_unknown" | "backup_state_unwritable" | null;
+}
+
+export interface OperationalState {
+  status: "error" | "empty" | "stale" | "ready";
+  mode: "demo" | "live";
+  demo: boolean;
+  empty: boolean;
+  stale: boolean;
+  latest_data_at: string | null;
+  sync_state: string;
+  error: Record<string, unknown> | null;
+  backup: BackupStatus;
+}
+
 // Рукописное зеркало JSON-ответов FastAPI, которые читает web/.
 // Реестр эндпоинтов и сценариев: tests/contracts/registry.json.
 // При изменении ответа или типов: обнови этот файл, затем
@@ -402,6 +423,7 @@ export type CoachEvent =
   | { type: "token"; content: string }
   | {
       type: "done";
+      backup?: BackupStatus;
       message_id: string;
       chat_id: string;
       first_token_ms?: number | null;
@@ -568,7 +590,7 @@ export interface CoachDecisionsResponse {
   recovery_count?: number;
   recovery_days?: RecoveryDecisionDay[];
   drift_report?: CoachDriftReport;
-  operational_state?: Record<string, unknown>;
+  operational_state?: OperationalState;
 }
 
 // --- Sleep ---
@@ -711,6 +733,8 @@ export interface RecoveryCapture {
 }
 
 export interface SyncResult {
+  backup?: BackupStatus;
+  warning_codes?: string[];
   sync_state?: "succeeded" | "partial" | "running" | "failed" | "idle" | string;
   title: string;
   summary: string;
@@ -731,6 +755,8 @@ export interface SyncProgress {
 }
 
 export interface SyncJobResponse {
+  backup?: BackupStatus;
+  warning_codes?: string[];
   job_id: string | null;
   source: "garmin" | "intervals" | null;
   sync_state: "idle" | "running" | "succeeded" | "partial" | "failed" | string;
@@ -742,7 +768,7 @@ export interface SyncJobResponse {
   result?: SyncResult | null;
   error?: { message?: string } | null;
   reused?: boolean;
-  operational_state?: Record<string, unknown>;
+  operational_state?: OperationalState;
 }
 
 // --- Planning ---
@@ -844,6 +870,7 @@ export interface CycleCommandResult {
 }
 
 export interface CycleCommandResponse {
+  backup?: BackupStatus;
   command_id: string;
   kind: "close" | "set_event_outcome" | "resolve_constraint_scope";
   replayed: boolean;
@@ -1140,6 +1167,7 @@ export interface DemandPreview {
 
 /** Result of an explicitly confirmed demand change (M4b). */
 export interface DemandConfirmResult {
+  backup?: BackupStatus;
   applied_checkpoint_id: number;
   base_checkpoint_id: number;
   checkpoint_source: string;
@@ -1192,6 +1220,7 @@ export interface CycleRepairDayRequest extends CycleExpectedRequest {
 
 /** Result of restoring a saved plan version from history (M4d). */
 export interface RestoreHistoryResult {
+  backup?: BackupStatus;
   plan_id: string;
   applied_checkpoint_id: number;
   base_checkpoint_id: number;
@@ -1385,6 +1414,7 @@ export interface PlanBuildComparison {
 }
 
 export interface BuiltPlan {
+  backup?: BackupStatus;
   /** Retained historical responses can predate this projection. */
   comparison?: PlanBuildComparison | null;
   entry_adjustments?: EntryDoseAdjustment[] | null;
@@ -2091,6 +2121,7 @@ export interface RebalancePreviewResult {
 }
 
 export interface RebalanceConfirmResult {
+  backup?: BackupStatus;
   plan_id: string;
   applied_checkpoint_id: number;
   base_checkpoint_id: number;
@@ -2142,6 +2173,7 @@ export interface BikeTssRebalancePreviewResult {
 }
 
 export interface BikeTssRebalanceConfirmResult {
+  backup?: BackupStatus;
   plan_id: string;
   applied_checkpoint_id: number;
   base_checkpoint_id: number;
@@ -2152,6 +2184,7 @@ export interface BikeTssRebalanceConfirmResult {
 // Compatibility result for existing Coach `adjust_plan` proposals. The Planning
 // Adjust tab uses RebalancePreviewResult/RebalanceConfirmResult instead.
 export interface AdjustResult {
+  backup?: BackupStatus;
   plan_id: string | null;
   adjustment: {
     status: string;
@@ -2586,7 +2619,7 @@ export interface TodayResponse {
   feedback: TodayFeedback;
   loop_outcome: string | null;
   provenance: Record<string, unknown>;
-  operational_state?: Record<string, unknown>;
+  operational_state?: OperationalState;
 }
 
 // --- Prospective personal recovery analytics (shadow-only) ---
@@ -2701,4 +2734,9 @@ export interface AdherenceRibbonResponse {
   rule_version?: string;
   ribbon_rule_version?: string;
   data_quality?: Record<string, unknown>;
+}
+
+export interface SessionFeedbackMutationResponse {
+  feedback: SessionFeedbackRecord;
+  backup: BackupStatus;
 }

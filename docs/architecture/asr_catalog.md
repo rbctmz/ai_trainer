@@ -889,3 +889,16 @@ publication and bounded daily/weekly retention. Ordinary source schema stays
 unchanged; manual CLI stopped-service boundary remains. M1 only characterizes
 online SQLite consistency on synthetic data; automatic service, deadline/fault
 handling, API/UI and retention are NOT IMPLEMENTED. Off-device RPO remains #626.
+
+
+## Automatic local snapshots — #623 M3 integration checkpoint
+
+M1 #743 / M2 #744 сохраняют принятые ASR-REL-3, ASR-DEP-2, ASR-SEC-1.
+M3 branch добавляет shared post-commit hooks и lifecycle в
+services/snapshot_runtime.py поверх M2 bounded Backup API/OS lock. Проверки:
+test_snapshot_runtime.py, test_backup_api.py, test_backup_status_ui.py и
+существующие sync/planning/feedback/contracts/lifecycle regressions. Сбой копии
+не откатывает commit, source schema не меняется, API не принимает пути,
+read-owned derivations покрывает daily check. Default off; личное включение и
+M4 retention/reset/restore ещё не выполнены. Подробности и границы evidence:
+[ExecPlan](../automatic_snapshots_execplan.md), [inventory](../automatic_snapshots_m3_inventory.md).

@@ -4,6 +4,8 @@
 `POST /api/planning/build`  → build a goal plan + CTL/ATL/TSB forecast.
 """
 from __future__ import annotations
+from api.backup_contract import BackupMutationResponse
+from services.snapshot_runtime import backup_boundary
 
 from typing import Annotated, Any, Dict, List, Optional, Literal
 from uuid import UUID
@@ -204,7 +206,8 @@ def list_constraints(days: int = 30, db: Database = Depends(get_database)) -> di
     ]}
 
 
-@router.post("/constraints")
+@router.post("/constraints", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def create_constraint(req: ConstraintRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
     """Create a durable constraint and apply it to the active plan immediately.
 
@@ -237,7 +240,8 @@ def create_constraint(req: ConstraintRequest, db: Database = Depends(get_databas
         raise HTTPException(status_code=422, detail=str(exc))
 
 
-@router.delete("/constraints/{constraint_id}")
+@router.delete("/constraints/{constraint_id}", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def deactivate_constraint(constraint_id: int, db: Database = Depends(get_database)) -> dict[str, Any]:
     row = db.deactivate_coach_constraint(constraint_id)
     if row is None:
@@ -245,7 +249,8 @@ def deactivate_constraint(constraint_id: int, db: Database = Depends(get_databas
     return row
 
 
-@router.post("/constraints/{constraint_id}/retract")
+@router.post("/constraints/{constraint_id}/retract", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def retract_constraint(constraint_id: int, db: Database = Depends(get_database)) -> dict[str, Any]:
     """Deactivate a constraint AND restore its day from the closest usable ancestor (#473).
 
@@ -277,7 +282,8 @@ def retract_constraint(constraint_id: int, db: Database = Depends(get_database))
     return {"constraint": result.get("constraint"), "recover": result}
 
 
-@router.post("/repair-day")
+@router.post("/repair-day", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def repair_day(req: RepairDayRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
     """One-off day recovery (incident tooling); no constraint row involved."""
     try:
@@ -353,7 +359,8 @@ def planning_get_demand(db: Database = Depends(get_database)) -> dict[str, Any]:
     return planning_service.get_demand(db)
 
 
-@router.post("/demand")
+@router.post("/demand", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def planning_set_demand(req: DemandRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
     return planning_service.set_demand(db, req.level)
 
@@ -367,7 +374,8 @@ def planning_demand_preview(
     return planning_service.demand_preview(db, level)
 
 
-@router.post("/demand/confirm")
+@router.post("/demand/confirm", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def planning_demand_confirm(
     req: DemandConfirmRequest,
     db: Database = Depends(get_database),
@@ -406,6 +414,7 @@ def planning_build(req: BuildRequest, db: Database = Depends(get_database)) -> d
 
 
 @router.post("/build/confirm", response_model=BuildConfirmResponseVersioned, response_model_exclude_unset=True, responses={409: {"model": BuildReadinessError | EntryLoadError | BuildProtocolError}})
+@backup_boundary("user_command", response=True)
 def planning_build_confirm(req: BuildConfirmRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
     return planning_service.confirm_plan_build(db, preview_id=str(req.preview_id), origin="planning_ui")
 
@@ -443,7 +452,8 @@ def planning_plan(db: Database = Depends(get_database)) -> dict[str, Any]:
     }
 
 
-@router.post("/delivery/intervals")
+@router.post("/delivery/intervals", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def planning_deliver_intervals(
     req: IntervalsDeliveryRequest,
     demo: bool = False,
@@ -569,7 +579,8 @@ def planning_reconciliation(
         raise HTTPException(status_code=422, detail=str(exc))
 
 
-@router.post("/reconciliation/matches")
+@router.post("/reconciliation/matches", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def planning_record_match(
     req: MatchCorrectionRequest,
     db: Database = Depends(get_database),
@@ -609,7 +620,8 @@ def planning_rebalance_preview(
         raise HTTPException(status_code=422, detail=str(exc))
 
 
-@router.post("/rebalance/confirm")
+@router.post("/rebalance/confirm", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def planning_rebalance_confirm(
     req: RebalanceRequest,
     db: Database = Depends(get_database),
@@ -645,7 +657,8 @@ def planning_bike_tss_preview(
         raise HTTPException(status_code=422, detail=str(exc))
 
 
-@router.post("/bike-tss/confirm")
+@router.post("/bike-tss/confirm", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def planning_bike_tss_confirm(
     req: RebalanceRequest,
     db: Database = Depends(get_database),
@@ -667,7 +680,8 @@ def planning_bike_tss_confirm(
         raise HTTPException(status_code=422, detail=str(exc))
 
 
-@router.post("/adjust")
+@router.post("/adjust", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def planning_adjust(req: AdjustRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
     try:
         return planning_service.apply_adjustment(
@@ -687,7 +701,8 @@ def planning_history(limit: int = 10, db: Database = Depends(get_database)) -> d
     return planning_service.planning_history(db, limit=limit)
 
 
-@router.post("/history/restore")
+@router.post("/history/restore", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def planning_history_restore(
     req: HistoryRestoreRequest,
     db: Database = Depends(get_database),

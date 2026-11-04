@@ -1,5 +1,6 @@
 """Explicit cycle reads and identity-bearing commands; no implicit activation."""
 from __future__ import annotations
+from api.backup_contract import BackupStatus
 
 from typing import Any, Literal
 from uuid import UUID
@@ -208,6 +209,7 @@ class CycleCommandResult(BaseModel):
 
 
 class CycleCommandResponse(BaseModel):
+    backup: BackupStatus | None = None
     model_config = ConfigDict(extra="forbid")
     command_id: str
     kind: Literal["close", "set_event_outcome", "resolve_constraint_scope"]

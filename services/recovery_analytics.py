@@ -1,5 +1,6 @@
 """Headless orchestration and read projections for recovery analytics."""
 from __future__ import annotations
+from services.snapshot_runtime import backup_boundary
 
 from datetime import date, datetime, timedelta, timezone
 import hashlib
@@ -80,6 +81,7 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+@backup_boundary("readiness_evidence")
 def record_post_sync_recovery_state(
     db: Database,
     *,
@@ -256,6 +258,7 @@ def build_capture_failure_block(
     )
 
 
+@backup_boundary("readiness_evidence")
 def capture_post_sync_recovery_state(
     db: Database,
     *,

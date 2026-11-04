@@ -837,3 +837,20 @@ that head, both threads resolved. Owner accepted, current CI and CLEAN checked
 before merge; reviewed/merged trees identical. Specification only, no personal
 DB/service/feature activation. #623/#622 stay open for M2–M4. Outcome is included
 with substantive M2 work, without a separate post-merge docs PR.
+
+## #623 M2 snapshot core — #744, merged 2026-11-04
+
+[PR #744](https://github.com/rbctmz/ai_trainer/pull/744) merged as
+e98b138e14371055d57ec5bdbca959bffb5eaae9. Two native rounds: 2 confirmed P2s
+on 25f344f reproduced/fixed in 4c59aa9; second delta round clean on 4c59aa9.
+Both threads resolved. After review, main was merged into the branch as e5125bb;
+its tree exactly matched automatic merge-tree reviewed-head + main (53e98e5).
+Owner explicitly accepted review-budget-exception and accepted review; current
+Review gate GREEN/CLEAN before exact-head merge. Functional CI: 4294 passed,
+42 skipped,116 deselected; 92 E2E, contract and Gitleaks GREEN. Earlier same-head
+CI retries are documented in the PR; their transient sync/HTTP500 causes were
+not established, #739/#745 remain separate. Shared-checkout cleanup was refused
+by automatic permissions review and then explicitly deferred by owner because
+parallel work continues. No checkouts/services/personal DB were changed.
+M3 uses a new managed worktree from merged main. Outcome included with substantive
+M3, without another docs-only PR. #623/#622 remain open for M3/M4; feature stays off.

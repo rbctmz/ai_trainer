@@ -43,12 +43,17 @@ export async function fetcher<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+function notifyBackupStatus() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("backup-status-changed"));
+}
+
 export async function postJSON<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(withDemo(path), {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body),
   });
+  notifyBackupStatus();
   if (!res.ok) {
     let detail = `Request failed: ${res.status}`;
     let code: string | undefined;
@@ -75,6 +80,7 @@ export async function putJSON<T>(path: string, body: unknown): Promise<T> {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body),
   });
+  notifyBackupStatus();
   if (!res.ok) {
     let detail = `Request failed: ${res.status}`;
     try {
@@ -93,6 +99,7 @@ export async function deleteJSON<T>(path: string): Promise<T> {
     method: "DELETE",
     headers: { Accept: "application/json" },
   });
+  notifyBackupStatus();
   if (!res.ok) {
     let detail = `Request failed: ${res.status}`;
     try {
@@ -136,24 +143,28 @@ export async function streamCoachChat(
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    // SSE frames are separated by a blank line.
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-    for (const frame of frames) {
-      const line = frame.split("\n").find((l) => l.startsWith("data:"));
-      if (!line) continue;
-      const json = line.slice(5).trim();
-      if (!json) continue;
-      try {
-        onEvent(JSON.parse(json) as CoachEvent);
-      } catch {
-        // ignore malformed frame
+      // SSE frames are separated by a blank line.
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const frame of frames) {
+        const line = frame.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        const json = line.slice(5).trim();
+        if (!json) continue;
+        try {
+          onEvent(JSON.parse(json) as CoachEvent);
+        } catch {
+          // ignore malformed frame
+        }
       }
     }
+  } finally {
+    notifyBackupStatus();
   }
 }

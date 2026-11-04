@@ -8,6 +8,7 @@ import { workoutLabel } from "./displayText";
 import type {
   ComparableSessionProjection,
   SessionFeedbackHistoryResponse,
+  SessionFeedbackMutationResponse,
   SessionFeedbackPrompt,
 } from "@/lib/types";
 
@@ -159,11 +160,11 @@ export function PostWorkoutFeedbackCard({
     };
     try {
       const result = saved
-        ? await postJSON<{ feedback: { revision: number } }>(
+        ? await postJSON<SessionFeedbackMutationResponse>(
             `/api/session-feedback/${saved.id}/correct`,
             body,
           )
-        : await postJSON<{ feedback: { revision: number } }>("/api/session-feedback", {
+        : await postJSON<SessionFeedbackMutationResponse>("/api/session-feedback", {
             session_id: prompt.session_id,
             ...body,
           });
