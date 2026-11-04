@@ -436,3 +436,14 @@ then PASS with0 provenance errors. Assertions/timeouts/guards unchanged; existin
 locked-provenance test still covers the fail-closed product path. This is a test
 scheduling correction, no product eligibility/concurrency change. Final-head
 full/CI evidence remains pending. Earlier failure records are retained above.
+
+Final ownership disproof: partial namespace recovery with only retired history
+and missing status must still treat pins as unknown. RED reproduced that the
+active-ID-only history detector allowed cleanup. Count retired-ID entries too;
+no status/queue schema change. Original protected copy stays untouched and
+backup_reset_pins_unknown persists. This extends existing lost-pin recovery to
+the new discard phase rather than inventing a repair permission.
+
+Final lost-pin delta related validation98 PASS (35.83s), Ruff/diff GREEN.
+Final full CI on the published frozen head is authoritative; local full evidence
+started before this last one-line history guard delta and is a checkpoint only.

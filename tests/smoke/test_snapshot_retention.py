@@ -396,3 +396,19 @@ def test_unknown_retired_artifacts_are_not_cleanup_permission(tmp_path, metadata
     change(source, 98)
     assert core._run(source, root)['state'] == 'ready'
     assert (unknown / 'operator.txt').read_text() == 'keep unknown artifact'
+
+
+def test_retired_history_without_status_never_grants_pin_cleanup(tmp_path):
+    source, root = source_store(tmp_path), tmp_path / 'copies'
+    first = core._run(source, root, reason='pre_reset')
+    folder = namespace(root)
+    # Incomplete namespace recovery: only retired history survives, pins lost.
+    old = folder / 'snapshots' / first['last_snapshot_id']
+    retired = folder / 'snapshots' / ('.retired-' + first['last_snapshot_id'] + '-' + 'c' * 32)
+    core._publish(old, retired)
+    (folder / 'status.json').unlink()
+    result = core._run(source, root)
+    assert result['state'] == 'ready'
+    assert result['reason_code'] == 'backup_reset_pins_unknown'
+    assert state(root)['reset_pins_unknown'] is True
+    assert (retired / 'snapshot.db').exists()
