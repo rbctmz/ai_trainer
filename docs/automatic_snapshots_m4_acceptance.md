@@ -30,3 +30,12 @@ Target tests/smoke/test_snapshot_retention.py plus core/runtime/guard/restore,
 then full contributor-safe, contracts, lint/build and isolated browser checks.
 Actual results go to ExecPlan/PR; planned matrix is not evidence. Windows/ACL
 and live activation NOT RUN. Native review/owner merge remain separate.
+
+
+Review round1 disposition is recorded in ExecPlan: atomic retirement leaves the
+active snapshot-ID catalog before deleting files. Its original manifest is kept
+until data removal ends, so interrupted discards resume without treating corrupt
+active artifacts as cleanup permission. Unknown/foreign/corrupt retired entries
+are preserved. Empty shells without ownership proof are not adopted or deleted.
+The pre-reset eligibility decision also controls post-reset: removing a demo
+marker cannot turn the same reset into a real-store backup operation.

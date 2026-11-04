@@ -384,3 +384,43 @@ M4 validation checkpoint: native full4362 passed /16 skipped /124 deselected,
 corrupt-only history hardening. Final combined114 passed (32.57s) includes all
 17 retention/reset cases plus runtime/core/API/CLI restore/contracts. Final8 UI
 cases, lint/build/Ruff/diff GREEN. Final exact-head full/CI still pending.
+
+
+## M4 review round 1 — 2026-11-04
+
+M3 round2 clean on1386c2c; no open threads, functional CI GREEN. Owner review
+acceptance/merge still pending. M4 round1 on8b255fa raised two P2 findings.
+
+Observed: thread4467194626: interrupted rmtree can leave an incomplete active
+snapshot-ID directory. Inferred: later full catalog verification blocks pruning
+forever. Verified by: actual unlink(snapshot.db) then synthetic OSError; next
+check remained backup_retention_failed. Fix atomically moves a fully verified
+obsolete candidate out of active catalog to unique .retired-ID-nonce, using the
+existing no-clobber publication helper. Cleanup removes only regular known
+SQLite family files, preserves original verified manifest until last, and resumes
+recognized partial discards under the same namespace lock. Foreign/unknown or
+corrupt artifacts are never deletion permission. Empty unknown shells left after
+the final unlink are preserved, not adopted; unique names cannot block later
+active retention. No extra queue/status schema, engine or repair endpoint.
+
+Observed: thread4467194635: selected store demo marker disappears during reset.
+Verified by: enabled real-path DB with dataset_origin=demo created backup root
+after clear_all_data (RED). prepare_reset now returns whether backup protection
+was required; the caller carries that decision across DELETE and never starts
+post-reset backup for an excluded store. Actual HeadlessState/deactivate_demo_mode
+entry is covered. This preserves rather than broadens eligibility policy.
+
+Both initial regressions RED before fixes. Dedicated combined validation and
+exact-head CI pending. Real worker os._exit after retired DB unlink tests restart
+and OS lock release, alongside injected permission failure/retry, foreign retired
+artifacts and original reset/pin/restore evidence. UI/API/config contracts are
+unchanged by review delta. No third-party/personal data or services used. Round2
+not requested automatically; budget used1/2 until an explicit verification request.
+
+M4 review fix focused validation:97 passed (28.39s), Ruff/diff GREEN. Actual
+worker exits74 after retired snapshot.db unlink; a fresh bounded worker acquires
+the released OS lock, resumes cleanup and returns ready without maintenance
+warning. Demo real-path direct reset and actual deactivate_demo_mode both keep
+backup root absent. Unknown retired artifacts remain unchanged. Initial extended
+demo fixture used plain dict instead of supported SessionDict factory; corrected
+to make_headless_state without changing the facade. Full exact-head CI pending.

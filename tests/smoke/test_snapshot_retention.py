@@ -27,7 +27,7 @@ def state(root):
 
 
 def copies(root):
-    return {p.parent.name: json.loads(p.read_text()) for p in root.glob('*/snapshots/*/manifest.json')}
+    return {p.parent.name: json.loads(p.read_text()) for p in root.glob('*/snapshots/*/manifest.json') if not p.parent.name.startswith('.')}
 
 
 def change(source, minutes):
@@ -104,18 +104,22 @@ def test_deletion_failure_keeps_latest_and_reports_maintenance(tmp_path, monkeyp
     source, root = source_store(tmp_path), tmp_path / 'copies'
     first = core._run(source, root)
     change(source, 35)
-    native = core.shutil.rmtree
+    from pathlib import Path
+    native = Path.unlink
     def refuse(path, *args, **kwargs):
-        if path.name == first['last_snapshot_id']:
+        if path.name == 'snapshot.db' and path.parent.name.startswith('.retired-'):
             raise PermissionError('synthetic')
         return native(path, *args, **kwargs)
     with monkeypatch.context() as patch:
-        patch.setattr(core.shutil, 'rmtree', refuse)
+        patch.setattr(Path, 'unlink', refuse)
         result = core._run(source, root)
     assert result['state'] == 'ready' and result['reason_code'] == 'backup_retention_failed'
     assert state(root)['reason_code'] == 'backup_retention_failed'
-    assert len(copies(root)) == 2
+    assert len(copies(root)) == 1
+    retired = list((namespace(root) / 'snapshots').glob('.retired-*/snapshot.db'))
+    assert len(retired) == 1 and first['last_snapshot_id'] in retired[0].parent.name
     assert core._run(source, root)['reason_code'] is None
+    assert not retired[0].exists()
     assert set(copies(root)) == {result['last_snapshot_id']}
 
 
@@ -297,3 +301,98 @@ def test_missing_state_with_only_corrupt_history_keeps_pin_uncertainty(tmp_path)
     assert result['reason_code'] == 'backup_reset_pins_unknown'
     assert state(root)['reset_pins_unknown'] is True
     assert first['last_snapshot_id'] in copies(root)
+
+
+def test_partial_retention_delete_is_resumed_after_file_was_unlinked(tmp_path, monkeypatch):
+    import os
+    source, root = source_store(tmp_path), tmp_path / 'copies'
+    core._run(source, root)
+    change(source, 47)
+    native = os.unlink
+    removed = []
+    def interrupted(path, *args, **kwargs):
+        result = native(path, *args, **kwargs)
+        if not removed and os.path.basename(os.fspath(path)) == 'snapshot.db':
+            removed.append(True)
+            raise OSError('synthetic crash after unlink')
+        return result
+    with monkeypatch.context() as patch:
+        patch.setattr(os, 'unlink', interrupted)
+        failed = core._run(source, root)
+    assert removed and failed['state'] == 'ready'
+    assert failed['reason_code'] == 'backup_retention_failed'
+    retried = core._run(source, root)
+    assert retried['state'] == 'ready'
+    assert retried['reason_code'] is None
+    assert retried['last_snapshot_id'] == failed['last_snapshot_id']
+
+
+def test_selected_demo_reset_never_enters_real_backup_namespace(tmp_path, monkeypatch):
+    db = selected(tmp_path, monkeypatch)
+    db.set_user_setting('dataset_origin', 'demo')
+    db.save_coach_decision('Monitor', 'demo only')
+    assert not (tmp_path / 'copies').exists()
+    db.clear_all_data()
+    assert db.get_coach_decisions(days=36500) == []
+    assert not (tmp_path / 'copies').exists()
+
+
+def test_worker_crash_after_retired_db_unlink_can_resume_in_new_process(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from scripts.scratch_pytest import child_environment
+    source, root = source_store(tmp_path), tmp_path / 'copies'
+    core.check_snapshot(source, root, 'initial')
+    change(source, 83)
+    code = '''
+import os,sys
+from pathlib import Path
+from services import automatic_snapshots as core
+native = Path.unlink
+def stop_after_unlink(path, *args, **kwargs):
+    result = native(path, *args, **kwargs)
+    if path.name == 'snapshot.db' and path.parent.name.startswith('.retired-'):
+        os._exit(74)
+    return result
+Path.unlink = stop_after_unlink
+core._run(sys.argv[1], sys.argv[2])
+'''
+    child = subprocess.run([sys.executable, '-c', code, str(source), str(root)],
+                           env=child_environment(os.environ), text=True, capture_output=True, timeout=15)
+    assert child.returncode == 74, child.stderr
+    retired = list((namespace(root) / 'snapshots').glob('.retired-*/manifest.json'))
+    assert len(retired) == 1 and not (retired[0].parent / 'snapshot.db').exists()
+    retried = core.check_snapshot(source, root, 'restart')
+    assert retried['state'] == 'ready' and retried['reason_code'] is None
+    assert not retired[0].exists()
+    assert set(copies(root)) == {retried['last_snapshot_id']}
+
+
+def test_deactivate_demo_on_selected_real_path_preserves_backup_isolation(tmp_path, monkeypatch):
+    from services.demo_mode import deactivate_demo_mode
+    from utils.app_state import make_headless_state
+    db = selected(tmp_path, monkeypatch)
+    state = make_headless_state()
+    assert state.database.db_path == db.db_path  # Actual fallback lazy provider.
+    db.set_user_setting('dataset_origin', 'demo')
+    db.save_coach_decision('Monitor', 'demo only')
+    state.demo_mode = True
+    deactivate_demo_mode(state)
+    assert not state.demo_mode
+    assert db.get_coach_decisions(days=36500) == []
+    assert not (tmp_path / 'copies').exists()
+
+
+@pytest.mark.parametrize('metadata', [None, {'version': 99}, {'version': 1, 'source_namespace': 'foreign'}])
+def test_unknown_retired_artifacts_are_not_cleanup_permission(tmp_path, metadata):
+    source, root = source_store(tmp_path), tmp_path / 'copies'
+    core._run(source, root)
+    unknown = namespace(root) / 'snapshots' / ('.retired-' + 'a' * 32 + '-' + 'b' * 32)
+    unknown.mkdir(mode=0o700)
+    (unknown / 'operator.txt').write_text('keep unknown artifact')
+    if metadata is not None:
+        (unknown / 'manifest.json').write_text(json.dumps(metadata))
+    change(source, 98)
+    assert core._run(source, root)['state'] == 'ready'
+    assert (unknown / 'operator.txt').read_text() == 'keep unknown artifact'

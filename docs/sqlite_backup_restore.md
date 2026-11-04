@@ -394,3 +394,10 @@ compare logical fingerprints, and verify application reads in a fresh process.
 No personal reset, live snapshot activation or off-device protection was tested.
 AUTO_BACKUP_ENABLED stays false by default; enablement requires separate owner
 decision after review/merge. Never enable it by changing personal .env in tests.
+
+Interrupted automatic retention first atomically retires an obsolete verified
+snapshot from the active catalog; its original manifest remains until last and
+permits cleanup to resume on the next check. Unknown or corrupt artifacts are
+not cleanup permission. A harmless empty shell after the final unlink may be
+preserved for operator investigation; it does not block active retention. Demo
+exclusion is decided before reset and applies through its post-reset boundary.

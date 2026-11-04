@@ -22,6 +22,7 @@ from services.sqlite_snapshot_core import SnapshotInspectionError, copy_sqlite, 
 
 DEADLINE_SECONDS = 10.0
 _ID = re.compile(r'^[0-9a-f]{32}$')
+_RETIRED = re.compile(r'^\.retired-([0-9a-f]{32})-[0-9a-f]{32}$')
 
 
 class SnapshotError(RuntimeError):
@@ -264,6 +265,52 @@ def _latest(directory: Path, namespace: str) -> tuple[dict | None, dict | None]:
     return None, None
 
 
+def _remove_retired(item: Path, namespace: str, keep: set[str]) -> None:
+    """Resume an authorized discard; keep its original manifest until last.
+
+    A kill can leave SQLite family members absent. It cannot erase the ownership
+    manifest while data remains. Unknown/foreign directories stay untouched;
+    an empty shell after the last unlink is harmless and is not adopted.
+    """
+    match = _RETIRED.fullmatch(item.name)
+    if match is None:
+        return
+    _private_directory(item)
+    path = item / 'manifest.json'
+    if not path.exists() and not path.is_symlink():
+        return  # Unknown or empty shell: never infer deletion ownership.
+    manifest = _read_json(path)
+    key = match[1]
+    if (manifest.get('version') != 1 or manifest.get('source_namespace') != namespace or
+            manifest.get('snapshot_id') != key or key in keep):
+        return
+    fingerprint = manifest['fingerprint']
+    if (not isinstance(fingerprint, dict) or manifest.get('integrity_check') != 'ok' or
+            _generation(fingerprint) != manifest['source_generation'] or
+            not re.fullmatch('[0-9a-f]{64}', manifest['sha256'])):
+        raise ValueError('invalid retired manifest')
+    _instant(manifest['created_at_utc'])
+    db = item / 'snapshot.db'
+    family = database_family(db)
+    allowed = {'manifest.json', *(member.name for member in family)}
+    for member in item.iterdir():
+        if member.name not in allowed:
+            raise ValueError('unrecognized retired contents')
+        _regular(member)
+    if db.exists():
+        if (_hash(db) != manifest['sha256'] or db.stat().st_size != manifest['size'] or
+                inspect_database(db) != fingerprint):
+            raise ValueError('corrupt retired snapshot')
+    for member in family:
+        if member.exists() or member.is_symlink():
+            _regular(member)
+            member.unlink()
+    _fsync_directory(item)
+    path.unlink()  # Last file: incomplete removal always retains its proof.
+    item.rmdir()
+    _fsync_directory(item.parent)
+
+
 def _retain(directory: Path, namespace: str, latest: str, pins: dict,
             pins_unknown: bool, now: datetime) -> tuple[dict, str | None]:
     """Validate the whole owned catalog before deleting any obsolete copy.
@@ -304,10 +351,16 @@ def _retain(directory: Path, namespace: str, latest: str, pins: dict,
             daily[created.date()] = key
             weekly[created.isocalendar()[:2]] = key
         keep = {latest, *active, *list(daily.values())[-14:], *list(weekly.values())[-8:]}
+        for item in directory.iterdir():
+            if _RETIRED.fullmatch(item.name):
+                _remove_retired(item, namespace, keep)
         for _, key, item in sorted(candidates):
             if key not in keep:
-                shutil.rmtree(item)
-                _fsync_directory(directory)
+                # Atomically leave the active catalog before any unlink. Unique
+                # names avoid adopting/clobbering even an old empty shell.
+                retired = directory / f'.retired-{key}-{uuid.uuid4().hex}'
+                _publish(item, retired)
+                _remove_retired(retired, namespace, keep)
         return active, None
     except (OSError, ValueError, KeyError, TypeError, AttributeError, SnapshotError, SnapshotInspectionError):
         return pins, 'backup_retention_failed'

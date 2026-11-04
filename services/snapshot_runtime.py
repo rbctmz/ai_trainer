@@ -309,7 +309,7 @@ def defer_derived_backup(function: Callable) -> Callable:
     return wrapped
 
 
-def prepare_reset(db: Any) -> None:
+def prepare_reset(db: Any) -> bool:
     """Require a checked copy and durable 14-day pin before a real-store reset.
 
     The caller already holds BEGIN IMMEDIATE; release the source connection
@@ -317,7 +317,8 @@ def prepare_reset(db: Any) -> None:
     """
     eligibility = _eligible(db)
     if eligibility is False:
-        return
+        return False
     status = get_runtime(db).check('pre_reset') if eligibility is True else get_runtime(db)._preflight_failure()
     if status['state'] != 'ready':
         raise RuntimeError('Очистка не выполнена: резервную копию перед очисткой не удалось защитить.')
+    return True
