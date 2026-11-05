@@ -854,3 +854,31 @@ by automatic permissions review and then explicitly deferred by owner because
 parallel work continues. No checkouts/services/personal DB were changed.
 M3 uses a new managed worktree from merged main. Outcome included with substantive
 M3, without another docs-only PR. #623/#622 remain open for M3/M4; feature stays off.
+
+## #623 M3/M4 outcomes — consolidated with substantive #749, 2026-11-05
+
+[#746](https://github.com/rbctmz/ai_trainer/pull/746) merged 9ee042c on
+2026-11-04 after two native rounds: one P2 reproduced/fixed in1386c2c,
+final delta clean, zero open threads, explicit owner acceptance and GREEN/CLEAN.
+Reviewed and merged trees equal. Accepted source CI4323/42/122, E2E98 PASS;
+initial E2E guard refusal and one same-head retry remain disclosed, not claimed
+fixed by rerun. Personal DB/config/services unchanged.
+
+[#747](https://github.com/rbctmz/ai_trainer/pull/747) merged23e85ec on
+2026-11-05 after two native rounds: two P2 reproduced/fixed after8b255fa,
+round2 clean on6a61ee4, zero open threads. Later merge-main4d3a915 had the same
+tree as6a and merge23e; owner explicitly accepted review-budget-exception and
+review on4d before GREEN Review gate/CLEAN exact-head merge. No third round.
+Accepted4d CI4349/42/124 and E2E100 PASS; local full4374 was an earlier checkpoint,
+not an exact4d native rerun. Functional retries and prior HTTP500/guard
+observations remain disclosed in PR evidence. #623 CLOSED for implementation/
+synthetic acceptance; #622 OPEN, AUTO_BACKUP_ENABLED default false, no live
+activation. Task branches removed; clean detached folders preserved because
+managed archive refused removal of the chat checkout; generated evidence was
+preserved privately. Parallel #731 checkout untouched.
+
+Verified remote merge SHAs/states again during #749 preparation. The rollout
+read-only preview then found an unrecognized legacy schema, tracked as
+[#749](https://github.com/rbctmz/ai_trainer/issues/749), not hidden as a successful
+personal activation. Source main/WAL unchanged. Off-device remains #626;
+platform/live acceptance and long-term escaped-defect observation remain open.
