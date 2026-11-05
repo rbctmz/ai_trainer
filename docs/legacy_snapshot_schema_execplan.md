@@ -20,7 +20,9 @@ does not activate protection on the owner's data.
 - [x] 2026-11-05: define exact legacy signature and Spec → Domain handoff.
 - [x] 2026-11-05: synthetic RED: 4 failed / 13 passed (1.24s); expected
       unsupported_source_schema and automatic degraded refusal, not fixture errors.
-- [ ] Extend recognition only; run GREEN and relevant regression/full checks.
+- [x] 2026-11-05: extend recognition only (10 added/2 removed product lines);
+      17 dedicated GREEN and 280 combined regression cases pass. Ruff/diff green.
+- [ ] Full contributor-safe CI-policy check and independent checker.
 - [ ] Independent read-only checker and self-review; publish stable PR evidence.
 - [ ] Separate owner-requested native review, acceptance and merge.
 
@@ -123,7 +125,7 @@ does not replace explicit path ownership/selection protections.
 
 ## Outcomes & Retrospective
 
-Pending implementation. Live preview/apply remains blocked until the change is
+Implementation and related synthetic regression are GREEN. Live preview/apply remains blocked until the change is
 reviewed/merged and a fresh operator decision is made. Native Windows/ACL,
 personal data, running services and off-device transport are not exercised.
 
@@ -135,6 +137,16 @@ with blocked/unsupported_source_schema, automatic case with degraded/
 backup_integrity_failed, lower-case legacy declaration with the same recognizer
 exception. All 13 near-miss rejection cases already pass; they are regression
 baseline, not RED evidence. Scratch audit: 51 allowed, 0 blocked in parent.
+
+GREEN: same dedicated command 17 passed / 1.10s; related command listed above
+with CI warning policy returned 280 passed / 36.00s, one existing Starlette
+deprecation warning. Parent scratch audit 2634 allowed / 0 blocked. Ruff whole
+tree and git diff --check GREEN. Tests and product code were unchanged between
+the dedicated and combined runs; documentation amendments followed.
+
+Prior #623 M3/M4 merge outcomes were consolidated into canonical process metrics
+in this substantive checkpoint, with remote merge SHAs checked again. This is
+not a separate post-merge docs-only review loop.
 
 Record exact RED/GREEN commands, counts, checker findings and final published
 head here. Private rollout diagnostics remain local; do not copy personal DB
