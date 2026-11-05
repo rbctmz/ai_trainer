@@ -61,3 +61,29 @@ def test_disabled_backup_endpoints_do_not_initialize_selected_source(tmp_path, m
     assert client.post('/api/backup/check', json={}).json()['state'] == 'disabled'
     assert not source.exists()
     assert not (tmp_path / 'not-created').exists()
+
+
+def test_maintenance_reason_preserves_ready_in_api_and_operational_envelope(tmp_path, monkeypatch):
+    db = Database(str(tmp_path / 'selected.db'))
+    monkeypatch.setattr(Settings, 'DATABASE_PATH', db.db_path)
+    monkeypatch.setattr(Settings, 'BACKUP_DIR', str(tmp_path / 'backups'))
+    monkeypatch.setattr(Settings, 'AUTO_BACKUP_ENABLED', True)
+    monkeypatch.setattr(Settings, 'ACCEPTANCE_MODE', False)
+    runtime.reset_for_tests()
+    runner = runtime.get_runtime(db)
+    base = runner.check('initial')
+    assert base['state'] == 'ready'
+    app.dependency_overrides[get_database] = lambda: db
+    try:
+        client = TestClient(app)  # Read only; no lifecycle check to replace receipt.
+        for reason in ('backup_retention_failed', 'backup_reset_pins_unknown'):
+            status = {**base, 'reason_code': reason}
+            monkeypatch.setattr(runner, 'status', lambda: status)
+            response = client.get('/api/backup/status')
+            assert response.status_code == 200
+            assert BackupStatus.model_validate(response.json()).state == 'ready'
+            assert response.json()['reason_code'] == reason
+            assert build_operational_state(db, has_data=False)['backup'] == status
+    finally:
+        app.dependency_overrides.pop(get_database, None)
+        runtime.reset_for_tests()

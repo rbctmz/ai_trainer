@@ -902,3 +902,16 @@ test_snapshot_runtime.py, test_backup_api.py, test_backup_status_ui.py и
 read-owned derivations покрывает daily check. Default off; личное включение и
 M4 retention/reset/restore ещё не выполнены. Подробности и границы evidence:
 [ExecPlan](../automatic_snapshots_execplan.md), [inventory](../automatic_snapshots_m3_inventory.md).
+
+
+### #623 M4 implementation checkpoint
+
+ASR-REL-3 / ASR-DEP-2: automatic retention validates catalog before deletion and
+preserves daily/weekly/latest/reset pins; pre-reset durable pin precedes DELETE
+inside source writer exclusion. Synthetic auto-copy -> existing restore -> fresh
+application validates checkpoint/coach/match/feedback/readiness/provider evidence
+and rollback. ASR-SEC-1: owned namespaces only, unknown/corrupt artifacts never
+deleted, path-free maintenance reason in existing API/UI. No new schema/engine.
+See [acceptance inventory](../automatic_snapshots_m4_acceptance.md) and
+[ExecPlan](../automatic_snapshots_execplan.md) for current evidence/pending CI.
+M3/M4 review and owner merges are pending; personal rollout/default remain off.

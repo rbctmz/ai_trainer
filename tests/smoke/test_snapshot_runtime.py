@@ -96,6 +96,7 @@ def test_sync_snapshot_follows_final_audit_and_terminal_waits(tmp_path, monkeypa
     db = enabled(tmp_path, monkeypatch)
     manager = SyncJobManager()
     entered, release = threading.Event(), threading.Event()
+    allow_sync = threading.Event()
     native = runtime.check_snapshot
     def blocking(*args):
         entered.set()
@@ -103,9 +104,15 @@ def test_sync_snapshot_follows_final_audit_and_terminal_waits(tmp_path, monkeypa
         return native(*args)
     monkeypatch.setattr(runtime, 'check_snapshot', blocking)
     def run_sync(on_progress, *, capture_run_id):
+        assert allow_sync.wait(3)
         db.set_user_setting('synthetic_sync', capture_run_id)
         return {'sync_state': 'succeeded', 'title': 'done'}
-    manager.start_or_get(days=1, run_sync=run_sync, db=db, source='intervals')
+    # This happy-path test controls stages: initial status/provenance reads
+    # finish before the writer. Busy provenance has its own fail-closed test.
+    try:
+        manager.start_or_get(days=1, run_sync=run_sync, db=db, source='intervals')
+    finally:
+        allow_sync.set()
     try:
         assert entered.wait(2), manager.status(db)
         assert manager.status(db)['sync_state'] == 'running'
@@ -299,13 +306,16 @@ def test_shared_feedback_correction_and_tombstone_each_protect_final_revision(tm
               'session_rpe_1_10': 4, 'quality_rating_1_5': 4}
     at = datetime(2026, 7, 13, 9, tzinfo=timezone.utc)
     first = service.submit_session_feedback(db, values, now_utc=at)['feedback']
+    first_copy = runtime.backup_status(db)['last_snapshot_id']
     corrected = service.correct_session_feedback(db, first['id'], {
         **values, 'client_submission_fingerprint': 'm3-correction', 'note': 'Synthetic correction',
     }, now_utc=at + timedelta(minutes=1))['feedback']
+    corrected_copy = runtime.backup_status(db)['last_snapshot_id']
     removed = service.tombstone_session_feedback(db, corrected['id'], client_submission_fingerprint='m3-tombstone',
                                                  now_utc=at + timedelta(minutes=2))['feedback']
     copies = list((tmp_path / 'backups').glob('*/snapshots/*/snapshot.db'))
-    assert len(copies) == 3
+    assert len(copies) == 1  # Intermediate same-day copies may be pruned.
+    assert len({first_copy, corrected_copy, runtime.backup_status(db)['last_snapshot_id']}) == 3
     status = runtime.backup_status(db)
     latest = next(copy for copy in copies if copy.parent.name == status['last_snapshot_id'])
     with sqlite3.connect(latest) as conn:
@@ -374,7 +384,7 @@ def test_fresh_application_process_captures_committed_gap_and_stops_own_timer(tm
     from scripts.scratch_pytest import child_environment
     db = enabled(tmp_path, monkeypatch)
     db.save_coach_decision('Monitor', 'before process gap')
-    before = runtime.backup_status(db)
+    before = runtime.get_runtime(db).check('pre_reset')  # Explicitly keep the baseline for this immutable-copy assertion.
     old = next((tmp_path / 'backups').glob(f"*/snapshots/{before['last_snapshot_id']}/snapshot.db"))
     db.set_user_setting('crash_gap', 'committed before fresh startup')
     env = child_environment({**os.environ, 'DATABASE_PATH': db.db_path,

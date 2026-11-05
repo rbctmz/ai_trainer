@@ -21,7 +21,7 @@ def snapshots(root):
     return list(root.glob('*/snapshots/*/manifest.json'))
 
 
-def test_snapshot_deduplicates_unchanged_and_keeps_changed_versions(tmp_path):
+def test_snapshot_deduplicates_unchanged_and_publishes_changed_generation(tmp_path):
     source, root = source_store(tmp_path), tmp_path / 'backups'
     first = check_snapshot(source, root, 'test')
     assert first['state'] == 'ready'
@@ -34,7 +34,7 @@ def test_snapshot_deduplicates_unchanged_and_keeps_changed_versions(tmp_path):
     changed = check_snapshot(source, root, 'test')
     assert changed['state'] == 'ready'
     assert changed['last_snapshot_id'] != first['last_snapshot_id']
-    assert len(snapshots(root)) == 2
+    assert len(snapshots(root)) == 1  # Same-day intermediates are now retained by M4 policy.
 
 
 def test_failed_attempt_preserves_prior_snapshot(tmp_path):
@@ -280,7 +280,7 @@ def test_crash_at_publication_recovers_without_overwriting_prior(tmp_path):
     import subprocess
     import sys
     source, root = source_store(tmp_path), tmp_path / 'backups'
-    assert check_snapshot(source, root, 'test')['state'] == 'ready'
+    assert check_snapshot(source, root, 'pre_reset')['state'] == 'ready'
     old = snapshots(root)[0].parent / 'snapshot.db'
     old_bytes = old.read_bytes()
     for after in (False, True):

@@ -11,7 +11,8 @@ class BackupStatus(BaseModel):
     last_snapshot_id: str | None
     reason_code: Literal['backup_busy', 'backup_timeout', 'backup_io_error',
                          'backup_integrity_failed', 'backup_identity_unknown',
-                         'backup_state_unwritable'] | None
+                         'backup_state_unwritable', 'backup_retention_failed',
+                         'backup_reset_pins_unknown'] | None
 
 
 class BackupCheckRequest(BaseModel):

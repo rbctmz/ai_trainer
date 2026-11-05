@@ -367,3 +367,37 @@ Committed plan/decision/match/feedback IDs and business receipts do not change
 because of backup health. Read-owned recovery audit writes are checked by the
 daily safety pass, not by each page read. Manual backup/restore/migrate retain
 their stopped confirmation contract. No automatic restore/downgrade is added.
+
+
+### #623 M4 automatic retention and reset (opt-in code; owner rollout separate)
+
+After a verified automatic check, retain last copy of14 nonempty UTC days and8
+nonempty ISO weeks (union), latest, and unexpired reset pins. Only verified
+recognized artifacts in that source namespace may be removed. Manual backups,
+rollback files, unknown versions and other namespaces stay outside pruning.
+Corrupt catalog or lost/malformed reset-pin state stops cleanup. A ready copy
+with maintenance warning still exists; retry checks backup/cleanup only. There
+is no automatic deletion/repair of uncertain history and no new repair endpoint.
+
+Full product reset on the enabled selected real store first takes a checked
+copy and durably protects it for14x24hours, reusing unchanged generation. The
+writer transaction excludes commits between copy and DELETE. Failed pre-check/
+pin blocks reset. Failed DELETE rolls back the source but leaves the harmless
+pin. Post-reset copy failure warns without repeating or undoing committed reset.
+Multiple reset pins coexist; extending one never shortens its old deadline.
+
+Restore remains the stopped-service operator procedure above: select a valid
+manifest, verify snapshot size/SHA-256/integrity, extract DB into private scratch,
+then existing restore with explicit target/rollback and confirm-stopped. M4
+synthetic tests restore full domain evidence from the automatic pinned snapshot,
+compare logical fingerprints, and verify application reads in a fresh process.
+No personal reset, live snapshot activation or off-device protection was tested.
+AUTO_BACKUP_ENABLED stays false by default; enablement requires separate owner
+decision after review/merge. Never enable it by changing personal .env in tests.
+
+Interrupted automatic retention first atomically retires an obsolete verified
+snapshot from the active catalog; its original manifest remains until last and
+permits cleanup to resume on the next check. Unknown or corrupt artifacts are
+not cleanup permission. A harmless empty shell after the final unlink may be
+preserved for operator investigation; it does not block active retention. Demo
+exclusion is decided before reset and applies through its post-reset boundary.

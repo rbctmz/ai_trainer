@@ -5771,6 +5771,9 @@ class Database:
         """Очистка всех данных из базы"""
         conn = self._connect()
         try:
+            from services.snapshot_runtime import prepare_reset
+            conn.execute('BEGIN IMMEDIATE')
+            protected_reset = prepare_reset(self)
             self._clear_all_data(conn)
             conn.commit()
         except Exception:
@@ -5778,6 +5781,11 @@ class Database:
             raise
         finally:
             conn.close()
+        # Business reset is committed; a failed copy warns, never replays DELETE.
+        if protected_reset:
+            from services.snapshot_runtime import backup_operation
+            with backup_operation(self, 'post_reset', changed=True):
+                pass
 
     def _clear_all_data(self, conn: sqlite3.Connection) -> None:
         """Очистка в одной транзакции; ошибки не оставляют снятый выбор цикла."""
