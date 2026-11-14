@@ -96,8 +96,14 @@ sync/CLI, другие экземпляры); flag ниже — подтверж
 полный catalog таблиц/indexes/views/triggers, **все** сохранённые таблицы и типы
 их значений, IDs, NULL/BLOB, raw JSON и дубликаты строк без PK. Новые домены не
 создаются, schema/JSON не обновляются. Минимум распознавания — обычная таблица
-activities с activity_id TEXT PRIMARY KEY, date, sport, duration_minutes;
-пустая по строкам application DB допустима. Нужна SQLite с `PRAGMA table_list`
+activities с activity_id TEXT PRIMARY KEY, date, sport, duration_minutes либо
+legacy #749: без PK, activity_id INTEGER/date TEXT/sport TEXT/duration_minutes
+REAL (declared type names сравниваются без регистра и краевых пробелов).
+Пустая по строкам application DB допустима. Legacy schema/ID, включая дубликаты,
+NULL и смешанные storage classes, не переписываются. Другие формы по-прежнему
+отказывают `unsupported_source_schema`; не меняйте рабочую схему ради обхода.
+Это распознавание структуры, не замена explicit selection/path guards.
+Нужна SQLite с `PRAGMA table_list`
 (3.37+); virtual/shadow или недоступные для полного чтения объекты вызывают
 именованный отказ, а не частичную проверку.
 

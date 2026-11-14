@@ -475,6 +475,13 @@ stale `-wal`/`-shm`/`-journal` карантинируются до `os.replace`,
   rollback-ветка находятся в
   [`docs/sqlite_backup_restore.md`](../sqlite_backup_restore.md).
 
+Совместимость validated snapshots #749 (ASR-DEP-2/REL-3/MOD-3, ADR-0002):
+`test_legacy_snapshot_schema.py` проверяет narrowly recognized INTEGER/no-PK
+activities без изменения schema/ID/types/duplicate rows; CLI plan/copy включает
+committed WAL, automatic check/retry/new generation и operator restore сохраняют
+содержимое и rollback отдельной synthetic target. Unsupported near-miss shapes
+остаются refused. Personal rollout этим доказательством не заявляется.
+
 ## Контракт-тесты API-роутеров (ASR-MOD-2, issue #242)
 
 Свип по `api/routers/*` (кодовый долг из ATAM-карты, `architecture_analysis_add3.md`
