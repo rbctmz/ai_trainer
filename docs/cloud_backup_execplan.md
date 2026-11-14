@@ -35,7 +35,8 @@ restic, вместо сервера задач — штатное расписа
   Это absence-of-feature RED, не утверждение о 24 воспроизведённых domain bugs.
 - [x] M2: shared transport/CLI и macOS schedule template; 60 focused PASS,
   включая настоящий restic local repository (без облака/личных ключей).
-- [ ] M2: итоговый broad contour, checker delta и draft PR.
+- [x] M2: broad contour4452 PASS /16 skipped /124 deselected;
+  independent scoped delta READY на89e2a8f; draft PR #755.
 - [ ] M3: shared status API/web, domain drill и итоговая synthetic приёмка.
 - [ ] Отдельное решение Greg о retention/recovery custody и live activation.
 
@@ -217,14 +218,22 @@ traceback; foreign/version-invalid local manifest сохранял ready. Исп
 добавлены regression cases. Self-review отдельно дал RED реального enabled CLI
 worker: dispatch через `__main__` мешал staging и смешивал exception classes.
 Canonical module dispatch исправлен, public worker synthetic regression GREEN.
-Final focused contour 60 PASS, scratch148/0; ruff GREEN. Scoped checker delta и
-full contributor contour pending. Native GitHub review 0/2, не запрашивался.
+Final focused contour 60 PASS, scratch148/0; ruff GREEN. Scoped checker delta
+`c5b2e71..89e2a8f` READY, оба P2 fixed-in89e2a8f, reviewer tree clean до/после.
+Native GitHub review 0/2, не запрашивался.
 
 Первый смежный прогон:240 PASS и localhost-bind permission refusal. Первый
 полный прогон выявил сломанную системную Node25 dependency (`libsimdjson.30`);
 дешёвый falsifier `node --version` отказал вне pytest, а существующий Node22.23.4
-дал24 PASS на inventory/extractor без изменения системы. Итоговый broad результат
-будет записан отдельно; первый прогон не считается GREEN.
+дал24 PASS на inventory/extractor без изменения системы. Первый full run:
+4417 PASS /16 skipped /124 deselected,6 failures +18 setup errors от Node25;
+он не считается GREEN. Повтор всего contributor-safe контура на финальном
+code HEAD89e2a8f с Node22 и permitted localhost:4452 PASS /16 skipped /
+124 deselected за327.89s, scratch30384 allowed /1 blocked (сам contour GREEN).
+Ни guard, ни системные зависимости ради тестов не отключались/не менялись.
+GitHub CI для89e2a8f при записи ещё выполнялся; contract/secret scan GREEN.
+Draft [PR #755](https://github.com/rbctmz/ai_trainer/pull/755) закрывает только
+#754. Локальные результаты не подменяют CI/native/owner/live gates.
 
 ## Interfaces and Dependencies / ASR traceability
 
@@ -251,3 +260,5 @@ Revision 2026-11-14: начальный v1 plan после synthetic совме�
 один transport и no-prune policy proposal, чтобы исключить лишние engines/сервисы.
 Revision 2026-11-14 после checker: добавлен fresh local check перед hourly upload
 для соблюдения RPO и явный запрет source initialization в status/GET.
+Revision 2026-11-14 M2: реализация и два checker fixes, RED→GREEN/public worker
+evidence, operator runbook и фактические результаты отдельных тестовых контуров.
