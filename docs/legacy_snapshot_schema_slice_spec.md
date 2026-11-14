@@ -2,7 +2,8 @@
 
 Author: Spec / Architecture Owner, then Domain / API Implementer (explicit
 handoff below). Merge owner: Greg. Independent checker: assigned after RED/GREEN.
-Date: 2026-11-05. Candidate HEAD: pending implementation.
+Date: 2026-11-05; evidence refreshed 2026-11-14. Checked implementation HEAD:
+e19dbe2, PR #750. Final evidence-only update preserves product/test hashes.
 
 ## Change Class
 
@@ -45,13 +46,14 @@ compatible merely because their store can be backed up. Off-device is #626.
 
 ## Definition of Done
 
-- [ ] Empty and populated legacy fixtures plan/copy/snapshot/restore safely.
-- [ ] Full logical equality and explicit SQLite schema/type/rowid assertions
+- [x] Empty and populated legacy fixtures plan/copy/snapshot/restore safely.
+- [x] Full logical equality and explicit SQLite schema/type/rowid assertions
       prove no schema/ID/duplicate/raw value rewriting.
-- [ ] Committed WAL, retry/dedup, fresh writes and reset-state rollback pass.
-- [ ] Unsupported shape and path/alias regressions remain refused.
-- [ ] Focused/full contributor-safe checks, Ruff and independent checker finish.
-- [ ] Native review/owner merge remain explicitly separate handoff gates.
+- [x] Committed WAL, retry/dedup, fresh writes and reset-state rollback pass.
+- [x] Unsupported shape and path/alias regressions remain refused.
+- [x] Focused checks, full remote contributor-safe CI, Ruff and independent
+      checker finish. Local full's socket refusal remains separately disclosed.
+- [x] Native review/owner merge remain explicitly separate handoff gates.
 
 ## Public Contracts
 
@@ -127,7 +129,8 @@ dumps and rows are excluded from repository evidence.
 
 ## Review Findings
 
-No checker/native findings yet. Findings use severity → Observed → Inferred →
+Local read-only checker on e19dbe2: no blocking findings, 17 passed, clean
+before/after git state. Native review not requested (0/2). Findings use severity → Observed → Inferred →
 Verified by → merge/follow-up gate; every native finding receives written
 fixed-in/follow-up/disputed disposition.
 
@@ -138,6 +141,8 @@ checker is separately identified; no accepted label or merge is authorized.
 
 ## Final Verdict
 
-PENDING implementation and checks. Greg owns review acceptance and merge.
+Implementation/checker and source-head functional CI GREEN; READY for native
+review handoff after final-head checks. Local full was environment-limited,
+not called GREEN. Greg owns native review acceptance and merge.
 Live rollout remains pending after merge and requires a fresh preview and
 separate owner decision. No third full-diff native review loop.

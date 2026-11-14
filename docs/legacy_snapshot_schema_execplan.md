@@ -22,8 +22,12 @@ does not activate protection on the owner's data.
       unsupported_source_schema and automatic degraded refusal, not fixture errors.
 - [x] 2026-11-05: extend recognition only (10 added/2 removed product lines);
       17 dedicated GREEN and 280 combined regression cases pass. Ruff/diff green.
-- [ ] Full contributor-safe CI-policy check and independent checker.
-- [ ] Independent read-only checker and self-review; publish stable PR evidence.
+- [x] 2026-11-14 verification: source HEAD e19dbe2 CI completed successfully:
+      4366 passed / 42 skipped / 124 deselected, 100 E2E passed; contract/secret
+      checks GREEN. Original runs completed 2026-11-05; current receipts verified.
+- [x] Independent read-only checker on 23e85ec..e19dbe2: no blocking findings,
+      17 tests passed, clean before/after status. Self-review complete; PR #750
+      published as draft. Final evidence update changes documentation only.
 - [ ] Separate owner-requested native review, acceptance and merge.
 
 ## Surprises & Discoveries
@@ -32,12 +36,23 @@ Observed: initial read-only rollout preview failed unsupported_source_schema;
 the legacy column declaration was INTEGER with no PK. Inferred: the TEXT-PK-only
 recognizer is sufficient to explain refusal, rather than corrupt contents.
 Verified by: prior empty synthetic INTEGER/no-PK fixture refused while the
-TEXT-PK control planned successfully. Branch regression evidence is pending.
+TEXT-PK control planned successfully; branch RED 670f847 reproduced the refusal,
+and GREEN e19dbe2 passed all 17 dedicated cases.
 
 Observed: both migrate and automatic snapshots call the shared inspector in
 services/sqlite_snapshot_core.py. Inferred: one predicate extension should
 unblock both without changing copy/publication. Verified by: inspected call
-sites; migration/check_snapshot lifecycle tests will falsify this assumption.
+sites and 280 passing combined cases, including real CLI copy and worker
+check_snapshot/restore. No personal runtime-compatibility claim follows.
+
+Observed: the first local full run returned 4389 passed / 18 skipped / 124
+deselected and one failure: localhost socket.bind raised PermissionError before
+Streamlit startup. Inferred: environment restriction rather than schema code
+explains that failure. Verified by: the same isolated acceptance health test
+passed with permitted localhost (1 passed / 1.09s), unchanged code and guards;
+Linux contributor-safe CI also passed. The original local full is not relabelled
+GREEN. Its temporary log is no longer available on 2026-11-14; the recorded
+transcript and remote CI job receipts preserve the distinction.
 
 ## Decision Log
 
@@ -125,8 +140,11 @@ does not replace explicit path ownership/selection protections.
 
 ## Outcomes & Retrospective
 
-Implementation and related synthetic regression are GREEN. Live preview/apply remains blocked until the change is
-reviewed/merged and a fresh operator decision is made. Native Windows/ACL,
+Implementation, related regression and remote functional CI are GREEN. Local
+independent review found no blocking issue. Native review has not been requested;
+owner acceptance/merge and live preview/apply are still pending. Live preview/apply
+remains gated until the change is reviewed/merged and a fresh operator decision
+is made. Native Windows/ACL,
 personal data, running services and off-device transport are not exercised.
 
 ## Artifacts and Notes
@@ -148,8 +166,25 @@ Prior #623 M3/M4 merge outcomes were consolidated into canonical process metrics
 in this substantive checkpoint, with remote merge SHAs checked again. This is
 not a separate post-merge docs-only review loop.
 
-Record exact RED/GREEN commands, counts, checker findings and final published
-head here. Private rollout diagnostics remain local; do not copy personal DB
+Independent read-only checker: 17 passed / 1.94s, parent scratch111 allowed /
+0 blocked; no edits or blocking findings. This is a local checker, not a native
+review or owner acceptance. Product/test hashes remain identical to checked e19:
+
+    224ef0f64818079ffc6a040e4bc42b1eb4a135852be2c70ef1a46e3724ff9893 services/sqlite_snapshot_core.py
+    b2df2d7709d4678cd751ea0cef7f826ab2f6b1d918e77d755c214d45c597e62e tests/smoke/test_legacy_snapshot_schema.py
+
+[PR #750](https://github.com/rbctmz/ai_trainer/pull/750), source e19dbe2 remote
+[CI run42017009355](https://github.com/rbctmz/ai_trainer/actions/runs/42017009355):
+pytest job127209940467 reports 4366/42/124 with6 existing warnings /395.71s;
+E2E job127209941916 reports100 passed /345.98s. Web contract, issue link and
+Gitleaks succeeded. Full local checkpoint4389/18/124 +1 environment refusal is
+separate; single permitted-localhost verification1 PASS is not a second full run.
+
+Final source-evidence update is documentation only; final-head receipts belong
+to the PR and issue handoff. Private rollout diagnostics remain local; do not copy personal DB
 metadata beyond the explicitly described structural signature into evidence.
 
 Initial revision 2026-11-05: bounded compatibility slice, one PR, no live rollout.
+
+Revision 2026-11-14: refresh completed CI/checker evidence and the environment-only
+local failure without changing tested implementation or starting native review.

@@ -882,3 +882,16 @@ read-only preview then found an unrecognized legacy schema, tracked as
 [#749](https://github.com/rbctmz/ai_trainer/issues/749), not hidden as a successful
 personal activation. Source main/WAL unchanged. Off-device remains #626;
 platform/live acceptance and long-term escaped-defect observation remain open.
+
+## #749 compatibility — pre-review checkpoint, refreshed 2026-11-14
+
+[PR #750](https://github.com/rbctmz/ai_trainer/pull/750), checked implementation
+e19dbe2:4 expected RED failures/13 passing rejections →17 dedicated GREEN;
+280 related cases PASS. Local read-only checker found no blocking findings
+(17 PASS, clean status). Native rounds0/2; no acceptance/merge/live activation.
+Remote e19 CI run42017009355:4366/42/124 PASS and100 E2E PASS; contract/Gitleaks
+GREEN. Local full4389/18/124 +1 localhost-bind permission refusal is retained
+as non-GREEN evidence; isolated same-code permitted-localhost case1 PASS,
+not a full rerun. Final evidence update changes documentation only. No new
+dependency/backup engine or personal-store mutation; full source fingerprints
+and publication guards remain the existing implementation.
