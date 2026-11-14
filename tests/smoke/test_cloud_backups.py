@@ -478,3 +478,45 @@ def test_config_change_during_snapshot_cannot_change_stage_binding(tmp_path, mon
     fake = FakeTransport(tmp_path / 'fake-remote')
     assert run(config, source, root, fake)['state'] == 'degraded'
     assert fake.calls == [] and not fake.remote.exists()
+
+
+def test_enabled_public_worker_stages_before_refusing_missing_synthetic_credentials(tmp_path, monkeypatch):
+    cloud = module()
+    config, _data, source, root = fixture_config(tmp_path)
+    monkeypatch.setenv('DATABASE_PATH', str(source))
+    monkeypatch.setenv('BACKUP_DIR', str(root))
+    monkeypatch.setenv('AUTO_BACKUP_ENABLED', '1')
+    monkeypatch.delenv('ACCEPTANCE_MODE', raising=False)
+    result = cloud.run_cloud_backup(config)
+    assert result['reason_code'] == 'cloud_credentials_unavailable'
+    state = cloud.snapshots.read_snapshot_status(source, root)
+    assert state['state'] == 'ready'
+    assert not list(config.parent.glob('attempt-*'))
+
+
+@pytest.mark.parametrize('bad_time', [123, [], {}])
+def test_corrupt_timestamp_type_returns_safe_degraded_status(tmp_path, bad_time):
+    cloud = module()
+    config, data, source, root = fixture_config(tmp_path)
+    receipt = {'version': 1, 'repository_id': data['expected_repository_id'],
+               'source_namespace': data['source_namespace'], 'last_attempt_at': bad_time}
+    path = cloud.load_config(config).state_path
+    path.write_text(json.dumps(receipt))
+    path.chmod(0o600)
+    result = cloud.read_cloud_status(config, selection=selection(source, root))
+    assert result['state'] == 'degraded' and result['reason_code'] == 'cloud_identity_unknown'
+
+
+@pytest.mark.parametrize('change', [{'version': 999}, {'source_namespace': 'f' * 64},
+    {'snapshot_id': 'e' * 32}, {'integrity_check': 'failed'}, {'size': -1},
+    {'fingerprint': {}}, {'created_at_utc': 123}])
+def test_status_rejects_foreign_or_corrupt_local_manifest_metadata(tmp_path, change):
+    cloud = module()
+    config, _data, source, root = fixture_config(tmp_path)
+    assert run(config, source, root, FakeTransport(tmp_path / 'fake-remote'))['state'] == 'ready'
+    receipt = json.loads(cloud.load_config(config).state_path.read_text())
+    path = root / cloud.load_config(config).source_namespace / 'snapshots' / receipt['snapshot_id'] / 'manifest.json'
+    manifest = json.loads(path.read_text())
+    manifest.update(change)
+    path.write_text(json.dumps(manifest))
+    assert cloud.read_cloud_status(config, selection=selection(source, root))['state'] != 'ready'

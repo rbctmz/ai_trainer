@@ -33,7 +33,9 @@ restic, вместо сервера задач — штатное расписа
 - [x] 2026-11-14: M2 initial RED — 24 failures (23 missing cloud module,
   1 missing plist template), scratch SQLite allowed=16 / blocked=0.
   Это absence-of-feature RED, не утверждение о 24 воспроизведённых domain bugs.
-- [ ] M2: shared transport/CLI и macOS schedule template → GREEN.
+- [x] M2: shared transport/CLI и macOS schedule template; 60 focused PASS,
+  включая настоящий restic local repository (без облака/личных ключей).
+- [ ] M2: итоговый broad contour, checker delta и draft PR.
 - [ ] M3: shared status API/web, domain drill и итоговая synthetic приёмка.
 - [ ] Отдельное решение Greg о retention/recovery custody и live activation.
 
@@ -207,6 +209,22 @@ counterexample и независимое чтение check_due подтверд
 reuse fresh check_snapshot перед staging с явным owner-bound source; остальные
 гейты не расширялись. Fixed-in a32e497; scoped delta checker READY, чистое дерево
 до/после. Native 0/2; после verdict добавлено только evidence/progress.
+
+M2: initial RED `988d1a2`, implementation checkpoint `c5b2e71`. Независимый
+full-diff checker воспроизвёл два P2: non-string receipt timestamp вызывал
+traceback; foreign/version-invalid local manifest сохранял ready. Исправлены
+строгим разбором дат и metadata-only проверкой manifest без SQLite/network;
+добавлены regression cases. Self-review отдельно дал RED реального enabled CLI
+worker: dispatch через `__main__` мешал staging и смешивал exception classes.
+Canonical module dispatch исправлен, public worker synthetic regression GREEN.
+Final focused contour 60 PASS, scratch148/0; ruff GREEN. Scoped checker delta и
+full contributor contour pending. Native GitHub review 0/2, не запрашивался.
+
+Первый смежный прогон:240 PASS и localhost-bind permission refusal. Первый
+полный прогон выявил сломанную системную Node25 dependency (`libsimdjson.30`);
+дешёвый falsifier `node --version` отказал вне pytest, а существующий Node22.23.4
+дал24 PASS на inventory/extractor без изменения системы. Итоговый broad результат
+будет записан отдельно; первый прогон не считается GREEN.
 
 ## Interfaces and Dependencies / ASR traceability
 

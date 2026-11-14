@@ -72,6 +72,8 @@ def _now() -> datetime:
 
 
 def _instant(value: str) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError('timestamp string required')
     parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
     if parsed.tzinfo is None:
         raise ValueError('timezone required')
@@ -238,7 +240,9 @@ def read_cloud_status(config_path: str | Path, *, selection: CloudSelection | No
         if not current.exists():
             return _public('stale', None, receipt, now=now)
         manifest = _json(current / 'manifest.json')
+        _manifest_metadata(manifest, config)
         match = (local['last_snapshot_id'] == receipt['snapshot_id']
+                 and manifest['snapshot_id'] == receipt['snapshot_id']
                  and manifest.get('source_generation') == receipt['source_generation']
                  and manifest.get('sha256') == receipt['sha256'])
         fresh = all(timedelta(0) <= now - _instant(receipt[key]) <= timedelta(hours=24)
@@ -278,12 +282,35 @@ def _attempt_lock(config: CloudConfig):
             raise CloudError(reason) from None
 
 
+def _manifest_metadata(manifest: dict, config: CloudConfig) -> None:
+    """Validate v1 metadata without opening SQLite or hashing the DB on status."""
+    if (type(manifest.get('version')) is not int or manifest['version'] != 1
+            or manifest.get('source_namespace') != config.source_namespace
+            or not _ID.fullmatch(manifest['snapshot_id'])
+            or manifest.get('integrity_check') != 'ok'
+            or type(manifest['size']) is not int or manifest['size'] <= 0
+            or not all(_HEX.fullmatch(manifest[key]) for key in ('sha256', 'source_generation'))
+            or _instant(manifest['created_at_utc']) > _now()):
+        raise ValueError('invalid manifest metadata')
+    fingerprint = manifest['fingerprint']
+    if (not isinstance(fingerprint, dict) or fingerprint.get('integrity_check') != 'ok'
+            or not _HEX.fullmatch(fingerprint['schema_sha256'])
+            or not isinstance(fingerprint['tables'], dict)
+            or snapshots._generation(fingerprint) != manifest['source_generation']):
+        raise ValueError('invalid fingerprint metadata')
+    for table in fingerprint['tables'].values():
+        if (not isinstance(table, dict) or type(table['rows']) is not int or table['rows'] < 0
+                or not _HEX.fullmatch(table['sha256'])):
+            raise ValueError('invalid table metadata')
+
+
 def _validate_pair(directory: Path, config: CloudConfig, expected: dict | None = None) -> dict:
     try:
         _private(directory, directory=True)
         if set(item.name for item in directory.iterdir()) != {'snapshot.db', 'manifest.json'}:
             raise ValueError
         manifest = _json(directory / 'manifest.json')
+        _manifest_metadata(manifest, config)
         db = directory / 'snapshot.db'
         _private(db)
         if (manifest.get('version') != 1 or manifest.get('source_namespace') != config.source_namespace
@@ -525,4 +552,6 @@ def _main() -> None:
 
 
 if __name__ == '__main__':
-    _main()
+    # Keep worker/staging dispatch and transport exception types in one module.
+    from services.cloud_backups import _main as entrypoint
+    entrypoint()
