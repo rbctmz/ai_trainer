@@ -922,3 +922,16 @@ deleted, path-free maintenance reason in existing API/UI. No new schema/engine.
 See [acceptance inventory](../automatic_snapshots_m4_acceptance.md) and
 [ExecPlan](../automatic_snapshots_execplan.md) for current evidence/pending CI.
 M3/M4 review and owner merges are pending; personal rollout/default remain off.
+
+
+## Encrypted off-device snapshots (#626 / M1 #752 — proposed)
+
+[Контракт](../cloud_backup_slice_spec.md) и [план](../cloud_backup_execplan.md):
+ASR-DEP-2/REL-3 — restore в новый owned target, проверенный hash/schema/domain
+evidence, failure/retry без удаления прежних local/cloud копий; ASR-SEC-1 —
+restic authenticated encryption до передачи, recovery key вне единственного Mac;
+ASR-MOD-2 — shared Python freshness, read-only API/web projection. ADR-0002
+получает Proposed opt-in ciphertext exception, ADR-0001/0007 reused.
+M1 documents only; synthetic transport PASS в #626 не доказывает production
+RPO/RTO/domain acceptance. M2/M3, native/owner acceptance и live activation
+ещё не выполнены; default off. Автоматического cloud prune в v1 не предлагается.
