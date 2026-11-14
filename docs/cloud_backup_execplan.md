@@ -3,7 +3,8 @@
 
 Живой ExecPlan по `.agent/PLANS.md`; контракт —
 [cloud_backup_slice_spec.md](cloud_backup_slice_spec.md). Текущая работа — только
-M1 specification; M2/M3 ниже ещё не реализованы и не разрешают live activation.
+M2 transport/CLI (#754) после принятого M1 #753. M3 остаётся отдельным этапом;
+реализация не разрешает live activation.
 
 ## Purpose / Big Picture
 
@@ -24,7 +25,7 @@ restic, вместо сервера задач — штатное расписа
   codex/issue-626-cloud-backup-spec, M1 issue #752, сформулирован контракт.
 - [x] 2026-11-14: 60 relative links / diff check GREEN; independent full+delta
   review READY на a32e497, один P2 fixed; после этого только evidence/progress.
-- [ ] M1: отдельные native/owner review и handoff в реализацию.
+- [x] M1: clean native review 1/2 и explicit owner acceptance; handoff в M2.
 - [x] 2026-11-14: M1 #753 merged 1c6f18bb9882 после clean native 1/2,
   explicit owner acceptance и GREEN gate/CLEAN; #752 закрыта, trees совпали.
   Local main synced, известная task branch удалена после восстановления approval
@@ -52,7 +53,15 @@ Observed: services/automatic_snapshots.py держит namespace_lock вокру
 uploader может переиспользовать ready pair без live SQLite/нового engine, но
 нельзя держать lock во время сети или считать upload временем покрытия данных.
 Verified by: прочитаны _run/_retain/namespace_lock и BackupRuntime.check;
-concurrent staging/freshness integration tests пока NOT RUN (M2).
+concurrent staging/freshness integration tests включены в M2 synthetic contour.
+
+Observed (M2): две дополнительные race-проверки сначала вернули ready при
+переключении dataset_origin во время snapshot и изменении config после initial
+binding. Inferred: initial eligibility не доказывает eligibility самого artifact
+и стабильность config до staging. Verified by: обе проверки RED (2 failed),
+затем проверка origin внутри staging SQLite и digest исходного config дали
+47 focused PASS, scratch allowed=114 / blocked=0. Более поздние тесты и итоговый
+контур записываются ниже; эти числа относятся только к этому checkpoint.
 
 Observed: ADR-0002 запрещает вынос данных за Mac, а владелец выбрал cloud backup.
 Inferred: нужно явное узкое opt-in исключение для ciphertext, не молчаливое
@@ -149,8 +158,9 @@ relative Markdown links четырёх изменённых документов
 
 Web slice также требует npm --prefix web run contract:extract, lint/build и
 изолированный Playwright scenario нового status. Runtime CLI в M2: python
-scripts/cloud_backup.py status|run|drill --config /absolute/private/config.json;
-status read-only, run/drill — explicit operator operations. Все test children
+scripts/cloud_backup.py status|run --config /absolute/private/config.json;
+status read-only, run — explicit operator operation; drill добавляется в M3.
+Все test children
 используют scripts.scratch_pytest.child_environment/fresh_child_environment;
 никаких owner credentials, launchctl или real Cloud.ru по умолчанию.
 
@@ -212,10 +222,12 @@ ASR-DEP-2/REL-3/SEC-1/MOD-2, ADR-0001/0002/0007; изменение privacy boun
 ## Outcomes & Retrospective
 
 
-M1 draft и independent full+delta READY подготовлены для передачи через draft PR
-(URL/current SHA публикуются в #752). Native/owner review pending. M2/M3, рабочие
-password/schedule, personal DB migration и activation не выполнены. Стоимость
-и recovery ownership не подменяются успешным маленьким transport probe.
+M1 #753 merged, #752 закрыта. M2 реализует shared operator service, фиксированный
+restic transport, config resolver, CLI status/run и неустановленный LaunchAgent
+template. [Операторская инструкция](cloud_backup_operator.md) описывает отдельную
+activation boundary. M3 API/web/full-domain drill, рабочие password/schedule,
+personal DB migration и activation не выполнены. Стоимость и recovery ownership
+не подменяются успешным маленьким transport probe.
 
 Revision 2026-11-14: начальный v1 plan после synthetic совместимости; выбран
 один transport и no-prune policy proposal, чтобы исключить лишние engines/сервисы.

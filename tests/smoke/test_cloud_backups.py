@@ -134,8 +134,8 @@ def test_wrong_selected_source_and_local_disabled_refuse_before_copy(tmp_path):
                      cloud.CloudSelection(str(source.with_name('other.db')), str(root), True),
                      selection(source, root, acceptance=True)]:
         result = cloud._run_once(config, selection=selected, transport_factory=lambda *_a: pytest.fail('no transport'))
-        assert result['state'] == 'degraded'
-        assert result['reason_code'] == 'cloud_local_backup_unavailable'
+        assert result['state'] == ('disabled' if selected.acceptance else 'degraded')
+        assert result['reason_code'] == (None if selected.acceptance else 'cloud_local_backup_unavailable')
     assert not root.exists()
 
 
@@ -280,3 +280,201 @@ def test_launchagent_template_has_hourly_calendar_and_no_secrets():
     assert not content.get('KeepAlive')
     assert 'RESTIC_PASSWORD' not in str(content)
     assert 'run' in content['ProgramArguments'] and '--config' in content['ProgramArguments']
+
+
+def test_failure_receipt_is_written_while_repository_lock_is_held(tmp_path, monkeypatch):
+    cloud = module()
+    config, _data, source, root = fixture_config(tmp_path)
+    fake = FakeTransport(tmp_path / 'fake-remote', fail='backup')
+    original = cloud._write_receipt
+    def assert_locked(config, value):
+        import fcntl
+        descriptor = (config.path.parent / 'lock').open('rb')
+        try:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            descriptor.close()
+        return original(config, value)
+    monkeypatch.setattr(cloud, '_write_receipt', assert_locked)
+    assert run(config, source, root, fake)['reason_code'] == 'cloud_network_failed'
+
+
+def test_missing_dataset_provenance_is_safe_not_a_traceback(tmp_path):
+    config, _data, source, root = fixture_config(tmp_path)
+    with sqlite3.connect(source) as conn:
+        conn.execute('DROP TABLE user_settings')
+    conn.close()
+    result = run(config, source, root, None)
+    assert result['reason_code'] == 'cloud_local_backup_unavailable'
+    assert not root.exists()
+
+
+@pytest.mark.parametrize('field', ['last_verified_at', 'last_covered_check_at', 'last_drill_at'])
+def test_future_receipt_times_are_not_ready(tmp_path, field):
+    cloud = module()
+    config, _data, source, root = fixture_config(tmp_path)
+    fake = FakeTransport(tmp_path / 'fake-remote')
+    run(config, source, root, fake)
+    path = cloud.load_config(config).state_path
+    state = json.loads(path.read_text())
+    state[field] = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    path.write_text(json.dumps(state))
+    assert cloud.read_cloud_status(config, selection=selection(source, root))['state'] == 'degraded'
+
+
+def test_busy_caller_does_not_overwrite_active_attempt(tmp_path):
+    from services.automatic_snapshots import namespace_lock
+    cloud = module()
+    config, _data, source, root = fixture_config(tmp_path)
+    fake = FakeTransport(tmp_path / 'fake-remote')
+    run(config, source, root, fake)
+    path = cloud.load_config(config).state_path
+    before = path.read_bytes()
+    with namespace_lock(config.parent):
+        result = run(config, source, root, fake)
+    assert result['reason_code'] == 'cloud_busy' and path.read_bytes() == before
+
+
+def test_receipt_publish_failure_preserves_previous_success(tmp_path, monkeypatch):
+    cloud = module()
+    config, _data, source, root = fixture_config(tmp_path)
+    fake = FakeTransport(tmp_path / 'fake-remote')
+    before = run(config, source, root, fake)
+    def fail(*_args):
+        raise cloud.CloudError('cloud_state_unwritable')
+    monkeypatch.setattr(cloud, '_write_receipt', fail)
+    result = run(config, source, root, fake)
+    assert result['reason_code'] == 'cloud_state_unwritable'
+    assert result['last_verified_at'] == before['last_verified_at']
+
+
+def test_disabled_cli_starts_without_settings_or_database(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from scripts.scratch_pytest import child_environment
+    command = Path(__file__).resolve().parents[2] / 'scripts/cloud_backup.py'
+    missing = tmp_path / 'no-config.json'
+    result = subprocess.run([sys.executable, str(command), 'status', '--config', str(missing)],
+        env=child_environment(os.environ), capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0
+    assert json.loads(result.stdout)['state'] == 'disabled'
+    assert not missing.exists()
+
+
+def test_fresh_status_preserves_previous_dates_when_local_backup_disabled(tmp_path):
+    cloud = module()
+    config, _data, source, root = fixture_config(tmp_path)
+    before = run(config, source, root, FakeTransport(tmp_path / 'fake-remote'))
+    selected = cloud.CloudSelection(str(source), str(root), False)
+    after = cloud.read_cloud_status(config, selection=selected)
+    assert after['state'] == 'degraded'
+    assert after['last_verified_at'] == before['last_verified_at']
+
+
+def test_acceptance_refuses_before_even_reading_owner_config(monkeypatch):
+    cloud = module()
+    monkeypatch.setenv('ACCEPTANCE_MODE', '1')
+    monkeypatch.setattr(cloud, 'load_config', lambda *_a: pytest.fail('must not read config'))
+    assert cloud.run_cloud_backup('/not-an-owned-config')['state'] == 'disabled'
+    assert cloud.read_cloud_status('/not-an-owned-config')['state'] == 'disabled'
+
+
+def test_timeout_kills_process_group_cleans_its_work_and_persists_failure(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    import time
+    cloud = module()
+    config, _data, source, root = fixture_config(tmp_path)
+    before = run(config, source, root, FakeTransport(tmp_path / 'fake-remote'))
+    native = subprocess.Popen
+    marker = tmp_path / 'must-not-be-written'
+    ready = tmp_path / 'grandchild-started'
+    child_code = f'import time; from pathlib import Path; Path({str(ready)!r}).write_text("ready"); time.sleep(1.5); Path({str(marker)!r}).write_text("orphan")'
+    code = f'import subprocess,sys,time; subprocess.Popen([sys.executable,"-c",{child_code!r}]); time.sleep(60)'
+    def slow(_args, **kwargs):
+        process = native([sys.executable, '-c', code], **kwargs)
+        deadline = time.monotonic() + 5
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert ready.exists()
+        return process
+    monkeypatch.setattr(cloud.subprocess, 'Popen', slow)
+    monkeypatch.setattr(cloud, 'ATTEMPT_SECONDS', .15)
+    result = cloud.run_cloud_backup(config)
+    assert result['reason_code'] == 'cloud_timeout'
+    assert result['last_verified_at'] == before['last_verified_at']
+    time.sleep(1.6)
+    assert not marker.exists()
+    assert not list(config.parent.glob('attempt-*'))
+    state = json.loads(cloud.load_config(config).state_path.read_text())
+    assert state['pending'] is False and state['reason_code'] == 'cloud_timeout'
+
+
+def test_stage_timeout_has_no_network_and_keeps_source(tmp_path, monkeypatch):
+    import subprocess
+    cloud = module()
+    config, _data, source, root = fixture_config(tmp_path)
+    source_bytes = source.read_bytes()
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired('synthetic', 10)
+    monkeypatch.setattr(cloud.subprocess, 'run', timeout)
+    result = cloud._run_once(config, selection=selection(source, root),
+        transport_factory=lambda *_a: pytest.fail('no transport after stage timeout'))
+    assert result['reason_code'] == 'cloud_timeout'
+    assert source.read_bytes() == source_bytes
+    assert not list(config.parent.glob('attempt-*'))
+
+
+def test_replaced_work_root_is_preserved_instead_of_deleted(tmp_path):
+    cloud = module()
+    old = None
+    with pytest.raises(cloud.CloudError, match='cloud_identity_unknown'):
+        with cloud._owned_work(tmp_path, prefix='attempt-') as work:
+            old = work.with_name('old-owned-root')
+            work.rename(old)
+            work.mkdir()
+            (work / 'foreign-sentinel').write_text('keep')
+    assert old is not None and old.exists()
+    assert (work / 'foreign-sentinel').read_text() == 'keep'
+
+
+def test_worker_environment_preserves_scratch_guard_without_provider_secrets(monkeypatch):
+    cloud = module()
+    monkeypatch.setenv('OPENAI_API_KEY', 'synthetic-provider-secret')
+    monkeypatch.setenv('AWS_ACCESS_KEY_ID', 'synthetic-wrong-owner')
+    monkeypatch.setenv('RESTIC_PASSWORD', 'synthetic-wrong-password')
+    child = cloud._child_env()
+    assert 'AI_TRAINER_SCRATCH_SCOPE' in child
+    assert all(key not in child for key in ('OPENAI_API_KEY', 'AWS_ACCESS_KEY_ID', 'RESTIC_PASSWORD'))
+
+
+def test_dataset_switch_during_snapshot_refuses_before_network(tmp_path, monkeypatch):
+    cloud = module()
+    config, _data, source, root = fixture_config(tmp_path)
+    original = cloud.snapshots.check_snapshot
+    def switched(*args):
+        with sqlite3.connect(source) as conn:
+            conn.execute("UPDATE user_settings SET value='demo'")
+        conn.close()
+        return original(*args)
+    monkeypatch.setattr(cloud.snapshots, 'check_snapshot', switched)
+    fake = FakeTransport(tmp_path / 'fake-remote')
+    assert run(config, source, root, fake)['state'] == 'degraded'
+    assert fake.calls == [] and not fake.remote.exists()
+
+
+def test_config_change_during_snapshot_cannot_change_stage_binding(tmp_path, monkeypatch):
+    cloud = module()
+    config, data, source, root = fixture_config(tmp_path)
+    original = cloud.snapshots.check_snapshot
+    def changed(*args):
+        result = original(*args)
+        data['aws_profile'] = 'changed-profile'
+        config.write_text(json.dumps(data))
+        return result
+    monkeypatch.setattr(cloud.snapshots, 'check_snapshot', changed)
+    fake = FakeTransport(tmp_path / 'fake-remote')
+    assert run(config, source, root, fake)['state'] == 'degraded'
+    assert fake.calls == [] and not fake.remote.exists()

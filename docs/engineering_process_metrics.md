@@ -895,3 +895,25 @@ as non-GREEN evidence; isolated same-code permitted-localhost case1 PASS,
 not a full rerun. Final evidence update changes documentation only. No new
 dependency/backup engine or personal-store mutation; full source fingerprints
 and publication guards remain the existing implementation.
+
+## #626 M1 specification outcome — with substantive M2 #754, 2026-11-14
+
+[PR #753](https://github.com/rbctmz/ai_trainer/pull/753) / #752 merged as
+`1c6f18bb988225900cf2e1acd4a4b9b93744f00e`, reviewed HEAD `975b862c5955`.
+Native Codex review 1/2 clean (receipt 6880046588); explicit owner acceptance
+6880310932, GREEN Review gate/CLEAN before merge, zero unresolved threads.
+Reviewed/merged tree `38c2d659ab1f8b2366b78026a3ce00e46a8aa107` equal.
+Functional CI, contract, E2E and secret scan succeeded; no native rerun requested.
+Independent spec full+delta checker found one blocking P2 (hourly uploader over
+daily-only checks could delay raw writes up to 24h59m), fixed-in `a32e497` by
+requiring the existing fresh snapshot check before each upload. Zero open P1/P2
+at handoff. Lead/cycle/active/wait times not captured; escaped-defect observation
+remains open. This is specification acceptance, not live backup acceptance.
+
+Observed: Git cleanup initially stopped at an automatic-review usage limit;
+the subsequent normal permission retry succeeded. Local main fast-forwarded,
+only the known M1 task branch removed locally/remotely with expected remote SHA;
+primary #731 checkout/services/personal DB unchanged. Inferred: the limit was
+temporary permission availability, not evidence of unsafe Git content.
+Verified by: exact merge/tree readback and the successful expected-ref cleanup.
+#626/#622 remain open; M2 proceeds on its own branch with default disabled.
