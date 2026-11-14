@@ -56,7 +56,8 @@ Inferred: нужно явное узкое opt-in исключение для ci
 2026-11-14, Spec Owner: один restic S3 transport; native LaunchAgent запускает
 короткую команду, а не ещё один тренер. Owner отверг второй runtime.
 
-2026-11-14, Spec Owner proposal: последний validated snapshot раз в час; отдельная
+2026-11-14, Spec Owner proposal: fresh check_snapshot существующим online engine
+перед каждой hourly отправкой последнего validated snapshot; отдельная
 remote readback verification; monthly isolated drill. RPO измеряется по local
 checked generation, а не upload timestamp. Это сохраняет честное состояние при
 остановленном локальном backup и при отсутствии новых строк.
@@ -94,7 +95,12 @@ Keychain, не менять запущенные сервисы, не созда
 
 M2 добавляет services/cloud_backups.py с prepare/run/read-status/drill boundary
 и scripts/cloud_backup.py с explicit config; CLI не импортирует personal defaults.
-Config/receipt/lock/staging — private operator data вне Git и SQLite. Settings
+Config содержит явный database_path + namespace binding, требует local backup
+opt-in и совпадение выбранного real store; отсутствующая/неизвестная/demo source
+отказывает без создания DB/network. Enabled run сначала вызывает существующий
+bounded check_snapshot(reason='cloud_upload'), затем берёт готовую пару.
+Disabled/status пути не открывают source. Config/receipt/lock/staging — private
+operator data вне Git и SQLite. Settings
 лишь разрешает путь cloud config без создания файлов. Сначала RED на no-opt-in,
 foreign paths, bad manifest/binding, retention race и timeout; затем reuse пары
 под namespace lock, restic subprocess вне lock, readback и atomic receipt.
@@ -109,7 +115,9 @@ foreign paths, bad manifest/binding, retention race и timeout; затем reuse
 M3 добавляет CloudBackupStatus отдельно от BackupStatus в api/backup_contract.py,
 GET /api/backup/cloud/status в api/routers/backup.py, TypeScript mirror/scenarios
 и существующий web warning consumer после Domain → UI handoff. Shared reader
-сверяет current namespace/generation и timestamps; GET не делает network/write.
+сверяет current namespace/generation и timestamps; GET не делает network/write
+и не использует get_backup_database/get_database/Database constructor: только
+pure selected-path identity и read-only operational files, без source init/migration.
 Затем acceptance восстанавливает actual domains из remote fixture при удалённых
 локальных originals/receipt, через fresh readers в новой owned DB. Monthly drill
 сверяет весь manifest и обновляет отдельный last_drill_at; failed drill явно виден.
@@ -174,7 +182,11 @@ preview/backup/rollback и owner confirmation, не команды из этог
 wrong password refused, 6 STANDARD objects removed. Полный receipt находится
 только у оператора; public summary — #626 comment 6879508968. Не публиковать
 local filenames/Key ID/Key Secret/password/request headers из private logs.
-M1 exact SHA/CI/checker/PR outcomes добавляются при завершении документа.
+M1 checker на a661c802584f..0f6c23f нашёл один blocking P2: uploader-only hourly
+поверх local daily check допускает 24ч59м задержки raw write. Cheap datetime
+counterexample и независимое чтение check_due подтвердили timing risk. Fix:
+reuse fresh check_snapshot перед staging с явным owner-bound source; остальные
+гейты не расширялись. Exact fix SHA и delta verdict добавляются после проверки.
 
 ## Interfaces and Dependencies / ASR traceability
 
@@ -196,3 +208,5 @@ password/schedule, personal DB migration и activation не выполнены. 
 
 Revision 2026-11-14: начальный v1 plan после synthetic совместимости; выбран
 один transport и no-prune policy proposal, чтобы исключить лишние engines/сервисы.
+Revision 2026-11-14 после checker: добавлен fresh local check перед hourly upload
+для соблюдения RPO и явный запрет source initialization в status/GET.

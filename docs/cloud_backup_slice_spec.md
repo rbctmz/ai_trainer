@@ -37,6 +37,15 @@ Config привязывает конкретные repository URL/ID к source_n
 Missing/wrong repository, новый путь БД или неизвестная identity дают отказ;
 автоматически создавать/перепривязывать историю вместо потерянной запрещено.
 
+Каждый enabled `run` сначала вызывает **существующий** bounded `check_snapshot`
+для явных owner-bound database_path/backup_root, затем отправляет опубликованную
+пару. Требуются local backup opt-in и совпадение выбранного real store/namespace;
+demo/unknown identity или local disabled дают cloud_local_backup_unavailable
+до copy/network. Online check не создаёт второй engine и не обходит stopped
+confirmation ручного CLI. Disabled/status/GET не открывают source DB.
+Так hourly job не ждёт следующего UTC-дня локального lifecycle: сочетание
+daily check + uploader-only могло дать 24ч59м даже без сбоев.
+
 Отправляется только последняя опубликованная пара `snapshot.db` + `manifest.json`
 version 1 из services/automatic_snapshots.py. Namespace, snapshot_id, size,
 sha256, fingerprint и source_generation перепроверяются. Live DB, WAL/SHM,
@@ -71,7 +80,8 @@ snapshot, снова проверяет его чтение и не создаё
 `last_attempt_at`, `last_verified_at`, `last_covered_check_at`, `last_drill_at`
 (UTC или null), `reason_code`: cloud_busy, cloud_config_invalid,
 cloud_identity_unknown, cloud_snapshot_invalid, cloud_credentials_unavailable,
-cloud_auth_failed, cloud_network_failed, cloud_timeout, cloud_state_unwritable
+cloud_auth_failed, cloud_network_failed, cloud_timeout, cloud_state_unwritable,
+cloud_local_backup_unavailable
 или null. Для drill отдельный `drill_warning`: cloud_drill_due /
 cloud_drill_failed / null. Raw exceptions, пути,
 repository/namespace IDs, credentials и строки БД в API/UI/log не выводятся.
@@ -146,7 +156,7 @@ RTO ≤30 минут измеряется от доступа к recovery kit/ne
 M1: API/TS/schema/runtime unchanged. Предлагаются services/cloud_backups.py и
 operator CLI scripts/cloud_backup.py: `status`, `run`, `drill` с явным абсолютным
 `--config`; никакого implicit выбора/создания личной DB и автоматического init.
-Private config v1: enabled=false по умолчанию, backup_root, source_namespace,
+Private config v1: enabled=false по умолчанию, database_path, backup_root, source_namespace,
 repository_url, expected_repository_id, aws_profile, keychain_service; секретов нет.
 Один config управляет одним repository/source binding; receipt и lock рядом в
 private cloud data dir, staging/restore leaf принадлежат запуску, вне checkout.
@@ -155,7 +165,10 @@ private cloud data dir, staging/restore leaf принадлежат запуск
 M3: новый read-only GET `/api/backup/cloud/status` и CloudBackupStatus в
 api/backup_contract.py + mirror web/lib/types.ts; старые BackupStatus/envelopes
 и POST local check unchanged. Shared Python считает freshness; web показывает
-локальное и облачное время существующим warning pattern. UI Specialist меняет
+локальное и облачное время существующим warning pattern. Новый GET не использует
+get_backup_database/get_database/Database constructor: только pure selected-path
+identity и read-only status/manifest/receipt, без initialization/migration.
+UI Specialist меняет
 только consumer после contract handoff; CSS/layout здесь не проектируются.
 Demo/acceptance возвращают disabled без чтения owner config/Keychain/сети.
 Продуктовый reset не удаляет config/receipt/cloud history; scratch reset удаляет
@@ -168,6 +181,7 @@ Demo/acceptance возвращают disabled без чтения owner config/K
 | Новое/неизменное поколение; current/history/новый namespace | Передаётся только bound valid pair; повтор без лишнего backup; rebind требует оператора |
 | Retention после staging; два процесса; interruption upload/receipt | Согласованная пара, bounded lock; source и предыдущие копии неизменны; restart не invent ready |
 | Старый/нет/foreign/corrupt manifest или state; clock drift | Никаких fallback к live DB, ложного нуля/ready, неявного init или удаления |
+| Raw write сразу после daily check; hourly cloud run | Существующий fresh check_snapshot перед staging включает запись, без ожидания следующего дня |
 | Sleep/offline/locked keychain/auth/quota/deadline | stable degraded/stale, даты успеха сохранены; retry не повторяет бизнес-запись |
 | Local data меняется/сбрасывается, старый snapshot уже remote | Локальная защита unchanged; cloud history сохранена, текущий receipt не утверждает покрытие нового generation |
 | Потеря local files/receipt; remote corrupt/wrong password | Restore в новый owned temp, без production writes; отказ до operator activation |
