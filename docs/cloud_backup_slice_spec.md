@@ -208,7 +208,15 @@ API/TS/web, monthly domain restore drill/runbook и общая приёмка. #
 
 DoD M1: observable AC и роли назначены; docs checks GREEN; checker findings
 disposition письменно; pushed candidate и draft PR связаны с #752/#626.
-Review mode manual, native 0/2, acceptance SHA/exception N/A. Local independent
-review pending. Evidence bundle/CI/current head — в PR; новые source invariants
-в M1 отсутствуют. Findings и Final Verdict обновляются после checker;
-native acceptance, merge/cleanup — Greg, не автоматический следующий шаг.
+Review mode manual, native 0/2, acceptance SHA/exception N/A. Независимый checker:
+full diff a661c802584f..0f6c23f + scoped delta 0f6c23f..a32e497; 1 full / 1 delta,
+не дополнительные native раунды. 60 relative links и diff check GREEN;
+product/full/browser tests N/A для M1. Evidence bundle/CI/current head — в PR.
+
+P2 → Observed: local daily + uploader-only hourly допускают raw-write задержку
+24ч59м → Inferred: ≤24ч RPO не обеспечен даже healthy transport → Verified by:
+datetime counterexample и чтение BackupRuntime.check_due → merge gate;
+**fixed-in a32e497**, delta checker подтвердил closure. Других blockers нет.
+Final Verdict: **READY для M1 specification**, не для runtime/live rollout.
+После a32e497 добавлено только это evidence/progress, контракт не менялся.
+Native acceptance, merge/cleanup — Greg, не автоматический следующий шаг.

@@ -22,7 +22,9 @@ restic, вместо сервера задач — штатное расписа
   удалены; evidence в #626 comment 6879508968. Это не full acceptance.
 - [x] 2026-11-14: current main a661c802584f проверен; создана ветка
   codex/issue-626-cloud-backup-spec, M1 issue #752, сформулирован контракт.
-- [ ] M1: docs/link checks, независимый checker, pushed draft PR и owner review.
+- [x] 2026-11-14: 60 relative links / diff check GREEN; independent full+delta
+  review READY на a32e497, один P2 fixed; после этого только evidence/progress.
+- [ ] M1: отдельные native/owner review и handoff в реализацию.
 - [ ] M2: RED → shared transport/CLI и macOS schedule template → GREEN.
 - [ ] M3: shared status API/web, domain drill и итоговая synthetic приёмка.
 - [ ] Отдельное решение Greg о retention/recovery custody и live activation.
@@ -186,7 +188,8 @@ M1 checker на a661c802584f..0f6c23f нашёл один blocking P2: uploader-
 поверх local daily check допускает 24ч59м задержки raw write. Cheap datetime
 counterexample и независимое чтение check_due подтвердили timing risk. Fix:
 reuse fresh check_snapshot перед staging с явным owner-bound source; остальные
-гейты не расширялись. Exact fix SHA и delta verdict добавляются после проверки.
+гейты не расширялись. Fixed-in a32e497; scoped delta checker READY, чистое дерево
+до/после. Native 0/2; после verdict добавлено только evidence/progress.
 
 ## Interfaces and Dependencies / ASR traceability
 
@@ -202,7 +205,8 @@ ASR-DEP-2/REL-3/SEC-1/MOD-2, ADR-0001/0002/0007; изменение privacy boun
 ## Outcomes & Retrospective
 
 
-M1 draft подготовлен, independent verdict/push/PR пока pending. M2/M3, рабочие
+M1 draft и independent full+delta READY подготовлены для передачи через draft PR
+(URL/current SHA публикуются в #752). Native/owner review pending. M2/M3, рабочие
 password/schedule, personal DB migration и activation не выполнены. Стоимость
 и recovery ownership не подменяются успешным маленьким transport probe.
 
