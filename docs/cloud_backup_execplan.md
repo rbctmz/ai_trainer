@@ -25,7 +25,14 @@ restic, вместо сервера задач — штатное расписа
 - [x] 2026-11-14: 60 relative links / diff check GREEN; independent full+delta
   review READY на a32e497, один P2 fixed; после этого только evidence/progress.
 - [ ] M1: отдельные native/owner review и handoff в реализацию.
-- [ ] M2: RED → shared transport/CLI и macOS schedule template → GREEN.
+- [x] 2026-11-14: M1 #753 merged 1c6f18bb9882 после clean native 1/2,
+  explicit owner acceptance и GREEN gate/CLEAN; #752 закрыта, trees совпали.
+  Local main synced, известная task branch удалена после восстановления approval
+  availability; primary #731 не изменялся. M2 issue #754, отдельная ветка.
+- [x] 2026-11-14: M2 initial RED — 24 failures (23 missing cloud module,
+  1 missing plist template), scratch SQLite allowed=16 / blocked=0.
+  Это absence-of-feature RED, не утверждение о 24 воспроизведённых domain bugs.
+- [ ] M2: shared transport/CLI и macOS schedule template → GREEN.
 - [ ] M3: shared status API/web, domain drill и итоговая synthetic приёмка.
 - [ ] Отдельное решение Greg о retention/recovery custody и live activation.
 
