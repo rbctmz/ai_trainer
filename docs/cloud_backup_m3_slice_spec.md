@@ -93,12 +93,19 @@ snapshot/restic boundaries; no new architecture/service/dependency.
 
 Observed: M2 current tree has read_cloud_status but no cloud HTTP contract,
 drill command or remote snapshot discovery. Verified by current source reads.
-Implementation/checks, findings dispositions and final verdict are pending.
+Final evidence and owner gates are recorded in the PR when broad checks finish.
 Full+scoped checker and native review follow repository two-round stop rule.
 
 Independent implementation checker atd1e3d31: one blockingP2, zeroP1. Observed:
 transient drill receipt error reverted newly committed upload evidence, and
 combined-run timeout wrote upload cloud_timeout without drill_failed. Verified
 by checker full-domain synthetic probes and author2RED regression tests.
-Disposition: phase receipt + independent failure publication under correction;
-scoped checker verification pending. Native review still0/2.
+Disposition: fixed-in aa1d61b; scoped checker READY,82PASS and four independent
+pending/final/persistent-write/watchdog probes passed. Native review still0/2.
+
+Author completion audit: hourly run with missing source/local snapshots/receipt
+initially skipped the due drill (1RED). Corrected with pure selected-path
+eligibility and remote-only branch before source-dependent upload binding;
+upload remains degraded while successful drill is recorded independently.
+Default/demo/local-disabled/foreign selected paths still refuse before network.
+This implements the existing monthly/lost-local criterion; no new product scope.

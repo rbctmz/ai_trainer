@@ -50,6 +50,16 @@ restic, вместо сервера задач — штатное расписа
   Foreign/corrupt/lock/write/interruption and removed-local/receipt probes pass.
 - [ ] M3 UI handoff: CloudBackupStatus contract is available; browser RED/GREEN,
   contract freshness, full checks, screenshots and final checker remain.
+- [x] M3 UI: consumer handoff, browser missing-component RED→40focusedPASS,
+  8synthetic screenshots, web lint/build/contract freshness and24contract tests green.
+- [x] Broad baseline:4488PASS/16skipped/156deselected,407.06s, scratch31299/0;
+  fullE2E132PASS,287.12s, scratch261/0. 35 overwritten old PNGs restored;
+  new issue757 screenshots retained. Final Python rerun follows phase correction.
+- [x] aa1d61b fixes checker P2: author2RED→7phase/refusalPASS; checker deltaREADY,
+  82PASS plus four independent probes. NativeLOCAL full-domain RTO4.362s,
+  source/local snapshots/receipt absent and two fresh app reader projections equal.
+- [ ] Completion audit lost-source hourly path:1RED, correction and scoped
+  verification pending; default/source eligibility remains mandatory.
 - [ ] Отдельное решение Greg о retention/recovery custody и live activation.
 
 ## Surprises & Discoveries

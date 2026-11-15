@@ -55,6 +55,37 @@ def test_drill_recovers_without_any_local_original_or_receipt(tmp_path, monkeypa
     assert 'remote_snapshot_id' not in result and str(tmp_path) not in json.dumps(result)
 
 
+def test_hourly_job_still_runs_due_drill_when_local_source_is_lost(tmp_path):
+    config, _data, source, root, fake, _metadata = prepared(tmp_path)
+    source.unlink()
+    shutil.rmtree(root)
+    cloud.load_config(config).state_path.unlink()
+    fake.calls.clear()
+    result = run(config, source, root, fake)
+    assert result['state'] == 'degraded' and result['reason_code'] == 'cloud_local_backup_unavailable'
+    assert result['last_drill_at'] and result['drill_warning'] is None
+    assert result['last_verified_at'] is None and result['last_covered_check_at'] is None
+    assert fake.calls == ['repository', 'latest', ('restore', REMOTE_ID)]
+    assert not source.exists() and not root.exists()
+
+
+@pytest.mark.parametrize('change', ['disabled', 'demo_path', 'foreign_source', 'foreign_root'])
+def test_lost_source_hourly_drill_still_requires_selected_real_opt_in(tmp_path, change):
+    config, _data, source, root = fixture_config(tmp_path)
+    source.unlink()
+    selected = selection(source, root)
+    selected = replace(selected, **{
+        'disabled': {'local_enabled': False},
+        'demo_path': {'demo_database_path': str(source)},
+        'foreign_source': {'database_path': str(tmp_path / 'foreign.db')},
+        'foreign_root': {'backup_root': str(tmp_path / 'foreign-backups')},
+    }[change])
+    fake = DrillTransport(tmp_path / 'remote')
+    result = cloud._run_once(config, selection=selected, transport_factory=factory(fake))
+    assert result['reason_code'] == 'cloud_local_backup_unavailable'
+    assert not fake.calls and not source.exists() and not root.exists()
+
+
 @pytest.mark.parametrize('failure', ['restore', 'corrupt', 'foreign', 'wrong_repository'])
 def test_failed_drill_retains_previous_success_and_never_uploads(tmp_path, failure):
     config, _data, source, root, fake, _metadata = prepared(tmp_path)

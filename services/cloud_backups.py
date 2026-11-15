@@ -162,13 +162,18 @@ def _selection() -> CloudSelection:
                           Settings.AUTO_BACKUP_ENABLED, str(Settings.DEMO_DATABASE_PATH), Settings.ACCEPTANCE_MODE)
 
 
+def _selected_binding(config: CloudConfig, selected: CloudSelection) -> None:
+    """Pure selected-path eligibility, also usable after losing the source file."""
+    if (not selected.local_enabled or selected.acceptance
+            or Path(selected.database_path) != config.database_path
+            or Path(selected.backup_root) != config.backup_root
+            or (selected.demo_database_path is not None and Path(selected.demo_database_path) == config.database_path)):
+        raise CloudError('cloud_local_backup_unavailable')
+
+
 def _binding(config: CloudConfig, selected: CloudSelection) -> None:
+    _selected_binding(config, selected)
     try:
-        if (not selected.local_enabled or selected.acceptance
-                or Path(selected.database_path) != config.database_path
-                or Path(selected.backup_root) != config.backup_root
-                or (selected.demo_database_path is not None and Path(selected.demo_database_path) == config.database_path)):
-            raise ValueError
         _, _, identity = snapshots._paths(config.database_path, config.backup_root)
         if identity != config.source_namespace:
             raise ValueError
@@ -488,8 +493,19 @@ def _run_once(config_path: str | Path, *, selection: CloudSelection | None = Non
         if config is None:
             return _public('disabled')
         previous = _receipt(config, _now())  # Unknown identity never grants overwrite.
-        _binding(config, selection or _selection())
+        selected = selection or _selection()
+        _selected_binding(config, selected)
         deadline = time.monotonic() + ATTEMPT_SECONDS
+        if not config.database_path.exists():
+            # The monthly remote-only check must survive loss of local files.
+            # Trusted config binding remains required; no source is recreated.
+            with snapshots.namespace_lock(config.path.parent, deadline=time.monotonic() + .1):
+                previous = _receipt(config, _now())
+                if _drill_due(previous):
+                    previous = _perform_drill(config, previous, work_parent or config.path.parent,
+                                              deadline, transport_factory)
+            return _public('degraded', 'cloud_local_backup_unavailable', previous)
+        _binding(config, selected)
         with _attempt_lock(config) as locked_previous:
             previous = locked_previous
             state = {'version': 1, 'repository_id': config.expected_repository_id,

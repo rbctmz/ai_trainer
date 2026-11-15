@@ -121,7 +121,9 @@ CLI печатает безопасный JSON, без путей, URL, ID repos
 `degraded` возвращает exit 2. Состояния: disabled, unknown, ready, stale,
 degraded; даты last attempt/verified/covered check/drill сохраняют разные смыслы.
 `run` после успешного upload/readback выполняет drill, если он ещё не проходил
-либо с успеха прошло30дней. Upload и drill входят в общий600секундный bound.
+либо с успеха прошло30дней. Если выбранный source файл потерян, enabled hourly
+run всё равно выполняет due remote-only drill: upload остаётся degraded, данные
+не создаются заново. Upload и drill входят в общий600секундный bound.
 Явный `drill` доступен независимо от отсутствующих local DB/snapshots/receipt;
 он не подтверждает свежесть локального покрытия и возвращает state unknown с
 независимым результатом drill. GET `/api/backup/cloud/status` читает только
@@ -149,7 +151,9 @@ matches/feedback/readiness/decisions/provider/manual identity. Source не ну�
 и не заменяется. Успех обновляет только last_drill_at; upload/covered даты не
 выдумываются. Foreign/corrupt receipt отказывает до сетевой операции; отсутствующий
 receipt допустим. Ошибка/неполный drill сохраняет предыдущую успешную дату и
-даёт cloud_drill_failed; просрочка — cloud_drill_due. CLI drill с warning даёт
+даёт cloud_drill_failed; просрочка — cloud_drill_due. Private drill_pending
+отмечает фазу до чтения из облака; interruption/watchdog не затирают успешный
+upload и делают незавершённый drill видимым. CLI drill с warning даёт
 exit2. Молчаливого выбора более старой копии после ошибки нет.
 
 После утраты Mac получить независимый recovery kit (пароль restic, repository
