@@ -73,10 +73,10 @@ native evidence is required before claiming this acceptance.
 
 Config owns repository/source binding; remote manifest owns recovered generation.
 Current/history/new namespace never cross-bind; unknown/partial metadata fail
-closed. Missing local state gives unknown/stale upload health while successful
+closed. Missing local state gives unknown/stale/degraded upload health while successful
 drill remains independently visible. Future or malformed timestamps refuse.
 Last_drill_at changes only after complete validation. Failure/retry never updates
-upload coverage, duplicates uploads or replays a domain business mutation.
+upload coverage; drill never invokes backup or replays a domain business mutation.
 Reset/rollback retain cloud history; runtime drill has no production write path.
 
 ## ASR / ADR traceability

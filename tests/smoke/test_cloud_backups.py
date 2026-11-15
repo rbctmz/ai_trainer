@@ -60,7 +60,11 @@ class FakeTransport:
             raise module().CloudError('cloud_network_failed')
         if self.remote.exists():
             shutil.rmtree(self.remote)
-        shutil.copytree(payload, self.remote)
+        self.remote.mkdir(mode=0o700)
+        # Match real restic's explicit two-file upload, excluding SQLite sidecars
+        # that readonly fingerprinting can materialize for a WAL-mode snapshot.
+        for name in ('snapshot.db', 'manifest.json'):
+            shutil.copy2(payload / name, self.remote / name)
         return REMOTE_ID
 
     def restore(self, snapshot_id, target):

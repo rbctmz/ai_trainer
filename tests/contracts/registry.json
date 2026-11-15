@@ -350,6 +350,13 @@
         {"state": "demo", "expect": 200, "path_params": {"session_id": "first_feedback_session_id"}}
       ]
     },
+    "/api/backup/cloud/status": {
+      "interface": "CloudBackupStatus",
+      "scenarios": [
+        {"state": "empty", "expect": 200},
+        {"state": "demo", "expect": 200}
+      ]
+    },
     "/api/backup/status": {
       "interface": "BackupStatus",
       "scenarios": [

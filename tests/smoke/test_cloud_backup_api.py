@@ -11,10 +11,11 @@ from services import cloud_backups as cloud
 from tests.smoke.test_cloud_backups import fixture_config
 
 
-@pytest.mark.parametrize('mode', ['enabled', 'missing', 'demo', 'acceptance'])
+@pytest.mark.parametrize('mode', ['enabled', 'lost_source', 'missing', 'demo', 'acceptance'])
 def test_cloud_get_never_opens_source_or_initializes_dependencies(tmp_path, monkeypatch, mode):
     path, _data, source, root = fixture_config(tmp_path)
-    source.unlink()
+    if mode != 'enabled':
+        source.unlink()
     monkeypatch.setattr(Settings, 'DATABASE_PATH', str(source))
     monkeypatch.setattr(Settings, 'BACKUP_DIR', str(root))
     monkeypatch.setattr(Settings, 'AUTO_BACKUP_ENABLED', True)
@@ -35,11 +36,13 @@ def test_cloud_get_never_opens_source_or_initializes_dependencies(tmp_path, monk
     assert response.status_code == 200, response.text
     from api.backup_contract import CloudBackupStatus
     result = CloudBackupStatus.model_validate(response.json())
-    assert result.state == ('unknown' if mode == 'enabled' else 'disabled')
+    assert result.state == ({'enabled': 'unknown', 'lost_source': 'degraded'}.get(mode, 'disabled'))
+    if mode == 'lost_source':
+        assert result.reason_code == 'cloud_local_backup_unavailable'
     assert set(response.json()) == {'state', 'reason_code', 'last_attempt_at', 'last_verified_at',
                                     'last_covered_check_at', 'last_drill_at', 'drill_warning'}
     assert str(tmp_path) not in response.text
-    assert not source.exists() and not root.exists()
+    assert source.exists() == (mode == 'enabled') and not root.exists()
     assert before == {str(p): p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
 
 
