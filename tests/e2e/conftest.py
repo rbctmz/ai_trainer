@@ -2,7 +2,8 @@
 
 Харнесс поднимает FastAPI и Next.js на изолированных временных данных и отдаёт
 страницу Playwright. При любом падении setup (запуск API, demo-seed, прогрев,
-Next.js, Chromium) диагностические материалы сохраняются в ``logs/e2e/<запуск>/``
+Next.js, Chromium) и при падении самого сценария диагностические материалы
+сохраняются в ``logs/e2e/<запуск>/``
 ДО очистки временного каталога: текст ошибки, текущий этап запуска, api.log,
 next.log, js-errors и снимок экрана, если браузер уже создан.
 
@@ -20,6 +21,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -118,9 +120,8 @@ def _stop_process_group(proc: subprocess.Popen | None) -> None:
 
 
 def _new_artifacts_dir() -> Path:
-    run_dir = ARTIFACTS_ROOT / datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_dir.mkdir(parents=True, exist_ok=True)
-    return run_dir
+    ARTIFACTS_ROOT.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=datetime.now().strftime("%Y%m%d-%H%M%S-"), dir=ARTIFACTS_ROOT))
 
 
 def _save_artifacts(
@@ -166,7 +167,7 @@ class WebStack:
         self.page = page
         self.js_errors = js_errors
 
-    def capture_failure(self) -> None:
+    def capture_failure(self, *, error_text: str | None = None) -> None:
         """Артефакты падения сценария: снимок экрана, консоль, URL, логи серверов."""
         run_dir = _new_artifacts_dir()
         try:
@@ -176,12 +177,25 @@ class WebStack:
         (run_dir / "url.txt").write_text(self.page.url, encoding="utf-8")
         _save_artifacts(
             run_dir,
-            error_text=None,
+            error_text=error_text,
             stage="сценарий",
             logs=(self.api_log, self.next_log),
             page=None,  # снимок уже сделан выше
             js_errors=self.js_errors,
         )
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Сохранить call failure до teardown, не меняя исход теста при сбое записи."""
+    outcome = yield
+    report = outcome.get_result()
+    stack = item.funcargs.get('web_stack')
+    if report.when == 'call' and report.failed and stack is not None:
+        try:
+            stack.capture_failure(error_text=report.longreprtext)
+        except Exception as exc:
+            report.sections.append(('E2E diagnostics', f'{type(exc).__name__}: {exc}'))
 
 
 @pytest.fixture(scope="module")

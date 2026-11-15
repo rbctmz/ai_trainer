@@ -17,7 +17,10 @@ def setup_ended(web_stack):
     from tests.smoke._planning_cycle_regressions import plan
     db = Database(str(web_stack.tmp_dir / 'demo.db'))
     db.clear_all_data()
-    context = web_stack.page.request.get(f'{web_stack.api_base}/api/planning/cycles/current?demo=1').json()
+    response = web_stack.page.request.get(f'{web_stack.api_base}/api/planning/cycles/current?demo=1')
+    assert response.status == 200, f'current cycle: HTTP {response.status}: {response.text()}'
+    context = response.json()
+    assert 'athlete_day' in context, f'current cycle: missing athlete_day: {context}'
     from datetime import date
     today = date.fromisoformat(context['athlete_day'])
     seed_checkpoint(db, build_planning_checkpoint(plan(today - timedelta(days=14))))

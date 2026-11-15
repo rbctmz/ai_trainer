@@ -8,6 +8,7 @@ from config.database_paths import (
     resolve_database_paths, runtime_database_path,
 )
 from dotenv import load_dotenv
+from config.cloud_backup import cloud_config_path
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -139,6 +140,7 @@ class Settings:
     # База данных
     AUTO_BACKUP_ENABLED = _env_flag("AUTO_BACKUP_ENABLED", "0")
     BACKUP_DIR = _backup_directory()
+    CLOUD_BACKUP_CONFIG = cloud_config_path()
 
     _DATABASE_PATHS = _database_paths()
     DATABASE_PATH = _DATABASE_PATHS.real

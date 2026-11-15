@@ -3,7 +3,8 @@
 
 Живой ExecPlan по `.agent/PLANS.md`; контракт —
 [cloud_backup_slice_spec.md](cloud_backup_slice_spec.md). Текущая работа — только
-M1 specification; M2/M3 ниже ещё не реализованы и не разрешают live activation.
+M2 transport/CLI (#754) после принятого M1 #753. M3 остаётся отдельным этапом;
+реализация не разрешает live activation.
 
 ## Purpose / Big Picture
 
@@ -24,8 +25,18 @@ restic, вместо сервера задач — штатное расписа
   codex/issue-626-cloud-backup-spec, M1 issue #752, сформулирован контракт.
 - [x] 2026-11-14: 60 relative links / diff check GREEN; independent full+delta
   review READY на a32e497, один P2 fixed; после этого только evidence/progress.
-- [ ] M1: отдельные native/owner review и handoff в реализацию.
-- [ ] M2: RED → shared transport/CLI и macOS schedule template → GREEN.
+- [x] M1: clean native review 1/2 и explicit owner acceptance; handoff в M2.
+- [x] 2026-11-14: M1 #753 merged 1c6f18bb9882 после clean native 1/2,
+  explicit owner acceptance и GREEN gate/CLEAN; #752 закрыта, trees совпали.
+  Local main synced, известная task branch удалена после восстановления approval
+  availability; primary #731 не изменялся. M2 issue #754, отдельная ветка.
+- [x] 2026-11-14: M2 initial RED — 24 failures (23 missing cloud module,
+  1 missing plist template), scratch SQLite allowed=16 / blocked=0.
+  Это absence-of-feature RED, не утверждение о 24 воспроизведённых domain bugs.
+- [x] M2: shared transport/CLI и macOS schedule template; 60 focused PASS,
+  включая настоящий restic local repository (без облака/личных ключей).
+- [x] M2: broad contour4452 PASS /16 skipped /124 deselected;
+  independent scoped delta READY на89e2a8f; draft PR #755.
 - [ ] M3: shared status API/web, domain drill и итоговая synthetic приёмка.
 - [ ] Отдельное решение Greg о retention/recovery custody и live activation.
 
@@ -45,7 +56,15 @@ Observed: services/automatic_snapshots.py держит namespace_lock вокру
 uploader может переиспользовать ready pair без live SQLite/нового engine, но
 нельзя держать lock во время сети или считать upload временем покрытия данных.
 Verified by: прочитаны _run/_retain/namespace_lock и BackupRuntime.check;
-concurrent staging/freshness integration tests пока NOT RUN (M2).
+concurrent staging/freshness integration tests включены в M2 synthetic contour.
+
+Observed (M2): две дополнительные race-проверки сначала вернули ready при
+переключении dataset_origin во время snapshot и изменении config после initial
+binding. Inferred: initial eligibility не доказывает eligibility самого artifact
+и стабильность config до staging. Verified by: обе проверки RED (2 failed),
+затем проверка origin внутри staging SQLite и digest исходного config дали
+47 focused PASS, scratch allowed=114 / blocked=0. Более поздние тесты и итоговый
+контур записываются ниже; эти числа относятся только к этому checkpoint.
 
 Observed: ADR-0002 запрещает вынос данных за Mac, а владелец выбрал cloud backup.
 Inferred: нужно явное узкое opt-in исключение для ciphertext, не молчаливое
@@ -142,8 +161,9 @@ relative Markdown links четырёх изменённых документов
 
 Web slice также требует npm --prefix web run contract:extract, lint/build и
 изолированный Playwright scenario нового status. Runtime CLI в M2: python
-scripts/cloud_backup.py status|run|drill --config /absolute/private/config.json;
-status read-only, run/drill — explicit operator operations. Все test children
+scripts/cloud_backup.py status|run --config /absolute/private/config.json;
+status read-only, run — explicit operator operation; drill добавляется в M3.
+Все test children
 используют scripts.scratch_pytest.child_environment/fresh_child_environment;
 никаких owner credentials, launchctl или real Cloud.ru по умолчанию.
 
@@ -191,6 +211,30 @@ reuse fresh check_snapshot перед staging с явным owner-bound source; 
 гейты не расширялись. Fixed-in a32e497; scoped delta checker READY, чистое дерево
 до/после. Native 0/2; после verdict добавлено только evidence/progress.
 
+M2: initial RED `988d1a2`, implementation checkpoint `c5b2e71`. Независимый
+full-diff checker воспроизвёл два P2: non-string receipt timestamp вызывал
+traceback; foreign/version-invalid local manifest сохранял ready. Исправлены
+строгим разбором дат и metadata-only проверкой manifest без SQLite/network;
+добавлены regression cases. Self-review отдельно дал RED реального enabled CLI
+worker: dispatch через `__main__` мешал staging и смешивал exception classes.
+Canonical module dispatch исправлен, public worker synthetic regression GREEN.
+Final focused contour 60 PASS, scratch148/0; ruff GREEN. Scoped checker delta
+`c5b2e71..89e2a8f` READY, оба P2 fixed-in89e2a8f, reviewer tree clean до/после.
+Native GitHub review 0/2, не запрашивался.
+
+Первый смежный прогон:240 PASS и localhost-bind permission refusal. Первый
+полный прогон выявил сломанную системную Node25 dependency (`libsimdjson.30`);
+дешёвый falsifier `node --version` отказал вне pytest, а существующий Node22.23.4
+дал24 PASS на inventory/extractor без изменения системы. Первый full run:
+4417 PASS /16 skipped /124 deselected,6 failures +18 setup errors от Node25;
+он не считается GREEN. Повтор всего contributor-safe контура на финальном
+code HEAD89e2a8f с Node22 и permitted localhost:4452 PASS /16 skipped /
+124 deselected за327.89s, scratch30384 allowed /1 blocked (сам contour GREEN).
+Ни guard, ни системные зависимости ради тестов не отключались/не менялись.
+GitHub CI для89e2a8f при записи ещё выполнялся; contract/secret scan GREEN.
+Draft [PR #755](https://github.com/rbctmz/ai_trainer/pull/755) закрывает только
+#754. Локальные результаты не подменяют CI/native/owner/live gates.
+
 ## Interfaces and Dependencies / ASR traceability
 
 
@@ -205,12 +249,55 @@ ASR-DEP-2/REL-3/SEC-1/MOD-2, ADR-0001/0002/0007; изменение privacy boun
 ## Outcomes & Retrospective
 
 
-M1 draft и independent full+delta READY подготовлены для передачи через draft PR
-(URL/current SHA публикуются в #752). Native/owner review pending. M2/M3, рабочие
-password/schedule, personal DB migration и activation не выполнены. Стоимость
-и recovery ownership не подменяются успешным маленьким transport probe.
+M1 #753 merged, #752 закрыта. M2 реализует shared operator service, фиксированный
+restic transport, config resolver, CLI status/run и неустановленный LaunchAgent
+template. [Операторская инструкция](cloud_backup_operator.md) описывает отдельную
+activation boundary. M3 API/web/full-domain drill, рабочие password/schedule,
+personal DB migration и activation не выполнены. Стоимость и recovery ownership
+не подменяются успешным маленьким transport probe.
+
+### CI investigation 2026-11-15 — scoped Class B harness repair
+
+Observed: #755 code head89e2a8f CI GREEN. Docs-only bc7fa94 CI1341:
+Python4425/43/124, contract/secret scan GREEN; E2E99 PASS /1 failed in
+planning confirmation1280-light. Helper indexed athlete_day without checking
+HTTP status. No api.log/artifact survived this scenario failure. Error response
+and original cause are therefore unknown, not a proven cloud transport defect.
+
+Verified by: all6 target variants PASS; two consecutive whole-S4 runs46 PASS.
+Synthetic500 concurrent API reads with3000 read-only SQLite open/closes PASS.
+Adding actual synthetic writes reproduced one parent scratch guard refusal at
+sidecar nlink inspection, but another500 API requests all returned200; this does
+not establish the original CI cause. No guard/product change was made.
+
+Confirmed diagnostic defect (related #739): call-phase test failures did not
+automatically capture WebStack logs before module fixture cleanup. New isolated
+pytest subprocess regression:2 expected RED /1 PASS →3 PASS after hook fix.
+Failures now retain assertion text, API/Next logs, URL, browser errors and image
+in unique artifact directories; capture failure cannot mask the original test
+failure. The context helper asserts HTTP200/body and required field; no response
+fallback, retry, skip or relaxed assertion was added. Runtime/schema/API/web
+behavior and ownership guards unchanged. Final full E2E/CI results are recorded
+in #755; an eventual green retry is not proof of the original cause being fixed.
+
+После диагностического изменения full local E2E dd9a1df:97 PASS /3 failed.
+Все три synthetic artifacts теперь сохранились. API tracebacks для planning
+close refresh и двух recovery readbacks показывают ScratchPathError в
+scratch_runtime.py125, именно на type/nlink inspection. Это воспроизведённый
+новый отказ с причиной в guard, а не доказательство исходного bc7fa94 failure.
+
+Новый evidence разрешает узкий Class A repair #756 в том же PR (fresh scope,
+не третий полный M2 review): одно full revalidation только regular optional
+sidecar сnlink0. Main/hardlink/external alias/root/inspection refusals сохранены.
+Контракт уточнён в database_path_guardrails_slice_spec.md; deterministic3 RED
+→74 focused guard/diagnostics PASS, включая негативные replacement cases.
+Личные paths/SQLite/.env/credentials и product Database/API/web не меняются.
+Итоговый checker/full E2E/CI pending. #739 не объявляется целиком закрытой:
+baseline comparison и причины иных исторических failures сюда не включены.
 
 Revision 2026-11-14: начальный v1 plan после synthetic совместимости; выбран
 один transport и no-prune policy proposal, чтобы исключить лишние engines/сервисы.
 Revision 2026-11-14 после checker: добавлен fresh local check перед hourly upload
 для соблюдения RPO и явный запрет source initialization в status/GET.
+Revision 2026-11-14 M2: реализация и два checker fixes, RED→GREEN/public worker
+evidence, operator runbook и фактические результаты отдельных тестовых контуров.

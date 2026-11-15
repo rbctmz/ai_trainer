@@ -115,6 +115,31 @@ path regression cases. Это **не** число реально открыва�
 
 ## Public Contracts
 
+### CI #756: исчезающий optional SQLite sidecar
+
+Class A, ограниченный repair существующей identity boundary, без изменения
+product DB policy. В synthetic full E2E #755 после добавления call-failure
+capture получены HTTP500 и traceback в ScratchScope.validate_target на проверке
+type/nlink. Отдельный write/commit/close stress воспроизводит отказ; исходный
+bc7fa94 CI без artifact не доказывает точное значение stat. Regression fixture
+моделирует успешный stat обычного optional inode с st_nlink=0 после unlink.
+
+Отсутствующие optional sidecars уже допустимы. Только regular `-wal`/`-shm`/
+`-journal` с `st_nlink=0` может вызвать **одну полную перепроверку**, не разрешение
+принять прежний inode. Повтор заново проверяет root receipt/identity, parents,
+main, всю family, aliases/type/nlink и reserved namespace. Второй такой отказ,
+любой неизвестный stat/resolve error, main nlink0, live hardlink nlink>1,
+nonregular, external alias либо заменённый root — отказ до SQLite open.
+Catch-all retry/пропуск family/guard в Database._connect запрещены.
+
+BDD/приёмка: три optional suffix получают fresh complete validation после
+disappearance; reappearing hardlink, external symlink, FIFO, main hardlink,
+root replacement, repeated nlink0 и inspection error остаются отказами.
+Main nlink0 не запускает retry. Sentinels неизменны; два вызова проверки root
+в successful case и не более двух stat-link inspections в unstable case.
+RED:3 expected failures в test_scratch_sidecar_revalidation.py; focused guard+
+diagnostic contour74 PASS. Итоговые E2E/CI и independent checker — в #755/#756.
+
 API, TypeScript, database schema/events и product default selection — unchanged.
 CLI тестовых/служебных входов intentionally stricter: прежний implicit working
 apply перестаёт разрешаться; runbook даёт явную замену. Test/acceptance env и
