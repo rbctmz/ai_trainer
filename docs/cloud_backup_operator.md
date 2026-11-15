@@ -1,9 +1,9 @@
-# Облачные снимки: операторский контур M2 (#626 / #754)
+# Облачные снимки: операторский контур M2/M3 (#626 / #754 / #757)
 
 M2 добавляет отправку и проверку готового снимка через restic. По умолчанию
 контур выключен. Этот документ и пример LaunchAgent не устанавливают задание,
-не создают рабочий repository и не разрешают личное включение. API/web status
-и ежемесячный full-domain drill остаются M3. Контракт:
+не создают рабочий repository и не разрешают личное включение. M3 добавляет
+read-only API/web status и ежемесячный isolated full-domain drill. Контракт:
 [cloud_backup_slice_spec.md](cloud_backup_slice_spec.md); локальные копии и
 остановленное восстановление: [sqlite_backup_restore.md](sqlite_backup_restore.md).
 
@@ -14,6 +14,7 @@ M2 добавляет отправку и проверку готового сн
 ```text
 /absolute/ai_trainer/ai_trainer_env/bin/python /absolute/ai_trainer/scripts/cloud_backup.py status --config /absolute/private/cloud/config.json
 /absolute/ai_trainer/ai_trainer_env/bin/python /absolute/ai_trainer/scripts/cloud_backup.py run --config /absolute/private/cloud/config.json
+/absolute/ai_trainer/ai_trainer_env/bin/python /absolute/ai_trainer/scripts/cloud_backup.py drill --config /absolute/private/cloud/config.json
 ```
 
 `status` читает только операционные метаданные. Он не открывает SQLite, не
@@ -119,7 +120,13 @@ Python/script/config/WorkingDirectory. Отдельный runtime clone не т�
 CLI печатает безопасный JSON, без путей, URL, ID repository и секретов.
 `degraded` возвращает exit 2. Состояния: disabled, unknown, ready, stale,
 degraded; даты last attempt/verified/covered check/drill сохраняют разные смыслы.
-До M3 `last_drill_at` не обновляется; `cloud_drill_due` честно остаётся warning.
+`run` после успешного upload/readback выполняет drill, если он ещё не проходил
+либо с успеха прошло30дней. Upload и drill входят в общий600секундный bound.
+Явный `drill` доступен независимо от отсутствующих local DB/snapshots/receipt;
+он не подтверждает свежесть локального покрытия и возвращает state unknown с
+независимым результатом drill. GET `/api/backup/cloud/status` читает только
+метаданные и не запускает проверку/SQLite/ключи/сеть. UI показывает локальную
+копию, подтверждённое облачное покрытие/чтение и проверку восстановления отдельно.
 `ready` требует текущий локальный generation и обе даты verified/covered не
 старше 24 часов. Ошибка сохраняет предыдущие успешные даты, но не зелёный статус.
 
@@ -131,6 +138,31 @@ degraded; даты last attempt/verified/covered check/drill сохраняют 
 и Keychain. `cloud_network_failed`/`cloud_timeout` — следующая явная попытка
 безопасна; `cloud_state_unwritable` требует проверки приватного каталога.
 Raw restic stdout/stderr не публикуются.
+
+## Изолированный drill и потеря ноутбука
+
+Drill проверяет existing repository ID, выбирает последний remote snapshot для
+фиксированного host ai-trainer и восстанавливает exact ID с no-cache/verify в
+новый private temp. Manifest namespace, bytes/hash, integrity/schema и typed
+fingerprints всех таблиц сверяются; реальные readers читают cycle/checkpoints,
+matches/feedback/readiness/decisions/provider/manual identity. Source не нужен
+и не заменяется. Успех обновляет только last_drill_at; upload/covered даты не
+выдумываются. Foreign/corrupt receipt отказывает до сетевой операции; отсутствующий
+receipt допустим. Ошибка/неполный drill сохраняет предыдущую успешную дату и
+даёт cloud_drill_failed; просрочка — cloud_drill_due. CLI drill с warning даёт
+exit2. Молчаливого выбора более старой копии после ошибки нет.
+
+После утраты Mac получить независимый recovery kit (пароль restic, repository
+URL/ID, сохранённый config с source_namespace) и новые S3 credentials у Cloud.ru.
+В новом private config сохранить прежнюю repository/source binding; запускать
+явный drill до личной активации. Это удаляет проверенный temp после проверки.
+Для сохранения выбранной восстановленной копии оператор отдельно скачивает
+проверенный exact snapshot ID в новый private target по restic/runbook, сверяет
+manifest и затем согласует stopped-service restore с rollback по локальному
+runbook. Старый namespace не перепривязывается к новой БД автоматически.
+Потеря всех паролей restic означает невосстановимость; S3 secret её не исправляет.
+При corrupt snapshot оператор явно выбирает предыдущую копию для отдельной
+проверки; history не удаляется. Личный source restore — отдельное разрешение.
 
 Весь операторский запуск ограничен 600 секундами, staging под local lock —
 10 секундами. При timeout уничтожается группа процессов этой попытки и удаляется
@@ -144,5 +176,8 @@ Raw restic stdout/stderr не публикуются.
 M2 проверяется синтетическими SQLite и fake transport; отдельный тест использует
 настоящий restic с локальным зашифрованным repository, если бинарник установлен.
 В CI без restic этот тест явно skipped. Это не live Cloud.ru, не реальный
-Keychain/LaunchAgent и не full-domain disaster drill. Ранее выполненный маленький
+Keychain/LaunchAgent. M3 native LOCAL encrypted domain fixture проверяет потерю
+локальных originals/receipt и идентичные проекции в двух свежих процессах
+приложения; RTO измеряется в этом synthetic сценарии, не на личной БД.
+Ранее выполненный маленький
 Cloud.ru probe описан в #626 comment 6879508968 и не заменяет эти приёмки.

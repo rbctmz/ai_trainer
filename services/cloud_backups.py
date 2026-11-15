@@ -182,13 +182,14 @@ def _receipt(config: CloudConfig, now: datetime) -> dict:
     try:
         state = _json(config.state_path)
         allowed = {'version', 'repository_id', 'source_namespace', 'reason_code', 'pending',
-                   'snapshot_id', 'source_generation', 'sha256', 'remote_snapshot_id', 'drill_failed', *_TIMES}
+                   'snapshot_id', 'source_generation', 'sha256', 'remote_snapshot_id', 'drill_failed', 'drill_pending', *_TIMES}
         if (set(state) - allowed or type(state.get('version')) is not int or state['version'] != 1
                 or state.get('repository_id') != config.expected_repository_id
                 or state.get('source_namespace') != config.source_namespace
                 or state.get('reason_code') not in _REASONS | {None}
                 or type(state.get('pending', False)) is not bool
-                or type(state.get('drill_failed', False)) is not bool):
+                or type(state.get('drill_failed', False)) is not bool
+                or type(state.get('drill_pending', False)) is not bool):
             raise ValueError
         for key in _TIMES:
             if state.get(key) is not None and _instant(state[key]) > now:
@@ -212,7 +213,7 @@ def _public(state: str = 'unknown', reason: str | None = None, receipt: dict | N
     drill = receipt.get('last_drill_at')
     return {'state': state, 'reason_code': reason,
             **{key: receipt.get(key) for key in _TIMES},
-            'drill_warning': (None if state == 'disabled' else 'cloud_drill_failed' if receipt.get('drill_failed') else
+            'drill_warning': (None if state == 'disabled' else 'cloud_drill_failed' if receipt.get('drill_failed') or receipt.get('drill_pending') else
                 'cloud_drill_due' if not drill or now - _instant(drill) >= timedelta(days=30) else None)}
 
 
@@ -272,8 +273,10 @@ def _attempt_lock(config: CloudConfig):
             reason = str(exc) if isinstance(exc, CloudError) and str(exc) in _REASONS else 'cloud_snapshot_invalid'
             if isinstance(exc, sqlite3.Error):
                 reason = 'cloud_local_backup_unavailable'
+            # A later phase must not roll back an already committed upload.
+            committed = _receipt(config, _now())
             failure = {'version': 1, 'repository_id': config.expected_repository_id,
-                       'source_namespace': config.source_namespace, **previous,
+                       'source_namespace': config.source_namespace, **committed,
                        'last_attempt_at': _now().isoformat(), 'pending': False, 'reason_code': reason}
             try:
                 _write_receipt(config, failure)
@@ -420,6 +423,7 @@ def _perform_drill(config: CloudConfig, previous: dict, parent: Path, deadline: 
     state = {'version': 1, 'repository_id': config.expected_repository_id,
              'source_namespace': config.source_namespace, **previous}
     try:
+        _write_receipt(config, {**state, 'drill_pending': True})
         with _owned_work(parent, prefix='drill-') as work:
             if transport_factory is None:
                 from services.cloud_backup_transport import ResticTransport
@@ -438,10 +442,13 @@ def _perform_drill(config: CloudConfig, previous: dict, parent: Path, deadline: 
             if inspect_database(restored / 'snapshot.db') != manifest['fingerprint']:
                 raise CloudError('cloud_snapshot_invalid')
         # Cleanup is part of success: a replaced directory never grants success.
-        state.update(last_drill_at=_now().isoformat(), drill_failed=False)
+        complete = {**state, 'last_drill_at': _now().isoformat(),
+                    'drill_failed': False, 'drill_pending': False}
+        _write_receipt(config, complete)
+        return complete
     except Exception:
         # Public drill warning is independent of upload reason/coverage.
-        state['drill_failed'] = True
+        state.update(drill_failed=True, drill_pending=False)
     _write_receipt(config, state)
     return state
 
@@ -521,9 +528,17 @@ def _run_once(config_path: str | Path, *, selection: CloudSelection | None = Non
                     'snapshot_id': manifest['snapshot_id'], 'sha256': manifest['sha256'],
                     'source_generation': manifest['source_generation'], 'remote_snapshot_id': remote_id,
                     'last_verified_at': _now().isoformat(), 'last_covered_check_at': staged['covered']}
+                due = _drill_due(verified)
+                if due:
+                    # Atomically identify the next phase with upload success;
+                    # no watchdog window may misclassify a committed upload.
+                    verified['drill_pending'] = True
                 _write_receipt(config, verified)
-                if _drill_due(verified):
-                    _perform_drill(config, verified, work, deadline, transport_factory)
+                if due:
+                    try:
+                        _perform_drill(config, verified, work, deadline, transport_factory)
+                    except CloudError as exc:
+                        return _public('degraded', str(exc), {**verified, 'drill_failed': True})
             return read_cloud_status(config.path, selection=selection)
     except CloudError as exc:
         reason = str(exc)
@@ -536,19 +551,25 @@ def _run_once(config_path: str | Path, *, selection: CloudSelection | None = Non
 
 def _worker_failure(config_path: str | Path, reason: str, *, drill: bool = False) -> dict:
     previous = {}
+    explicit_drill = drill
     try:
         config = load_config(config_path)
         if config is None:
             return _public('disabled')
         with snapshots.namespace_lock(config.path.parent, deadline=time.monotonic() + .1):
             previous = _receipt(config, _now())
+            drill = drill or previous.get('drill_pending', False)
             failed = {'version': 1, 'repository_id': config.expected_repository_id,
                       'source_namespace': config.source_namespace, **previous}
             if drill:
-                failed['drill_failed'] = True
+                failed.update(drill_failed=True, drill_pending=False)
             else:
                 failed.update(last_attempt_at=_now().isoformat(), pending=False, reason_code=reason)
             _write_receipt(config, failed)
+            if drill:
+                if explicit_drill:
+                    return _public('unknown', previous.get('reason_code'), failed)
+                return read_cloud_status(config.path)
     except (CloudError, snapshots.SnapshotError, OSError):
         reason = 'cloud_state_unwritable'
     return _public('degraded', reason, {**previous, 'drill_failed': True} if drill else previous)

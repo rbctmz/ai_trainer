@@ -136,7 +136,9 @@ def test_drill_refusals_preserve_source_and_remote(tmp_path, monkeypatch, condit
         if condition == 'interruption':
             with pytest.raises(KeyboardInterrupt):
                 drill(config, fake)
-            assert json.loads(state_path.read_text()) == previous
+            interrupted = json.loads(state_path.read_text())
+            assert interrupted == {**previous, 'drill_pending': True}
+            assert cloud.read_cloud_status(config, selection=selection(source, root))['drill_warning'] == 'cloud_drill_failed'
         else:
             result = drill(config, fake)
             assert result['drill_warning'] == 'cloud_drill_failed'
@@ -153,6 +155,58 @@ def test_public_drill_worker_records_failure_without_source_or_selection(tmp_pat
     assert result['drill_warning'] == 'cloud_drill_failed'
     assert result['last_verified_at'] is None and result['last_drill_at'] is None
     assert not source.exists() and not root.exists()
+    assert not list(config.parent.glob('attempt-*'))
+
+
+def test_transient_drill_receipt_error_keeps_newly_verified_upload(tmp_path, monkeypatch):
+    config, _data, source, root, fake, _metadata = prepared(tmp_path)
+    state_path = cloud.load_config(config).state_path
+    previous = json.loads(state_path.read_text())
+    previous['last_drill_at'] = (cloud._now() - timedelta(days=31)).isoformat()
+    state_path.write_text(json.dumps(previous))
+    from data.database import Database
+    Database(str(source), initialize=False).set_user_setting('new-upload-canary', 'synthetic')
+    actual = cloud._write_receipt
+    calls = []
+    def transient(config, receipt):
+        calls.append(receipt.copy())
+        if len(calls) == 3:
+            raise cloud.CloudError('cloud_state_unwritable')
+        actual(config, receipt)
+    monkeypatch.setattr(cloud, '_write_receipt', transient)
+    result = run(config, source, root, fake)
+    committed = json.loads(state_path.read_text())
+    assert committed['snapshot_id'] != previous['snapshot_id']
+    assert committed['last_verified_at'] == calls[1]['last_verified_at']
+    assert result['last_verified_at'] == committed['last_verified_at']
+    assert committed['last_drill_at'] == previous['last_drill_at']
+    assert result['drill_warning'] == 'cloud_drill_failed'
+    assert committed['reason_code'] is None
+
+
+def test_combined_worker_timeout_in_drill_phase_keeps_upload_health(tmp_path, monkeypatch):
+    import sys
+    config, _data, source, root, _fake, _metadata = prepared(tmp_path)
+    state_path = cloud.load_config(config).state_path
+    previous = json.loads(state_path.read_text())
+    # Simulate a child after its verified upload was durably committed.
+    phase = {**previous, 'drill_pending': True}
+    code = ('import time; from pathlib import Path; '
+            f'Path({str(state_path)!r}).write_text({json.dumps(phase)!r}); time.sleep(60)')
+    native = subprocess.Popen
+    def hanging(_args, **kwargs):
+        return native([sys.executable, '-c', code], **kwargs)
+    monkeypatch.setattr(cloud.subprocess, 'Popen', hanging)
+    monkeypatch.setattr(cloud, 'ATTEMPT_SECONDS', .3)
+    # Public status uses explicit test selection, never the owner's source.
+    monkeypatch.setattr(cloud, '_selection', lambda: selection(source, root))
+    result = cloud.run_cloud_backup(config)
+    receipt = json.loads(state_path.read_text())
+    assert result['state'] == 'ready' and result['reason_code'] is None
+    assert result['drill_warning'] == 'cloud_drill_failed'
+    assert receipt['last_verified_at'] == previous['last_verified_at']
+    assert receipt['last_drill_at'] == previous['last_drill_at']
+    assert receipt['reason_code'] is None and receipt['drill_pending'] is False
     assert not list(config.parent.glob('attempt-*'))
 
 

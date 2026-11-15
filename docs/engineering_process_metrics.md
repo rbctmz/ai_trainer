@@ -917,3 +917,21 @@ primary #731 checkout/services/personal DB unchanged. Inferred: the limit was
 temporary permission availability, not evidence of unsafe Git content.
 Verified by: exact merge/tree readback and the successful expected-ref cleanup.
 #626/#622 remain open; M2 proceeds on its own branch with default disabled.
+
+## #626 M2 transport outcome — with substantive M3 #757, 2026-11-15
+
+[PR #755](https://github.com/rbctmz/ai_trainer/pull/755) closed #754/#756 and
+merged as `27e540589927fc3ada8688d85e56f9ac219d46e0` at2026-11-15T16:26:18Z.
+PR opened2026-11-14T19:13:58Z: cycle21h12m20s. Reviewed b339cd8; native1/2
+clean receipt6891546185, owner acceptance6897592867, latest Review gate43735398894
+GREEN and CLEAN before normal SHA-bound merge. Both trees equal
+`e23dfc6378ee55fb8bca446add530da588904e2c`. Independent checker2blockingP2 fixed
+in89e2a8f, zeroP1; scoped diagnostic/guard deltas READY. No native rerun.
+CI1343:4439PASS/43skipped/124deselected,100E2EPASS; local4466/16/124 and100E2E.
+An earlier E2E99/1 lacked status/body; new diagnostic97/3 reproduced scratch
+sidecar nlink0 refusals, fixed-inb339cd8 with3RED/74focusedPASS. Original historical
+failure cause is not proven; #739 stays open. Final CI/secret/contract green.
+Local main synced and known task branch removed with expected remote SHA;
+managed worktree retained for M3. Primary #731/personal store/services unchanged.
+Default-off transport is delivered; API/UI/full-domain drill belong to M3 and
+live activation remains owner controlled. Escaped-defect observation remains open.

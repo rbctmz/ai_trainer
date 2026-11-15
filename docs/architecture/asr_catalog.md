@@ -1,5 +1,13 @@
 # ASR Catalog — единая точка истины по quality attributes
 
+M3 cloud backup #757 (implementation candidate, base27e5405): ASR-SEC-1 uses a
+metadata-only/path-free CloudBackupStatus GET; ASR-REL-1/3 and DEP-2 use isolated
+remote restore plus whole-table fingerprints and actual domain readers; MOD-2
+keeps freshness in Python and web as a typed consumer. ADR-0001 reused. Evidence:
+`docs/cloud_backup_m3_slice_spec.md`, `test_cloud_backup_api.py`,
+`test_cloud_backup_drill.py`, `test_cloud_backup_status_ui.py`. Native review,
+owner merge and personal activation remain separate gates.
+
 Статусы на 2026-08-03. Источник сценариев: `architecture_analysis_add3.md` §2.
 Правило ведения: новый архитектурный трек (ExecPlan) обязан назвать задетые
 ASR в секции «ASR / risk traceability» и обновить здесь статус/проверку.

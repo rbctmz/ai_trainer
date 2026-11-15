@@ -328,3 +328,12 @@ Revision 2026-11-14 после checker: добавлен fresh local check пе�
 для соблюдения RPO и явный запрет source initialization в status/GET.
 Revision 2026-11-14 M2: реализация и два checker fixes, RED→GREEN/public worker
 evidence, operator runbook и фактические результаты отдельных тестовых контуров.
+Revision 2026-11-15 M3: #757 spec/API/drill/UI implemented in separate checkpoints;
+API5RED→10PASS, drill7RED→GREEN, native encrypted full-domain recovery and browser
+RED→40PASS. Independent checker found one phase-evidence P2 atd1e3d31; author2RED
+confirms timeout/receipt failure. Durable drill_pending and preservation of the
+committed upload receipt are the narrow correction; final checks/delta pending.
+First browser attempt was denied localhost binding by sandbox; permitted retry
+reached actual missing-component RED. First Python contract run accidentally
+used broken system Node25; repeated with existing Node22 gives24PASS. No system
+dependencies or test guards changed. Web lint/build and contract artifact are green.

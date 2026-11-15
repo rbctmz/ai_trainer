@@ -29,6 +29,9 @@ but a corrupt/foreign receipt is refused. It never silently tries an older copy.
 Recovered manifests cannot assert upload coverage: drill success changes only
 last_drill_at/drill_failed, preserving prior upload dates/reason/evidence.
 Drill failure preserves last successful dates and sets cloud_drill_failed.
+Private receipt adds boolean drill_pending (absent means false), atomically
+published with successful upload when a drill is due. Interrupted pending drill
+shows failed warning; watchdog/failure writes preserve committed upload metadata.
 Upload and drill share the repository lock and 600s process-group bound; cleanup
 uses existing owned-inode checks. No init/unlock/prune/activation.
 
@@ -92,3 +95,10 @@ Observed: M2 current tree has read_cloud_status but no cloud HTTP contract,
 drill command or remote snapshot discovery. Verified by current source reads.
 Implementation/checks, findings dispositions and final verdict are pending.
 Full+scoped checker and native review follow repository two-round stop rule.
+
+Independent implementation checker atd1e3d31: one blockingP2, zeroP1. Observed:
+transient drill receipt error reverted newly committed upload evidence, and
+combined-run timeout wrote upload cloud_timeout without drill_failed. Verified
+by checker full-domain synthetic probes and author2RED regression tests.
+Disposition: phase receipt + independent failure publication under correction;
+scoped checker verification pending. Native review still0/2.
