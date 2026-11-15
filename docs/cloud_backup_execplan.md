@@ -280,6 +280,21 @@ fallback, retry, skip or relaxed assertion was added. Runtime/schema/API/web
 behavior and ownership guards unchanged. Final full E2E/CI results are recorded
 in #755; an eventual green retry is not proof of the original cause being fixed.
 
+После диагностического изменения full local E2E dd9a1df:97 PASS /3 failed.
+Все три synthetic artifacts теперь сохранились. API tracebacks для planning
+close refresh и двух recovery readbacks показывают ScratchPathError в
+scratch_runtime.py125, именно на type/nlink inspection. Это воспроизведённый
+новый отказ с причиной в guard, а не доказательство исходного bc7fa94 failure.
+
+Новый evidence разрешает узкий Class A repair #756 в том же PR (fresh scope,
+не третий полный M2 review): одно full revalidation только regular optional
+sidecar сnlink0. Main/hardlink/external alias/root/inspection refusals сохранены.
+Контракт уточнён в database_path_guardrails_slice_spec.md; deterministic3 RED
+→74 focused guard/diagnostics PASS, включая негативные replacement cases.
+Личные paths/SQLite/.env/credentials и product Database/API/web не меняются.
+Итоговый checker/full E2E/CI pending. #739 не объявляется целиком закрытой:
+baseline comparison и причины иных исторических failures сюда не включены.
+
 Revision 2026-11-14: начальный v1 plan после synthetic совместимости; выбран
 один transport и no-prune policy proposal, чтобы исключить лишние engines/сервисы.
 Revision 2026-11-14 после checker: добавлен fresh local check перед hourly upload

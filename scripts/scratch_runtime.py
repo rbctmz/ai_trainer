@@ -16,6 +16,10 @@ _SCOPE_ENV = "AI_TRAINER_SCRATCH_SCOPE"
 _MARKER = ".scratch-owner.json"
 
 
+class _UnlinkedSidecar(Exception):
+    """Internal signal: an optional regular inode disappeared during stat."""
+
+
 class ScratchScope:
     """One fresh private directory, identified by inode and a live owner receipt."""
 
@@ -97,6 +101,15 @@ class ScratchScope:
             raise ScratchPathError("scratch_cleanup_unowned" if cleanup else "scratch_target_unowned") from None
 
     def validate_target(self, target: str | os.PathLike[str], *, purpose: str = "scratch") -> Path | None:
+        """One full recheck for an unlinked optional sidecar; never adopt it."""
+        for _ in range(2):
+            try:
+                return self._validate_target_once(target, purpose=purpose)
+            except _UnlinkedSidecar:
+                continue
+        raise ScratchPathError("scratch_identity_unknown", purpose=purpose)
+
+    def _validate_target_once(self, target: str | os.PathLike[str], *, purpose: str) -> Path | None:
         self._check_identity()
         path = sqlite_target_path(target)
         if path is None:
@@ -121,7 +134,12 @@ class ScratchScope:
                     info = artifact.stat()
                 except FileNotFoundError:
                     continue
-                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                if not stat.S_ISREG(info.st_mode):
+                    raise ScratchPathError("scratch_identity_unknown", purpose=purpose)
+                links = info.st_nlink
+                if artifact != path and links == 0:
+                    raise _UnlinkedSidecar
+                if links != 1:
                     raise ScratchPathError("scratch_identity_unknown", purpose=purpose)
             base = database_namespace_key(resolved)
             keys = [database_namespace_key(item) for item in database_family(path)]
