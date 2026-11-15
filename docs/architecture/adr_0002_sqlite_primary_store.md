@@ -50,13 +50,18 @@ FastAPI/domain restart, новые записи, fresh snapshot restore/reset/ro
 selector/receipt или backup engines нет; operator quiescence обязательна.
 
 
-## Proposed opt-in ciphertext exception (#626 / M1 #752)
+## Accepted owner opt-in ciphertext exception (#626 / 2026-11-15)
 
-Статус этого дополнения: **Proposed**, не разрешение рабочего включения.
+Статус этого дополнения: **Accepted** по отдельному решению владельца15.11.2026.
 Пункт 4 выше остаётся default: SQLite/plaintext и ключи не покидают устройство.
-[Cloud backup v1](../cloud_backup_slice_spec.md) предлагает отдельный owner opt-in:
+[Cloud backup v1](../cloud_backup_slice_spec.md) требует отдельный owner opt-in:
 restic шифрует проверенную snapshot/manifest пару до передачи в приватное S3
 хранилище. Провайдер не получает plaintext или пароль расшифрования; независимое
 хранение recovery password обязательно. SQLite остаётся primary store, cloud —
-только история восстановления, без sync/второго runtime. До принятия policy,
-M2/M3 acceptance и отдельного live решения никаких новых гарантий нет.
+только история восстановления, без sync/второго runtime. M1–M3 приняты и merged
+(#753/#755/#758). Владелец явно подтвердил конкретный rollout с backup/rollback,
+encrypted Cloud.ru upload, hourly job, независимым recovery kit в iCloud «Пароли»
+и отсутствием автоматического cloud prune. Рабочий remote-only full-domain drill
+в новый temp прошёл за11.186s, production untouched; ограничения RPO/RTO и
+платформы — в [операторской инструкции](../cloud_backup_operator.md).
+Это не разрешение включать backup для иных установок или передавать plaintext.

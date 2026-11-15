@@ -932,14 +932,30 @@ See [acceptance inventory](../automatic_snapshots_m4_acceptance.md) and
 M3/M4 review and owner merges are pending; personal rollout/default remain off.
 
 
-## Encrypted off-device snapshots (#626 / M1 #752 — proposed)
+## Encrypted off-device snapshots (#626 / M1–M3 accepted; live15.11.2026)
 
 [Контракт](../cloud_backup_slice_spec.md) и [план](../cloud_backup_execplan.md):
 ASR-DEP-2/REL-3 — restore в новый owned target, проверенный hash/schema/domain
 evidence, failure/retry без удаления прежних local/cloud копий; ASR-SEC-1 —
 restic authenticated encryption до передачи, recovery key вне единственного Mac;
 ASR-MOD-2 — shared Python freshness, read-only API/web projection. ADR-0002
-получает Proposed opt-in ciphertext exception, ADR-0001/0007 reused.
-M1 documents only; synthetic transport PASS в #626 не доказывает production
-RPO/RTO/domain acceptance. M2/M3, native/owner acceptance и live activation
-ещё не выполнены; default off. Автоматического cloud prune в v1 не предлагается.
+получает принятое владельцем opt-in ciphertext exception, ADR-0001/0007 reused.
+M1 #753, M2 #755 и M3 #758 merged после native review и owner acceptance;
+последний merge2f42cf7. Shared CLI transport, metadata-only API/web status и
+30-day full-domain drill реализованы, продуктовый default остаётся off.
+
+Отдельный owner-approved rollout15.11.2026 завершён на macOS: рабочая БД вне
+checkout с проверенными safety backup/rollback, local/cloud opt-in, Keychain и
+hourly LaunchAgent. Владелец подтвердил независимый recovery kit в iCloud «Пароли»
+на другом устройстве. Реальные Cloud.ru upload/exact-ID readback и remote-only
+full-domain restore без доступа к local source/snapshots и без прежнего receipt
+прошли; новый temp, production untouched, RTO11.186s. Фоновый job exit0,
+local/cloud API/UI ready; wrong-password exit12. Срезы #623/#624/#625 уже приняты;
+предыдущие candidate sections выше — исторические checkpoints.
+
+ASR-REL-3/DEP-2 evidence и ограничения отражены в
+[операторской инструкции](../cloud_backup_operator.md) и ExecPlan. RPO≤24ч
+требует работающего Mac, сети и credentials; sleep/offline пропускают запуски,
+stale/degraded видимы. RTO измерен на текущем dataset/сети, не на всех масштабах.
+Cloud prune отсутствует, стоимость контролирует владелец; bucket privacy
+сообщена владельцем, отдельного policy audit нет. Native Windows/ACL не проверены.
