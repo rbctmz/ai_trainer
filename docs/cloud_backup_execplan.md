@@ -2,9 +2,10 @@
 
 
 Живой ExecPlan по `.agent/PLANS.md`; контракт —
-[cloud_backup_slice_spec.md](cloud_backup_slice_spec.md). Текущая работа — только
-M2 transport/CLI (#754) после принятого M1 #753. M3 остаётся отдельным этапом;
-реализация не разрешает live activation.
+[cloud_backup_slice_spec.md](cloud_backup_slice_spec.md). M1–M3 приняты и merged;
+15 ноября 2026 после отдельного подтверждения владельца выполнен рабочий rollout.
+Его результат и ограничения ниже относятся к выбранному macOS dogfood, а не к
+автоматическому включению на любой установке. Продуктовый default остаётся off.
 
 ## Purpose / Big Picture
 
@@ -41,15 +42,15 @@ restic, вместо сервера задач — штатное расписа
   explicit owner acceptance6897592867, CI1343/Review gate GREEN/CLEAN;
   reviewed/merge tree e23dfc6378ee55fb8bca446add530da588904e2c совпал.
   #754/#756 закрыты; local main synced, task branch удалена, worktree сохранён.
-- [ ] M3 #757: shared status API/web, domain drill и итоговая synthetic приёмка;
+- [x] M3 #757: shared status API/web, domain drill и итоговая synthetic приёмка;
   отдельный [M3 slice spec](cloud_backup_m3_slice_spec.md), base27e5405.
 - [x] 2026-11-15: M3 spec checker READY, no blocking gaps. API initial5RED
   (404/missing DTO), then10focusedPASS; GET no SQLite/config in demo/no writes.
 - [x] 2026-11-15: remote drill7RED after fixture correction; domain/API20PASS,
   M2+drill59PASS, including actual encrypted LOCAL restic and two fresh app reads.
   Foreign/corrupt/lock/write/interruption and removed-local/receipt probes pass.
-- [ ] M3 UI handoff: CloudBackupStatus contract is available; browser RED/GREEN,
-  contract freshness, full checks, screenshots and final checker remain.
+- [x] M3 UI handoff: CloudBackupStatus contract, browser RED/GREEN,
+  contract freshness, full checks, screenshots and final checker completed.
 - [x] M3 UI: consumer handoff, browser missing-component RED→40focusedPASS,
   8synthetic screenshots, web lint/build/contract freshness and24contract tests green.
 - [x] Broad baseline:4488PASS/16skipped/156deselected,407.06s, scratch31299/0;
@@ -63,10 +64,37 @@ restic, вместо сервера задач — штатное расписа
   39.92s, scratch1231/0. CI/owner/native/merge gates are recorded separately in PR.
 - [x] Phase-fix full local contour4490PASS/16skipped/156deselected,362.55s,
   scratch31383/0;5additional lost-source audit tests collected/run separately.
-- [ ] Отдельное решение Greg о retention/recovery custody и live activation.
+- [x] 2026-11-15: M3 #758 merged2f42cf7 после clean native1/2 на6cde12c,
+  explicit owner acceptance и GREEN Review gate/CLEAN; reviewed/merged trees equal.
+  CI1345:4467PASS/44skipped/156deselected,132E2EPASS, contract/secret GREEN.
+- [x] 2026-11-15: владелец подтвердил актуальную БД и конкретный rollout с
+  backup/rollback, обновлением существующего checkout, local/cloud opt-in и job.
+  Облачная история v1 сохраняется без prune; расходы контролирует владелец.
+- [x] 2026-11-15: WAL-aware safety backup и проверенный restore; исходник и
+  rollback сохранены, новая активная БД вне checkout. Все исходные пользовательские
+  таблицы/строки сохранены после schema initialization; основной runtime на main.
+- [x] 2026-11-15: Keychain provisioning, независимый пароль и полный recovery kit
+  в iCloud «Пароли»; владелец подтвердил чтение на другом доверенном устройстве.
+- [x] 2026-11-15: рабочий Cloud.ru upload/exact-ID readback и full-domain drill
+  PASS; повторный remote-only drill без доступа к source/local snapshots и без
+  прежнего receipt восстановил данные в новый temp за11.186s. Production untouched.
+- [x] 2026-11-15: установлен hourly LaunchAgent; реальный RunAtLoad exit0,
+  последующий readback18:34:56Z, local/cloud API и рабочий UI ready.
+  Negative wrong-password probe exit12; private permissions проверены.
 
 ## Surprises & Discoveries
 
+
+Observed (live rollout): upload exit0 дополнен exact-ID no-cache readback и
+проверкой восстановления. Inferred: одного successful upload недостаточно для
+доказательства утраты локальной копии. Verified by: отдельный свежий recovery
+config без receipt, запрет доступа к source/local snapshots в обоих subprocess,
+реальные domain readers и RTO11.186s; активная БД не удалялась и не заменялась.
+
+Observed (final audit): родительский application-data каталог имел0755 при
+приватных DB/cloud/backups. Verified by: stat; оператор ограничил его до0700,
+после чего итоговая проверка прав/runtime/job прошла. Это исправление конкретной
+установки, не утверждение о воспроизведённом дефекте продукта.
 
 Observed (M3): full WAL-mode domain fixture initially failed the fake uploader's
 readback: `_validate_pair` rejected extra SQLite sidecar files. Inferred: test
@@ -109,7 +137,8 @@ binding. Inferred: initial eligibility не доказывает eligibility с�
 Observed: ADR-0002 запрещает вынос данных за Mac, а владелец выбрал cloud backup.
 Inferred: нужно явное узкое opt-in исключение для ciphertext, не молчаливое
 переопределение privacy. Verified by: пункт 4 ADR и owner scope; addendum Proposed,
-его принятие/live activation ещё не заявлены.
+на этом M1 checkpoint принятие/live activation ещё не заявлялись. Более позднее
+явное owner approval и рабочее включение15.11 зафиксированы в Progress/Outcomes.
 
 ## Decision Log
 
@@ -126,6 +155,32 @@ checked generation, а не upload timestamp. Это сохраняет чест
 2026-11-14, Spec Owner proposal: нет автоматического cloud prune в v1. Локальная
 14-day/8-week/reset protection unchanged; ранние cloud copies не исчезают при reset.
 Рост и стоимость требуют явного owner acceptance перед рабочим включением.
+
+2026-11-15, Owner / Operator: подтверждены рабочий source и весь предложенный
+rollout, включая plaintext только локально, encrypted Cloud.ru backup, расписание
+и отсутствие cloud prune. Пароль и полный recovery kit сохранены владельцем в
+iCloud «Пароли» и проверены на другом устройстве. Это отдельное разрешение
+конкретной установки; default-off и stopped-service restore boundary сохранены.
+
+## Outcomes & Retrospective
+
+
+M1 #753, M2 #755 и M3 #758 приняты владельцем и merged. Рабочая приёмка15.11.2026
+подтвердила active DB вне checkout → validated local snapshot → encrypted Cloud.ru
+copy → exact-ID readback → full-domain restore в новый temp. При remote-only drill
+source и local backups были недоступны процессам; production не удалялась.
+RTO11.186s измерен на текущем объёме данных и соединении, не является прогнозом
+для любого размера/сети. Первый запуск и настоящий background job завершились
+успешно; local/cloud status в API и UI ready. Wrong restic password отклонён.
+
+RPO≤24ч условен: Mac должен запускать job и иметь доступ к сети/credentials;
+sleep/offline пропускают попытки. Отсутствие успешного покрытия видно как stale
+или degraded. Полный drill повторяется при due через30дней, это расписание пока
+проверено первоначальным запуском, не месяцем наблюдения. Cloud history не
+удаляется автоматически, расходы остаются на владельце. Независимый аудит bucket
+policy не проводился; приватность бакета сообщена владельцем, код не меняет ACL.
+Native Windows/ACL не проверялись. Private evidence хранит operator receipt;
+публичный итог — в #626/#622 без DB content, credentials и account binding.
 
 ## Context and Orientation
 
@@ -238,6 +293,10 @@ password и снимки. Restic lock contention не лечится автом�
 Потеря ноутбука использует независимо сохранённые URL/ID/password и новые S3 keys;
 restore идёт в новый temp. Личная activation требует отдельного конкретного
 preview/backup/rollback и owner confirmation, не команды из этого плана.
+
+Изменение15.11.2026: актуализированы принятый M3, отдельное live approval и
+проверенное рабочее включение, чтобы следующий оператор не повторял provisioning
+и не считал старые synthetic checkpoints текущим состоянием установки.
 
 ## Artifacts and Notes
 

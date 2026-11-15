@@ -935,3 +935,43 @@ Local main synced and known task branch removed with expected remote SHA;
 managed worktree retained for M3. Primary #731/personal store/services unchanged.
 Default-off transport is delivered; API/UI/full-domain drill belong to M3 and
 live activation remains owner controlled. Escaped-defect observation remains open.
+
+## #626 M3 and #622 live acceptance — 2026-11-15
+
+[PR #758](https://github.com/rbctmz/ai_trainer/pull/758) / #757 merged as
+`2f42cf7babd849bc75c3a3f50e312ad98232bf8f` at17:41:37Z. Opened17:21:03Z:
+cycle20m34s. Reviewed6cde12c; native1/2 clean receipt6898517623, explicit owner
+acceptance6898577928, GREEN Review gate43742493534/CLEAN before SHA-bound merge.
+Reviewed/merged trees equal c26b8b32eef255f8314cbc5c616ef0d1b1436c06. No second
+native round. Working-session checker reproduced phase-state P2, fixed-in aa1d61b;
+completion audit lost-source hourly refusal reproduced/fixed-in7342553, scoped
+checker READY, zero remaining blockers. These are distinct from native review.
+
+Final CI1345/run43740616194:4467PASS/44skipped/156deselected,132E2EPASS;
+contract/Ruff/Gitleaks/link GREEN. Local focused87PASS; phase-fix full4490PASS,
+16skipped/156deselected, plus5separately collected lost-source audit cases PASS.
+FullE2E132PASS, web lint/build/24contract checks GREEN. Initial Node25 failure
+was missing dylib; retry used existing Node22. Synthetic native LOCAL RTO4.362s
+is separate from the later real Cloud.ru measurement. #739 remains open; these
+results do not establish the cause of its historical E2E500.
+
+Owner then explicitly confirmed current working DB and the concrete live
+rollout, retaining source/safety backup/rollback. Existing primary checkout
+updated to main2f42cf7, no second runtime; previous branch retained. Working DB
+activated outside checkout, original user data preserved, local snapshots on.
+Owner personally entered the restic password and confirmed full recovery kit
+in iCloud Passwords on another trusted device. No password/key material in Git.
+
+Real Cloud.ru encrypted upload, exact-ID no-cache readback and full-domain drill
+PASS. Independent fresh recovery config without receipt and denied source/local
+snapshot access restored in11.186s; production untouched. Wrong-password exit12.
+Installed hourly LaunchAgent completed RunAtLoad exit0; readback18:34:56Z,
+local/cloud API and working UI ready. Exact prefix listing18:35Z:10STANDARD
+objects,3,513,529bytes. Final private-permission/runtime/schedule audit18:49Z PASS.
+
+This records initial live acceptance, not a month of operation or an unconditional
+RPO guarantee: Mac sleep/offline/credential loss can miss runs. Cloud prune is
+absent, cost belongs to owner; bucket privacy owner-reported, policy not separately
+audited. Windows/ACL unverified; escaped-defect observation remains open. Public
+closure evidence is in #626/#622; private receipts stay outside Git. This factual
+documentation update is Class C: no behavior, contract or retention-policy change.
