@@ -7,6 +7,16 @@ export interface BackupStatus {
   reason_code: "backup_busy" | "backup_timeout" | "backup_io_error" | "backup_integrity_failed" | "backup_identity_unknown" | "backup_state_unwritable" | "backup_retention_failed" | "backup_reset_pins_unknown" | null;
 }
 
+export interface CloudBackupStatus {
+  state: "disabled" | "unknown" | "ready" | "stale" | "degraded";
+  last_attempt_at: string | null;
+  last_verified_at: string | null;
+  last_covered_check_at: string | null;
+  last_drill_at: string | null;
+  reason_code: "cloud_busy" | "cloud_config_invalid" | "cloud_identity_unknown" | "cloud_snapshot_invalid" | "cloud_credentials_unavailable" | "cloud_auth_failed" | "cloud_network_failed" | "cloud_timeout" | "cloud_state_unwritable" | "cloud_local_backup_unavailable" | null;
+  drill_warning: "cloud_drill_due" | "cloud_drill_failed" | null;
+}
+
 export interface OperationalState {
   status: "error" | "empty" | "stale" | "ready";
   mode: "demo" | "live";

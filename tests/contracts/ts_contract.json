@@ -1,9 +1,9 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "efbac936b05722c0ff9c8b2c170548fcb64400c28a6b5a7fcce1898ba7ab9b20",
+    "source_sha256": "6ac1c87f1fb124f1a7a5c92270ecf7cbac64596082dbc86db6b1755059fcaaed",
     "registry": "tests/contracts/registry.json",
-    "registry_sha256": "dec3fa7bf789bf9e29bc42adb7a0417e20aabf2e5e7fbe074f93e9268fde3ae4"
+    "registry_sha256": "d66d68d52398193298979885e9f3c7c477db8e3a5f1135ffc6396e0948c94920"
   },
   "roots": [
     "ActivitiesResponse",
@@ -12,6 +12,7 @@
     "BackupStatus",
     "BuildConfirmResult",
     "BuildPrepareResult",
+    "CloudBackupStatus",
     "CoachDecisionsResponse",
     "CycleBuildContext",
     "CycleCommandResponse",
@@ -5247,6 +5248,166 @@
               "record_values": null,
               "array_length": null
             },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "CloudBackupStatus": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "drill_warning": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [
+              "cloud_drill_due",
+              "cloud_drill_failed"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "last_attempt_at": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "last_covered_check_at": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "last_drill_at": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "last_verified_at": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "reason_code": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [
+              "cloud_auth_failed",
+              "cloud_busy",
+              "cloud_config_invalid",
+              "cloud_credentials_unavailable",
+              "cloud_identity_unknown",
+              "cloud_local_backup_unavailable",
+              "cloud_network_failed",
+              "cloud_snapshot_invalid",
+              "cloud_state_unwritable",
+              "cloud_timeout"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "state": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "degraded",
+              "disabled",
+              "ready",
+              "stale",
+              "unknown"
+            ],
+            "widened": false,
+            "items": null,
             "fields": null,
             "ref": null,
             "wildcard": false,

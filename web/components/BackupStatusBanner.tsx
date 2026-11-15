@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { fetcher, postJSON } from "@/lib/api";
-import type { BackupStatus } from "@/lib/types";
+import type { BackupStatus, CloudBackupStatus } from "@/lib/types";
 
 function timeLabel(value: string | null): string {
   if (!value) return "время не указано";
@@ -59,14 +59,17 @@ export function BackupStatusBanner() {
   const { data, error, isLoading, mutate } = useSWR<BackupStatus>("/api/backup/status", fetcher, {
     refreshInterval: 60_000, errorRetryInterval: 60_000,
   });
+  const { data: cloudData, error: cloudError, isLoading: cloudLoading, mutate: mutateCloud } = useSWR<CloudBackupStatus>("/api/backup/cloud/status", fetcher, {
+    refreshInterval: 60_000, errorRetryInterval: 60_000,
+  });
   const [pending, setPending] = useState(false);
   const [retryError, setRetryError] = useState(false);
   const checking = useRef(false);
   useEffect(() => {
-    const refresh = () => { void mutate(); };
+    const refresh = () => { void mutate(); void mutateCloud(); };
     window.addEventListener("backup-status-changed", refresh);
     return () => window.removeEventListener("backup-status-changed", refresh);
-  }, [mutate]);
+  }, [mutate, mutateCloud]);
 
   async function retry() {
     if (checking.current) return;
@@ -85,6 +88,50 @@ export function BackupStatusBanner() {
       setPending(false);
     }
   }
-  return <BackupStatusView status={error ? null : data ?? null} loading={isLoading && !error}
-    pending={pending} retryError={retryError} onRetry={retry} />;
+  return <>
+    <BackupStatusView status={error ? null : data ?? null} loading={isLoading && !error}
+      pending={pending} retryError={retryError} onRetry={retry} />
+    <CloudBackupStatusView status={cloudError ? null : cloudData ?? null}
+      loading={cloudLoading && !cloudError} />
+  </>;
+}
+
+export function CloudBackupStatusView({ status, loading = false }: {
+  status: CloudBackupStatus | null;
+  loading?: boolean;
+}) {
+  if (loading) return <p className="mb-4 text-xs text-ink-faint" role="status">Проверяем состояние облачной копии…</p>;
+  if (status?.state === "disabled") {
+    return <p className="mb-4 text-xs text-ink-faint" data-testid="cloud-backup-status">Облачные резервные копии выключены.</p>;
+  }
+  const ready = status?.state === "ready";
+  const warning = !ready || Boolean(status?.drill_warning);
+  const heading = status?.state === "ready" ? "Облачная копия проверена."
+    : status?.state === "stale" ? "Облачная копия устарела."
+    : status?.state === "degraded" ? "Облачную копию не удалось обновить."
+    : "Состояние облачной копии неизвестно.";
+  return <aside
+    className={`mb-4 rounded-xl border p-3 text-sm ${warning ? "border-tone-warning/40 bg-tone-warning/5 text-ink" : "border-surface-border bg-surface text-ink-soft"}`}
+    aria-label="Облачная резервная копия" role="status" data-testid="cloud-backup-status"
+  >
+    <p className="font-medium">{heading}</p>
+    <p className="mt-1 text-xs text-ink-soft">
+      {status?.last_verified_at
+        ? `Чтение из облака проверено: ${timeLabel(status.last_verified_at)}.`
+        : "Время последней проверенной облачной копии неизвестно."}
+    </p>
+    {status?.last_covered_check_at ? <p className="mt-1 text-xs text-ink-soft">
+      Локальные данные проверены: {timeLabel(status.last_covered_check_at)}. Более поздние изменения могут не входить в эту копию.
+    </p> : null}
+    <p className="mt-1 text-xs text-ink-soft">
+      {status?.last_drill_at
+        ? `Восстановление проверено: ${timeLabel(status.last_drill_at)}.`
+        : "Восстановление из облака ещё не подтверждено."}
+    </p>
+    {status?.drill_warning ? <p className="mt-2 text-xs text-tone-warning">
+      {status.drill_warning === "cloud_drill_failed"
+        ? "Проверка восстановления из облака не завершена."
+        : "Пора проверить восстановление из облака."}
+    </p> : null}
+  </aside>;
 }

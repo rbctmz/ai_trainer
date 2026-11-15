@@ -37,10 +37,50 @@ restic, вместо сервера задач — штатное расписа
   включая настоящий restic local repository (без облака/личных ключей).
 - [x] M2: broad contour4452 PASS /16 skipped /124 deselected;
   independent scoped delta READY на89e2a8f; draft PR #755.
-- [ ] M3: shared status API/web, domain drill и итоговая synthetic приёмка.
+- [x] 2026-11-15: M2 #755 merged27e5405, clean native1/2 наb339cd8,
+  explicit owner acceptance6897592867, CI1343/Review gate GREEN/CLEAN;
+  reviewed/merge tree e23dfc6378ee55fb8bca446add530da588904e2c совпал.
+  #754/#756 закрыты; local main synced, task branch удалена, worktree сохранён.
+- [ ] M3 #757: shared status API/web, domain drill и итоговая synthetic приёмка;
+  отдельный [M3 slice spec](cloud_backup_m3_slice_spec.md), base27e5405.
+- [x] 2026-11-15: M3 spec checker READY, no blocking gaps. API initial5RED
+  (404/missing DTO), then10focusedPASS; GET no SQLite/config in demo/no writes.
+- [x] 2026-11-15: remote drill7RED after fixture correction; domain/API20PASS,
+  M2+drill59PASS, including actual encrypted LOCAL restic and two fresh app reads.
+  Foreign/corrupt/lock/write/interruption and removed-local/receipt probes pass.
+- [ ] M3 UI handoff: CloudBackupStatus contract is available; browser RED/GREEN,
+  contract freshness, full checks, screenshots and final checker remain.
+- [x] M3 UI: consumer handoff, browser missing-component RED→40focusedPASS,
+  8synthetic screenshots, web lint/build/contract freshness and24contract tests green.
+- [x] Broad baseline:4488PASS/16skipped/156deselected,407.06s, scratch31299/0;
+  fullE2E132PASS,287.12s, scratch261/0. 35 overwritten old PNGs restored;
+  new issue757 screenshots retained. Final Python rerun follows phase correction.
+- [x] aa1d61b fixes checker P2: author2RED→7phase/refusalPASS; checker deltaREADY,
+  82PASS plus four independent probes. NativeLOCAL full-domain RTO4.362s,
+  source/local snapshots/receipt absent and two fresh app reader projections equal.
+- [x] Completion audit lost-source hourly path:1RED→5PASS including no-network
+  eligibility negatives; checker deltaREADY at7342553,21PASS. Final focused87PASS,
+  39.92s, scratch1231/0. CI/owner/native/merge gates are recorded separately in PR.
+- [x] Phase-fix full local contour4490PASS/16skipped/156deselected,362.55s,
+  scratch31383/0;5additional lost-source audit tests collected/run separately.
 - [ ] Отдельное решение Greg о retention/recovery custody и live activation.
 
 ## Surprises & Discoveries
+
+
+Observed (M3): full WAL-mode domain fixture initially failed the fake uploader's
+readback: `_validate_pair` rejected extra SQLite sidecar files. Inferred: test
+double may copy more than real restic's explicit two filenames. Verified by:
+staging validation passed, failure trace was pair membership; fake copying only
+snapshot.db/manifest.json made existing upload pass. Production transport was
+unchanged;7new failures then came from absent drill/cadence, not fixture setup.
+
+Observed (M3): API GET10PASS and domain/API20PASS, including no source DB and
+fresh-process full-domain readers. Inferred: independent drill can recover with
+lost local artifacts. Verified by: native encrypted LOCAL repository restored
+after source/local backup/receipt deletion, same checkpoint/cycle/decision/match/
+feedback/readiness/provider/manual projections in two fresh app processes.
+This does not establish live Cloud.ru/Keychain/scheduler or personal RTO.
 
 
 Observed: restic 0.19.1 вернул успешный no-cache restore synthetic snapshot за
@@ -151,7 +191,8 @@ relative Markdown links четырёх изменённых документов
 До push зафиксировать independent checker и dispositions. Draft PR закрывает
 только #752, ссылается на #626 и не закрывает общую задачу преждевременно.
 
-Для M2/M3 следующие команды — будущий план, а не выполненные проверки:
+Для M2/M3 используются следующие команды; фактические результаты и версии
+зафиксированы в Progress и PR evidence, а не выводятся из наличия команд:
 
     python scripts/run_isolated_tests.py tests/smoke/test_cloud_backups.py -q
     python scripts/run_isolated_tests.py tests/smoke/test_cloud_backup_drill.py -q
@@ -161,8 +202,9 @@ relative Markdown links четырёх изменённых документов
 
 Web slice также требует npm --prefix web run contract:extract, lint/build и
 изолированный Playwright scenario нового status. Runtime CLI в M2: python
-scripts/cloud_backup.py status|run --config /absolute/private/config.json;
-status read-only, run — explicit operator operation; drill добавляется в M3.
+scripts/cloud_backup.py status|run|drill --config /absolute/private/config.json;
+status read-only, run/drill — explicit operator operations. M3 также сохраняет
+due drill при потере выбранного source файла без повторного создания SQLite.
 Все test children
 используют scripts.scratch_pytest.child_environment/fresh_child_environment;
 никаких owner credentials, launchctl или real Cloud.ru по умолчанию.
@@ -301,3 +343,12 @@ Revision 2026-11-14 после checker: добавлен fresh local check пе�
 для соблюдения RPO и явный запрет source initialization в status/GET.
 Revision 2026-11-14 M2: реализация и два checker fixes, RED→GREEN/public worker
 evidence, operator runbook и фактические результаты отдельных тестовых контуров.
+Revision 2026-11-15 M3: #757 spec/API/drill/UI implemented in separate checkpoints;
+API5RED→10PASS, drill7RED→GREEN, native encrypted full-domain recovery and browser
+RED→40PASS. Independent checker found one phase-evidence P2 atd1e3d31; author2RED
+confirms timeout/receipt failure. Durable drill_pending and preservation of the
+committed upload receipt are the narrow correction; final checks/delta pending.
+First browser attempt was denied localhost binding by sandbox; permitted retry
+reached actual missing-component RED. First Python contract run accidentally
+used broken system Node25; repeated with existing Node22 gives24PASS. No system
+dependencies or test guards changed. Web lint/build and contract artifact are green.
