@@ -56,13 +56,13 @@ code; all existing snapshots remain intact.
 
 ## Definition of Done and RED matrix
 
-- [ ] API no-source/no-network/no-write probes and demo/config canaries.
-- [ ] Missing/local-lost/foreign/corrupt/clock/failed-drill receipt matrix.
-- [ ] Drill success/failure/retry/30-day cadence/lock/deadline/cleanup tests.
-- [ ] Encrypted LOCAL restic domain fixture, removed local originals/receipt,
+- [x] API no-source/no-network/no-write probes and demo/config canaries.
+- [x] Missing/local-lost/foreign/corrupt/clock/failed-drill receipt matrix.
+- [x] Drill success/failure/retry/30-day cadence/lock/deadline/cleanup tests.
+- [x] Encrypted LOCAL restic domain fixture, removed local originals/receipt,
   fresh application readers prove cycle/checkpoint/decision/match/feedback/
   readiness/provider/manual identities and exact raw rows; measured RTO<=30min.
-- [ ] Contract freshness/inventory, lint/build, focused and full isolated tests,
+- [x] Contract freshness/inventory, lint/build, focused and full isolated tests,
   browser fixtures/screenshots and independent checker evidence.
 - [ ] Draft PR links #757; zero untriaged blockers; owner owns review/merge.
 
@@ -109,3 +109,7 @@ eligibility and remote-only branch before source-dependent upload binding;
 upload remains degraded while successful drill is recorded independently.
 Default/demo/local-disabled/foreign selected paths still refuse before network.
 This implements the existing monthly/lost-local criterion; no new product scope.
+Scoped checker READY at7342553 with21PASS and no blockers. Author final87PASS,
+39.92s, scratch1231/0. Full local phase-fix contour4490PASS/16skipped/156deselected,
+362.55s (collected before the5additional audit tests), scratch31383/0. Full
+browser132PASS on unchanged UI; final-head CI remains a separate PR gate.

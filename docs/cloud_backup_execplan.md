@@ -58,8 +58,11 @@ restic, вместо сервера задач — штатное расписа
 - [x] aa1d61b fixes checker P2: author2RED→7phase/refusalPASS; checker deltaREADY,
   82PASS plus four independent probes. NativeLOCAL full-domain RTO4.362s,
   source/local snapshots/receipt absent and two fresh app reader projections equal.
-- [ ] Completion audit lost-source hourly path:1RED, correction and scoped
-  verification pending; default/source eligibility remains mandatory.
+- [x] Completion audit lost-source hourly path:1RED→5PASS including no-network
+  eligibility negatives; checker deltaREADY at7342553,21PASS. Final focused87PASS,
+  39.92s, scratch1231/0. CI/owner/native/merge gates are recorded separately in PR.
+- [x] Phase-fix full local contour4490PASS/16skipped/156deselected,362.55s,
+  scratch31383/0;5additional lost-source audit tests collected/run separately.
 - [ ] Отдельное решение Greg о retention/recovery custody и live activation.
 
 ## Surprises & Discoveries
@@ -188,7 +191,8 @@ relative Markdown links четырёх изменённых документов
 До push зафиксировать independent checker и dispositions. Draft PR закрывает
 только #752, ссылается на #626 и не закрывает общую задачу преждевременно.
 
-Для M2/M3 следующие команды — будущий план, а не выполненные проверки:
+Для M2/M3 используются следующие команды; фактические результаты и версии
+зафиксированы в Progress и PR evidence, а не выводятся из наличия команд:
 
     python scripts/run_isolated_tests.py tests/smoke/test_cloud_backups.py -q
     python scripts/run_isolated_tests.py tests/smoke/test_cloud_backup_drill.py -q
@@ -198,8 +202,9 @@ relative Markdown links четырёх изменённых документов
 
 Web slice также требует npm --prefix web run contract:extract, lint/build и
 изолированный Playwright scenario нового status. Runtime CLI в M2: python
-scripts/cloud_backup.py status|run --config /absolute/private/config.json;
-status read-only, run — explicit operator operation; drill добавляется в M3.
+scripts/cloud_backup.py status|run|drill --config /absolute/private/config.json;
+status read-only, run/drill — explicit operator operations. M3 также сохраняет
+due drill при потере выбранного source файла без повторного создания SQLite.
 Все test children
 используют scripts.scratch_pytest.child_environment/fresh_child_environment;
 никаких owner credentials, launchctl или real Cloud.ru по умолчанию.
