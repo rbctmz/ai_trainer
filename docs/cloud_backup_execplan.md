@@ -43,9 +43,31 @@ restic, вместо сервера задач — штатное расписа
   #754/#756 закрыты; local main synced, task branch удалена, worktree сохранён.
 - [ ] M3 #757: shared status API/web, domain drill и итоговая synthetic приёмка;
   отдельный [M3 slice spec](cloud_backup_m3_slice_spec.md), base27e5405.
+- [x] 2026-11-15: M3 spec checker READY, no blocking gaps. API initial5RED
+  (404/missing DTO), then10focusedPASS; GET no SQLite/config in demo/no writes.
+- [x] 2026-11-15: remote drill7RED after fixture correction; domain/API20PASS,
+  M2+drill59PASS, including actual encrypted LOCAL restic and two fresh app reads.
+  Foreign/corrupt/lock/write/interruption and removed-local/receipt probes pass.
+- [ ] M3 UI handoff: CloudBackupStatus contract is available; browser RED/GREEN,
+  contract freshness, full checks, screenshots and final checker remain.
 - [ ] Отдельное решение Greg о retention/recovery custody и live activation.
 
 ## Surprises & Discoveries
+
+
+Observed (M3): full WAL-mode domain fixture initially failed the fake uploader's
+readback: `_validate_pair` rejected extra SQLite sidecar files. Inferred: test
+double may copy more than real restic's explicit two filenames. Verified by:
+staging validation passed, failure trace was pair membership; fake copying only
+snapshot.db/manifest.json made existing upload pass. Production transport was
+unchanged;7new failures then came from absent drill/cadence, not fixture setup.
+
+Observed (M3): API GET10PASS and domain/API20PASS, including no source DB and
+fresh-process full-domain readers. Inferred: independent drill can recover with
+lost local artifacts. Verified by: native encrypted LOCAL repository restored
+after source/local backup/receipt deletion, same checkpoint/cycle/decision/match/
+feedback/readiness/provider/manual projections in two fresh app processes.
+This does not establish live Cloud.ru/Keychain/scheduler or personal RTO.
 
 
 Observed: restic 0.19.1 вернул успешный no-cache restore synthetic snapshot за

@@ -1,7 +1,11 @@
 """Remote-only drill and independent upload/drill evidence, synthetic stores."""
 from datetime import timedelta
+from dataclasses import replace
 import json
+from pathlib import Path
 import shutil
+import subprocess
+import time
 
 import pytest
 
@@ -75,7 +79,7 @@ def test_failed_drill_retains_previous_success_and_never_uploads(tmp_path, failu
     assert cloud.read_cloud_status(config, selection=selection(source, root))['drill_warning'] == 'cloud_drill_failed'
 
 
-def test_hourly_run_drills_initially_and_after_thirty_days_only(tmp_path, monkeypatch):
+def test_hourly_run_drills_initially_and_after_thirty_days_only(tmp_path):
     config, _data, source, root, fake, _metadata = prepared(tmp_path)
     result = cloud.read_cloud_status(config, selection=selection(source, root))
     assert result['last_drill_at'] and result['drill_warning'] is None
@@ -87,9 +91,8 @@ def test_hourly_run_drills_initially_and_after_thirty_days_only(tmp_path, monkey
     receipt = json.loads(state_path.read_text())
     receipt['last_drill_at'] = (now - timedelta(days=30)).isoformat()
     state_path.write_text(json.dumps(receipt))
-    monkeypatch.setattr(cloud, '_now', lambda: now)
     fake.calls.clear()
-    assert run(config, source, root, fake)['last_drill_at'] == now.isoformat()
+    assert cloud._instant(run(config, source, root, fake)['last_drill_at']) >= now
     assert fake.calls.count('latest') == 1
 
 
@@ -97,3 +100,117 @@ def test_drill_disabled_and_demo_never_load_credentials(tmp_path, monkeypatch):
     assert cloud._drill_once(tmp_path / 'absent')['state'] == 'disabled'
     monkeypatch.setattr(cloud, 'load_config', lambda *_a: pytest.fail('no owner config in demo'))
     assert cloud.run_cloud_drill(tmp_path / 'absent', demo=True)['state'] == 'disabled'
+
+
+@pytest.mark.parametrize('condition', ['foreign_receipt', 'busy', 'receipt_write', 'inspection', 'interruption'])
+def test_drill_refusals_preserve_source_and_remote(tmp_path, monkeypatch, condition):
+    config, _data, source, root, fake, _metadata = prepared(tmp_path)
+    state_path = cloud.load_config(config).state_path
+    previous = json.loads(state_path.read_text())
+    before_source = cloud.inspect_database(source)
+    before_remote = {p.name: p.read_bytes() for p in fake.remote.iterdir()}
+    fake.calls.clear()
+    if condition == 'foreign_receipt':
+        state_path.write_text(json.dumps({**previous, 'source_namespace': 'f' * 64}))
+        damaged = state_path.read_bytes()
+        result = drill(config, fake)
+        assert result['reason_code'] == 'cloud_identity_unknown' and not fake.calls
+        assert state_path.read_bytes() == damaged
+    elif condition == 'busy':
+        with cloud.snapshots.namespace_lock(config.parent, deadline=time.monotonic() + 1):
+            result = drill(config, fake)
+        assert result['reason_code'] == 'cloud_busy' and not fake.calls
+        assert json.loads(state_path.read_text()) == previous
+    elif condition == 'receipt_write':
+        def fail(*_a):
+            raise cloud.CloudError('cloud_state_unwritable')
+        monkeypatch.setattr(cloud, '_write_receipt', fail)
+        result = drill(config, fake)
+        assert result['reason_code'] == 'cloud_state_unwritable'
+        assert json.loads(state_path.read_text()) == previous
+    else:
+        import services.cloud_backup_drill as domains
+        def fail(*_a):
+            raise (KeyboardInterrupt() if condition == 'interruption' else OSError('private synthetic canary'))
+        monkeypatch.setattr(domains, 'verify_domains', fail)
+        if condition == 'interruption':
+            with pytest.raises(KeyboardInterrupt):
+                drill(config, fake)
+            assert json.loads(state_path.read_text()) == previous
+        else:
+            result = drill(config, fake)
+            assert result['drill_warning'] == 'cloud_drill_failed'
+            assert result['last_drill_at'] == previous['last_drill_at']
+    assert cloud.inspect_database(source) == before_source
+    assert before_remote == {p.name: p.read_bytes() for p in fake.remote.iterdir()}
+    assert 'backup' not in fake.calls and not list(config.parent.glob('drill-*'))
+
+
+def test_public_drill_worker_records_failure_without_source_or_selection(tmp_path):
+    config, _data, source, root = fixture_config(tmp_path)
+    source.unlink()
+    result = cloud.run_cloud_drill(config)
+    assert result['drill_warning'] == 'cloud_drill_failed'
+    assert result['last_verified_at'] is None and result['last_drill_at'] is None
+    assert not source.exists() and not root.exists()
+    assert not list(config.parent.glob('attempt-*'))
+
+
+def test_encrypted_native_drill_after_local_loss_preserves_fresh_domain_readers(tmp_path, monkeypatch):
+    import services.cloud_backup_transport as transport
+    import services.cloud_backup_drill as domains
+    from scripts.scratch_pytest import child_environment
+    from tests.smoke.test_database_relocation_drill import _app, _without_path, ORIGINAL, WAL_MARKER
+    binary = shutil.which('restic') or ('/opt/homebrew/bin/restic' if Path('/opt/homebrew/bin/restic').exists() else None)
+    if binary is None:
+        pytest.skip('native restic not installed; no dependency download in tests')
+    config, data, source, root, _fake, metadata = prepared(tmp_path)
+    baseline = _app(tmp_path, source, metadata)
+    assert baseline['checkpoint_id'] == metadata['checkpoint_id']
+    assert baseline['activities'] == [ORIGINAL]
+    assert baseline['match']['id'] == metadata['match_id']
+    assert baseline['feedback']['id'] == metadata['feedback_id']
+    assert baseline['readiness'][0]['id'] == metadata['readiness_id']
+    assert baseline['decisions'][0]['reason'] == WAL_MARKER
+    assert len(baseline['providers']) == 2 and len(baseline['manual']) == 1
+    repo = tmp_path / 'encrypted-recovery-repo'
+    env = child_environment({**cloud._child_env(), 'RESTIC_PASSWORD': 'synthetic-drill-password'})
+    init = subprocess.run([binary, '-r', str(repo), 'init', '--repository-version', '2'],
+                          env=env, capture_output=True, text=True, timeout=20)
+    assert init.returncode == 0
+    raw = subprocess.run([binary, '-r', str(repo), '--json', 'cat', 'config'],
+                         env=env, capture_output=True, text=True, timeout=20)
+    assert raw.returncode == 0
+    data['expected_repository_id'] = json.loads(raw.stdout)['id']
+    config.write_text(json.dumps(data))
+    # Fake-repository receipt is foreign to the newly provisioned test repo.
+    cloud.load_config(config).state_path.unlink()
+    monkeypatch.setattr(transport, 'RESTIC_EXECUTABLE', binary)
+    monkeypatch.setattr(transport, '_credentials', lambda *_a: ('synthetic', 'synthetic', 'synthetic-drill-password'))
+    def local_factory(config, work, deadline):
+        return transport.ResticTransport(replace(config, repository_url=str(repo)), work, deadline)
+    result = cloud._run_once(config, selection=selection(source, root), transport_factory=local_factory)
+    assert result['state'] == 'ready' and result['last_drill_at'], result
+    source.unlink()
+    for suffix in ('-wal', '-shm', '-journal'):
+        Path(str(source) + suffix).unlink(missing_ok=True)
+    shutil.rmtree(root)
+    cloud.load_config(config).state_path.unlink()
+    recovered = []
+    actual = domains.verify_domains
+    def fresh_readers(path):
+        actual(path)
+        first = _app(tmp_path, path, metadata)
+        second = _app(tmp_path, path, metadata)
+        assert _without_path(first) == _without_path(second) == _without_path(baseline)
+        recovered.append(first)
+    monkeypatch.setattr(domains, 'verify_domains', fresh_readers)
+    started = time.monotonic()
+    result = cloud._drill_once(config, transport_factory=local_factory)
+    elapsed = time.monotonic() - started
+    assert result['last_drill_at'] and result['drill_warning'] is None, result
+    assert len(recovered) == 1 and elapsed < 30 * 60
+    assert result['last_verified_at'] is None and result['last_covered_check_at'] is None
+    assert not source.exists() and not root.exists()
+    assert not list(config.parent.glob('drill-*'))
+    print(f'synthetic encrypted full-domain recovery RTO={elapsed:.3f}s')

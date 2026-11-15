@@ -54,6 +54,10 @@ class FakeTransport:
         self.calls.append('repository')
         return self.repo_id
 
+    def latest_snapshot_id(self):
+        self.calls.append('latest')
+        return REMOTE_ID
+
     def backup(self, payload):
         self.calls.append('backup')
         if self.fail == 'backup':
@@ -158,7 +162,8 @@ def test_upload_requires_exact_readback_then_unchanged_retry_deduplicates(tmp_pa
     fake = FakeTransport(tmp_path / 'fake-remote')
     first = run(config, source, root, fake)
     assert first['state'] == 'ready'
-    assert fake.calls == ['repository', 'backup', ('restore', REMOTE_ID)]
+    assert fake.calls == ['repository', 'backup', ('restore', REMOTE_ID),
+                          'repository', 'latest', ('restore', REMOTE_ID)]
     assert set(p.name for p in fake.remote.iterdir()) == {'snapshot.db', 'manifest.json'}
     manifest = json.loads((fake.remote / 'manifest.json').read_text())
     assert manifest['source_namespace'] == data['source_namespace']
@@ -168,7 +173,8 @@ def test_upload_requires_exact_readback_then_unchanged_retry_deduplicates(tmp_pa
     assert receipt['last_covered_check_at'] == first['last_covered_check_at']
     fake.calls.clear()
     assert run(config, source, root, fake)['state'] == 'ready'
-    assert fake.calls == ['repository', ('restore', REMOTE_ID)]
+    assert fake.calls == ['repository', ('restore', REMOTE_ID),
+                          'repository', 'latest', ('restore', REMOTE_ID)]
     assert not list(config.parent.glob('attempt-*'))
 
 

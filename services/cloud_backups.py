@@ -213,7 +213,7 @@ def _public(state: str = 'unknown', reason: str | None = None, receipt: dict | N
     return {'state': state, 'reason_code': reason,
             **{key: receipt.get(key) for key in _TIMES},
             'drill_warning': (None if state == 'disabled' else 'cloud_drill_failed' if receipt.get('drill_failed') else
-                'cloud_drill_due' if not drill or now - _instant(drill) > timedelta(days=30) else None)}
+                'cloud_drill_due' if not drill or now - _instant(drill) >= timedelta(days=30) else None)}
 
 
 def read_cloud_status(config_path: str | Path, *, selection: CloudSelection | None = None,
@@ -409,6 +409,67 @@ def _bounded_stage(config: CloudConfig, staging: Path) -> dict:
         raise CloudError('cloud_snapshot_invalid') from None
 
 
+def _drill_due(receipt: dict) -> bool:
+    return (not receipt.get('last_drill_at')
+            or _now() - _instant(receipt['last_drill_at']) >= timedelta(days=30))
+
+
+def _perform_drill(config: CloudConfig, previous: dict, parent: Path, deadline: float,
+                   transport_factory: Callable | None = None) -> dict:
+    """Caller owns repository lock; upload evidence never changes in this slice."""
+    state = {'version': 1, 'repository_id': config.expected_repository_id,
+             'source_namespace': config.source_namespace, **previous}
+    try:
+        with _owned_work(parent, prefix='drill-') as work:
+            if transport_factory is None:
+                from services.cloud_backup_transport import ResticTransport
+                transport_factory = ResticTransport
+            transport = transport_factory(config, work, deadline)
+            if transport.repository_id() != config.expected_repository_id:
+                raise CloudError('cloud_identity_unknown')
+            remote_id = transport.latest_snapshot_id()
+            if not isinstance(remote_id, str) or not _HEX.fullmatch(remote_id):
+                raise CloudError('cloud_snapshot_invalid')
+            restored = work / 'restored'
+            transport.restore(remote_id, restored)
+            manifest = _validate_pair(restored, config)
+            from services.cloud_backup_drill import verify_domains
+            verify_domains(restored / 'snapshot.db')
+            if inspect_database(restored / 'snapshot.db') != manifest['fingerprint']:
+                raise CloudError('cloud_snapshot_invalid')
+        # Cleanup is part of success: a replaced directory never grants success.
+        state.update(last_drill_at=_now().isoformat(), drill_failed=False)
+    except Exception:
+        # Public drill warning is independent of upload reason/coverage.
+        state['drill_failed'] = True
+    _write_receipt(config, state)
+    return state
+
+
+def _drill_once(config_path: str | Path, *, transport_factory: Callable | None = None,
+                work_parent: Path | None = None) -> dict:
+    """Recover remote data even when source, local snapshots and receipt are lost."""
+    previous = {}
+    if cloud_context_disabled():
+        return _public('disabled')
+    try:
+        config = load_config(config_path)
+        if config is None:
+            return _public('disabled')
+        with snapshots.namespace_lock(config.path.parent, deadline=time.monotonic() + .1):
+            previous = _receipt(config, _now())  # Never overwrite foreign/corrupt state.
+            previous = _perform_drill(config, previous, work_parent or config.path.parent,
+                                      time.monotonic() + ATTEMPT_SECONDS, transport_factory)
+        # Local coverage cannot be inferred from a remote-only operation.
+        return _public('unknown', previous.get('reason_code'), previous)
+    except CloudError as exc:
+        return _public('degraded', str(exc), {**previous, 'drill_failed': True})
+    except snapshots.SnapshotError:
+        return _public('degraded', 'cloud_busy', {**previous, 'drill_failed': True})
+    except (OSError, ValueError, TypeError, KeyError):
+        return _public('degraded', 'cloud_snapshot_invalid', {**previous, 'drill_failed': True})
+
+
 def _run_once(config_path: str | Path, *, selection: CloudSelection | None = None,
               transport_factory: Callable | None = None, work_parent: Path | None = None) -> dict:
     if cloud_context_disabled(acceptance=bool(selection and selection.acceptance)):
@@ -461,6 +522,8 @@ def _run_once(config_path: str | Path, *, selection: CloudSelection | None = Non
                     'source_generation': manifest['source_generation'], 'remote_snapshot_id': remote_id,
                     'last_verified_at': _now().isoformat(), 'last_covered_check_at': staged['covered']}
                 _write_receipt(config, verified)
+                if _drill_due(verified):
+                    _perform_drill(config, verified, work, deadline, transport_factory)
             return read_cloud_status(config.path, selection=selection)
     except CloudError as exc:
         reason = str(exc)
@@ -471,7 +534,7 @@ def _run_once(config_path: str | Path, *, selection: CloudSelection | None = Non
     return _public('degraded', reason, previous)
 
 
-def _worker_failure(config_path: str | Path, reason: str) -> dict:
+def _worker_failure(config_path: str | Path, reason: str, *, drill: bool = False) -> dict:
     previous = {}
     try:
         config = load_config(config_path)
@@ -480,15 +543,18 @@ def _worker_failure(config_path: str | Path, reason: str) -> dict:
         with snapshots.namespace_lock(config.path.parent, deadline=time.monotonic() + .1):
             previous = _receipt(config, _now())
             failed = {'version': 1, 'repository_id': config.expected_repository_id,
-                      'source_namespace': config.source_namespace, **previous,
-                      'last_attempt_at': _now().isoformat(), 'pending': False, 'reason_code': reason}
+                      'source_namespace': config.source_namespace, **previous}
+            if drill:
+                failed['drill_failed'] = True
+            else:
+                failed.update(last_attempt_at=_now().isoformat(), pending=False, reason_code=reason)
             _write_receipt(config, failed)
     except (CloudError, snapshots.SnapshotError, OSError):
         reason = 'cloud_state_unwritable'
-    return _public('degraded', reason, previous)
+    return _public('degraded', reason, {**previous, 'drill_failed': True} if drill else previous)
 
 
-def run_cloud_backup(config_path: str | Path, *, demo: bool = False) -> dict:
+def _run_operator(config_path: str | Path, *, demo: bool = False, drill: bool = False) -> dict:
     """Bound all work, including SQLite C calls, in one disposable process group."""
     try:
         if cloud_context_disabled(demo=demo):
@@ -499,24 +565,34 @@ def run_cloud_backup(config_path: str | Path, *, demo: bool = False) -> dict:
         # Parent ownership lets a timeout remove even a SIGKILLed child's staging.
         with _owned_work(config.path.parent, prefix='attempt-process-') as work:
             info = work.lstat()
-            args = [sys.executable, '-m', __name__, '--run', str(config.path), str(work),
+            args = [sys.executable, '-m', __name__, '--drill' if drill else '--run', str(config.path), str(work),
                     str(info.st_dev), str(info.st_ino)]
             with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                     text=True, env=_child_env(), start_new_session=True) as worker:
                 try:
                     output, _ = worker.communicate(timeout=ATTEMPT_SECONDS)
                     value = json.loads(output)
-                    if not worker.returncode and isinstance(value, dict) and value.get('state') in {'ready', 'stale', 'degraded', 'disabled'}:
+                    if not worker.returncode and isinstance(value, dict) and value.get('state') in {'ready', 'stale', 'unknown', 'degraded', 'disabled'}:
                         return value
                 except subprocess.TimeoutExpired:
                     os.killpg(worker.pid, signal.SIGKILL)
                     worker.communicate()
-                    return _worker_failure(config.path, 'cloud_timeout')
-        return _worker_failure(config.path, 'cloud_network_failed')
+                    return _worker_failure(config.path, 'cloud_timeout', drill=drill)
+        return _worker_failure(config.path, 'cloud_network_failed', drill=drill)
     except CloudError as exc:
         return _public('degraded', str(exc))
     except (OSError, ValueError):
         return _public('degraded', 'cloud_state_unwritable')
+
+
+def run_cloud_backup(config_path: str | Path, *, demo: bool = False) -> dict:
+    """Bound upload and any due drill in one process group and one deadline."""
+    return _run_operator(config_path, demo=demo)
+
+
+def run_cloud_drill(config_path: str | Path, *, demo: bool = False) -> dict:
+    """Explicit bounded remote-only drill; never restore over a selected source."""
+    return _run_operator(config_path, demo=demo, drill=True)
 
 
 def _main() -> None:
@@ -533,14 +609,15 @@ def _main() -> None:
                     or [info.st_dev, info.st_ino] != request['identity'] or any(staging.iterdir())):
                 raise CloudError('cloud_identity_unknown')
             print(json.dumps(_stage(config, staging, request['deadline'])))
-        elif len(sys.argv) == 6 and sys.argv[1] == '--run':
+        elif len(sys.argv) == 6 and sys.argv[1] in {'--run', '--drill'}:
             config = load_config(sys.argv[2])
             work = _safe_path(sys.argv[3])
             _private(work, directory=True)
             info = work.lstat()
             if config is None or work.parent != config.path.parent or (info.st_dev, info.st_ino) != (int(sys.argv[4]), int(sys.argv[5])):
                 raise CloudError('cloud_identity_unknown')
-            print(json.dumps(_run_once(config.path, work_parent=work)))
+            operation = _drill_once if sys.argv[1] == '--drill' else _run_once
+            print(json.dumps(operation(config.path, work_parent=work)))
         else:
             raise SystemExit(2)
     except CloudError as exc:

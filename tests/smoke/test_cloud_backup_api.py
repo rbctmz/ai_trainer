@@ -29,6 +29,10 @@ def test_cloud_get_never_opens_source_or_initializes_dependencies(tmp_path, monk
     from api.routers import backup
     monkeypatch.setattr(Database, '__init__', forbidden)
     monkeypatch.setattr(backup, 'get_database', forbidden)
+    import services.cloud_backup_transport as transport
+    import socket
+    monkeypatch.setattr(transport, '_credentials', forbidden)
+    monkeypatch.setattr(socket, 'create_connection', forbidden)
     if mode in {'demo', 'acceptance'}:
         monkeypatch.setattr(cloud, 'load_config', forbidden)
     client = TestClient(app)  # No lifespan: test this GET alone.

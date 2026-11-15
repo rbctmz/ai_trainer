@@ -129,6 +129,22 @@ class ResticTransport:
         except (ValueError, KeyError, TypeError):
             raise CloudError('cloud_snapshot_invalid') from None
 
+    def latest_snapshot_id(self) -> str:
+        """Discover from remote metadata; local receipt/originals are optional."""
+        try:
+            values = json.loads(self._command(['snapshots', '--host', 'ai-trainer', '--latest', '1']))
+            if not isinstance(values, list) or not values:
+                raise ValueError
+            # --latest is per host/path group: compare all returned groups.
+            from services.cloud_backups import _instant, _now
+            for value in values:
+                if (not _HEX.fullmatch(value['id']) or value.get('hostname') != 'ai-trainer'
+                        or _instant(value['time']) > _now()):
+                    raise ValueError
+            return max(values, key=lambda value: (_instant(value['time']), value['id']))['id']
+        except (ValueError, KeyError, TypeError):
+            raise CloudError('cloud_snapshot_invalid') from None
+
     def restore(self, snapshot_id: str, target: Path) -> None:
         if not _HEX.fullmatch(snapshot_id) or target.exists() or target.is_symlink():
             raise CloudError('cloud_snapshot_invalid')
