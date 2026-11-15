@@ -256,6 +256,30 @@ activation boundary. M3 API/web/full-domain drill, рабочие password/sched
 personal DB migration и activation не выполнены. Стоимость и recovery ownership
 не подменяются успешным маленьким transport probe.
 
+### CI investigation 2026-11-15 — scoped Class B harness repair
+
+Observed: #755 code head89e2a8f CI GREEN. Docs-only bc7fa94 CI1341:
+Python4425/43/124, contract/secret scan GREEN; E2E99 PASS /1 failed in
+planning confirmation1280-light. Helper indexed athlete_day without checking
+HTTP status. No api.log/artifact survived this scenario failure. Error response
+and original cause are therefore unknown, not a proven cloud transport defect.
+
+Verified by: all6 target variants PASS; two consecutive whole-S4 runs46 PASS.
+Synthetic500 concurrent API reads with3000 read-only SQLite open/closes PASS.
+Adding actual synthetic writes reproduced one parent scratch guard refusal at
+sidecar nlink inspection, but another500 API requests all returned200; this does
+not establish the original CI cause. No guard/product change was made.
+
+Confirmed diagnostic defect (related #739): call-phase test failures did not
+automatically capture WebStack logs before module fixture cleanup. New isolated
+pytest subprocess regression:2 expected RED /1 PASS →3 PASS after hook fix.
+Failures now retain assertion text, API/Next logs, URL, browser errors and image
+in unique artifact directories; capture failure cannot mask the original test
+failure. The context helper asserts HTTP200/body and required field; no response
+fallback, retry, skip or relaxed assertion was added. Runtime/schema/API/web
+behavior and ownership guards unchanged. Final full E2E/CI results are recorded
+in #755; an eventual green retry is not proof of the original cause being fixed.
+
 Revision 2026-11-14: начальный v1 plan после synthetic совместимости; выбран
 один transport и no-prune policy proposal, чтобы исключить лишние engines/сервисы.
 Revision 2026-11-14 после checker: добавлен fresh local check перед hourly upload
