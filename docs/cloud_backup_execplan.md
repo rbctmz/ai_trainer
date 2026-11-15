@@ -37,7 +37,12 @@ restic, вместо сервера задач — штатное расписа
   включая настоящий restic local repository (без облака/личных ключей).
 - [x] M2: broad contour4452 PASS /16 skipped /124 deselected;
   independent scoped delta READY на89e2a8f; draft PR #755.
-- [ ] M3: shared status API/web, domain drill и итоговая synthetic приёмка.
+- [x] 2026-11-15: M2 #755 merged27e5405, clean native1/2 наb339cd8,
+  explicit owner acceptance6897592867, CI1343/Review gate GREEN/CLEAN;
+  reviewed/merge tree e23dfc6378ee55fb8bca446add530da588904e2c совпал.
+  #754/#756 закрыты; local main synced, task branch удалена, worktree сохранён.
+- [ ] M3 #757: shared status API/web, domain drill и итоговая synthetic приёмка;
+  отдельный [M3 slice spec](cloud_backup_m3_slice_spec.md), base27e5405.
 - [ ] Отдельное решение Greg о retention/recovery custody и live activation.
 
 ## Surprises & Discoveries
