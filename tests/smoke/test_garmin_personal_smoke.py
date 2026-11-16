@@ -468,6 +468,69 @@ def test_http_200_with_other_activity_id_is_not_namespace_proof(tmp_path):
     assert module._probe_activity_namespace(state)[0] == "WARN"
 
 
+def test_malformed_sqlite_schema_does_not_disclose_identifiers(tmp_path, monkeypatch):
+    module = _load_module()
+    db_path = tmp_path / "malformed.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE HEALTH_CANARY_87 (x)")
+        connection.execute("PRAGMA writable_schema = ON")
+        connection.execute("UPDATE sqlite_master SET sql = 'broken' WHERE name = 'HEALTH_CANARY_87'")
+    connection.close()
+    state = _state(module, "https://unused.invalid", db_path)
+    state.client = object()  # SQLite refusal happens before any provider request.
+    monkeypatch.setattr(module, "_probes", lambda **kwargs: [
+        ("activity_id_namespace", module._probe_activity_namespace),
+    ])
+    result = module.run_smoke(state)
+    assert result[0].status == "SKIP"
+    assert "DatabaseError" in result[0].detail
+    for output in (module._format_text(result, state), module._format_json(result, state)):
+        assert "HEALTH_CANARY" not in output
+
+
+def test_sqlite_connection_exception_does_not_disclose_payload(tmp_path, monkeypatch):
+    module = _load_module()
+    db_path = _make_db(tmp_path / "fixture.sqlite", ["111"])
+
+    def refused(*args, **kwargs):
+        raise sqlite3.OperationalError("HEALTH_CANARY_87 DUMMY_CREDENTIAL_FRAGMENT")
+
+    monkeypatch.setattr(module.sqlite3, "connect", refused)
+    state = _state(module, "https://unused.invalid", db_path)
+    state.client = object()
+    monkeypatch.setattr(module, "_probes", lambda **kwargs: [
+        ("activity_id_namespace", module._probe_activity_namespace),
+    ])
+    result = module.run_smoke(state)
+    assert result[0].status == "SKIP"
+    assert "OperationalError" in result[0].detail
+    for output in (module._format_text(result, state), module._format_json(result, state)):
+        assert "HEALTH_CANARY" not in output
+        assert "DUMMY_CREDENTIAL_FRAGMENT" not in output
+
+
+@pytest.mark.parametrize("returned_id", [999, None])
+def test_summary_never_attributes_other_activity_to_requested_id(returned_id, monkeypatch):
+    module = _load_module()
+
+    class Client:
+        def get_json(self, path):
+            assert path.endswith("/111")
+            return {"activityId": returned_id, "summaryDTO": {
+                "distance": 1000, "duration": 600, "averageHR": 120, "calories": 100,
+            }}
+
+    state = module.SmokeState(api_key=API_KEY, base_url="https://unused.invalid",
+                              activity_id=111, db_path=None)
+    state.client = Client()
+    # Supported --activity-id / --skip-db invocation must still check identity.
+    monkeypatch.setattr(module, "_probes", lambda **kwargs: [
+        ("activity_summary", module._probe_activity_summary),
+    ])
+    result = module.run_smoke(state, skip_db=True)
+    assert result[0].status in {"WARN", "FAIL"}
+
+
 @pytest.mark.parametrize("method", ["GET", "POST"])
 def test_cross_origin_redirect_never_receives_credentials(method):
     module = _load_module()

@@ -36,7 +36,12 @@ garmin. Исследование фиксирует решение, но не в
 - [x] Related DB tests: 124 passed. Whole-tree Ruff passed. Broad run: 4527 passed,
   6 failed / 18 errors due to broken system Node 25 (missing simdjson dylib);
   all affected modules rerun with existing Node 22: 31 passed. No host repair.
-- [ ] Final links/diff checks, current CI and independent review.
+- [x] Links/diff checks and initial-head CI GREEN: 4523 passed / 44 skipped;
+  E2E, contract and Gitleaks GREEN. First native review on e3cb473: two P2.
+- [x] Both findings reproduced (4 RED cases): SQLite-controlled exception text
+  and summary ID mismatch with --skip-db. Fixed without changing scope.
+  Synthetic smoke + related DB suites: 175 passed (51 smoke + 124 DB); Ruff GREEN.
+- [ ] Current fix-head CI and scoped delta review (second and final round).
 - [ ] Resolve review findings, record owner merge gate and final #737 receipt;
   #736 remains open for separately scoped integration. No swimming implementation.
 
@@ -159,7 +164,10 @@ Public contract refresh and bounded hardening are implemented. The original
 47-case run gave 38 failed / 9 passed; the same cases now pass. DB checks: 124
 passed. The broad run exposed only the existing broken Node 25 installation;
 31 affected-module tests pass with the already installed Node 22. No system
-repair or product runtime change was made. Current CI and independent review
+repair or product runtime change was made. Initial CI independently passed: 4523 passed / 44 skipped, plus E2E, contract
+and secret scan GREEN. First native review found two P2: SQLite exception-message
+disclosure and summary ID attribution. Four added cases were RED; after fixes,
+51 smoke + 124 related DB cases pass. Current fix-head CI and scoped verification
 remain; final receipts are recorded in #737 on their actual heads.
 
 ## Artifacts and Notes
@@ -176,5 +184,7 @@ CLI flags and0/1/2 exit meanings remain; diagnostic classifications become more
 conservative. Reuse stdlib urllib/sqlite/json and the existing pure path selector.
 No new third-party dependency, database schema, API/TS contract or UI surface.
 
-Revision 16.11.2026: plan created before tool changes to bound research correction,
+Revision 16.11.2026: first independent findings reproduced and fixed; final native
+round is restricted to the delta since e3cb473. Plan created before tool changes
+to bound research correction,
 credential/read-only safeguards and delivery, preserving the owner's next priority.

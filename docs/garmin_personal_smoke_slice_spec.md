@@ -8,7 +8,7 @@ Date: 2026-11-16. Original head 5245da7; integration 6efa079 includes main 7e539
 
 Class A: the existing operator tool handles credentials and reads a selected
 SQLite. This promotes the original Class C claim for the bounded diagnostic
-hardening; it does not implement a runtime Garmin transport. Native budget0/2,
+hardening; it does not implement a runtime Garmin transport. Native budget: two rounds,
 manual trigger only. Owner requested completion of #737; final acceptance/merge
 is checked separately after the candidate and its evidence are ready.
 
@@ -89,7 +89,10 @@ Baseline reviewer experiment: 10 existing tests PASS, 5 new probes FAIL on the
 unchanged original tool with current main's isolated test launcher. These five
 failures cover the first three reviewed defects; further failure-path probes
 ran RED before the tool changes: 38 failed / 9 passed. After the fix the same
-47 cases pass; related DB path tests: 124 passed. No live characterization was rerun.
+47 cases pass; related DB path tests: 124 passed. First native review on e3cb473
+found SQLite exception-text disclosure and unchecked summary identity. Both were
+reproduced (4 RED); safe exception types and summary ID checks now yield 51 smoke
++ 124 DB cases GREEN. No live characterization was rerun.
 
 Required checks: isolated tests/smoke/test_garmin_personal_smoke.py; related
 database path/guard tests; whole-tree Ruff; Markdown links/diff; contributor-safe

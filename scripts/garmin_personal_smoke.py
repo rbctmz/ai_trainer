@@ -376,7 +376,7 @@ def _load_garmin_link_ids(db_path: Path, *, limit: int = 500) -> list[str]:
             f"file:{urlparse.quote(str(db_path))}?mode=ro", uri=True, timeout=5.0
         )
     except sqlite3.Error as exc:
-        raise SmokeSkipped(f"БД не открывается на чтение: {exc}") from exc
+        raise SmokeSkipped(f"БД не открывается на чтение ({type(exc).__name__})") from exc
     try:
         connection.execute("PRAGMA query_only = ON")
         rows = connection.execute(
@@ -386,7 +386,7 @@ def _load_garmin_link_ids(db_path: Path, *, limit: int = 500) -> list[str]:
             (limit,),
         ).fetchall()
     except sqlite3.Error as exc:
-        raise SmokeSkipped(f"таблица activity_provider_links недоступна: {exc}") from exc
+        raise SmokeSkipped(f"таблица activity_provider_links недоступна ({type(exc).__name__})") from exc
     finally:
         connection.close()
     ordered: list[str] = []
@@ -503,6 +503,8 @@ def _probe_activity_summary(state: SmokeState) -> tuple[str, str]:
         raise SmokeSkipped("нет id активности для проверки сводки")
     client = _require_client(state)
     payload = client.get_json(f"/activity-service/activity/{state.activity_id}")
+    if not isinstance(payload, dict) or str(payload.get("activityId")) != str(state.activity_id):
+        return "FAIL", f"сводка id={state.activity_id}: identity ответа не подтверждена"
     summary = _dig(payload, "summaryDTO")
     if not isinstance(summary, dict):
         summary = payload if isinstance(payload, dict) else {}
