@@ -2,13 +2,13 @@
 """Read-only live smoke для Garmin Connect Personal API.
 
 Проверяет то, что нельзя установить по документации (см.
-`docs/garmin_personal_api_study.md`, раздел 11):
+`docs/garmin_personal_api_study.md`):
 
 1. ключ обменивается на bearer-токен, и срок жизни токена действительно ~24 ч;
 2. ``activityId`` из Personal API совпадают с id в наших ``activity_provider_links``
    — иначе сломается дедупликация Garmin ↔ Intervals (ADR-0008, п.2);
 3. какие поля сводки активности реально заполнены;
-4. фактические лимиты диапазонов дат (28/31 день, «до 1 года»);
+4. принимаемые окна дат и свидетельства границы сна 31/32 дня;
 5. скачивается ли FIT и читается ли он ``fitparse``.
 
 Скрипт только читает: не пишет в БД, не печатает ключ, токен и значения
@@ -103,10 +103,10 @@ class SmokeSkipped(SmokeError):
 class SmokeHttpError(SmokeError):
     """Неуспешный HTTP-ответ на обязательный запрос."""
 
-    def __init__(self, status: int, path: str, snippet: str = "") -> None:
+    def __init__(self, status: int, path: str) -> None:
         self.status = status
         self.path = path
-        self.message = f"HTTP {status} {path}" + (f": {snippet}" if snippet else "")
+        self.message = f"HTTP {status} {path}"
         super().__init__(self.message)
 
 
@@ -138,14 +138,14 @@ class HttpResponse:
 class SmokeState:
     """Всё, что пробы передают друг другу по цепочке."""
 
-    api_key: str
+    api_key: str = field(repr=False)
     base_url: str
     timeout: float = DEFAULT_TIMEOUT_SECONDS
     delay: float = DEFAULT_DELAY_SECONDS
-    db_path: Path = REPO_ROOT / "ai_trainer.db"
+    db_path: Path | None = field(default_factory=lambda: _selected_database_path())
     activity_id: int | None = None
     window_days: int = 60
-    secrets: list[str] = field(default_factory=list)
+    secrets: list[str] = field(default_factory=list, repr=False)
     token: TokenInfo | None = None
     client: PersonalApiClient | None = None
     api_activity_ids: list[str] = field(default_factory=list)
@@ -166,18 +166,23 @@ def _iso(value: date) -> str:
 
 def _redact(text: str, secrets: Sequence[str]) -> str:
     """Вырезать из диагностического текста ключ и токен."""
-    for secret in secrets:
-        if secret and len(secret) >= 8:
-            text = text.replace(secret, "***")
+    for secret in sorted({s for s in secrets if s}, key=len, reverse=True):
+        text = text.replace(secret, "***")
     return text
 
 
-def _snippet(body: bytes, secrets: Sequence[str], *, limit: int = 160) -> str:
-    if not body:
-        return ""
-    text = body.decode("utf-8", errors="replace")
-    text = " ".join(text.split())
-    return _redact(text[:limit], secrets)
+def _selected_database_path() -> Path:
+    """Чистый выбор пути приложения: без открытия БД или создания каталогов."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from config.database_paths import DatabasePathError, resolve_database_paths
+
+    try:
+        return Path(resolve_database_paths(
+            os.environ, platform=sys.platform, home=str(Path.home()), cwd=str(Path.cwd()),
+        ).real)
+    except DatabasePathError as exc:
+        raise SmokeError("неверный путь БД: задайте DATABASE_PATH, --db или --skip-db") from exc
 
 
 def _jwt_expires_at(token: str) -> datetime:
@@ -186,7 +191,7 @@ def _jwt_expires_at(token: str) -> datetime:
     if len(parts) < 2:
         raise SmokeError(
             "token-эндпоинт вернул не JWT: ожидается голая строка токена, "
-            "см. docs/garmin_personal_api_study.md §2"
+            "см. docs/garmin_personal_api_study.md"
         )
     encoded = parts[1] + "=" * (-len(parts[1]) % 4)
     try:
@@ -234,16 +239,30 @@ def resolve_api_key(explicit: str | None) -> str:
     )
 
 
+class _SameOriginRedirect(urlrequest.HTTPRedirectHandler):
+    """Не передавать Authorization другому origin при перенаправлении."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        def origin(url: str) -> tuple[str, str | None, int | None]:
+            parsed = urlparse.urlsplit(url)
+            return (parsed.scheme.lower(), parsed.hostname,
+                    parsed.port or {"http": 80, "https": 443}.get(parsed.scheme.lower()))
+
+        if origin(req.full_url) != origin(newurl):
+            raise SmokeError("перенаправление на другой origin запрещено")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _send(method: str, url: str, headers: Mapping[str, str], timeout: float) -> HttpResponse:
     request = urlrequest.Request(url, method=method, headers=dict(headers))
     try:
-        with urlrequest.urlopen(request, timeout=timeout) as response:
+        with urlrequest.build_opener(_SameOriginRedirect()).open(request, timeout=timeout) as response:
             return HttpResponse(status=int(response.status), body=response.read())
     except urlerror.HTTPError as exc:
         body = exc.read() if exc.fp is not None else b""
         return HttpResponse(status=int(exc.code), body=body)
     except urlerror.URLError as exc:
-        raise SmokeError(f"сетевая ошибка: {exc.reason}") from exc
+        raise SmokeError("сетевая ошибка запроса") from exc
     except TimeoutError as exc:
         raise SmokeError(f"таймаут запроса ({timeout:.0f} с)") from exc
 
@@ -305,7 +324,7 @@ class PersonalApiClient:
     def get_json(self, path: str, params: Mapping[str, Any] | None = None) -> Any:
         response = self.request("GET", path, params)
         if response.status != 200:
-            raise SmokeHttpError(response.status, path, _snippet(response.body, self._secrets))
+            raise SmokeHttpError(response.status, path)
         try:
             return response.json()
         except json.JSONDecodeError as exc:
@@ -321,7 +340,7 @@ class PersonalApiClient:
             time.sleep(self.delay)
         response = _send("GET", self._url(path, None), headers, self.timeout)
         if response.status != 200:
-            raise SmokeHttpError(response.status, path, _snippet(response.body, self._secrets))
+            raise SmokeHttpError(response.status, path)
         return response.body
 
 
@@ -341,7 +360,7 @@ def obtain_token(
     }
     response = _send("POST", url, headers, timeout)
     if response.status != 200:
-        raise SmokeHttpError(response.status, TOKEN_PATH, _snippet(response.body, secrets))
+        raise SmokeHttpError(response.status, TOKEN_PATH)
     token = response.body.decode("utf-8", errors="replace").strip()
     if not token:
         raise SmokeError("token-эндпоинт вернул пустое тело")
@@ -359,6 +378,7 @@ def _load_garmin_link_ids(db_path: Path, *, limit: int = 500) -> list[str]:
     except sqlite3.Error as exc:
         raise SmokeSkipped(f"БД не открывается на чтение: {exc}") from exc
     try:
+        connection.execute("PRAGMA query_only = ON")
         rows = connection.execute(
             "SELECT provider_activity_id FROM activity_provider_links "
             "WHERE provider = 'garmin' AND provider_activity_id IS NOT NULL "
@@ -445,6 +465,8 @@ def _probe_activities(state: SmokeState) -> tuple[str, str]:
 def _probe_activity_namespace(state: SmokeState) -> tuple[str, str]:
     """Главная проверка: id Personal API должны совпадать с нашими Garmin-id."""
     client = _require_client(state)
+    if state.db_path is None:
+        raise SmokeSkipped("локальная БД не выбрана")
     db_ids = _load_garmin_link_ids(state.db_path)
     if not db_ids:
         raise SmokeSkipped(
@@ -452,18 +474,23 @@ def _probe_activity_namespace(state: SmokeState) -> tuple[str, str]:
         )
     api_ids = set(state.api_activity_ids)
     overlap = api_ids & set(db_ids)
-    direct: list[tuple[str, int]] = []
+    direct: list[tuple[str, int, bool]] = []
     for activity_id in db_ids[:3]:
         response = client.request("GET", f"/activity-service/activity/{activity_id}")
-        direct.append((activity_id, response.status))
-    readable = [activity_id for activity_id, status in direct if status == 200]
+        matches = False
+        if response.status == 200:
+            payload = response.json()
+            matches = isinstance(payload, dict) and str(payload.get("activityId")) == activity_id
+        direct.append((activity_id, response.status, matches))
+    readable = [activity_id for activity_id, status, matches in direct if status == 200 and matches]
     summary = (
         f"garmin-связей в БД: {len(db_ids)}; пересечение с последними 10 из API: {len(overlap)}; "
         f"прямое чтение id из БД: "
-        + ", ".join(f"{activity_id}→HTTP {status}" for activity_id, status in direct)
+        + ", ".join(f"{activity_id}→HTTP {status}, id={'совпадает' if matches else 'не подтверждён'}"
+                    for activity_id, status, matches in direct)
     )
     if readable or overlap:
-        return "PASS", summary + " — namespace совпадает"
+        return "PASS", summary + " — совпадение namespace подтверждено на этой выборке"
     return "WARN", (
         summary
         + " — ни один id из БД не читается. Возможен иной namespace: сверьте id вручную, "
@@ -504,7 +531,7 @@ def _probe_daily_summaries(state: SmokeState) -> tuple[str, str]:
         return (
             "WARN",
             f"90-дневный диапазон отклонён (HTTP {response.status}) — "
-            "bootstrap придётся чанковать; заявленный лимит «до 1 года» не подтверждён",
+            "причина отказа не установлена; лимит «до 1 года» этой пробой не подтверждён",
         )
     payload = response.json() or {}
     rows = payload.get("data") if isinstance(payload, dict) else None
@@ -515,8 +542,9 @@ def _probe_daily_summaries(state: SmokeState) -> tuple[str, str]:
 def _probe_sleep_window(state: SmokeState) -> tuple[str, str]:
     client = _require_client(state)
     outcomes: list[tuple[int, int, int | None]] = []
-    for days in (31, 40):
-        end = _local_date()
+    end = _local_date()
+    range_rejection = False
+    for days in (31, 32):
         start = end - timedelta(days=days - 1)
         response = client.request(
             "GET",
@@ -527,17 +555,29 @@ def _probe_sleep_window(state: SmokeState) -> tuple[str, str]:
         if response.status == 200:
             payload = response.json()
             count = len(payload) if isinstance(payload, list) else 0
+        elif days == 32 and response.status == 400:
+            try:
+                payload = response.json()
+            except (ValueError, UnicodeError):
+                payload = None
+            # Тело используется только для классификации, никогда для вывода.
+            if isinstance(payload, dict):
+                messages = [payload.get(key) for key in ("error", "message")]
+                range_rejection = any(
+                    isinstance(message, str) and "range" in message.lower()
+                    and any(term in message.lower() for term in ("too large", "too long", "exceed", "maximum"))
+                    for message in messages
+                )
         outcomes.append((days, response.status, count))
     detail = "; ".join(
         f"{days} дн → HTTP {status}" + (f", {count} дней" if count is not None else "")
         for days, status, count in outcomes
     )
     ok31 = outcomes[0][1] == 200
-    rejected40 = outcomes[1][1] != 200
-    if ok31 and rejected40:
+    if ok31 and range_rejection:
         return "PASS", detail + " — заявленный лимит 31 день подтверждён"
-    if ok31:
-        return "WARN", detail + " — лимит не enforced, можно брать окно шире"
+    if ok31 and outcomes[1][1] in (200, 400):
+        return "WARN", detail + " — граница 31 день не подтверждена; сохраняйте документированный лимит"
     return "FAIL", detail
 
 
@@ -551,7 +591,6 @@ def _probe_sleep_daily_fields(state: SmokeState) -> tuple[str, str]:
             raise SmokeHttpError(
                 response.status,
                 "/sleep-service/sleep/dailySleep",
-                _snippet(response.body, state.secrets),
             )
         payload = response.json() or {}
         if not isinstance(payload, dict) or not payload:
@@ -676,15 +715,14 @@ def run_smoke(state: SmokeState, *, skip_db: bool = False, skip_fit: bool = Fals
         try:
             status, detail = probe(state)
         except SmokeSkipped as exc:
-            results.append(ProbeResult(key, "SKIP", str(exc)))
+            status, detail = "SKIP", str(exc)
         except SmokeHttpError as exc:
-            results.append(ProbeResult(key, "FAIL", exc.message))
+            status, detail = "FAIL", exc.message
         except SmokeError as exc:
-            results.append(ProbeResult(key, "FAIL", str(exc)))
+            status, detail = "FAIL", str(exc)
         except Exception as exc:  # smoke не должен падать стеком на одной пробе
-            results.append(ProbeResult(key, "FAIL", f"{type(exc).__name__}: {exc}"))
-        else:
-            results.append(ProbeResult(key, status, _redact(detail, state.secrets)))
+            status, detail = "FAIL", type(exc).__name__
+        results.append(ProbeResult(key, status, _redact(detail, [state.api_key, *state.secrets])))
     return results
 
 
@@ -709,7 +747,7 @@ def _format_text(results: Sequence[ProbeResult], state: SmokeState) -> str:
     if counts["FAIL"]:
         lines.append("Есть FAIL — результат не подтверждает пригодность Personal API.")
     elif counts["WARN"]:
-        lines.append("FAIL нет; WARN требуют ручного вывода (см. docs/garmin_personal_api_study.md §11).")
+        lines.append("FAIL нет; WARN требуют ручного вывода (см. docs/garmin_personal_api_study.md).")
     return "\n".join(lines)
 
 
@@ -719,7 +757,7 @@ def _format_json(results: Sequence[ProbeResult], state: SmokeState) -> str:
         {
             "generated_at": _now().replace(microsecond=0).isoformat(),
             "base_url": state.base_url,
-            "database": str(state.db_path),
+            "database": str(state.db_path) if state.db_path is not None else None,
             "activity_id": state.activity_id,
             "ok": counts["FAIL"] == 0,
             "summary": {status: counts[status] for status in ("PASS", "WARN", "SKIP", "FAIL")},
@@ -744,7 +782,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         default=os.getenv(BASE_URL_ENV_VAR, DEFAULT_BASE_URL),
         help=f"по умолчанию {DEFAULT_BASE_URL}",
     )
-    parser.add_argument("--db", default=str(REPO_ROOT / "ai_trainer.db"), help="SQLite кэш")
+    parser.add_argument("--db", help="SQLite кэш (иначе DATABASE_PATH или системный каталог)")
     parser.add_argument("--activity-id", type=int, help="проверить конкретную активность")
     parser.add_argument(
         "--days", type=int, default=60, help="окно поиска активностей, дней (по умолчанию 60)"
@@ -758,13 +796,18 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--skip-db", action="store_true", help="не сверять id с локальной БД")
     parser.add_argument("--skip-fit", action="store_true", help="не скачивать FIT")
     parser.add_argument("--json", action="store_true", help="машинный вывод")
-    return parser.parse_args(list(argv) if argv is not None else None)
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    if args.skip_db:
+        args.db = None
+    elif args.db is None:
+        args.db = str(_selected_database_path())
+    return args
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     _load_dotenv()
-    args = _parse_args(argv)
     try:
+        args = _parse_args(argv)
         api_key = resolve_api_key(args.api_key)
     except SmokeError as exc:
         print(f"ошибка: {exc}", file=sys.stderr)
@@ -780,7 +823,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         base_url=str(args.base_url).rstrip("/"),
         timeout=max(1.0, float(args.timeout)),
         delay=max(0.0, float(args.delay)),
-        db_path=Path(args.db).expanduser().resolve(),
+        db_path=Path(args.db).expanduser().absolute() if args.db is not None else None,
         activity_id=args.activity_id,
         window_days=max(1, int(args.days)),
         secrets=[api_key],

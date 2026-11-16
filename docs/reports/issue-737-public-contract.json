@@ -1,0 +1,27 @@
+{
+  "retrieved_on": "2026-11-16",
+  "authenticated_requests": false,
+  "swagger": {
+    "page": "https://developer.garmin.com/gc-developer-program/personal/swagger-docs/",
+    "component": "https://developer.garmin.com/component---src-pages-gc-developer-program-personal-swagger-docs-js-715115a6210d45afc282.js",
+    "component_sha256": "4ba5d8fcafdc877b78228285048cb67c43c5af40a4efb66f91f8032ca5861eea",
+    "json_serialization": "json.dumps(ensure_ascii=False,indent=2) plus newline",
+    "extracted_json_sha256": "c9265c47dfd9d73207bea3f0839bd03ee735e0fe5f5cf11d1d3b41281797ce44",
+    "openapi": "3.0.1",
+    "info_version": "1.0.0",
+    "path_count": 26,
+    "schema_count": 109,
+    "maxmet_path_published": false
+  },
+  "sdk": {
+    "readme_url": "https://raw.githubusercontent.com/garmin/connect-personal-api-python/main/README.md",
+    "readme_sha256": "e02f9c539630ad069041f7d0669bbe1d6f925b70e546b4c49dcec492868e6787",
+    "pyproject_url": "https://raw.githubusercontent.com/garmin/connect-personal-api-python/main/pyproject.toml",
+    "pyproject_sha256": "daf2b4c8a25afc392d1e839ba47f98ff0723aa143e1dc43e5ec0578a05cce534",
+    "requires_python": ">=3.12",
+    "vo2_wrapper_documented": "get_daily_vo2_max -> /metrics-service/metrics/maxmet/daily/{start_date}/{end_date}"
+  },
+  "conclusion": "SDK wrapper and published Swagger disagree; actual account capability not tested",
+  "historical_live_run": "2026-10-26 reported by author; not rerun",
+  "contains_personal_data_or_credentials": false
+}

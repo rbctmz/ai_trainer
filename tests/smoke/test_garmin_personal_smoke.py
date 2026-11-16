@@ -241,9 +241,9 @@ def test_failed_token_marks_probe_fail_and_skips_dependents(stub_api: str, tmp_p
 def test_secrets_are_redacted_from_details():
     module = _load_module()
     assert module._redact("before SECRETVALUE after", ["SECRETVALUE"]) == "before *** after"
-    # короткие строки не считаются секретом, иначе маскируется любой текст
-    assert module._redact("abc def", ["abc"]) == "abc def"
-    assert module._snippet(b"boom SECRETVALUE", ["SECRETVALUE"]) == "boom ***"
+    # Даже ошибочно короткий явно выбранный ключ остаётся секретом.
+    assert module._redact("abc def", ["abc"]) == "*** def"
+    assert module._redact("long-abc-secret", ["abc", "long-abc-secret"]) == "***"
 
 
 def test_jwt_expiration_is_parsed_from_payload():
@@ -299,3 +299,213 @@ def test_zip_payload_without_fit_is_reported_as_warn(stub_api: str, tmp_path: Pa
     status, detail = module._probe_fit(state)
     assert status == "WARN"
     assert "нет .fit" in detail
+
+
+@pytest.mark.parametrize("padding", [0, 100, 130, 159, 200])
+@pytest.mark.parametrize("phase", ["token", "json", "download", "sleep"])
+def test_error_body_never_enters_public_diagnostics(monkeypatch, padding, phase):
+    module = _load_module()
+    secret = "DUMMY_CREDENTIAL_FOR_REVIEW_" + "z" * 64
+    body = ("HEALTH_CANARY_87 " + "x" * padding + secret).encode()
+    state = module.SmokeState(api_key=secret, base_url="http://unused.invalid", secrets=[secret])
+    state.client = module.PersonalApiClient(secret, delay=0, retries=0, secrets=[secret])
+    monkeypatch.setattr(module, "_send", lambda *args: module.HttpResponse(400, body))
+    actions = {
+        "token": lambda: module.obtain_token(api_key=secret, base_url=state.base_url,
+                                              timeout=1, secrets=state.secrets),
+        "json": lambda: state.client.get_json("/synthetic"),
+        "download": lambda: state.client.get_bytes("/synthetic"),
+        "sleep": lambda: module._probe_sleep_daily_fields(state),
+    }
+
+    def probe(_state):
+        actions[phase]()
+        return "PASS", "unexpected"
+
+    monkeypatch.setattr(module, "_probes", lambda **kwargs: [(phase, probe)])
+    result = module.run_smoke(state)
+    assert result[0].status == "FAIL"
+    for text in (module._format_text(result, state), module._format_json(result, state)):
+        assert "HEALTH_CANARY" not in text
+        assert secret[:12] not in text
+        assert "HTTP 400" in text
+
+
+def test_arbitrary_exception_payload_is_not_printed(monkeypatch):
+    module = _load_module()
+    state = module.SmokeState(api_key=API_KEY, base_url="http://unused.invalid", secrets=[API_KEY])
+
+    def probe(_state):
+        raise ValueError("HEALTH_CANARY_87 " + API_KEY)
+
+    monkeypatch.setattr(module, "_probes", lambda **kwargs: [("synthetic", probe)])
+    result = module.run_smoke(state)
+    assert result[0].status == "FAIL"
+    assert "ValueError" in result[0].detail
+    assert "HEALTH_CANARY" not in module._format_json(result, state)
+    assert API_KEY not in module._format_text(result, state)
+
+
+def test_state_repr_hides_credentials():
+    module = _load_module()
+    state = module.SmokeState(api_key="DUMMY_API_KEY", base_url="https://example.invalid",
+                              secrets=["DUMMY_API_KEY", "DUMMY_BEARER_TOKEN"])
+    assert "DUMMY_API_KEY" not in repr(state)
+    assert "DUMMY_BEARER_TOKEN" not in repr(state)
+
+
+@pytest.mark.parametrize("status", [401, 403, 429, 500, 503])
+def test_unrelated_sleep_window_error_never_confirms_limit(status):
+    module = _load_module()
+
+    class Client:
+        calls = 0
+
+        def request(self, *args):
+            self.calls += 1
+            return module.HttpResponse(200 if self.calls == 1 else status, b"[]")
+
+    state = module.SmokeState(api_key=API_KEY, base_url="https://unused.invalid")
+    state.client = Client()
+    result, detail = module._probe_sleep_window(state)
+    assert result != "PASS", detail
+
+
+@pytest.mark.parametrize("body", [b'{}', b'{"error":"invalid request"}'])
+def test_generic_bad_request_does_not_confirm_sleep_limit(body):
+    module = _load_module()
+
+    class Client:
+        calls = 0
+
+        def request(self, *args):
+            self.calls += 1
+            return module.HttpResponse(200, b"[]") if self.calls == 1 else module.HttpResponse(400, body)
+
+    state = module.SmokeState(api_key=API_KEY, base_url="https://unused.invalid")
+    state.client = Client()
+    assert module._probe_sleep_window(state)[0] == "WARN"
+
+
+def test_sleep_cap_checks_adjacent_inclusive_windows():
+    module = _load_module()
+    windows = []
+
+    class Client:
+        def request(self, method, path, params):
+            start = datetime.fromisoformat(params["startDate"]).date()
+            end = datetime.fromisoformat(params["endDate"]).date()
+            days = (end - start).days + 1
+            windows.append((days, end))
+            return module.HttpResponse(200, b"[]") if days <= 31 else module.HttpResponse(400, b'{"error":"range too large"}')
+
+    state = module.SmokeState(api_key=API_KEY, base_url="https://unused.invalid")
+    state.client = Client()
+    assert module._probe_sleep_window(state)[0] == "PASS"
+    assert [days for days, _ in windows] == [31, 32]
+    assert windows[0][1] == windows[1][1]
+
+
+def test_database_selection_uses_env_and_explicit_path(monkeypatch, tmp_path):
+    module = _load_module()
+    selected = tmp_path / "selected.sqlite"
+    explicit = tmp_path / "explicit.sqlite"
+    monkeypatch.setenv("DATABASE_PATH", str(selected))
+    assert Path(module._parse_args([]).db) == selected
+    assert Path(module._parse_args(["--db", str(explicit)]).db) == explicit
+    monkeypatch.setenv("DATABASE_PATH", "")
+    assert Path(module._parse_args(["--db", str(explicit)]).db) == explicit
+    assert not selected.exists() and not explicit.exists()
+
+
+def test_platform_database_default_does_not_use_checkout(monkeypatch, tmp_path):
+    module = _load_module()
+    monkeypatch.delenv("DATABASE_PATH", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    selected = Path(module._parse_args([]).db)
+    assert selected != module.REPO_ROOT / "ai_trainer.db"
+    assert selected.is_relative_to(tmp_path)
+    assert not selected.exists()
+
+
+def test_skip_db_does_not_require_valid_database_selection(monkeypatch):
+    module = _load_module()
+    monkeypatch.setenv("DATABASE_PATH", "")
+    assert module._parse_args(["--skip-db"]).db is None
+
+
+def test_namespace_read_is_query_only_and_preserves_database(tmp_path, monkeypatch):
+    module = _load_module()
+    db_path = _make_db(tmp_path / "fixture.sqlite", ["111"])
+    before = db_path.read_bytes()
+    queries = []
+    connect = sqlite3.connect
+
+    def traced(*args, **kwargs):
+        assert "mode=ro" in args[0] and kwargs.get("uri")
+        connection = connect(*args, **kwargs)
+        connection.set_trace_callback(queries.append)
+        return connection
+
+    monkeypatch.setattr(module.sqlite3, "connect", traced)
+    assert module._load_garmin_link_ids(db_path) == ["111"]
+    assert any("query_only" in q.lower() for q in queries)
+    assert db_path.read_bytes() == before
+
+
+def test_http_200_with_other_activity_id_is_not_namespace_proof(tmp_path):
+    module = _load_module()
+
+    class Client:
+        def request(self, *args):
+            return module.HttpResponse(200, b'{"activityId":999}')
+
+    state = module.SmokeState(api_key=API_KEY, base_url="https://unused.invalid",
+                              db_path=_make_db(tmp_path / "fixture.sqlite", ["111"]))
+    state.client = Client()
+    assert module._probe_activity_namespace(state)[0] == "WARN"
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_cross_origin_redirect_never_receives_credentials(method):
+    module = _load_module()
+    received = []
+
+    class Destination(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            return
+
+        def do_GET(self):  # noqa: N802
+            received.append(self.headers.get("Authorization"))
+            self.send_response(200)
+            self.end_headers()
+
+    destination = ThreadingHTTPServer(("127.0.0.1", 0), Destination)
+
+    class Source(Destination):
+        def do_GET(self):  # noqa: N802
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{destination.server_port}/target")
+            self.end_headers()
+
+        do_POST = do_GET
+
+    source = ThreadingHTTPServer(("127.0.0.1", 0), Source)
+    threads = [threading.Thread(target=s.serve_forever, daemon=True) for s in (source, destination)]
+    for thread in threads:
+        thread.start()
+    try:
+        try:
+            module._send(method, f"http://127.0.0.1:{source.server_port}/source",
+                         {"Authorization": "Bearer DUMMY_ONLY"}, 2)
+        except module.SmokeError:
+            pass
+        assert received == []
+    finally:
+        for server in (source, destination):
+            server.shutdown()
+            server.server_close()
+        for thread in threads:
+            thread.join(timeout=5)
