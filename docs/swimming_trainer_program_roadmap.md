@@ -16,6 +16,7 @@ Owner: Greg. Решение о реализации: 16.11.2026. Epic [#760](htt
 | Срез | Задача | Проверяемый результат | Зависимость |
 | --- | --- | --- | --- |
 | M1 | [#761](https://github.com/rbctmz/ai_trainer/issues/761) | Versioned Python document, библиотека/API, preview/confirm и история | Нет |
+| M2A | [#767](https://github.com/rbctmz/ai_trainer/issues/767) | Личный справочник упражнений, версии и API; точный вариант → копия шага | M1 |
 | M2 | [#762](https://github.com/rbctmz/ai_trainer/issues/762) | Текст → редактируемая структура рядом с оригиналом → сохранение через web | M1 |
 | M3 | [#763](https://github.com/rbctmz/ai_trainer/issues/763) | Даты/current cycle, защищённый оригинал, предложения/подтверждение/rollback | M1/M2 |
 | M4 | [#764](https://github.com/rbctmz/ai_trainer/issues/764) | Preview, capability-aware serializer/readback, отдельная live-приёмка FR255 | M1/M3 |
@@ -45,6 +46,14 @@ M1 — backend/API foundation: пользовательского web-импор
 
 ## Текущее состояние
 
-M1 в работе на `codex/issue-761-swim-program-library`. Остальные срезы — backlog.
+M1 завершён: PR #766 merged, main5042102. M2 #762 — дизайн/разбор источников;
+первый срез M2A #767 — справочник/API в работе на
+`codex/issue-767-swim-exercise-library`. Браузерный конструктор и Коуч остаются
+в M2; M3–M5 — backlog. Проверка маршрута Intervals→FR255:
+[feasibility](swim_intervals_garmin_feasibility.md), exact/live acceptance ещё нет.
 Полный план: [swimming_trainer_program_execplan.md](swimming_trainer_program_execplan.md).
 M1 contract: [swim_program_library_slice_spec.md](swim_program_library_slice_spec.md).
+
+17.11.2026: владелец одобрил переиспользование упражнений. M2A отделяет технику
+от назначения метров/отдыха; исправление справочника не меняет старую программу.
+Контракт: [swim_exercise_library_slice_spec.md](swim_exercise_library_slice_spec.md).

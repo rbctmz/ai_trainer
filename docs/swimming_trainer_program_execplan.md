@@ -1,8 +1,9 @@
 # Сохранить точную авторскую программу плавания и провести её к учёту
 
 
-Living ExecPlan per `.agent/PLANS.md`; epic #760. Scope of the current candidate is
-M1 #761 only; roadmap docs/swimming_trainer_program_roadmap.md owns M2–M5. Contract
+Living ExecPlan per `.agent/PLANS.md`; epic #760. Historical implementation sections below describe M1 #761; M1 is merged
+in PR #766 at5042102. Current work is M2A #767 in
+docs/swim_exercise_library_execplan.md; roadmap docs/swimming_trainer_program_roadmap.md owns M2–M5. Contract
 is docs/swim_program_library_slice_spec.md. Owner Greg authorized implementation
 16.11.2026; merge and live writes remain explicit owner decisions.
 
@@ -30,9 +31,10 @@ changes. Unknown full duration/TSS are not invented to fit an old planner budget
   because the domain/store/router modules did not exist.
 - [x] M1 GREEN domain, immutable preview/version store, API and reset hook;
   44 focused tests passed before the final nested-TypeScript conformance check.
-- [ ] Mirrored contracts, targeted + broad verification and self-review.
-- [ ] Push/open M1 PR, current CI and independent bounded review.
-- [ ] Owner acceptance/merge and post-merge receipt; then M2 starts separately.
+- [x] M1 contracts/checks/self-review and native review completed in PR #766.
+- [x] M1 PR #766 pushed, checks and bounded native review accepted by owner.
+- [x] Owner accepted and merged #766 on16.11.2026, main5042102.
+- [ ] M2A #767 exercise catalog/API: separate ExecPlan; Coach/browser M2 remains open.
 
 ## Context and Orientation
 
@@ -216,3 +218,6 @@ and source versions intentionally accumulate; this is a bounded single-athlete
 library, with a 1000-node document cap and 10000 expanded-node ceiling, not a
 multi-tenant archive. No new packages, background workers or generic event store
 were introduced. Full reset is the explicit deletion boundary.
+
+17.11.2026 revision: recorded actual M1 merge and the owner-approved M2A
+exercise-library handoff; earlier M1 implementation notes are historical.

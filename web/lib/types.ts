@@ -2865,3 +2865,67 @@ export interface SwimProgramListResponse {
     updated_at: string;
   }[];
 }
+
+// M2A (#767): private technique definitions, independent of assignment dose.
+export interface SwimExerciseVideoCue {
+  source_label: string;
+  start_seconds: number;
+  end_seconds: number;
+}
+
+export interface SwimExerciseDocument {
+  schema_version: 1;
+  id: string;
+  name: string;
+  variant: string;
+  aliases: string[];
+  instructions: string;
+  stroke: "freestyle" | "backstroke" | "breaststroke" | "butterfly" | "mixed" | "drill" | "unspecified";
+  equipment: ("fins" | "pull_buoy" | "kickboard" | "paddles" | "snorkel" | "other")[];
+  environments: ("pool" | "open_water")[];
+  source_label: string | null;
+  source_text: string | null;
+  video_cues: SwimExerciseVideoCue[];
+}
+
+export interface SwimExercisePreviewRequest {
+  document: SwimExerciseDocument;
+}
+
+export interface SwimExercisePreviewResponse {
+  document: SwimExerciseDocument;
+  fingerprint: string;
+}
+
+export interface SwimExerciseConfirmRequest {
+  document: SwimExerciseDocument;
+  fingerprint: string;
+  base_revision: number;
+  request_id: string;
+  confirm: true;
+}
+
+export interface SwimExerciseVersionResponse {
+  exercise_id: string;
+  revision: number;
+  document: SwimExerciseDocument;
+  fingerprint: string;
+  confirmed_at: string;
+}
+
+export interface SwimExerciseListResponse {
+  items: SwimExerciseVersionResponse[];
+}
+
+export interface SwimExerciseResolveRequest {
+  exercise_id: string;
+  revision: number;
+  node_id: string;
+  distance_meters: number;
+  instructions?: string;
+}
+
+export interface SwimExerciseResolveResponse {
+  exercise: SwimExerciseVersionResponse;
+  step: SwimProgramSwimStep;
+}

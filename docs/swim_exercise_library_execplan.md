@@ -18,8 +18,12 @@ next M2 handoff, so this backend slice is not a completed user-facing constructo
 - [x]17.11.2026: owner approved exercise→series→workout direction and requested Intervals/Garmin feasibility check.
 - [x] Existing main5042102 inspected; issue767 created without queuing another executor.
 - [x] ClassA contract written; Spec Owner→Domain/API handoff recorded.
-- [ ] Behavioral RED suites, implementation and contract refresh.
-- [ ] Focused/lifecycle/contributor-safe tests, Ruff, web lint/build and self-review.
+- [x] Behavioral RED:3collection errors on absent modules; commit415435b pushed before implementation.
+- [x] Domain/store/API and TS implemented;166focused/M1/contract checks PASS.
+- [x] Ruff, web lint/build and contract freshness PASS on Node22.
+- [x] Full sandbox contour completed:4621PASS/18skip/156deselected;8localhost failures independently resolved by permitted51+1test reruns.
+- [x] Self-review and explicit Domain/API→UI/Coach handoff in slice spec.
+- [x] Focused/lifecycle, broad contour with disclosed sandbox boundary, lint/build and self-review recorded.
 - [ ] Push PR, stable CI and independent bounded review; human merge separately.
 
 ## Context and Orientation
@@ -136,7 +140,16 @@ local serializer probes, provider readback and actual FR255 acceptance.
 ## Outcomes & Retrospective
 
 
-Contract prepared. Implementation, tests, CI and native review not yet run.
+Implementation and166focused checks, Ruff and web lint/build complete.
+Full sandbox suite completed with localhost-only failures; targeted permitted
+reruns51+1PASS. Current CI and native review pending.
 M2 Coach/browser and M4 delivery are still open; no runtime rollout performed.
 
 Revision17.11.2026: initial plan and explicit boundaries after owner approval.
+
+Revision17.11.2026: GREEN checkpoint; artifact roots restricted to actual
+registry consumers, populated resolve/list contract checked by standalone
+extractor. Node22 PATH used for test child processes as well as npm.
+
+Revision17.11.2026: final local evidence and clean role handoff recorded.
+Do not conflate a sandbox broad result plus targeted reruns with one green run.

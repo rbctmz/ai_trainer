@@ -372,6 +372,16 @@
         {"state": "demo", "expect": 200, "json": {}}
       ]
     },
+    "/api/swim-exercises/preview": {
+      "interface": "SwimExercisePreviewResponse",
+      "method": "POST",
+      "scenarios": [{"state":"empty","expect":200,"json":{"document":{
+        "schema_version":1,"id":"33333333-3333-4333-8333-333333333333",
+        "name":"Synthetic technique","variant":"One arm","instructions":"Anonymous technique cue.",
+        "environments":["pool"],"equipment":["fins"],"aliases":["Example alias"],
+        "video_cues":[{"source_label":"Synthetic source","start_seconds":10,"end_seconds":25}]
+      }}}]
+    },
     "/api/swim-programs/preview": {
       "interface": "SwimProgramPreviewResponse",
       "method": "POST",

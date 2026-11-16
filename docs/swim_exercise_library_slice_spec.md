@@ -53,8 +53,9 @@ step content, not a live reference. Persisting a rich composition/lineage envelo
 and the web constructor belongs to the next M2 slice; this PR does not claim it.
 An exercise update never changes existing M1 documents/fingerprints or receipts.
 
-TypeScript mirrors all envelopes in web/lib/types.ts. Add registry scenarios
-for empty list and synthetic pure preview; refresh extracted contract. No
+TypeScript mirrors all envelopes in web/lib/types.ts. Register synthetic pure preview and refresh extracted contract. Catalog GETs
+are not dead frontend entries; populated list/resolve envelopes are additionally
+checked with standalone extractor roots until M2 wires actual consumers. No
 existing M1 schema/hash changes; no new provider/CLI/event/config contracts.
 
 ## State, failures, reset and rollback
@@ -122,3 +123,47 @@ preview/confirm semantics stay unchanged. No new ADR required.
 Spec self-review: observable criteria and ownership explicit; unresolved native
 findings NOT YET; final verdict BLOCK until implementation, tests, CI and review.
 Merge/cleanup owner Greg; retain this worktree's ignored private corpus.
+
+## Candidate evidence bundle / handoff —17.11.2026
+
+RED415435b: all3new modules absent,3collection errors; RED checkpoint pushed.
+GREEN:166focused/new/M1/contract checks PASS on final implementation. Cases
+cover copied M1 bytes after definition update, same-name variant candidates,
+exact historical snapshot, stale/replay/conflicting command, insert rollback,
+additive init, reset and Backup API restore, committed readback before snapshot,
+no extra snapshot on replay, private HTTP errors and independent demo store.
+
+Ruff and git diff --check PASS. Node22 web lint/build PASS; contract:extract
+--check PASS. Registry only registers pure preview200 until actual web GETs
+exist; populated resolve/list and confirm DTOs use standalone extractor roots.
+Initial prototype contract-root/inventory errors were corrected before this
+checkpoint; default Node25 dylib failure avoided via explicit Node22 child PATH.
+
+Full contributor-safe sandbox run:4621passed,18skipped,156deselected,
+3failed/5errors in370.95s. All8failed/error cases reproduced PermissionError
+on localhost bind:7Garmin Personal API cases plus isolated Streamlit health.
+Separate reruns with localhost permission: full Garmin Personal API module
+51passed; isolated health1passed. No live Garmin, credentials, source DB or
+persistent app session involved. This is not a claim of one entirely green
+local broad run. Current Linux CI remains a required gate.
+
+Self-review: no edits to M1 domain/store/router/contract; no private source
+fixtures in tracked diff; new state registered in initialize/reset and backup
+roundtrip; no provider I/O. Code supports technique catalog reuse, not full
+Coach/importer/composition lineage or current watch capability certification.
+No known blocking finding from self-review; independent native review pending.
+
+Domain/API→UI/Coach handoff: use explicit DTOs in api/swim_exercise_contract.py
+and web/lib/types.ts, synthetic fixtures in tests/smoke/test_swim_exercise.py.
+Preview has no DB side effect; persist only explicit confirmed payload with
+fingerprint/base_revision/request_id. Retry unchanged request after lost response.
+Select UUID+revision, retain full resolved snapshot alongside future composition
+lineage and compare exercise environments to workout context in shared Python.
+Do not infer semantic equivalence from alias or shift these rules into React.
+M1 stores copied step content only; rich exercise-lineage persistence is not yet
+implemented. Temporal/range drafts remain separate M2 work. Watch proof is #764.
+
+Native review rounds:0/2, manual trigger only after CI/head stable. Review
+findings and exact dispositions will be recorded in PR. Verdict: implementation
+verified locally within disclosed limitations; CI/native review/owner merge
+pending. No merge/cleanup performed; preserve ignored corpus in this worktree.
