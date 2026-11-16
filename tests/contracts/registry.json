@@ -371,6 +371,42 @@
         {"state": "empty", "expect": 200, "json": {}},
         {"state": "demo", "expect": 200, "json": {}}
       ]
+    },
+    "/api/swim-programs/preview": {
+      "interface": "SwimProgramPreviewResponse",
+      "method": "POST",
+      "scenarios": [
+        {
+          "state": "empty",
+          "expect": 200,
+          "json": {
+            "base_revision": 0,
+            "document": {
+              "schema_version": 1,
+              "origin": "trainer_authored",
+              "id": "22222222-2222-4222-8222-222222222222",
+              "title": "Synthetic swim",
+              "source_text": "Anonymous contract fixture: 100 metres.",
+              "workouts": [
+                {
+                  "id": "one",
+                  "title": "Pool",
+                  "environment": "pool",
+                  "pool_length_meters": 25,
+                  "steps": [
+                    {
+                      "kind": "swim",
+                      "id": "one.swim",
+                      "name": "Easy",
+                      "distance_meters": 100
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
     }
   },
   "excluded": [
