@@ -13,31 +13,25 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 import pandas as pd
 
-from models.banister import BanisterModel
+from models.load_metrics import (  # noqa: F401  (реэкспорт для совместимости)
+    LOAD_METRICS_WINDOW_DAYS,
+    compute_load_metrics,
+    load_metrics_window_bounds,
+)
 from utils.athlete_time import athlete_local_date
 
 
 # Стабильное окно расчёта CTL/ATL/TSB (issue #134): метрики не должны зависеть
-# от того, за сколько дней запрошен отчёт. Каноническое место константы —
-# здесь; models/ai_tools.py реэкспортирует её как COACH_LOAD_METRICS_WINDOW_DAYS.
-LOAD_METRICS_WINDOW_DAYS = 90
-
-
-def load_metrics_window_bounds(anchor: date) -> tuple[str, str]:
-    """Inclusive ISO bounds of the canonical CTL/ATL/TSB window ending at `anchor`.
-
-    `Database.get_activities(days)` режет по **включительной** границе
-    `today - days`, поэтому отдаёт `days + 1` календарных дат и на краю окна
-    расходится с каноническим readiness snapshot, который читает ровно
-    `LOAD_METRICS_WINDOW_DAYS` дат (находка ревью #614).
-    """
-    start = anchor - timedelta(days=LOAD_METRICS_WINDOW_DAYS - 1)
-    return start.isoformat(), anchor.isoformat()
+# от того, за сколько дней запрошен отчёт. Каноническое место константы, границ
+# окна и всего пайплайна нагрузки — models/load_metrics.py (issue #731:
+# единый вход для снапшота, планирования, dashboard и коуча); константа и
+# `load_metrics_window_bounds` реэкспортируются выше для совместимости
+# (models/ai_tools.py реэкспортирует её как COACH_LOAD_METRICS_WINDOW_DAYS).
 
 # Личная норма = среднее за 28 завершённых дней (сегодняшний неполный день
 # в базлайн не входит — семантика issue #126).
@@ -753,35 +747,9 @@ def _garmin_factor(
 
 
 def _tsb_metrics(activities_df: pd.DataFrame | None, anchor: date) -> dict[str, Any] | None:
-    if activities_df is None or not isinstance(activities_df, pd.DataFrame) or activities_df.empty:
-        return None
-    if "tss" not in activities_df.columns or "date" not in activities_df.columns:
-        return None
-
-    df = activities_df[["date", "tss"]].copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["tss"] = pd.to_numeric(df["tss"], errors="coerce").fillna(0.0)
-    df = df.dropna(subset=["date"]).sort_values("date")
-    anchor_ts = pd.Timestamp(anchor)
-    df = df[df["date"] <= anchor_ts]
-    if df.empty:
-        return None
-
-    # BanisterModel fills gaps only through the last supplied activity date.
-    # Readiness is a "today" signal, so rest days after the last workout must
-    # decay ATL/TSB as zero-TSS days through the anchor date.
-    daily_tss = df.groupby(df["date"].dt.normalize())["tss"].sum().sort_index()
-    date_range = pd.date_range(start=daily_tss.index.min(), end=anchor_ts, freq="D")
-    daily_tss = daily_tss.reindex(date_range, fill_value=0.0)
-
-    metrics = BanisterModel().get_current_metrics(daily_tss.tolist(), daily_tss.index.tolist())
-    return {
-        "ctl": round(float(metrics.get("ctl") or 0.0), 1),
-        "atl": round(float(metrics.get("atl") or 0.0), 1),
-        "tsb": round(float(metrics.get("tsb") or 0.0), 1),
-        "window_days": LOAD_METRICS_WINDOW_DAYS,
-        "as_of": anchor.isoformat(),
-    }
+    # Канонический пайплайн (issue #731): окно/конверты/zero-fill — в
+    # models/load_metrics.py; здесь только форма ответа снапшота.
+    return compute_load_metrics(activities_df, anchor)
 
 
 def _tsb_factor(tsb_payload: dict[str, Any]) -> dict[str, Any]:

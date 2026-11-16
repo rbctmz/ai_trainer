@@ -1,138 +1,81 @@
 #!/usr/bin/env python3
-"""
-Принудительная синхронизация одного дня для тестирования нового подхода
-"""
+"""Explicit, offline-backed operator-only Garmin sleep diagnostic."""
+from __future__ import annotations
 
-import os
-import sys
-import sqlite3
+import argparse
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
+from pathlib import Path
+import sqlite3
+import sys
 
-# Добавляем путь к корневой папке проекта
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from config.database_paths import ScratchPathError  # noqa: E402
+from config.maintenance_guard import validate_maintenance_target  # noqa: E402
 
-load_dotenv()
 
-from config.settings import Settings
-from data.garmin_client import GarminClient
-from data.data_processor_phase1 import Phase1DataProcessor
-from data.database import Database
-
-def force_sync_yesterday():
-    """Принудительно синхронизируем данные за вчера с новым процессором"""
-    print("🔄 Принудительная синхронизация данных сна за вчера...")
-    
-    GARMIN_EMAIL = Settings.GARMIN_EMAIL
-    GARMIN_PASSWORD = Settings.GARMIN_PASSWORD
-
-    if not GARMIN_EMAIL or not GARMIN_PASSWORD:
-        print("❌ ОШИБКА: Учетные данные Garmin не найдены.")
-        print("Пожалуйста, создайте файл .env в корневой папке проекта и добавьте в него:")
-        print("GARMIN_EMAIL=your_email@example.com")
-        print("GARMIN_PASSWORD=your_password")
+def force_sync_yesterday(database_path: str | Path | None = None, *, apply: bool = False,
+                         confirm_working_database: bool = False, confirm_stopped: bool = False,
+                         backup: str | Path | None = None, confirm_live_provider: bool = False) -> bool:
+    """Perform live sync only after DB/backup and live access are authorised."""
+    if not apply or not confirm_live_provider:
         return False
-
-    yesterday = datetime.now() - timedelta(days=1)
-    date_str = yesterday.strftime('%Y-%m-%d')
-    
-    print(f"📅 Синхронизируем данные за {date_str}")
-    
     try:
-        # Инициализируем и аутентифицируем клиент Garmin
-        garmin_client = GarminClient()
-        print("🔐 Попытка аутентификации...")
-        if not garmin_client.authenticate(GARMIN_EMAIL, GARMIN_PASSWORD):
-            print(f"❌ ОШИБКА АУТЕНТИФИКАЦИИ: {garmin_client.auth_error}")
-            print("Пожалуйста, проверьте правильность логина и пароля в вашем .env файле.")
+        target = validate_maintenance_target(database_path, apply=True, confirmed=confirm_working_database,
+                                             stopped=confirm_stopped, backup=backup)
+    except (ScratchPathError, FileNotFoundError):
+        return False
+    # Credentials and provider code are loaded only after the write gate.
+    from config.settings import Settings
+    from data.garmin_client import GarminClient
+    from data.data_processor_phase1 import Phase1DataProcessor
+    from data.database import Database
+
+    if not Settings.GARMIN_EMAIL or not Settings.GARMIN_PASSWORD:
+        return False
+    try:
+        client = GarminClient()
+        if not client.authenticate(Settings.GARMIN_EMAIL, Settings.GARMIN_PASSWORD):
             return False
-        
-        print("✅ Аутентификация прошла успешно!")
-        
-        # Получаем данные сна
-        print(f"📥 Получаем данные сна за {date_str}...")
-        sleep_raw_data = garmin_client.get_sleep_data(yesterday) # Передаем объект datetime
-        
-        if sleep_raw_data:
-            print(f"✅ Данные получены: {type(sleep_raw_data)}")
-            print(f"📝 Структура данных: dailySleepDTO={bool('dailySleepDTO' in sleep_raw_data)}, sleepScores={bool('sleepScores' in sleep_raw_data)}")
-            
-            # Обрабатываем данные НОВЫМ процессором
-            print("🔄 Обрабатываем данные новым процессором...")
-            processed_sleep = Phase1DataProcessor.process_sleep_data(sleep_raw_data)
-            
-            if processed_sleep:
-                print("✅ Данные успешно обработаны новым процессором:")
-                print(f"  - Общий сон: {processed_sleep.get('total_sleep_minutes')} мин")
-                print(f"  - Глубокий сон: {processed_sleep.get('deep_sleep_minutes')} мин")
-                print(f"  - Легкий сон: {processed_sleep.get('light_sleep_minutes')} мин")
-                print(f"  - REM сон: {processed_sleep.get('rem_sleep_minutes')} мин")
-                print(f"  - Sleep Score: {processed_sleep.get('sleep_score')}")
-                print(f"  - Пробуждения: {processed_sleep.get('awakenings_count')}")
-                
-                # Проверяем что фазы сна больше не равны 0
-                deep = processed_sleep.get('deep_sleep_minutes', 0)
-                light = processed_sleep.get('light_sleep_minutes', 0)
-                rem = processed_sleep.get('rem_sleep_minutes', 0)
-                
-                if deep > 0 or light > 0 or rem > 0:
-                    print("🎉 УСПЕХ: Фазы сна больше не равны 0!")
-                    
-                    # Сохраняем в базу данных
-                    print("💾 Сохраняем в базу данных...")
-                    db = Database()
-                    sleep_data_dict = {date_str: processed_sleep}
-                    result = db.sync_sleep_data(sleep_data_dict)
-                    print(f"✅ Результат сохранения: {result}")
-                    
-                    # Проверяем сохранение
-                    print("🔍 Проверяем сохранение в базе...")
-                    conn = sqlite3.connect('ai_trainer.db')
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT total_sleep_minutes, deep_sleep_minutes, light_sleep_minutes, rem_sleep_minutes FROM sleep_data WHERE date = ?", (date_str,))
-                    saved_data = cursor.fetchone()
-                    conn.close()
-                    
-                    if saved_data:
-                        total, deep_saved, light_saved, rem_saved = saved_data
-                        print("✅ В базе сохранено:")
-                        print(f"  - Общий сон: {total} мин")
-                        print(f"  - Глубокий сон: {deep_saved} мин")
-                        print(f"  - Легкий сон: {light_saved} мин")
-                        print(f"  - REM сон: {rem_saved} мин")
-                        
-                        if deep_saved > 0 or light_saved > 0 or rem_saved > 0:
-                            print("🏆 ПОЛНЫЙ УСПЕХ: Новый подход работает с реальными данными!")
-                            return True
-                        else:
-                            print("❌ Проблема: В базе все еще нули")
-                            return False
-                    else:
-                        print("❌ Данные не найдены в базе")
-                        return False
-                else:
-                    print("❌ Проблема: Новый процессор все еще возвращает нули")
-                    return False
-            else:
-                print("❌ Новый процессор вернул None")
-                return False
-        else:
-            print("❌ Данные сна не получены")
+        yesterday = datetime.now() - timedelta(days=1)
+        raw = client.get_sleep_data(yesterday)
+        if not raw:
             return False
-            
-    except Exception as e:
-        print(f"❌ Ошибка: {e}")
-        import traceback
-        traceback.print_exc()
+        processed = Phase1DataProcessor.process_sleep_data(raw)
+        if not processed or not any(processed.get(key, 0) > 0 for key in
+                                    ('deep_sleep_minutes', 'light_sleep_minutes', 'rem_sleep_minutes')):
+            return False
+        date = yesterday.strftime('%Y-%m-%d')
+        Database(str(target)).sync_sleep_data({date: processed})
+        with sqlite3.connect(f'{target.as_uri()}?mode=ro', uri=True) as conn:
+            saved = conn.execute(
+                'SELECT deep_sleep_minutes, light_sleep_minutes, rem_sleep_minutes FROM sleep_data WHERE date = ?',
+                (date,),
+            ).fetchone()
+        return bool(saved and any(value is not None and value > 0 for value in saved))
+    except Exception:
+        # Do not print provider errors or data, which may contain credentials.
         return False
 
-if __name__ == "__main__":
-    print("🚀 Принудительная синхронизация для тестирования нового подхода...")
-    success = force_sync_yesterday()
-    
-    if success:
-        print("\n🎉 ПРОБЛЕМА С ФАЗАМИ СНА ПОЛНОСТЬЮ РЕШЕНА!")
-        print("✅ Новый процентный подход работает с реальными данными Garmin")
-        print("✅ Данные корректно сохраняются в базу")
-    else:
-        print("\n⚠️ Требуется дополнительная отладка")
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--database', required=True)
+    parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--confirm-working-database', action='store_true')
+    parser.add_argument('--confirm-stopped', action='store_true')
+    parser.add_argument('--confirm-live-provider', action='store_true')
+    parser.add_argument('--backup')
+    args = parser.parse_args(argv)
+    ok = force_sync_yesterday(args.database, apply=args.apply,
+                              confirm_working_database=args.confirm_working_database,
+                              confirm_stopped=args.confirm_stopped, backup=args.backup,
+                              confirm_live_provider=args.confirm_live_provider)
+    if not ok:
+        print('operator_confirmation_required: bootstrap', file=sys.stderr)
+        return 2
+    print('Синхронизация выполнена')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

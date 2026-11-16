@@ -61,11 +61,19 @@ python scripts/doctor_env.py check|repair --runtime|--dev    # dependency diagno
 Python lint and tests (mirrors CI `.github/workflows/ci.yml` exactly):
 ```bash
 python -m ruff check .                                              # must be green (CI job)
-python -m pytest -m "not live and not debug and not e2e" tests/     # contributor-safe pass
+python scripts/run_isolated_tests.py -m "not live and not debug and not e2e" tests/ # contributor-safe pass
 python -m pytest tests/smoke -q                                     # smoke subset
 python -m pytest tests/test_ai_coach.py                             # focused module (swap filename)
 python -m pytest -m e2e tests/e2e -q                                # Playwright web E2E, needs chromium
 ```
+The isolated launcher installs test-only DB/credential guards before pytest loads
+plugins; ordinary pytest also bootstraps through `tests/conftest.py` before test
+modules. Foreign `DATABASE_PATH`/`DEMO_DATABASE_PATH` and `--basetemp` overrides
+refuse rather than becoming cleanup permission. Tests with custom subprocess env
+must use `scripts.scratch_pytest.child_environment` (or `fresh_child_environment`
+for an independent pytest scope); do not drop the receipt or early site guard.
+These are test boundaries, not guards in the product `Database._connect`.
+
 Pytest markers (`pytest.ini`): `smoke`, `live` (needs credentials/network/AI runtimes), `debug`, `e2e`. Do not treat bare `python -m pytest tests/` as the normal command.
 
 Web changes MUST be verified before pushing:
@@ -97,6 +105,7 @@ Conventional Commits (`feat:`, `fix:`, `refactor:`, `chore:`), subjects <72 char
 - Secrets only in `.env` (never tracked); keys come from env — empty provider fields in the UI mean "fall back to `.env`", keep that behavior.
 - Back up/migrate `ai_trainer.db` with `scripts/sqlite_backup_restore.py` (`backup ... --confirm-stopped` / `restore ...`) — a plain copy misses committed pages in the `-wal` file.
 - `logs/` may contain personal training metrics — redact before publishing branches.
+- Scratch tests, acceptance, and maintenance must follow the owned-path and explicit operator flow in `docs/database_path_guardrails_slice_spec.md` and `docs/sqlite_backup_restore.md`; test-only guards do not replace ordinary product database paths.
 
 ## Web Dev Surfaces
 `/decisions`, `/recovery`, and the shadow `/today` module are hidden behind build-time flag `NEXT_PUBLIC_SHOW_DEV_TOOLS=true` (inlined at build — restarting the dev server after the change is required).

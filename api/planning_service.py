@@ -7,6 +7,7 @@ forecasts CTL/ATL/TSB with `BanisterModel.simulate_variable_load`. No training
 math is reimplemented here — only orchestration + JSON shaping.
 """
 from __future__ import annotations
+from services.snapshot_runtime import backup_boundary
 
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
@@ -41,6 +42,14 @@ from models.planning_build_confirmation import (
 )
 from models.planning_cycle import CycleStateCorrupt
 from models.banister import BanisterModel, tsb_zone
+from models.dashboard_summary import project_readiness_snapshot
+from services.readiness_snapshot import project_persisted_readiness_snapshot
+from models.load_metrics import (
+    canonical_activities_frame,
+    persisted_load_metrics,
+    select_persisted_load_snapshot,
+)
+from models.signals_engine import apply_persisted_load_revision
 from models.coach_constraints import apply_constraints_to_goal_plan, normalize_constraint_sport, recalc_goal_plan_weekly_totals
 from models.fit_export import build_steps_for_sport, generate_fit_csv
 from models.plan_events import (
@@ -396,6 +405,7 @@ def planning_edit_context(db: Database) -> Dict[str, Any]:
     }
 
 
+@backup_boundary("planning_mutation")
 def confirm_demand_change(
     db: Database,
     *,
@@ -497,7 +507,14 @@ def _current_signals(
     """
     df = db.get_activities(90)
     anchor = as_of or athlete_local_date()
-    return assemble_signals(activities_df=df, as_of=anchor), df
+    # Issue #731: CTL/ATL/TSB считаются по каноническому окну (как в readiness
+    # снапшоте), а не по включительной границе get_activities(90) — иначе числа
+    # «Плана» расходятся с «Обзором» и снапшотом.
+    metrics_df = canonical_activities_frame(db, anchor)
+    return (
+        assemble_signals(activities_df=df, as_of=anchor, metrics_activities_df=metrics_df),
+        df,
+    )
 
 
 def _current_metrics(db: Database):
@@ -557,10 +574,40 @@ def _apply_active_coach_constraints(
 
 def current_status(db: Database) -> Dict[str, Any]:
     signals, _df = _current_signals(db)
-    metrics = _metrics_from_signals(signals)
     context, selected_checkpoint = current_plan_snapshot(db)
     checkpoint = summarize_planning_checkpoint(selected_checkpoint)
     today = date.fromisoformat(context["athlete_day"])
+    # Issue #731 (persisted source of truth): пока существует post-sync capture,
+    # весь ответ строится от выбранной ревизии — числа, TSB-зависимые
+    # интерпретации и рекомендации согласованы между собой; живой канонический
+    # расчёт остаётся fallback до первой capture. После изменения данных без
+    # capture значение остаётся сохранённым до следующей capture (см.
+    # models.load_metrics.persisted_load_metrics).
+    persisted_row = select_persisted_load_snapshot(db, today)
+    persisted = persisted_load_metrics(persisted_row, today)
+    if persisted is not None:
+        readiness_snapshot = project_persisted_readiness_snapshot(persisted_row)
+        # Reuse canonical readiness presentation so its TSB driver and score
+        # follow the same capture as the metrics and the public snapshot.
+        signals = project_readiness_snapshot(
+            {"signals": signals}, readiness_snapshot
+        )["signals"]
+        signals = apply_persisted_load_revision(signals, persisted)
+        metrics = {
+            "ctl": persisted["ctl"],
+            "atl": persisted["atl"],
+            "tsb": persisted["tsb"],
+            "form": persisted["form"],
+            "source": "persisted",
+            "as_of": persisted["as_of"],
+            "observed_at_utc": persisted["observed_at_utc"],
+            "snapshot_id": persisted["snapshot_id"],
+            "revision": persisted["revision"],
+            "capture_mode": persisted["capture_mode"],
+        }
+    else:
+        metrics = {**_metrics_from_signals(signals), "source": "live", "as_of": today.isoformat()}
+        readiness_snapshot = build_readiness_snapshot(db)
     active_constraints = db.get_coach_constraints(
         start_date=today.isoformat(),
         end_date=(today + timedelta(days=30)).isoformat(),
@@ -573,8 +620,14 @@ def current_status(db: Database) -> Dict[str, Any]:
             "atl": round(float(metrics.get("atl") or 0.0), 1),
             "tsb": round(float(metrics.get("tsb") or 0.0), 1),
             "form": metrics.get("form", "Недостаточно данных"),
+            "source": metrics.get("source", "live"),
+            "as_of": metrics.get("as_of", today.isoformat()),
+            "observed_at_utc": metrics.get("observed_at_utc"),
+            "snapshot_id": metrics.get("snapshot_id"),
+            "revision": metrics.get("revision"),
+            "capture_mode": metrics.get("capture_mode"),
         },
-        "readiness_snapshot": build_readiness_snapshot(db),
+        "readiness_snapshot": readiness_snapshot,
         "signals": signals,
         "active_constraint_count": len(active_constraints),
         "active_constraints": active_constraints,
@@ -1444,6 +1497,7 @@ def prepare_plan_build(
     return preview_response(row)
 
 
+@backup_boundary("planning_mutation")
 def confirm_plan_build(
     db: Database, *, preview_id: str, origin: Literal["planning_ui", "coach"],
     proposal_id: int | None = None,
@@ -2152,6 +2206,7 @@ def _recovery_replan_session_ids_from_history(
     return recovery_session_ids
 
 
+@backup_boundary("planning_mutation")
 def repair_active_plan_materialization(
     db: Database,
     *,
@@ -2782,6 +2837,7 @@ def preview_weekly_rebalance(
     return {"has_plan": True, "reconciliation": reconciliation_payload, "preview": _bind_cycle_fingerprint(preview, write_context)}
 
 
+@backup_boundary("planning_mutation")
 def confirm_weekly_rebalance(
     db: Database,
     *,
@@ -2847,6 +2903,7 @@ def preview_bike_tss_rebalance(
     return {"has_plan": True, "preview": _bind_cycle_fingerprint(preview, write_context)}
 
 
+@backup_boundary("planning_mutation")
 def confirm_bike_tss_rebalance(
     db: Database,
     *,
@@ -2938,6 +2995,7 @@ def _refresh_match_recovery(db: Database, session_id: str) -> None:
     )
 
 
+@backup_boundary("planning_mutation")
 def record_plan_actual_match(
     db: Database,
     *,
@@ -3175,6 +3233,7 @@ def record_plan_actual_match(
     return saved
 
 
+@backup_boundary("planning_mutation")
 def apply_adjustment(
     db: Database,
     *,
@@ -3247,6 +3306,7 @@ def apply_adjustment(
     }
 
 
+@backup_boundary("planning_mutation")
 def apply_recovery_replan(
     db: Database,
     proposal_params: Dict[str, Any],
@@ -3388,6 +3448,7 @@ def _recovery_transfer_session_label(session: Dict[str, Any]) -> str:
     return f"{name} ({tss} TSS)"
 
 
+@backup_boundary("planning_mutation")
 def apply_recovery_replan_transfer(
     db: Database,
     *,
@@ -3470,6 +3531,7 @@ def apply_recovery_replan_transfer(
     }
 
 
+@backup_boundary("planning_mutation")
 def rollback_recovery_replan(
     db: Database,
     proposal_result: Dict[str, Any],
@@ -3594,6 +3656,7 @@ def planning_history(db: Database, limit: int = 10) -> Dict[str, Any]:
     return {"has_history": bool(items), "items": items, "cycle_context": context}
 
 
+@backup_boundary("planning_mutation")
 def restore_history_version(
     db: Database,
     *,
@@ -3656,6 +3719,7 @@ def restore_history_version(
     }
 
 
+@backup_boundary("planning_mutation")
 def apply_constraint_to_active_plan(
     db: Database,
     constraint: Dict[str, Any],
@@ -3739,6 +3803,7 @@ def _template_executable_legs(template: Optional[Dict[str, Any]]) -> List[Dict[s
     ]
 
 
+@backup_boundary("planning_mutation")
 def recover_day_after_constraint_retraction(
     db: Database,
     *,
@@ -4150,6 +4215,7 @@ def preview_coach_constraint_mutation(
     }
 
 
+@backup_boundary("planning_mutation")
 def confirm_coach_constraint_mutation(
     db: Database,
     *,

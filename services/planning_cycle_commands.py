@@ -1,5 +1,6 @@
 """Explicit lifecycle commands on one writer connection; retries never reactivate."""
 from __future__ import annotations
+from services.snapshot_runtime import backup_boundary, mark_committed
 
 from datetime import datetime, timezone
 import json
@@ -142,6 +143,7 @@ def _receipt(store: PlanningCycleStore, request: dict) -> dict | None:
     return envelope["result"]
 
 
+@backup_boundary("cycle_command")
 def execute_cycle_command(
     db: Database, kind: str, parameters: dict[str, Any], *, cycle_id: str | None = None,
     validate_response: Callable[[dict[str, Any]], Any],
@@ -184,6 +186,7 @@ def execute_cycle_command(
             conn.rollback()
         else:
             conn.commit()
+            mark_committed(db)
         return response
     except sqlite3.OperationalError as exc:
         conn.rollback()

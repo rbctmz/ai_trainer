@@ -194,6 +194,8 @@ def _settings_subprocess(tmp_path, env, script):
     }
     child_env = {key: value for key, value in env.items() if key in keep}
     child_env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
+    from scripts.scratch_pytest import child_environment
+    child_env = child_environment(child_env)
     bootstrap = "import dotenv; dotenv.load_dotenv = lambda *a, **kw: False; "
     return subprocess.run(
         [sys.executable, "-c", bootstrap + script], env=child_env,

@@ -1,8 +1,6 @@
 """Live end-to-end acceptance probe via Playwright against running Streamlit.
 
-Runs against a separately launched Streamlit instance. The target URL can be
-overridden via ACCEPTANCE_BASE_URL, otherwise the probe falls back to
-http://localhost:${ACCEPTANCE_PORT:-8521}/. Verifies the full websocket-
+Runs against a separately launched Streamlit instance. The operator must supply --base-url and --confirm-live-acceptance. Verifies the full websocket-
 rendered UI, not just the static shell. Reports per-flow outcomes.
 
 Drives the real Garmin login flow (credentials from .env) to take the app
@@ -11,8 +9,8 @@ already-synced data.
 """
 from __future__ import annotations
 
+import argparse
 import json
-import os
 import re
 import sys
 import time
@@ -31,13 +29,16 @@ REPORT = Path("logs/e2e_acceptance_report.json")
 SCREENSHOT_DIR = Path("logs/e2e_screenshots")
 
 
-def resolve_base_url() -> str:
-    """Resolve the acceptance instance URL from env with a localhost fallback."""
-    explicit_url = os.getenv("ACCEPTANCE_BASE_URL", "").strip()
-    if explicit_url:
-        return explicit_url.rstrip("/") + "/"
-    port = os.getenv("ACCEPTANCE_PORT", "8521").strip() or "8521"
-    return f"http://localhost:{port}/"
+def resolve_base_url(explicit_url: str | None = None) -> str:
+    """Require the operator to name the live server explicitly."""
+    from urllib.parse import urlsplit
+
+    if not explicit_url:
+        raise RuntimeError("operator_confirmation_required: live acceptance")
+    parsed = urlsplit(explicit_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        raise RuntimeError("operator_confirmation_required: live acceptance")
+    return explicit_url.rstrip("/") + "/"
 
 
 def has_real_date_token(text: str) -> bool:
@@ -54,8 +55,10 @@ def has_real_dashboard_summary(text: str) -> bool:
     )
 
 
-def load_env_creds() -> tuple[str | None, str | None]:
+def load_env_creds(*, confirmed: bool = False) -> tuple[str | None, str | None]:
     """Read GARMIN_EMAIL / GARMIN_PASSWORD from .env without importing app."""
+    if not confirmed:
+        raise RuntimeError("operator_confirmation_required: live acceptance")
     env = Path(".env")
     if not env.exists():
         return None, None
@@ -134,10 +137,20 @@ def wait_for_post_sync_dashboard(page, timeout_ms: int = 180000) -> dict:
     }
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--confirm-live-acceptance", action="store_true")
+    args = parser.parse_args(argv)
+    if not args.confirm_live_acceptance:
+        parser.error("--confirm-live-acceptance is required")
+    try:
+        url = resolve_base_url(args.base_url)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     findings: dict = {"flows": {}, "errors_total": 0}
-    url = resolve_base_url()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -173,7 +186,7 @@ def main() -> int:
         print("  dashboard:", json.dumps(dashboard_checks, ensure_ascii=False), flush=True)
 
         # --- Flow 1b: connect Garmin via sidebar form with real .env creds ---
-        email, password = load_env_creds()
+        email, password = load_env_creds(confirmed=True)
         connect_result: dict = {"creds_available": bool(email and password)}
         if email and password:
             try:

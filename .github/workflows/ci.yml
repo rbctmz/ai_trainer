@@ -34,12 +34,8 @@ jobs:
         run: python -m ruff check .
 
       - name: Run contributor-safe tests
-        env:
-          DATABASE_PATH: ${{ runner.temp }}/ai-trainer-tests.db
-          DEMO_DATABASE_PATH: ${{ runner.temp }}/ai-trainer-demo-tests.db
-          CHATS_DIR: ${{ runner.temp }}/ai-trainer-test-chats
         run: >
-          python -m pytest
+          python scripts/run_isolated_tests.py
           -m "not live and not debug and not e2e"
           tests/
           -W error::pytest.PytestReturnNotNoneWarning
@@ -79,7 +75,7 @@ jobs:
 
       - name: Run contract tests
         run: >
-          python -m pytest
+          python scripts/run_isolated_tests.py
           tests/smoke/test_contract_extractor.py
           tests/smoke/test_api_call_inventory.py
           -q
@@ -118,10 +114,15 @@ jobs:
       - name: Install web dependencies
         run: npm --prefix web ci
 
+      # pytest isolates HOME; install and launch share the binary cache.
       - name: Install Chromium for Playwright
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ai-trainer-playwright
         run: python -m playwright install chromium --with-deps
 
       - name: Run E2E web stack smoke
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ai-trainer-playwright
         run: python -m pytest -m e2e tests/e2e -q
 
       - name: Upload failure artifacts (screenshots, logs)

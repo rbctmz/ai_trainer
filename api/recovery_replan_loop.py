@@ -1,5 +1,6 @@
 """Headless orchestration for the auditable Recovery Replan loop."""
 from __future__ import annotations
+from services.snapshot_runtime import defer_derived_backup
 
 from datetime import date, timedelta
 from hashlib import sha256
@@ -325,6 +326,7 @@ def _proposal_payload(
     return params, preview
 
 
+@defer_derived_backup
 def run_recovery_replan_loop(
     db: Database,
     *,

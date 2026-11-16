@@ -24,6 +24,7 @@ from services.agent_log import (
     scope_for_sync_days,
 )
 from services.sync_contracts import SyncProgressUpdate
+from services.snapshot_runtime import backup_operation, attach_sync_backup
 
 
 class SyncRunner(Protocol):
@@ -125,66 +126,40 @@ class SyncJobManager:
                     "stats_message": update.stats_message,
                 }
 
-        try:
-            result = run_sync(on_progress, capture_run_id=capture_run_id)
-            # Issue #562 M4: короткий display-ID известен только здесь; научная
-            # идентичность capture_run_id внутри блока не меняется.
-            capture = result.get("recovery_capture")
-            if isinstance(capture, dict):
-                result["recovery_capture"] = {**capture, "job_id": job_id}
-            sync_state = str(result.get("sync_state") or "succeeded")
+        result = None
+        error = None
+        with backup_operation(db, "provider_sync", changed=True) as operation:
+            try:
+                result = run_sync(on_progress, capture_run_id=capture_run_id)
+                capture = result.get("recovery_capture")
+                if isinstance(capture, dict):
+                    result["recovery_capture"] = {**capture, "job_id": job_id}
+                sync_state = str(result.get("sync_state") or "succeeded")
+            except Exception as exc:
+                sync_state = "failed"
+                error = {"message": str(exc)}
             self._record_provider_sync_decision(
-                db=db,
-                job_id=job_id,
-                source=source,
-                days=days,
-                sync_state=sync_state,
+                db=db, job_id=job_id, source=source, days=days, sync_state=sync_state,
             )
-            with self._lock:
-                if self._job.get("job_id") != job_id:
-                    return
-                self._job.update(
-                    {
-                        "sync_state": sync_state,
-                        "status": sync_state,
-                        "finished_at": _now_iso(),
-                        "progress": {
-                            "percent": 100,
-                            "message": result.get("title") or "Синхронизация завершена",
-                            "step_text": None,
-                            "stats_message": result.get("summary"),
-                        },
-                        "result": result,
-                        "error": None,
-                    }
-                )
-        except Exception as exc:
-            message = str(exc)
-            self._record_provider_sync_decision(
-                db=db,
-                job_id=job_id,
-                source=source,
-                days=days,
-                sync_state="failed",
-            )
-            with self._lock:
-                if self._job.get("job_id") != job_id:
-                    return
-                self._job.update(
-                    {
-                        "sync_state": "failed",
-                        "status": "failed",
-                        "finished_at": _now_iso(),
-                        "progress": {
-                            "percent": 100,
-                            "message": _source_message(source, "завершилась ошибкой"),
-                            "step_text": None,
-                            "stats_message": message,
-                        },
-                        "result": None,
-                        "error": {"message": message},
-                    }
-                )
+        # Terminal publication follows the snapshot, including the audit above.
+        if result is not None:
+            result = attach_sync_backup(result, operation.status)
+            sync_state = str(result.get("sync_state") or sync_state)
+        with self._lock:
+            if self._job.get("job_id") != job_id:
+                return
+            self._job.update({
+                "sync_state": sync_state, "status": sync_state,
+                "finished_at": _now_iso(), "result": result, "error": error,
+                "backup": operation.status,
+                "warning_codes": ["backup_failed"] if operation.status and operation.status["state"] == "degraded" else [],
+                "progress": {
+                    "percent": 100,
+                    "message": (result or {}).get("title") or _source_message(source, "завершилась ошибкой" if error else "завершена"),
+                    "step_text": None,
+                    "stats_message": error["message"] if error else (result or {}).get("summary"),
+                },
+            })
 
     @staticmethod
     def _record_provider_sync_decision(

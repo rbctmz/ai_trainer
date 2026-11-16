@@ -12,13 +12,24 @@ from typing import Any
 if __package__ in {None, ""}:  # pragma: no cover - direct script execution
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from config.settings import Settings  # noqa: E402
-from data.database import Database  # noqa: E402
-from services.activity_ingest import (  # noqa: E402
-    backfill_provider_links,
-    classify_activity_id,
-)
-from services.activity_provider_backfill import preview_provider_link_backfill  # noqa: E402
+def preview_provider_link_backfill(*args, **kwargs):
+    from services.activity_provider_backfill import preview_provider_link_backfill as preview
+    return preview(*args, **kwargs)
+
+
+def classify_activity_id(*args, **kwargs):
+    from services.activity_ingest import classify_activity_id as classify
+    return classify(*args, **kwargs)
+
+
+def backfill_provider_links(*args, **kwargs):
+    from services.activity_ingest import backfill_provider_links as backfill
+    return backfill(*args, **kwargs)
+
+
+def Database(path):
+    from data.database import Database as product_database
+    return product_database(path)
 
 
 def repair_database(
@@ -26,14 +37,18 @@ def repair_database(
     *,
     apply: bool = False,
     primary_source: str | None = None,
+    confirm_working_database: bool = False,
+    confirm_stopped: bool = False,
+    backup: str | Path | None = None,
 ) -> dict[str, Any]:
     """Dry-run by default; apply performs one atomic offline reconciliation."""
-    path = Path(database_path).expanduser().resolve()
-    if not path.is_file():
-        raise FileNotFoundError(f"database does not exist: {path}")
-    resolved_primary = str(
-        primary_source or Settings.PRIMARY_ACTIVITY_SOURCE
-    ).strip().lower()
+    from config.maintenance_guard import validate_maintenance_target
+    path = validate_maintenance_target(database_path, apply=apply, confirmed=confirm_working_database,
+                                       stopped=confirm_stopped, backup=backup)
+    if primary_source is None:
+        from config.settings import Settings
+        primary_source = Settings.PRIMARY_ACTIVITY_SOURCE
+    resolved_primary = str(primary_source).strip().lower()
     if resolved_primary not in {"garmin", "intervals"}:
         raise ValueError("primary_source must be 'garmin' or 'intervals'")
 
@@ -65,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--primary-source",
         choices=("garmin", "intervals"),
-        default=Settings.PRIMARY_ACTIVITY_SOURCE,
+        default=None,
         help="authoritative canonical projection source",
     )
     parser.add_argument(
@@ -73,19 +88,23 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="write provider links and reconcile canonicals; omitted means read-only dry-run",
     )
+    parser.add_argument("--confirm-working-database", action="store_true")
+    parser.add_argument("--confirm-stopped", action="store_true")
+    parser.add_argument("--backup", help="verified offline backup of the selected database")
     args = parser.parse_args(argv)
-    print(
-        json.dumps(
-            repair_database(
-                args.database if args.database is not None else Settings.runtime_database_path(),
-                apply=args.apply,
-                primary_source=args.primary_source,
-            ),
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
+    if args.database is None:
+        parser.error("--database is required")
+    from config.database_paths import ScratchPathError
+    try:
+        result = repair_database(
+            args.database, apply=args.apply, primary_source=args.primary_source,
+            confirm_working_database=args.confirm_working_database,
+            confirm_stopped=args.confirm_stopped, backup=args.backup,
         )
-    )
+    except (ScratchPathError, FileNotFoundError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
 

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { BackupStatusBanner } from "@/components/BackupStatusBanner";
 import { Nav } from "@/components/Nav";
 
 export const metadata: Metadata = {
@@ -30,6 +31,7 @@ export default function RootLayout({
       <body>
         <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
           <Nav />
+          <BackupStatusBanner />
           {children}
         </div>
       </body>

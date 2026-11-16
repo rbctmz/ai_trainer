@@ -4,21 +4,28 @@
 """
 
 import sys
-sys.path.append('..')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 import sqlite3
 from datetime import datetime, timedelta
 import random
-from data.database import Database
+from scripts.maintenance_runtime import generator_cli, isolated_generator, require_generator_target
 
-def add_test_hrv_data():
+
+def Database(path):
+    from data.database import Database as ProductDatabase
+    return ProductDatabase(path)
+
+@isolated_generator
+def add_test_hrv_data(database_path):
     """Добавляет тестовые HRV данные за последние 45 дней"""
     print("=" * 80)
     print("ДОБАВЛЕНИЕ ТЕСТОВЫХ HRV ДАННЫХ")
     print("=" * 80)
     
-    db = Database()
+    db = Database(str(require_generator_target(database_path)))
     conn = sqlite3.connect(db.db_path)
     cursor = conn.cursor()
     
@@ -144,4 +151,4 @@ def add_test_hrv_data():
     print("=" * 80)
 
 if __name__ == "__main__":
-    add_test_hrv_data()
+    raise SystemExit(generator_cli((add_test_hrv_data,)))

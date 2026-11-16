@@ -259,3 +259,23 @@ ADD требует *проверить предположения*. Вот ка�
 | MOD-1 (add provider) | ai_providers.py | Abstract interface + factory | ✅ |
 | SEC-1 (keys in logs) | — | env, not in UI | ✅ |
 | DEP-1 (docker up) | — | docker-compose | ✅ |
+
+## Data durability: проверенный рабочий контур15.11.2026 (#622 / #626)
+
+Этот checkpoint обновляет историческое наблюдение «нет backup/restore» выше.
+ASR-REL-3/DEP-2 используют SQLite Backup API, private application-data path,
+post-operation snapshots/retention и существующий stopped-service restore.
+Shared cloud transport передаёт только restic ciphertext validated snapshot и
+manifest, проверяет exact remote snapshot readback; ASR-SEC-1 требует Keychain
+и независимый recovery kit. API/web показывают метаданные local/cloud отдельно.
+
+После M1–M3 #753/#755/#758 и отдельного owner approval рабочие local/cloud backup
+и hourly LaunchAgent включены на выбранном Mac. Real Cloud.ru remote-only drill
+с недоступными source/local backups и без прежнего receipt восстановил ключевые
+домены в новый temp за11.186s; production не заменялась. Background job exit0,
+local/cloud UI ready; wrong-password exit12. Это снимает отсутствие проверенного
+пути восстановления для этой установки, но не даёт безусловного RPO при sleep,
+offline или утрате всех recovery credentials. Cloud history v1 без prune требует
+контроля стоимости владельцем. Native Windows/ACL и отдельный bucket policy audit
+не выполнялись. См. [ASR catalog](asr_catalog.md),
+[операторскую инструкцию](../cloud_backup_operator.md) и #626/#622 evidence.

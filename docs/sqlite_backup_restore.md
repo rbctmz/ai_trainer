@@ -96,8 +96,14 @@ sync/CLI, другие экземпляры); flag ниже — подтверж
 полный catalog таблиц/indexes/views/triggers, **все** сохранённые таблицы и типы
 их значений, IDs, NULL/BLOB, raw JSON и дубликаты строк без PK. Новые домены не
 создаются, schema/JSON не обновляются. Минимум распознавания — обычная таблица
-activities с activity_id TEXT PRIMARY KEY, date, sport, duration_minutes;
-пустая по строкам application DB допустима. Нужна SQLite с `PRAGMA table_list`
+activities с activity_id TEXT PRIMARY KEY, date, sport, duration_minutes либо
+legacy #749: без PK, activity_id INTEGER/date TEXT/sport TEXT/duration_minutes
+REAL (declared type names сравниваются без регистра и краевых пробелов).
+Пустая по строкам application DB допустима. Legacy schema/ID, включая дубликаты,
+NULL и смешанные storage classes, не переписываются. Другие формы по-прежнему
+отказывают `unsupported_source_schema`; не меняйте рабочую схему ради обхода.
+Это распознавание структуры, не замена explicit selection/path guards.
+Нужна SQLite с `PRAGMA table_list`
 (3.37+); virtual/shadow или недоступные для полного чтения объекты вызывают
 именованный отказ, а не частичную проверку.
 
@@ -312,3 +318,92 @@ fail-before-replace. Отдельные гейты доказывают quaranti
 восстановление sidecars при ошибке публикации, atomic no-clobber и короткую
 operator error при невозможности создать destination. Реальная БД и Docker
 volume не открываются.
+
+## Защищённые acceptance и служебные команды (#625 M3)
+
+`./run_acceptance.sh` создаёт собственную временную БД; внешние пути DB/demo
+и chats отклоняются до запуска приложения. Не используйте acceptance для
+работы с личной БД. E2E и standalone-тесты также используют свои временные
+области. Старые генераторы данных без аргументов работают с временной БД.
+
+Для явной работы с существующей БД сначала остановите все процессы записи и
+создайте свежую проверенную копию SQLite Backup API, например:
+
+    python scripts/sqlite_backup_restore.py backup --database /absolute/path/working.db \
+      --output /absolute/path/fresh-backup.db --confirm-stopped
+
+Пути в примере нужно заменить. Preview выполняется только для чтения:
+
+    python scripts/backfill_activity_provider_links.py --database /absolute/path/working.db
+
+Для записи отдельно укажите `--apply --confirm-working-database
+--confirm-stopped --backup /absolute/path/fresh-backup.db`. Проверка сравнивает
+содержимое и структуру БД с backup до операции; после изменения БД нужна новая
+копия. Остановка writers подтверждается оператором, автоматически не проверяется.
+Эти же флаги действуют для repair/backfill и генераторов, которые допускают
+явную рабочую БД. Удаление всех HRV дополнительно требует отдельного флага.
+Сетевой backfill выполняется только при явном apply после проверки; live browser
+acceptance требует `--base-url` и `--confirm-live-acceptance`. Не передавайте
+credentials в scratch-запуски.
+
+## Automatic snapshots — #623 M3 integration boundary
+
+M2 core (#744) is explicit-only. M3 adds opt-in shared post-commit/lifecycle hooks
+and read-only status/retry API; **keep `AUTO_BACKUP_ENABLED=false` on live data
+until M4 retention/reset/restore acceptance and the owner's separate activation
+choice**. This work does not set environment variables or restart user services.
+
+`BACKUP_DIR` is optional and must be absolute when set. Its default is the
+platform application-data `ai_trainer/backups` directory, independent of an
+explicit source `DATABASE_PATH`; checkout/alias/overlap refusals remain M2.
+Demo/acceptance and other stores cannot use the real backup selection. The test
+launcher forces backup off and an owned scratch directory before Settings loads.
+
+`GET /api/backup/status` reads the last receipt without creating a snapshot.
+`POST /api/backup/check` accepts only no body / `{}` and performs a bounded backup
+retry, never a business command or caller-selected path. Failed attempts are
+retried no faster than once per minute. Web and Streamlit display the same status,
+copy time and retry action. Older Streamlit versions without fragments refresh
+that display on rerun; the shared lifecycle timer still runs independently.
+`ready` reports the last successful check; it does not prove no later writes.
+
+Provider sync becomes partial with warning code `backup_failed` if only its
+backup fails; a provider's original failed/partial outcome and error stay intact.
+Committed plan/decision/match/feedback IDs and business receipts do not change
+because of backup health. Read-owned recovery audit writes are checked by the
+daily safety pass, not by each page read. Manual backup/restore/migrate retain
+their stopped confirmation contract. No automatic restore/downgrade is added.
+
+
+### #623 M4 automatic retention and reset (opt-in code; owner rollout separate)
+
+After a verified automatic check, retain last copy of14 nonempty UTC days and8
+nonempty ISO weeks (union), latest, and unexpired reset pins. Only verified
+recognized artifacts in that source namespace may be removed. Manual backups,
+rollback files, unknown versions and other namespaces stay outside pruning.
+Corrupt catalog or lost/malformed reset-pin state stops cleanup. A ready copy
+with maintenance warning still exists; retry checks backup/cleanup only. There
+is no automatic deletion/repair of uncertain history and no new repair endpoint.
+
+Full product reset on the enabled selected real store first takes a checked
+copy and durably protects it for14x24hours, reusing unchanged generation. The
+writer transaction excludes commits between copy and DELETE. Failed pre-check/
+pin blocks reset. Failed DELETE rolls back the source but leaves the harmless
+pin. Post-reset copy failure warns without repeating or undoing committed reset.
+Multiple reset pins coexist; extending one never shortens its old deadline.
+
+Restore remains the stopped-service operator procedure above: select a valid
+manifest, verify snapshot size/SHA-256/integrity, extract DB into private scratch,
+then existing restore with explicit target/rollback and confirm-stopped. M4
+synthetic tests restore full domain evidence from the automatic pinned snapshot,
+compare logical fingerprints, and verify application reads in a fresh process.
+No personal reset, live snapshot activation or off-device protection was tested.
+AUTO_BACKUP_ENABLED stays false by default; enablement requires separate owner
+decision after review/merge. Never enable it by changing personal .env in tests.
+
+Interrupted automatic retention first atomically retires an obsolete verified
+snapshot from the active catalog; its original manifest remains until last and
+permits cleanup to resume on the next check. Unknown or corrupt artifacts are
+not cleanup permission. A harmless empty shell after the final unlink may be
+preserved for operator investigation; it does not block active retention. Demo
+exclusion is decided before reset and applies through its post-reset boundary.

@@ -1,6 +1,7 @@
 import os
 import socket
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,9 @@ RUN_WEB = ROOT / "run_web.sh"
 
 def _run_web_with_ports(api_port: str, web_port: str) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
+    # Exercise the same Python runtime as pytest, even in a source archive
+    # without an ai_trainer_env symlink; preflight must stop before installs.
+    env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", os.defpath)
     env["API_PORT"] = api_port
     env["WEB_PORT"] = web_port
     return subprocess.run(

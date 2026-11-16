@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from services import demo_mode as demo_service
+from services.snapshot_runtime import backup_status
 
 
 def latest_iso_from_frame(frame: Any, column: str = "date") -> str | None:
@@ -67,6 +68,7 @@ def build_operational_state(
         status = "ready"
 
     return {
+        "backup": backup_status(db, demo=is_demo),
         "status": status,
         "mode": "demo" if is_demo else "live",
         "demo": is_demo,

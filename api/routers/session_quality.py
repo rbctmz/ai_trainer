@@ -1,5 +1,6 @@
 """Headless list/resolve API for shadow session-quality forecasts."""
 from __future__ import annotations
+from api.backup_contract import BackupMutationResponse
 
 from typing import Any
 
@@ -15,6 +16,7 @@ from api.session_quality_forecast import (
     summarize_session_quality_predictions,
 )
 from data.database import Database
+from services.snapshot_runtime import backup_boundary
 
 
 router = APIRouter(prefix="/api/session-quality-predictions", tags=["session-quality"])
@@ -43,7 +45,8 @@ def list_session_quality_predictions(
     }
 
 
-@router.post("/{prediction_id}/resolve")
+@router.post("/{prediction_id}/resolve", response_model=BackupMutationResponse)
+@backup_boundary("feedback_resolution", response=True)
 def resolve_session_quality(
     prediction_id: int,
     payload: ResolveSessionQualityRequest,

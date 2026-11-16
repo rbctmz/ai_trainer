@@ -4,21 +4,28 @@
 """
 
 import sys
-sys.path.append('..')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 import random
 import uuid
-from data.database import Database
+from scripts.maintenance_runtime import generator_cli, isolated_generator, require_generator_target
 from tests.sync_fixtures import legacy_upsert_activities
 
-def add_realistic_training_data():
+
+def Database(path):
+    from data.database import Database as ProductDatabase
+    return ProductDatabase(path)
+
+@isolated_generator
+def add_realistic_training_data(database_path):
     """Добавляет реалистичные тренировочные данные с учетом влияния на HRV"""
     print("=" * 80)
     print("ДОБАВЛЕНИЕ ТРЕНИРОВОЧНЫХ ДАННЫХ ДЛЯ АНАЛИЗА КОРРЕЛЯЦИИ")
     print("=" * 80)
     
-    db = Database()
+    db = Database(str(require_generator_target(database_path)))
     
     # Получаем существующие HRV данные
     hrv_df = db.get_hrv_data(60)
@@ -180,7 +187,8 @@ def add_realistic_training_data():
     print("\n" + "=" * 80)
     print("✅ ДАННЫЕ ДОБАВЛЕНЫ")
     print("=" * 80)
-    print("Теперь в разделе 'Анализ HRV' должна быть лучше видна корреляция!")
+    print("Генерация завершена.")
 
 if __name__ == "__main__":
-    add_realistic_training_data()
+    from tests.add_test_hrv_data import add_test_hrv_data
+    raise SystemExit(generator_cli((add_realistic_training_data,), scratch_prelude=(add_test_hrv_data,)))

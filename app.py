@@ -1,3 +1,10 @@
+import os
+
+# Acceptance must establish ownership before Settings or application imports.
+if os.environ.get("ACCEPTANCE_MODE", "0").strip().lower() in {"1", "true", "yes", "on"}:
+    from scripts.acceptance_launcher import validate_acceptance_child_environment
+    validate_acceptance_child_environment(dict(os.environ))
+
 import streamlit as st
 from typing import Any, Dict
 
@@ -101,6 +108,8 @@ def main():
 
     header_status = "Acceptance sandbox" if acceptance_info.get("enabled") else "Training cockpit"
     ModernUI.render_app_header(status=header_status)
+    from ui.components.backup_status import render_backup_status
+    render_backup_status(state.database)
 
     if acceptance_info.get("enabled"):
         garmin_login_note = (
@@ -207,9 +216,11 @@ def sync_data(days=30, state=None):
             sync_stats.info(update.stats_message)
 
     try:
-        result = sync_service.sync_garmin_data(state, days=days, on_progress=render_progress)
-        demo_mode_service.mark_real_dataset(state)
-        state.last_sync_status = sync_service.build_sync_status_payload(result, days=days)
+        from services.snapshot_runtime import backup_operation, attach_sync_backup
+        with backup_operation(state.database, "provider_sync", changed=True) as backup:
+            result = sync_service.sync_garmin_data(state, days=days, on_progress=render_progress)
+            demo_mode_service.mark_real_dataset(state)
+        state.last_sync_status = attach_sync_backup(sync_service.build_sync_status_payload(result, days=days), backup.status)
         state.clear_cached_context()
         state.selected_page = "📊 Дашборд"
         status_text.empty()

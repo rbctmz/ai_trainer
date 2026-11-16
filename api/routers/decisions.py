@@ -1,5 +1,7 @@
 """Coach decision audit trail endpoint."""
 from __future__ import annotations
+from api.backup_contract import BackupMutationResponse
+from services.snapshot_runtime import backup_boundary
 
 from datetime import datetime, timezone
 from typing import Any
@@ -317,7 +319,8 @@ def _dedupe_conflict_rules(conflicts: Any) -> list[dict[str, str]]:
     return rules
 
 
-@router.post("/proposals/{proposal_id}/approve")
+@router.post("/proposals/{proposal_id}/approve", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def approve_proposal(
     proposal_id: int,
     variant_kind: str | None = None,
@@ -434,7 +437,8 @@ def _record_proposal_approval_decision(
         return
 
 
-@router.post("/proposals/{proposal_id}/reject")
+@router.post("/proposals/{proposal_id}/reject", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def reject_proposal(
     proposal_id: int,
     db: Database = Depends(get_database),
@@ -451,7 +455,8 @@ def reject_proposal(
     return {"proposal": updated}
 
 
-@router.post("/proposals/{proposal_id}/rollback")
+@router.post("/proposals/{proposal_id}/rollback", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def rollback_proposal(
     proposal_id: int,
     db: Database = Depends(get_database),

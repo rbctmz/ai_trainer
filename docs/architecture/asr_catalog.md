@@ -1,5 +1,13 @@
 # ASR Catalog — единая точка истины по quality attributes
 
+M3 cloud backup #757 (implementation candidate, base27e5405): ASR-SEC-1 uses a
+metadata-only/path-free CloudBackupStatus GET; ASR-REL-1/3 and DEP-2 use isolated
+remote restore plus whole-table fingerprints and actual domain readers; MOD-2
+keeps freshness in Python and web as a typed consumer. ADR-0001 reused. Evidence:
+`docs/cloud_backup_m3_slice_spec.md`, `test_cloud_backup_api.py`,
+`test_cloud_backup_drill.py`, `test_cloud_backup_status_ui.py`. Native review,
+owner merge and personal activation remain separate gates.
+
 Статусы на 2026-08-03. Источник сценариев: `architecture_analysis_add3.md` §2.
 Правило ведения: новый архитектурный трек (ExecPlan) обязан назвать задетые
 ASR в секции «ASR / risk traceability» и обновить здесь статус/проверку.
@@ -475,6 +483,13 @@ stale `-wal`/`-shm`/`-journal` карантинируются до `os.replace`,
   rollback-ветка находятся в
   [`docs/sqlite_backup_restore.md`](../sqlite_backup_restore.md).
 
+Совместимость validated snapshots #749 (ASR-DEP-2/REL-3/MOD-3, ADR-0002):
+`test_legacy_snapshot_schema.py` проверяет narrowly recognized INTEGER/no-PK
+activities без изменения schema/ID/types/duplicate rows; CLI plan/copy включает
+committed WAL, automatic check/retry/new generation и operator restore сохраняют
+содержимое и rollback отдельной synthetic target. Unsupported near-miss shapes
+остаются refused. Personal rollout этим доказательством не заявляется.
+
 ## Контракт-тесты API-роутеров (ASR-MOD-2, issue #242)
 
 Свип по `api/routers/*` (кодовый долг из ATAM-карты, `architecture_analysis_add3.md`
@@ -858,3 +873,89 @@ Existing resolver/SQLite Backup API are reused, ordinary product writes and
 `Database._connect` stay unchanged. M1 synthetic probes characterize current
 gaps, not a delivered guard: runtime isolation/alias/cleanup acceptance remains
 pending M2–M4. No new ASR or ADR, API/schema/UI or live-data operation.
+
+
+### #625 M2 candidate: pytest boundary (not final M3/M4 acceptance)
+
+The candidate adds owned scratch scopes, safe family/URI parsing, early pytest
+bootstrap and child handoff validation, with failure before foreign SQLite open
+or unsafe basetemp cleanup. Ordinary product Settings/Database._connect and
+schema/API/UI remain unchanged. Synthetic RED/GREEN and limits are recorded in
+[ExecPlan](../database_path_guardrails_execplan.md). Final full/native acceptance
+is pending; standalone acceptance/maintenance protection is M3, not implied by
+this test-only audit. ASR-REL-3 / DEP-2 / SEC-1 guarantees are not promoted to
+complete for the whole #625/#622 track.
+
+### #625 M3 candidate: acceptance and maintenance boundaries
+
+M3 extends the M2 scratch boundary to standalone acceptance, E2E, diagnostics
+and explicit maintenance flows; it validates before a SQLite write or provider
+call. Working-store writes require an operator-attested stop and a matching
+verified backup. Ordinary product Database connections remain unchanged.
+Evidence and unverified platforms are recorded in the ExecPlan; M4 and overall
+#625/#622 acceptance remain pending.
+
+## Automatic local snapshots (#623 M1, specification candidate)
+
+[Contract](../automatic_snapshots_slice_spec.md) and
+[ExecPlan](../automatic_snapshots_execplan.md) apply ASR-REL-3 / ASR-DEP-2 /
+ASR-SEC-1: post-commit snapshot or visible degradation, validated atomic artifact
+publication and bounded daily/weekly retention. Ordinary source schema stays
+unchanged; manual CLI stopped-service boundary remains. M1 only characterizes
+online SQLite consistency on synthetic data; automatic service, deadline/fault
+handling, API/UI and retention are NOT IMPLEMENTED. Off-device RPO remains #626.
+
+
+## Automatic local snapshots — #623 M3 integration checkpoint
+
+M1 #743 / M2 #744 сохраняют принятые ASR-REL-3, ASR-DEP-2, ASR-SEC-1.
+M3 branch добавляет shared post-commit hooks и lifecycle в
+services/snapshot_runtime.py поверх M2 bounded Backup API/OS lock. Проверки:
+test_snapshot_runtime.py, test_backup_api.py, test_backup_status_ui.py и
+существующие sync/planning/feedback/contracts/lifecycle regressions. Сбой копии
+не откатывает commit, source schema не меняется, API не принимает пути,
+read-owned derivations покрывает daily check. Default off; личное включение и
+M4 retention/reset/restore ещё не выполнены. Подробности и границы evidence:
+[ExecPlan](../automatic_snapshots_execplan.md), [inventory](../automatic_snapshots_m3_inventory.md).
+
+
+### #623 M4 implementation checkpoint
+
+ASR-REL-3 / ASR-DEP-2: automatic retention validates catalog before deletion and
+preserves daily/weekly/latest/reset pins; pre-reset durable pin precedes DELETE
+inside source writer exclusion. Synthetic auto-copy -> existing restore -> fresh
+application validates checkpoint/coach/match/feedback/readiness/provider evidence
+and rollback. ASR-SEC-1: owned namespaces only, unknown/corrupt artifacts never
+deleted, path-free maintenance reason in existing API/UI. No new schema/engine.
+See [acceptance inventory](../automatic_snapshots_m4_acceptance.md) and
+[ExecPlan](../automatic_snapshots_execplan.md) for current evidence/pending CI.
+M3/M4 review and owner merges are pending; personal rollout/default remain off.
+
+
+## Encrypted off-device snapshots (#626 / M1–M3 accepted; live15.11.2026)
+
+[Контракт](../cloud_backup_slice_spec.md) и [план](../cloud_backup_execplan.md):
+ASR-DEP-2/REL-3 — restore в новый owned target, проверенный hash/schema/domain
+evidence, failure/retry без удаления прежних local/cloud копий; ASR-SEC-1 —
+restic authenticated encryption до передачи, recovery key вне единственного Mac;
+ASR-MOD-2 — shared Python freshness, read-only API/web projection. ADR-0002
+получает принятое владельцем opt-in ciphertext exception, ADR-0001/0007 reused.
+M1 #753, M2 #755 и M3 #758 merged после native review и owner acceptance;
+последний merge2f42cf7. Shared CLI transport, metadata-only API/web status и
+30-day full-domain drill реализованы, продуктовый default остаётся off.
+
+Отдельный owner-approved rollout15.11.2026 завершён на macOS: рабочая БД вне
+checkout с проверенными safety backup/rollback, local/cloud opt-in, Keychain и
+hourly LaunchAgent. Владелец подтвердил независимый recovery kit в iCloud «Пароли»
+на другом устройстве. Реальные Cloud.ru upload/exact-ID readback и remote-only
+full-domain restore без доступа к local source/snapshots и без прежнего receipt
+прошли; новый temp, production untouched, RTO11.186s. Фоновый job exit0,
+local/cloud API/UI ready; wrong-password exit12. Срезы #623/#624/#625 уже приняты;
+предыдущие candidate sections выше — исторические checkpoints.
+
+ASR-REL-3/DEP-2 evidence и ограничения отражены в
+[операторской инструкции](../cloud_backup_operator.md) и ExecPlan. RPO≤24ч
+требует работающего Mac, сети и credentials; sleep/offline пропускают запуски,
+stale/degraded видимы. RTO измерен на текущем dataset/сети, не на всех масштабах.
+Cloud prune отсутствует, стоимость контролирует владелец; bucket privacy
+сообщена владельцем, отдельного policy audit нет. Native Windows/ACL не проверены.

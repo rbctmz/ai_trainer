@@ -1,5 +1,7 @@
 """FastAPI contracts for athlete-entered post-workout feedback."""
 from __future__ import annotations
+from api.backup_contract import BackupMutationResponse
+from services.snapshot_runtime import backup_boundary
 
 from datetime import date
 from typing import Any
@@ -65,7 +67,8 @@ def pending_feedback_prompts(
     return list_feedback_prompts(db, as_of=as_of)
 
 
-@router.post("")
+@router.post("", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def submit_feedback(
     payload: SubmitFeedbackRequest,
     db: Database = Depends(get_database),
@@ -77,7 +80,8 @@ def submit_feedback(
         raise AssertionError("unreachable")
 
 
-@router.post("/{feedback_id}/correct")
+@router.post("/{feedback_id}/correct", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def correct_feedback(
     feedback_id: int,
     payload: FeedbackValues,
@@ -90,7 +94,8 @@ def correct_feedback(
         raise AssertionError("unreachable")
 
 
-@router.post("/{feedback_id}/tombstone")
+@router.post("/{feedback_id}/tombstone", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def tombstone_feedback(
     feedback_id: int,
     payload: TombstoneRequest,
@@ -107,7 +112,8 @@ def tombstone_feedback(
         raise AssertionError("unreachable")
 
 
-@router.post("/prompts/{session_id}/dismiss")
+@router.post("/prompts/{session_id}/dismiss", response_model=BackupMutationResponse)
+@backup_boundary("user_command", response=True)
 def dismiss_prompt(
     session_id: str,
     payload: DismissPromptRequest,

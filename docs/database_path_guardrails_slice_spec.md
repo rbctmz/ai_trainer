@@ -1,6 +1,7 @@
 # #625 M1 — граница временных и рабочих БД
 
-Статус: **draft спецификации, runtime не реализован**, 2026-10-25.
+Статус: **M1 принят и merged #734; M2 runtime candidate в работе**, 2026-10-27.
+Ниже сохранён контракт M1; M3/M4 и финальная приёмка #625 ещё не выполнены.
 Issue [#625](https://github.com/rbctmz/ai_trainer/issues/625), parent [#622](https://github.com/rbctmz/ai_trainer/issues/622).
 Baseline `12615561218bf2b5e5288d3a5ed2f9cf01f11145`; [ExecPlan](database_path_guardrails_execplan.md).
 Author: Spec / Architecture Owner; independent checker: pending; merge owner: rbctmz.
@@ -114,6 +115,31 @@ path regression cases. Это **не** число реально открыва�
 
 ## Public Contracts
 
+### CI #756: исчезающий optional SQLite sidecar
+
+Class A, ограниченный repair существующей identity boundary, без изменения
+product DB policy. В synthetic full E2E #755 после добавления call-failure
+capture получены HTTP500 и traceback в ScratchScope.validate_target на проверке
+type/nlink. Отдельный write/commit/close stress воспроизводит отказ; исходный
+bc7fa94 CI без artifact не доказывает точное значение stat. Regression fixture
+моделирует успешный stat обычного optional inode с st_nlink=0 после unlink.
+
+Отсутствующие optional sidecars уже допустимы. Только regular `-wal`/`-shm`/
+`-journal` с `st_nlink=0` может вызвать **одну полную перепроверку**, не разрешение
+принять прежний inode. Повтор заново проверяет root receipt/identity, parents,
+main, всю family, aliases/type/nlink и reserved namespace. Второй такой отказ,
+любой неизвестный stat/resolve error, main nlink0, live hardlink nlink>1,
+nonregular, external alias либо заменённый root — отказ до SQLite open.
+Catch-all retry/пропуск family/guard в Database._connect запрещены.
+
+BDD/приёмка: три optional suffix получают fresh complete validation после
+disappearance; reappearing hardlink, external symlink, FIFO, main hardlink,
+root replacement, repeated nlink0 и inspection error остаются отказами.
+Main nlink0 не запускает retry. Sentinels неизменны; два вызова проверки root
+в successful case и не более двух stat-link inspections в unstable case.
+RED:3 expected failures в test_scratch_sidecar_revalidation.py; focused guard+
+diagnostic contour74 PASS. Итоговые E2E/CI и independent checker — в #755/#756.
+
 API, TypeScript, database schema/events и product default selection — unchanged.
 CLI тестовых/служебных входов intentionally stricter: прежний implicit working
 apply перестаёт разрешаться; runbook даёт явную замену. Test/acceptance env и
@@ -206,3 +232,9 @@ Independent native review: manual, **0/2**, пока не запрошено; и
 Merge/cleanup owner rbctmz; #625/#622 остаются открытыми. Spec PR не означает,
 что работающая защита уже есть. Runtime этап начинается отдельным handoff
 после принятой спецификации; branch HEAD/CI фиксируются в PR evidence bundle.
+
+
+M1 final outcome supersedes pending review fields above: owner accepted clean
+native 1/2 at 2c08b95 and merged #734 as b68fc69 on 2026-10-26. M2 follows the
+approved contract without changing AC/non-goals; its candidate evidence and
+review budget belong to the separate M2 PR/ExecPlan, not the M1 round ledger.

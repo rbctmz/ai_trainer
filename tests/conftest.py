@@ -4,7 +4,26 @@ from pathlib import Path
 
 import pytest
 
-from config.settings import Settings
+from config.database_paths import ScratchPathError
+from scripts.scratch_pytest import bootstrap_pytest, sqlite_audit_counts
+
+try:
+    _scratch = bootstrap_pytest()
+except ScratchPathError as exc:
+    raise pytest.UsageError(str(exc)) from None
+
+from config.settings import Settings  # noqa: E402
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    try:
+        chosen = config.option.basetemp
+        if chosen:
+            config.option.basetemp = str(_scratch.validate_directory(Path(chosen), cleanup=True))
+        else:
+            config.option.basetemp = str(_scratch.root / "pytest")
+    except ScratchPathError as exc:
+        raise pytest.UsageError(str(exc)) from None
 
 
 LIVE_PREFIXES = (
@@ -48,3 +67,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
         if any(token in name for token in DEBUG_TOKENS) or name in DEBUG_FILES:
             item.add_marker(pytest.mark.debug)
+
+
+def pytest_terminal_summary(terminalreporter) -> None:
+    counts = sqlite_audit_counts()
+    terminalreporter.write_line(
+        f"scratch SQLite (this process): allowed={counts['allowed']} blocked={counts['blocked']}"
+    )

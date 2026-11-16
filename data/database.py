@@ -31,6 +31,7 @@ from data.data_coverage_store import DataCoverageStore
 from data.planning_build_preview_store import create_planning_build_previews_table
 from data.planning_cycles import PlanningCycleStore, initialize_cycle_store, reset_cycle_store
 from config.settings import Settings
+from services.snapshot_runtime import backup_write
 
 logger = logging.getLogger(__name__)
 
@@ -1240,6 +1241,7 @@ class Database:
             return fallback
         return parsed
 
+    @backup_write
     def save_readiness_snapshot(self, payload):
         """Atomically append or idempotently return a readiness revision."""
         required = {
@@ -1342,6 +1344,38 @@ class Database:
         ).fetchall()
         conn.close()
         return [self._deserialize_readiness_snapshot(row) for row in rows]
+
+    def get_latest_readiness_snapshot(
+        self, *, capture_mode=None, local_date_max=None
+    ):
+        """Chronologically latest snapshot row at or before `local_date_max`.
+
+        `revision` монотонна только внутри одного `target_key`, а target key
+        содержит local_date (`readiness:<mode>:YYYY-MM-DD`, issue #731) —
+        для нового дня счёт начинается заново. Поэтому хронологический выбор —
+        сначала самая поздняя `local_date`, затем максимальная `revision`
+        внутри неё, `id` как tie-break. Глобальная сортировка по `revision`
+        выбирала бы вчерашнюю revision=3 вместо сегодняшней revision=1
+        (находка дельта-ревью #733 от 7abe865). Returns a deserialized row
+        or None when nothing qualifies.
+        """
+        clauses, params = [], []
+        if capture_mode is not None:
+            clauses.append('capture_mode = ?')
+            params.append(str(capture_mode))
+        if local_date_max is not None:
+            clauses.append('local_date <= ?')
+            params.append(str(local_date_max))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
+        conn = self._connect()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            f'''SELECT * FROM readiness_snapshots {where}
+                ORDER BY local_date DESC, revision DESC, id DESC LIMIT 1''',
+            tuple(params),
+        ).fetchone()
+        conn.close()
+        return self._deserialize_readiness_snapshot(row)
 
     def _deserialize_readiness_snapshot(self, row):
         if row is None:
@@ -1485,6 +1519,7 @@ class Database:
             conn.rollback()
             conn.close()
 
+    @backup_write
     def save_planning_checkpoint(self, checkpoint_data, *, cycle_context=None, cycle_action="adjustment",
                                  restore_legacy=False, settings_write=None):
         """Сохраняет компактный planning checkpoint для dashboard/AI handoff."""
@@ -1532,6 +1567,7 @@ class Database:
         ).fetchone()
         return self._deserialize_planning_checkpoint_row(row)
 
+    @backup_write
     def commit_coach_plan_mutation(
         self,
         *,
@@ -1999,6 +2035,7 @@ class Database:
         )
         return result
 
+    @backup_write
     def save_coach_decision(
         self,
         decision_type,
@@ -2211,6 +2248,7 @@ class Database:
             'revisit_reason': row[21] if len(row) > 21 else None,
         }
 
+    @backup_write
     def save_recovery_decision(
         self,
         fingerprint,
@@ -2736,6 +2774,7 @@ class Database:
         finally:
             conn.close()
 
+    @backup_write
     def save_plan_actual_match(
         self,
         payload,
@@ -3014,6 +3053,7 @@ class Database:
             "created_at": row[16],
         }
 
+    @backup_write
     def save_session_feedback(self, payload):
         """Append an immutable feedback revision, idempotent by client fingerprint."""
         required = {
@@ -4156,6 +4196,7 @@ class Database:
         conn.close()
         return [self._deserialize_coach_proposal_row(row) for row in rows]
 
+    @backup_write
     def update_coach_proposal_status(self, proposal_id, status, result=None, error=None):
         """Обновляет lifecycle proposal: approved/rejected/failed."""
         allowed_statuses = {
@@ -4220,6 +4261,7 @@ class Database:
         conn.close()
         return self._deserialize_coach_proposal_row(row)
 
+    @backup_write
     def transition_coach_proposal_status(self, proposal_id, from_status, to_status):
         """Атомарно захватывает proposal для apply/rollback без двойной мутации."""
         allowed = {
@@ -4495,6 +4537,7 @@ class Database:
             'rollback_checkpoint_id': row[18] if len(row) > 18 else None,
         }
 
+    @backup_write
     def save_coach_constraint(
         self,
         date,
@@ -4661,6 +4704,7 @@ class Database:
         rows = cursor.fetchall()
         return [self._deserialize_coach_constraint_row(row) for row in rows]
 
+    @backup_write
     def deactivate_coach_constraint(self, constraint_id, *, cycle_context=None):
         """Deactivate an owned constraint under the same selected-context lock."""
         from data.planning_cycle_writes import guard_write
@@ -5727,6 +5771,9 @@ class Database:
         """Очистка всех данных из базы"""
         conn = self._connect()
         try:
+            from services.snapshot_runtime import prepare_reset
+            conn.execute('BEGIN IMMEDIATE')
+            protected_reset = prepare_reset(self)
             self._clear_all_data(conn)
             conn.commit()
         except Exception:
@@ -5734,6 +5781,11 @@ class Database:
             raise
         finally:
             conn.close()
+        # Business reset is committed; a failed copy warns, never replays DELETE.
+        if protected_reset:
+            from services.snapshot_runtime import backup_operation
+            with backup_operation(self, 'post_reset', changed=True):
+                pass
 
     def _clear_all_data(self, conn: sqlite3.Connection) -> None:
         """Очистка в одной транзакции; ошибки не оставляют снятый выбор цикла."""
