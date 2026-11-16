@@ -65,11 +65,19 @@ def inspect_database(path: Path, *, connect=readonly_connection) -> dict:
             columns = conn.execute('PRAGMA table_info(activities)').fetchall()
             by_name = {row[1]: row for row in columns}
             pk = [row for row in columns if row[5]]
+            current_schema = len(pk) == 1 and pk[0][1] == 'activity_id' and pk[0][2].upper() == 'TEXT'
+            # Older stores have no PK: preserve duplicate/NULL/mixed-type IDs
+            # rather than rebuilding the table or guessing a new identity.
+            legacy_types = {'activity_id': 'INTEGER', 'date': 'TEXT',
+                            'sport': 'TEXT', 'duration_minutes': 'REAL'}
+            legacy_schema = not pk and all(
+                name in by_name and by_name[name][2].strip().upper() == declared_type
+                for name, declared_type in legacy_types.items()
+            )
             if (
                 not any(row[0] == 'table' and row[1] == 'activities' for row in catalog)
                 or not {'activity_id', 'date', 'sport', 'duration_minutes'} <= by_name.keys()
-                or len(pk) != 1 or pk[0][1] != 'activity_id'
-                or pk[0][2].upper() != 'TEXT'
+                or not (current_schema or legacy_schema)
             ):
                 raise SnapshotInspectionError('unsupported_source_schema')
             tables = {}

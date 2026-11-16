@@ -1,5 +1,6 @@
 """Garmin sync orchestration helpers."""
 from __future__ import annotations
+from services.snapshot_runtime import backup_boundary
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -78,6 +79,7 @@ class GarminSyncResult:
     # 'garmin'. M2 adds the internal structured capture result alongside it.
     source: str = "garmin"
     recovery_capture: dict[str, Any] | None = None
+    backup: dict[str, Any] | None = None
 
     def totals(self) -> SyncCounts:
         """Aggregate new/updated/skipped counts across every synced domain."""
@@ -275,9 +277,11 @@ def build_sync_status_payload(result: GarminSyncResult, days: int | None = None)
     capture = project_recovery_capture(getattr(result, "recovery_capture", None))
     if capture is not None:
         payload["recovery_capture"] = capture
-    return payload
+    from services.snapshot_runtime import attach_sync_backup
+    return attach_sync_backup(payload, result.backup)
 
 
+@backup_boundary("provider_sync", database_arg="state", response=True, changed=True)
 def sync_garmin_data(
     state: HeadlessState,
     days: int | None = None,

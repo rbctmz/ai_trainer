@@ -1,5 +1,6 @@
 """HTTP models for the reviewed, server-owned build confirmation protocol."""
 
+from api.backup_contract import BackupStatus
 from typing import Any, Literal
 from uuid import UUID
 
@@ -195,6 +196,7 @@ class PlanBuildComparison(BaseModel):
 
 
 class BuiltPlanResponse(BaseModel):
+    backup: BackupStatus | None = None
     # Legacy nested payloads stay complete: this protocol adds identity without
     # redefining or stripping existing prescriptions, audits or future additions.
     model_config = ConfigDict(extra="allow")

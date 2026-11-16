@@ -1,9 +1,11 @@
 # #623 — минимальные автоматические локальные снимки
 
 Этот ExecPlan поддерживается по [.agent/PLANS.md](../.agent/PLANS.md).
-M1 принят владельцем и merged #743 как 4230a9d. Текущий scope — M2:
-явный snapshot core и synthetic проверки. Runtime hooks и включение на
-личных данных относятся к следующим этапам. Merge owner — Greg.
+M1 принят владельцем и merged #743 как4230a9d; M2 #744 merged e98b138.
+Текущий scope — M4: retention, защита full reset и synthetic restore drill.
+M3 #746 ещё не merged: review165a97a дал один P2, воспроизведённый и
+исправленный1386c2c. M4 stacked поверх1386c2c в отдельной managed worktree.
+Ни M3, ни M4 не включают backup на личной БД. Merge owner — Greg.
 
 ## Purpose / Big Picture
 
@@ -19,9 +21,13 @@ M1 принят владельцем и merged #743 как 4230a9d. Текущи
 - [x] (2026-10-28) Synthetic online/WAL characterization и логический fingerprint после VACUUM PASS.
 - [x] (2026-10-28) Подготовлен проект контракта с политикой, failure/reset/retention и RED matrix.
 - [x] (2026-10-28) M1: два review-раунда, два P2 исправлены, owner accepted и merged #743.
-- [ ] M2: bounded online snapshot, публикация, concurrency/faults.
-- [ ] M3: shared post-commit hooks, lifecycle check, status/API/web/Streamlit.
-- [ ] M4: retention и restore drill, полная synthetic приёмка и отдельный owner merge.
+- [x] (2026-11-04) M2 #744 merged e98b138: bounded online snapshot, публикация, concurrency/faults; owner review-budget-exception after main integration.
+- [x] (2026-11-04) M3 code: shared post-commit hooks, lifecycle check, status/API/web/Streamlit; synthetic focused acceptance complete.
+- [x] (2026-11-04) M3 draft #746: native4348/CI4322/E2E98 GREEN на165a97a; independent round1 завершён, P2 fixed1386c2c (50 focused PASS).
+- [ ] M3: fix-head CI, review delta/owner acceptance и отдельный merge.
+- [x] (2026-11-04) M4 implementation: retention union, durable reset pins, writer exclusion, maintenance warning и реальный auto-snapshot restore.
+- [ ] M4: итоговые full/CI checks, draft PR, independent review и owner merge.
+
 
 ## Surprises & Discoveries
 
@@ -250,3 +256,194 @@ GREEN: 25 dedicated tests, включая два исходных RED, повт�
 на state symlink. Ruff GREEN. Полный contributor-safe и related contour
 записываются отдельно. Review budget 1/2; автоматический повтор не запрошен.
 Runtime hooks/retention по-прежнему M3/M4 и не включены.
+
+
+## M3 implementation checkpoint — 2026-11-04
+
+Перед кодом зафиксирован [inventory/contract и Class A review record](automatic_snapshots_m3_inventory.md).
+Новый shared runtime использует explicit committed Database writers и внешние
+operation boundaries: sync после audit, plan/cycle, coach decision, match,
+feedback/correction/tombstone, readiness capture. Вложенные записи одного store
+объединяются, даже при разных handles. Preview и read-owned recovery projection
+не запускают event backup. Копии для внешних/производных записей делает UTC-day
+safety check; restart не полагается на memory pending flag. Failed retry ≥60s;
+M2 advisory lock/deadline остаётся единственным lock на snapshot operation.
+
+Ровно два новых Settings поля; default off. API lifespan запускает/останавливает
+свой timer вне event loop. GET status/POST check строгие и path-free; typed backup
+в operational/mutation/SSE responses не переписывает durable business receipts.
+Streamlit использует тот же runtime; современный fragment обновляет warning раз
+в минуту, старые версии — при rerun. UI handoff выполнен по этим contracts:
+BackupStatusBanner + global mutation/stream refresh, copy time, safe bounded retry.
+Скриншоты synthetic элемента 390/light и 1280/dark визуально проверены:
+`docs/design/evidence/issue-623-m3/`. Никакого изменения личной БД/настроек/сервисов.
+
+На этом checkpoint: dedicated runtime/API 16 PASS до отдельного read-derived
+регрессионного случая; recovery/coach focused с ним 191 PASS. Contract conformance,
+extractor/inventory 99 PASS на предыдущем контрактном checkpoint; после SSE delta
+extractor обновлён, финальный broad/contract прогон впереди. Шесть isolated UI
+scenarios PASS до final keyboard/stream delta; финальный rerun впереди. Web lint и
+build GREEN. Первичный UI query/plan fixture mismatch описан в inventory, не
+выдан за product regression. Current-head full, remote CI и независимое review
+ещё не подтверждены. M4 retention/reset/restore и live activation не заявляются.
+
+## M3 final author handoff — 2026-11-04
+
+The implementation now has 24 dedicated runtime/API acceptance cases, including
+actual fresh-interpreter FastAPI startup/shutdown, committed-gap capture, shared
+legacy checkpoint and cycle close, feedback correction/tombstone, partial sync,
+read suppression, disabled no-source-open, rejected confirm and delayed concurrent
+receipt ordering. Evidence uses only owned synthetic stores; no user service was
+restarted. Full local pre-final-boundary run: 4345 passed /16 skipped /122
+deselected, 7 existing warnings, 299.97s. The four-file commit-boundary/timestamp
+delta is separately checked with the whole Planning commit/cycle and contract
+contour; final candidate full/remote results are recorded in the draft PR.
+Full isolated browser suite: 98 passed (237.85s); final backup keyboard/retry
+contour: 6 passed (6.82s). Web lint/build, contract extraction freshness, Ruff and
+54 local Markdown links GREEN. Existing capture fixture values are unchanged,
+with only new additive health fields; old receipt database invariance still
+passes. No historical evidence images were added to this slice.
+
+Independent native review remains a separate manual handoff (0/2); no review
+acceptance/merge permission for M3 has been given. M4/live activation remain out
+of scope. This is author implementation/draft delivery, not a claim that #623 or
+#622 is complete. M2 post-merge metrics are recorded in this substantive change.
+
+Final provenance delta: a real exclusive-lock probe reproduced waiting in the
+ordinary Database writer connection before the snapshot deadline. Provenance
+now reuses the shared readonly connection with immediate busy refusal, never
+writer PRAGMAs. Unknown provenance remains degraded in the runtime until a
+successful eligible check; no unauthorized namespace write is attempted. Final
+combined protocol/runtime/API/contract contour: 214 passed, 7 existing warnings,
+40.48s. Final candidate is frozen for full native + remote CI; no live enablement.
+
+
+## M3 independent review round 1 — 2026-11-04
+
+Observed: native review 5766719588 on 165a97a raised P2 thread4466238963.
+Inferred: delayed ready can erase a later error that could not persist to disk.
+Verified by: test_delayed_ready_never_hides_newer_unpersisted_failure reproduced
+ready instead of degraded using actual initial snapshot + ENOSPC on later temp
+creation; no mocks of the failure result. A short receipt assignment lock now
+orders local receipts by core timestamp, without serializing/skipping backup.
+Dedicated regression also checks timer retry after61s captures the new commit.
+Delta core/runtime/API:50 passed (17.02s), Ruff/diff GREEN; remote CI pending.
+An existing sync wait(2) assertion failed twice before the hook was entered; its
+standalone diagnostic and final combined rerun pass. Cause not established;
+assertion now includes terminal/progress state for any recurrence; timeout was
+not increased. Round2 not requested automatically. M4 remains separate.
+
+
+## M4 checkpoint — 2026-11-04
+
+Implementation consumes accepted spec; bounded scope/role handoff is in
+[acceptance inventory](automatic_snapshots_m4_acceptance.md). One existing
+namespace lock covers copy, durable pin, full catalog validation and retention.
+Keep union14 nonempty UTC days/8 ISO weeks/latest/pins. Validated SQLite family
+files are allowed; unknown/foreign/manual artifacts are not deleted. Uncertain
+pins or corrupt catalog halts pruning. A maintenance reason on ready explicitly
+means the checked copy exists and cleanup needs attention; no new status model.
+
+Database.clear_all_data now begins IMMEDIATE before pre-reset check/pin. The
+source stays write-locked through DELETE/commit; post-reset copy runs after close.
+No web reset endpoint was invented. Existing Streamlit admin and demo/test reset
+call the same domain method. Disabled/demo/acceptance backup isolation remains.
+
+Observed: initial M4 acceptance9 failures (retention absent, pre_reset keyword
+absent, reset cleared despite failed backup). Inferred: implementation should
+apply accepted policy under existing lock and place precondition before DELETE.
+Verified by: after code,9 cases pass; combined core/runtime/reset/CLI restore81
+pass (28.51s), including full #624 domain fixture restored in a fresh application
+process and exact logical fingerprints plus reset-state rollback. Four additional
+cases and contract contour44 PASS (8.97s); final full-suite snapshot/CI pending.
+
+Observed: first retention prototype reported maintenance failure on valid copy;
+cheap synthetic probe found snapshot.db-wal/shm generated by read-only SQLite
+inspection, with matching hash/fingerprint. Verified by: allow only known SQLite
+family plus manifest, keep regular/single-link validation;45 dated generations
+exercise daily/weekly union. Same-day pin test originally reused identical fake
+timestamps; corrected clock order (no production ordering workaround).
+
+Observed: eight isolated browser checks PASS (9.83s); screenshots show checked
+copy and cleanup warning separately, retry only posts backup/check. UI uses
+existing component/geometry/tokens, text-only maintenance state and the same
+keyboard button. Web lint/build/contracts GREEN before final text-color delta;
+final lint/build and8 UI cases PASS (8.65s); screenshots refreshed/visually checked. No new dependency, source schema, second engine
+or live activation. Native Windows/ACL NOT RUN. M3 review fix/merge and M4 review/
+merge are separate; no approval or accepted labels implied by this checkpoint.
+
+M4 final self-review: missing status with only corrupt history must still mark
+reset pins unknown; checking only latest valid candidate would forget history.
+History detection now counts any snapshot-ID entry; pruning remains prohibited.
+Regression added (source/published copies remain unchanged except new valid
+snapshot); final focused check pending. Retention scans/verifies the full owned
+catalog within the existing10s worker deadline; real-data scale NOT MEASURED.
+
+M4 validation checkpoint: native full4362 passed /16 skipped /124 deselected,
+7 existing warnings (329.98s), before four extra additive tests and final
+corrupt-only history hardening. Final combined114 passed (32.57s) includes all
+17 retention/reset cases plus runtime/core/API/CLI restore/contracts. Final8 UI
+cases, lint/build/Ruff/diff GREEN. Final exact-head full/CI still pending.
+
+
+## M4 review round 1 — 2026-11-04
+
+M3 round2 clean on1386c2c; no open threads, functional CI GREEN. Owner review
+acceptance/merge still pending. M4 round1 on8b255fa raised two P2 findings.
+
+Observed: thread4467194626: interrupted rmtree can leave an incomplete active
+snapshot-ID directory. Inferred: later full catalog verification blocks pruning
+forever. Verified by: actual unlink(snapshot.db) then synthetic OSError; next
+check remained backup_retention_failed. Fix atomically moves a fully verified
+obsolete candidate out of active catalog to unique .retired-ID-nonce, using the
+existing no-clobber publication helper. Cleanup removes only regular known
+SQLite family files, preserves original verified manifest until last, and resumes
+recognized partial discards under the same namespace lock. Foreign/unknown or
+corrupt artifacts are never deletion permission. Empty unknown shells left after
+the final unlink are preserved, not adopted; unique names cannot block later
+active retention. No extra queue/status schema, engine or repair endpoint.
+
+Observed: thread4467194635: selected store demo marker disappears during reset.
+Verified by: enabled real-path DB with dataset_origin=demo created backup root
+after clear_all_data (RED). prepare_reset now returns whether backup protection
+was required; the caller carries that decision across DELETE and never starts
+post-reset backup for an excluded store. Actual HeadlessState/deactivate_demo_mode
+entry is covered. This preserves rather than broadens eligibility policy.
+
+Both initial regressions RED before fixes. Dedicated combined validation and
+exact-head CI pending. Real worker os._exit after retired DB unlink tests restart
+and OS lock release, alongside injected permission failure/retry, foreign retired
+artifacts and original reset/pin/restore evidence. UI/API/config contracts are
+unchanged by review delta. No third-party/personal data or services used. Round2
+not requested automatically; budget used1/2 until an explicit verification request.
+
+M4 review fix focused validation:97 passed (28.39s), Ruff/diff GREEN. Actual
+worker exits74 after retired snapshot.db unlink; a fresh bounded worker acquires
+the released OS lock, resumes cleanup and returns ready without maintenance
+warning. Demo real-path direct reset and actual deactivate_demo_mode both keep
+backup root absent. Unknown retired artifacts remain unchanged. Initial extended
+demo fixture used plain dict instead of supported SessionDict factory; corrected
+to make_headless_state without changing the facade. Full exact-head CI pending.
+
+M4 full fix-head run f88127d:4373 passed/16 skipped/124 deselected,1 failed in
+the existing sync happy-path test (315.81s). Its diagnostic captured degraded
+backup_io_error before the expected callback. A bounded10-case probe reproduced
+1 failure/9 pass with actual read-only provenance OperationalError codes261
+(SQLITE_BUSY_RECOVERY) and5 (SQLITE_BUSY). Inferred: initial status-read and sync
+writer overlap mixes an allowed fail-closed path into this success-only test.
+Verified by: coordinate callback start after initial response reads finish;10/10
+then PASS with0 provenance errors. Assertions/timeouts/guards unchanged; existing
+locked-provenance test still covers the fail-closed product path. This is a test
+scheduling correction, no product eligibility/concurrency change. Final-head
+full/CI evidence remains pending. Earlier failure records are retained above.
+
+Final ownership disproof: partial namespace recovery with only retired history
+and missing status must still treat pins as unknown. RED reproduced that the
+active-ID-only history detector allowed cleanup. Count retired-ID entries too;
+no status/queue schema change. Original protected copy stays untouched and
+backup_reset_pins_unknown persists. This extends existing lost-pin recovery to
+the new discard phase rather than inventing a repair permission.
+
+Final lost-pin delta related validation98 PASS (35.83s), Ruff/diff GREEN.
+Final full CI on the published frozen head is authoritative; local full evidence
+started before this last one-line history guard delta and is a checkpoint only.

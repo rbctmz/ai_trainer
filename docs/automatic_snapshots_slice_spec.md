@@ -72,6 +72,13 @@ M2 возвращает измерение в spec, а не вводит скр�
 
 ## Snapshot, идентичность и публикация
 
+Совместимость #749: общий инспектор принимает прежний activities TEXT sole-PK
+и конкретную legacy-форму без PK (activity_id INTEGER/date TEXT/sport TEXT/
+duration_minutes REAL), как определено в
+[контракте распознавания](legacy_snapshot_schema_slice_spec.md). Это расширяет
+распознавание для copy/restore без изменения source schema, ID, generation или
+manifest version. Прочие неизвестные формы по-прежнему отказывают.
+
 `AUTO_BACKUP_ENABLED=false` по умолчанию для управляемого первого включения;
 disabled виден как отдельное состояние. Включение на личной БД — отдельное
 решение владельца после synthetic приёмки. `BACKUP_DIR` опционален, абсолютный;

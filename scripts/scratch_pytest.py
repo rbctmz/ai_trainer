@@ -217,6 +217,7 @@ def bootstrap_pytest() -> ScratchScope:
             "TMPDIR": str(scope.root / "tmp"), "TEMP": str(scope.root / "tmp"),
             "TMP": str(scope.root / "tmp"), "CHATS_DIR": str(scope.root / "chats"),
             "DEFAULT_AI_PROVIDER": "mock",
+            "AUTO_BACKUP_ENABLED": "0", "BACKUP_DIR": str(scope.root / "backups"),
         })
         import tempfile
         tempfile.tempdir = None  # It may have cached TMPDIR before conftest.

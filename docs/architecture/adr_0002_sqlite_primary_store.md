@@ -48,3 +48,20 @@ M2 merged #727 (66c7d5f); M3 #728 merged b75d510, synthetic fresh-process
 FastAPI/domain restart, новые записи, fresh snapshot restore/reset/rollback.
 Это не live relocation/Windows acceptance и не restart личного сервиса. Новых схем,
 selector/receipt или backup engines нет; operator quiescence обязательна.
+
+
+## Accepted owner opt-in ciphertext exception (#626 / 2026-11-15)
+
+Статус этого дополнения: **Accepted** по отдельному решению владельца15.11.2026.
+Пункт 4 выше остаётся default: SQLite/plaintext и ключи не покидают устройство.
+[Cloud backup v1](../cloud_backup_slice_spec.md) требует отдельный owner opt-in:
+restic шифрует проверенную snapshot/manifest пару до передачи в приватное S3
+хранилище. Провайдер не получает plaintext или пароль расшифрования; независимое
+хранение recovery password обязательно. SQLite остаётся primary store, cloud —
+только история восстановления, без sync/второго runtime. M1–M3 приняты и merged
+(#753/#755/#758). Владелец явно подтвердил конкретный rollout с backup/rollback,
+encrypted Cloud.ru upload, hourly job, независимым recovery kit в iCloud «Пароли»
+и отсутствием автоматического cloud prune. Рабочий remote-only full-domain drill
+в новый temp прошёл за11.186s, production untouched; ограничения RPO/RTO и
+платформы — в [операторской инструкции](../cloud_backup_operator.md).
+Это не разрешение включать backup для иных установок или передавать plaintext.

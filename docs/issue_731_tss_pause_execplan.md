@@ -30,6 +30,16 @@ not a requirement to copy its physiology model.
 - [x] Publish [Draft PR #748](https://github.com/rbctmz/ai_trainer/pull/748)
   with code checkpoint `43c3e2f`, B0 role/file handoff and explicit residual
   gaps. Current-head CI is external evidence, not inferred from local tests.
+- [x] 2026-11-16: owner requested a goal to merge #748 after accepted review and
+  green checks. Independent read-only review of df4cc8a found no blockers;
+  40 targeted tests, focused Ruff and diff-check passed on that head.
+- [x] Integrate main96da9c0 in the isolated task worktree. The sole conflict in
+  engineering_process_metrics.md retains the complete #733 outcome and all
+  subsequent main outcomes; helper/tests/production behavior unchanged.
+- [ ] Verify integration HEAD, current CI and bounded native review; record
+  dispositions and use the owner's conditional acceptance/merge authorization.
+- [ ] Merge on green gates, verify reviewed/merged trees and synchronize clean
+  main. #731/#660/#616 remain open for their residual scopes.
 
 ## Context and Orientation
 
@@ -161,11 +171,13 @@ The experiment supports keeping the scale and moving B0 independently, while
 requiring a separate active-time/zone policy and genuine swim control before
 any future correction. Thresholds remain provisional; the replay is current
 retrospective activity reconstruction, not original readiness-capture history.
-B0 has not started, no merge/review acceptance was performed, and #731/#660/#616
-remain open. Draft PR #748 is attached to the task; no independent native review
-was requested. Local verification covers code checkpoint `43c3e2f`; this final
-publication note changes no runtime/helper/test code. Remote CI is checked on
-the pushed final head and reported separately rather than promised GREEN.
+B0 was not delivered by this evidence slice, and #731/#660/#616 remain open.
+The original publication checkpoint was draft with no native review or owner
+merge acceptance. On 2026-11-16 the owner explicitly requested completion through
+merge; current integration/check/review progress is recorded above and in #748.
+Original local verification covers code checkpoint `43c3e2f`; later integration
+does not change runtime/helper/test code. Remote CI is checked on the exact
+pushed head and reported separately rather than promised GREEN.
 
 Revision 2026-11-04: created before new provider reads to freeze the owner-
 accepted experiment, conditional fix gate and privacy boundary.
@@ -174,3 +186,8 @@ Revision 2026-11-04: record completed bounded diagnosis, unavailable real swim
 control, cross-method/time-population evidence, lineage correction and verified
 backtest. The proposed numerical fix is deliberately not promoted from an
 underdetermined hypothesis.
+
+Revision 2026-11-16: record explicit owner merge instruction and integration of
+main with both historical metric records preserved. This completes delivery of
+the existing evidence slice; it does not authorize TSS/threshold changes or
+closure of the parent product issues.

@@ -7,6 +7,7 @@ forecasts CTL/ATL/TSB with `BanisterModel.simulate_variable_load`. No training
 math is reimplemented here — only orchestration + JSON shaping.
 """
 from __future__ import annotations
+from services.snapshot_runtime import backup_boundary
 
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
@@ -404,6 +405,7 @@ def planning_edit_context(db: Database) -> Dict[str, Any]:
     }
 
 
+@backup_boundary("planning_mutation")
 def confirm_demand_change(
     db: Database,
     *,
@@ -1495,6 +1497,7 @@ def prepare_plan_build(
     return preview_response(row)
 
 
+@backup_boundary("planning_mutation")
 def confirm_plan_build(
     db: Database, *, preview_id: str, origin: Literal["planning_ui", "coach"],
     proposal_id: int | None = None,
@@ -2203,6 +2206,7 @@ def _recovery_replan_session_ids_from_history(
     return recovery_session_ids
 
 
+@backup_boundary("planning_mutation")
 def repair_active_plan_materialization(
     db: Database,
     *,
@@ -2833,6 +2837,7 @@ def preview_weekly_rebalance(
     return {"has_plan": True, "reconciliation": reconciliation_payload, "preview": _bind_cycle_fingerprint(preview, write_context)}
 
 
+@backup_boundary("planning_mutation")
 def confirm_weekly_rebalance(
     db: Database,
     *,
@@ -2898,6 +2903,7 @@ def preview_bike_tss_rebalance(
     return {"has_plan": True, "preview": _bind_cycle_fingerprint(preview, write_context)}
 
 
+@backup_boundary("planning_mutation")
 def confirm_bike_tss_rebalance(
     db: Database,
     *,
@@ -2989,6 +2995,7 @@ def _refresh_match_recovery(db: Database, session_id: str) -> None:
     )
 
 
+@backup_boundary("planning_mutation")
 def record_plan_actual_match(
     db: Database,
     *,
@@ -3226,6 +3233,7 @@ def record_plan_actual_match(
     return saved
 
 
+@backup_boundary("planning_mutation")
 def apply_adjustment(
     db: Database,
     *,
@@ -3298,6 +3306,7 @@ def apply_adjustment(
     }
 
 
+@backup_boundary("planning_mutation")
 def apply_recovery_replan(
     db: Database,
     proposal_params: Dict[str, Any],
@@ -3439,6 +3448,7 @@ def _recovery_transfer_session_label(session: Dict[str, Any]) -> str:
     return f"{name} ({tss} TSS)"
 
 
+@backup_boundary("planning_mutation")
 def apply_recovery_replan_transfer(
     db: Database,
     *,
@@ -3521,6 +3531,7 @@ def apply_recovery_replan_transfer(
     }
 
 
+@backup_boundary("planning_mutation")
 def rollback_recovery_replan(
     db: Database,
     proposal_result: Dict[str, Any],
@@ -3645,6 +3656,7 @@ def planning_history(db: Database, limit: int = 10) -> Dict[str, Any]:
     return {"has_history": bool(items), "items": items, "cycle_context": context}
 
 
+@backup_boundary("planning_mutation")
 def restore_history_version(
     db: Database,
     *,
@@ -3707,6 +3719,7 @@ def restore_history_version(
     }
 
 
+@backup_boundary("planning_mutation")
 def apply_constraint_to_active_plan(
     db: Database,
     constraint: Dict[str, Any],
@@ -3790,6 +3803,7 @@ def _template_executable_legs(template: Optional[Dict[str, Any]]) -> List[Dict[s
     ]
 
 
+@backup_boundary("planning_mutation")
 def recover_day_after_constraint_retraction(
     db: Database,
     *,
@@ -4201,6 +4215,7 @@ def preview_coach_constraint_mutation(
     }
 
 
+@backup_boundary("planning_mutation")
 def confirm_coach_constraint_mutation(
     db: Database,
     *,

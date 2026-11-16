@@ -854,3 +854,141 @@ functional retries/flakes were not measured. No personal DB/service write.
 #731/#660 remain open for residual scope; #616 remains separate. Private A2
 and the duration experiment are separate evidence, not proof of live-screen
 acceptance. Outcome recorded in this substantive experiment, no outcome-only PR.
+
+## #623 M2 snapshot core — #744, merged 2026-11-04
+
+[PR #744](https://github.com/rbctmz/ai_trainer/pull/744) merged as
+e98b138e14371055d57ec5bdbca959bffb5eaae9. Two native rounds: 2 confirmed P2s
+on 25f344f reproduced/fixed in 4c59aa9; second delta round clean on 4c59aa9.
+Both threads resolved. After review, main was merged into the branch as e5125bb;
+its tree exactly matched automatic merge-tree reviewed-head + main (53e98e5).
+Owner explicitly accepted review-budget-exception and accepted review; current
+Review gate GREEN/CLEAN before exact-head merge. Functional CI: 4294 passed,
+42 skipped,116 deselected; 92 E2E, contract and Gitleaks GREEN. Earlier same-head
+CI retries are documented in the PR; their transient sync/HTTP500 causes were
+not established, #739/#745 remain separate. Shared-checkout cleanup was refused
+by automatic permissions review and then explicitly deferred by owner because
+parallel work continues. No checkouts/services/personal DB were changed.
+M3 uses a new managed worktree from merged main. Outcome included with substantive
+M3, without another docs-only PR. #623/#622 remain open for M3/M4; feature stays off.
+
+## #623 M3/M4 outcomes — consolidated with substantive #749, 2026-11-05
+
+[#746](https://github.com/rbctmz/ai_trainer/pull/746) merged 9ee042c on
+2026-11-04 after two native rounds: one P2 reproduced/fixed in1386c2c,
+final delta clean, zero open threads, explicit owner acceptance and GREEN/CLEAN.
+Reviewed and merged trees equal. Accepted source CI4323/42/122, E2E98 PASS;
+initial E2E guard refusal and one same-head retry remain disclosed, not claimed
+fixed by rerun. Personal DB/config/services unchanged.
+
+[#747](https://github.com/rbctmz/ai_trainer/pull/747) merged23e85ec on
+2026-11-05 after two native rounds: two P2 reproduced/fixed after8b255fa,
+round2 clean on6a61ee4, zero open threads. Later merge-main4d3a915 had the same
+tree as6a and merge23e; owner explicitly accepted review-budget-exception and
+review on4d before GREEN Review gate/CLEAN exact-head merge. No third round.
+Accepted4d CI4349/42/124 and E2E100 PASS; local full4374 was an earlier checkpoint,
+not an exact4d native rerun. Functional retries and prior HTTP500/guard
+observations remain disclosed in PR evidence. #623 CLOSED for implementation/
+synthetic acceptance; #622 OPEN, AUTO_BACKUP_ENABLED default false, no live
+activation. Task branches removed; clean detached folders preserved because
+managed archive refused removal of the chat checkout; generated evidence was
+preserved privately. Parallel #731 checkout untouched.
+
+Verified remote merge SHAs/states again during #749 preparation. The rollout
+read-only preview then found an unrecognized legacy schema, tracked as
+[#749](https://github.com/rbctmz/ai_trainer/issues/749), not hidden as a successful
+personal activation. Source main/WAL unchanged. Off-device remains #626;
+platform/live acceptance and long-term escaped-defect observation remain open.
+
+## #749 compatibility — pre-review checkpoint, refreshed 2026-11-14
+
+[PR #750](https://github.com/rbctmz/ai_trainer/pull/750), checked implementation
+e19dbe2:4 expected RED failures/13 passing rejections →17 dedicated GREEN;
+280 related cases PASS. Local read-only checker found no blocking findings
+(17 PASS, clean status). Native rounds0/2; no acceptance/merge/live activation.
+Remote e19 CI run42017009355:4366/42/124 PASS and100 E2E PASS; contract/Gitleaks
+GREEN. Local full4389/18/124 +1 localhost-bind permission refusal is retained
+as non-GREEN evidence; isolated same-code permitted-localhost case1 PASS,
+not a full rerun. Final evidence update changes documentation only. No new
+dependency/backup engine or personal-store mutation; full source fingerprints
+and publication guards remain the existing implementation.
+
+## #626 M1 specification outcome — with substantive M2 #754, 2026-11-14
+
+[PR #753](https://github.com/rbctmz/ai_trainer/pull/753) / #752 merged as
+`1c6f18bb988225900cf2e1acd4a4b9b93744f00e`, reviewed HEAD `975b862c5955`.
+Native Codex review 1/2 clean (receipt 6880046588); explicit owner acceptance
+6880310932, GREEN Review gate/CLEAN before merge, zero unresolved threads.
+Reviewed/merged tree `38c2d659ab1f8b2366b78026a3ce00e46a8aa107` equal.
+Functional CI, contract, E2E and secret scan succeeded; no native rerun requested.
+Independent spec full+delta checker found one blocking P2 (hourly uploader over
+daily-only checks could delay raw writes up to 24h59m), fixed-in `a32e497` by
+requiring the existing fresh snapshot check before each upload. Zero open P1/P2
+at handoff. Lead/cycle/active/wait times not captured; escaped-defect observation
+remains open. This is specification acceptance, not live backup acceptance.
+
+Observed: Git cleanup initially stopped at an automatic-review usage limit;
+the subsequent normal permission retry succeeded. Local main fast-forwarded,
+only the known M1 task branch removed locally/remotely with expected remote SHA;
+primary #731 checkout/services/personal DB unchanged. Inferred: the limit was
+temporary permission availability, not evidence of unsafe Git content.
+Verified by: exact merge/tree readback and the successful expected-ref cleanup.
+#626/#622 remain open; M2 proceeds on its own branch with default disabled.
+
+## #626 M2 transport outcome — with substantive M3 #757, 2026-11-15
+
+[PR #755](https://github.com/rbctmz/ai_trainer/pull/755) closed #754/#756 and
+merged as `27e540589927fc3ada8688d85e56f9ac219d46e0` at2026-11-15T16:26:18Z.
+PR opened2026-11-14T19:13:58Z: cycle21h12m20s. Reviewed b339cd8; native1/2
+clean receipt6891546185, owner acceptance6897592867, latest Review gate43735398894
+GREEN and CLEAN before normal SHA-bound merge. Both trees equal
+`e23dfc6378ee55fb8bca446add530da588904e2c`. Independent checker2blockingP2 fixed
+in89e2a8f, zeroP1; scoped diagnostic/guard deltas READY. No native rerun.
+CI1343:4439PASS/43skipped/124deselected,100E2EPASS; local4466/16/124 and100E2E.
+An earlier E2E99/1 lacked status/body; new diagnostic97/3 reproduced scratch
+sidecar nlink0 refusals, fixed-inb339cd8 with3RED/74focusedPASS. Original historical
+failure cause is not proven; #739 stays open. Final CI/secret/contract green.
+Local main synced and known task branch removed with expected remote SHA;
+managed worktree retained for M3. Primary #731/personal store/services unchanged.
+Default-off transport is delivered; API/UI/full-domain drill belong to M3 and
+live activation remains owner controlled. Escaped-defect observation remains open.
+
+## #626 M3 and #622 live acceptance — 2026-11-15
+
+[PR #758](https://github.com/rbctmz/ai_trainer/pull/758) / #757 merged as
+`2f42cf7babd849bc75c3a3f50e312ad98232bf8f` at17:41:37Z. Opened17:21:03Z:
+cycle20m34s. Reviewed6cde12c; native1/2 clean receipt6898517623, explicit owner
+acceptance6898577928, GREEN Review gate43742493534/CLEAN before SHA-bound merge.
+Reviewed/merged trees equal c26b8b32eef255f8314cbc5c616ef0d1b1436c06. No second
+native round. Working-session checker reproduced phase-state P2, fixed-in aa1d61b;
+completion audit lost-source hourly refusal reproduced/fixed-in7342553, scoped
+checker READY, zero remaining blockers. These are distinct from native review.
+
+Final CI1345/run43740616194:4467PASS/44skipped/156deselected,132E2EPASS;
+contract/Ruff/Gitleaks/link GREEN. Local focused87PASS; phase-fix full4490PASS,
+16skipped/156deselected, plus5separately collected lost-source audit cases PASS.
+FullE2E132PASS, web lint/build/24contract checks GREEN. Initial Node25 failure
+was missing dylib; retry used existing Node22. Synthetic native LOCAL RTO4.362s
+is separate from the later real Cloud.ru measurement. #739 remains open; these
+results do not establish the cause of its historical E2E500.
+
+Owner then explicitly confirmed current working DB and the concrete live
+rollout, retaining source/safety backup/rollback. Existing primary checkout
+updated to main2f42cf7, no second runtime; previous branch retained. Working DB
+activated outside checkout, original user data preserved, local snapshots on.
+Owner personally entered the restic password and confirmed full recovery kit
+in iCloud Passwords on another trusted device. No password/key material in Git.
+
+Real Cloud.ru encrypted upload, exact-ID no-cache readback and full-domain drill
+PASS. Independent fresh recovery config without receipt and denied source/local
+snapshot access restored in11.186s; production untouched. Wrong-password exit12.
+Installed hourly LaunchAgent completed RunAtLoad exit0; readback18:34:56Z,
+local/cloud API and working UI ready. Exact prefix listing18:35Z:10STANDARD
+objects,3,513,529bytes. Final private-permission/runtime/schedule audit18:49Z PASS.
+
+This records initial live acceptance, not a month of operation or an unconditional
+RPO guarantee: Mac sleep/offline/credential loss can miss runs. Cloud prune is
+absent, cost belongs to owner; bucket privacy owner-reported, policy not separately
+audited. Windows/ACL unverified; escaped-defect observation remains open. Public
+closure evidence is in #626/#622; private receipts stay outside Git. This factual
+documentation update is Class C: no behavior, contract or retention-policy change.

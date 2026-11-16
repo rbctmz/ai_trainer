@@ -1,5 +1,6 @@
 """Coach endpoints: streaming chat + history."""
 from __future__ import annotations
+from services.snapshot_runtime import backup_status
 
 import json
 import time
@@ -413,6 +414,7 @@ def coach_chat(
             yield _sse(
                 {
                     "type": "done",
+                    "backup": backup_status(db, demo=demo),
                     "message_id": message_id,
                     "chat_id": chat_id,
                     "first_token_ms": first_token_ms,

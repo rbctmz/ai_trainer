@@ -622,7 +622,11 @@ def test_old_applied_receipt_without_assessment_replays_unchanged_before_new_gua
         overview = client.get("/api/planning/overview")
     assert replay.status_code == 200, replay.text
     assert "build_readiness" not in replay.json()
-    assert replay.json() == {
+    # M3 adds live backup health after receipt validation/transaction. The
+    # historical business receipt is still exact, unassessed and unchanged.
+    live = replay.json()
+    assert live.pop("backup")["state"] == "disabled"
+    assert live == {
         **applied,
         "confirmation": {**applied["confirmation"], "replayed": True},
     }

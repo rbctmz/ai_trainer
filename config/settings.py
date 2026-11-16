@@ -8,6 +8,7 @@ from config.database_paths import (
     resolve_database_paths, runtime_database_path,
 )
 from dotenv import load_dotenv
+from config.cloud_backup import cloud_config_path
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -62,6 +63,14 @@ def _database_paths() -> DatabasePaths:
     except RuntimeError:
         home = None
     return resolve_database_paths(os.environ, platform=sys.platform, home=home, cwd=str(Path.cwd()))
+
+
+def _backup_directory() -> str:
+    if "BACKUP_DIR" in os.environ:
+        return os.environ["BACKUP_DIR"]
+    platform_env = {key: os.environ[key] for key in ("LOCALAPPDATA", "XDG_DATA_HOME") if key in os.environ}
+    default = resolve_database_paths(platform_env, platform=sys.platform, home=str(Path.home()), cwd=str(Path.cwd()))
+    return str(Path(default.real).parent / "backups")
 
 
 class Settings:
@@ -129,6 +138,10 @@ class Settings:
     PRIMARY_WELLNESS_SOURCE = _primary_wellness_source()
 
     # База данных
+    AUTO_BACKUP_ENABLED = _env_flag("AUTO_BACKUP_ENABLED", "0")
+    BACKUP_DIR = _backup_directory()
+    CLOUD_BACKUP_CONFIG = cloud_config_path()
+
     _DATABASE_PATHS = _database_paths()
     DATABASE_PATH = _DATABASE_PATHS.real
     DEMO_DATABASE_PATH = _DATABASE_PATHS.demo
