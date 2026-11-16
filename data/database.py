@@ -851,6 +851,8 @@ class Database:
             WHERE external_id IS NOT NULL
         ''')
         activity_manual_links.initialize(conn)
+        from data.swim_program_store import initialize as initialize_swim_programs
+        initialize_swim_programs(conn)
         # M1 (#270): persistent per-provider / per-domain sync cursor. cursor_value is
         # the ISO-date HIGH-WATER boundary of the window a provider has fully, cleanly
         # processed (NOT the last activity's date). Advanced only after a whole
@@ -5792,6 +5794,8 @@ class Database:
         cursor = conn.cursor()
 
         cursor.execute('DELETE FROM planning_build_previews')
+        cursor.execute('DELETE FROM swim_program_previews')
+        cursor.execute('DELETE FROM swim_program_versions')
         reset_cycle_store(conn)
         
         # Очищаем все таблицы

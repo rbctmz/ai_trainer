@@ -2750,3 +2750,118 @@ export interface SessionFeedbackMutationResponse {
   feedback: SessionFeedbackRecord;
   backup: BackupStatus;
 }
+
+// M1 (#761): immutable trainer-authored swim library. No planner/provider payload.
+export interface SwimSubjectiveEffort {
+  kind: "subjective";
+  start_percent: number;
+  end_percent: number;
+}
+
+export interface SwimProgramSwimStep {
+  kind: "swim";
+  id: string;
+  name: string;
+  distance_meters: number;
+  instructions: string;
+  stroke: "freestyle" | "backstroke" | "breaststroke" | "butterfly" | "mixed" | "drill" | "unspecified";
+  equipment: ("fins" | "pull_buoy" | "kickboard" | "paddles" | "snorkel" | "other")[];
+  effort: SwimSubjectiveEffort | null;
+}
+
+export interface SwimProgramRestStep {
+  kind: "rest";
+  id: string;
+  mode: "fixed" | "approximate" | "open";
+  seconds: number | null;
+  breaths: number | null;
+  instructions: string;
+}
+
+export interface SwimProgramGroup {
+  kind: "group";
+  id: string;
+  name: string;
+  repetitions: number;
+  steps: SwimProgramNode[];
+  instructions: string;
+  last_rest: "include" | "omit" | "unspecified";
+  effort: SwimSubjectiveEffort | null;
+}
+
+export type SwimProgramNode = SwimProgramSwimStep | SwimProgramRestStep | SwimProgramGroup;
+
+export interface SwimProgramWorkout {
+  id: string;
+  title: string;
+  environment: "pool" | "open_water";
+  pool_length_meters: number | null;
+  steps: SwimProgramNode[];
+}
+
+export interface SwimProgramDocument {
+  schema_version: 1;
+  origin: "trainer_authored";
+  id: string;
+  title: string;
+  source_text: string;
+  source_week_label: string | null;
+  source_label: string | null;
+  workouts: SwimProgramWorkout[];
+}
+
+export interface SwimProgramSummary {
+  distance_meters: number;
+  duration_seconds: null;
+  tss: null;
+  workouts: {
+    workout_id: string;
+    distance_meters: number;
+    compatibility: "compatible" | "incompatible" | "not_applicable";
+  }[];
+  warnings: {
+    code: "pool_distance_not_multiple" | "last_rest_unspecified";
+    workout_id: string;
+    node_id: string;
+  }[];
+}
+
+export interface SwimProgramPreviewRequest {
+  document: SwimProgramDocument;
+  base_revision: number;
+}
+
+export interface SwimProgramConfirmRequest {
+  preview_id: string;
+  confirm: true;
+}
+
+export interface SwimProgramPreviewResponse {
+  preview_id: string;
+  base_revision: number;
+  document: SwimProgramDocument;
+  summary: SwimProgramSummary;
+  fingerprint: string;
+  expires_at: string;
+}
+
+export interface SwimProgramVersionResponse {
+  program_id: string;
+  revision: number;
+  document: SwimProgramDocument;
+  summary: SwimProgramSummary;
+  fingerprint: string;
+  confirmed_at: string;
+}
+
+export interface SwimProgramListResponse {
+  items: {
+    program_id: string;
+    revision: number;
+    title: string;
+    source_week_label: string | null;
+    workout_count: number;
+    distance_meters: number;
+    updated_at: string;
+  }[];
+}

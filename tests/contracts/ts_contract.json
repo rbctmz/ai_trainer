@@ -1,9 +1,9 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "6ac1c87f1fb124f1a7a5c92270ecf7cbac64596082dbc86db6b1755059fcaaed",
+    "source_sha256": "5b8f619d372e216420834683ca248b8e3abef56c69fae964c9ae2aaed5070542",
     "registry": "tests/contracts/registry.json",
-    "registry_sha256": "d66d68d52398193298979885e9f3c7c477db8e3a5f1135ffc6396e0948c94920"
+    "registry_sha256": "5fc5c24362c7ff92e510cf7a8ad91f1e89ed230ca1eaca552074fb871c0e7856"
   },
   "roots": [
     "ActivitiesResponse",
@@ -35,6 +35,7 @@
     "SessionFeedbackHistoryResponse",
     "SessionProjection",
     "SleepSummary",
+    "SwimProgramPreviewResponse",
     "SyncJobResponse",
     "SyncProvidersResponse",
     "TargetPreview",
@@ -33394,6 +33395,1250 @@
               "stale",
               "unavailable"
             ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "SwimProgramDocument": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "origin": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "trainer_authored"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "schema_version": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [
+              1
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "source_label": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "source_text": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "source_week_label": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "title": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "workouts": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "SwimProgramWorkout",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "SwimProgramGroup": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "effort": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "SwimSubjectiveEffort",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "instructions": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "kind": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "group"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "last_rest": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "include",
+              "omit",
+              "unspecified"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "name": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "repetitions": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "steps": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "SwimProgramNode",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "SwimProgramNode": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": null,
+      "ref": null,
+      "wildcard": false,
+      "variants": [
+        {
+          "kinds": [
+            "object"
+          ],
+          "literals": [],
+          "widened": false,
+          "items": null,
+          "fields": null,
+          "ref": "SwimProgramSwimStep",
+          "wildcard": false,
+          "variants": null,
+          "record_values": null,
+          "array_length": null
+        },
+        {
+          "kinds": [
+            "object"
+          ],
+          "literals": [],
+          "widened": false,
+          "items": null,
+          "fields": null,
+          "ref": "SwimProgramRestStep",
+          "wildcard": false,
+          "variants": null,
+          "record_values": null,
+          "array_length": null
+        },
+        {
+          "kinds": [
+            "object"
+          ],
+          "literals": [],
+          "widened": false,
+          "items": null,
+          "fields": null,
+          "ref": "SwimProgramGroup",
+          "wildcard": false,
+          "variants": null,
+          "record_values": null,
+          "array_length": null
+        }
+      ],
+      "record_values": null,
+      "array_length": null
+    },
+    "SwimProgramPreviewResponse": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "base_revision": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "document": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "SwimProgramDocument",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "expires_at": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "fingerprint": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "preview_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "summary": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "SwimProgramSummary",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "SwimProgramRestStep": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "breaths": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "instructions": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "kind": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "rest"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "mode": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "approximate",
+              "fixed",
+              "open"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "seconds": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "SwimProgramSummary": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "distance_meters": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "duration_seconds": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "tss": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "warnings": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": {
+                "code": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [
+                      "last_rest_unspecified",
+                      "pool_distance_not_multiple"
+                    ],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "node_id": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "workout_id": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                }
+              },
+              "ref": null,
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "workouts": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": {
+                "compatibility": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [
+                      "compatible",
+                      "incompatible",
+                      "not_applicable"
+                    ],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "distance_meters": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "number"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "workout_id": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                }
+              },
+              "ref": null,
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "SwimProgramSwimStep": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "distance_meters": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "effort": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "SwimSubjectiveEffort",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "equipment": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "string"
+              ],
+              "literals": [
+                "fins",
+                "kickboard",
+                "other",
+                "paddles",
+                "pull_buoy",
+                "snorkel"
+              ],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": null,
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "instructions": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "kind": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "swim"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "name": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "stroke": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "backstroke",
+              "breaststroke",
+              "butterfly",
+              "drill",
+              "freestyle",
+              "mixed",
+              "unspecified"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "SwimProgramWorkout": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "environment": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "open_water",
+              "pool"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "pool_length_meters": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "steps": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "SwimProgramNode",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "title": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "SwimSubjectiveEffort": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "end_percent": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "kind": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "subjective"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "start_percent": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
             "widened": false,
             "items": null,
             "fields": null,
