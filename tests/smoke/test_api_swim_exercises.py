@@ -1,7 +1,6 @@
 """Exercise catalog API contracts on synthetic owned databases."""
 
 from uuid import uuid4
-import json
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -24,7 +23,7 @@ def client(tmp_path):
         yield c
 
 
-def test_http_preview_confirm_pinned_resolve_and_types(client):
+def _roundtrip(client):
     p = client.post("/api/swim-exercises/preview", json={"document": definition()})
     assert p.status_code == 200, p.text
     preview = p.json()
@@ -66,28 +65,27 @@ def test_http_preview_confirm_pinned_resolve_and_types(client):
         resolved.json()["step"]["distance_meters"] == 50
         and resolved.json()["exercise"] == saved.json()
     )
+    return payload, resolved.json()
+
+
+def test_http_preview_confirm_pinned_resolve(client):
+    _roundtrip(client)
+
+
+def test_populated_typescript_contract(client):
     from tests.contracts.conformance import validate
+    from tests.smoke.test_contract_extractor import _run_extractor
 
-    import shutil
-    import subprocess
-
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node is required for standalone contract extraction")
     root = Path(__file__).resolve().parents[2]
-    extracted = subprocess.run(
+    artifact = _run_extractor(
+        root / "web/lib/types.ts",
         [
-            node,
-            str(root / "web/scripts/extract-contract.mjs"),
-            "--roots",
-            "SwimExerciseResolveResponse,SwimExerciseConfirmRequest,SwimExerciseListResponse",
+            "SwimExerciseResolveResponse",
+            "SwimExerciseConfirmRequest",
+            "SwimExerciseListResponse",
         ],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=True,
     )
-    artifact = json.loads(extracted.stdout)
+    payload, resolved = _roundtrip(client)
     assert (
         validate(
             payload, artifact["types"]["SwimExerciseConfirmRequest"], artifact["types"]
@@ -104,7 +102,7 @@ def test_http_preview_confirm_pinned_resolve_and_types(client):
     )
     assert (
         validate(
-            resolved.json(),
+            resolved,
             artifact["types"]["SwimExerciseResolveResponse"],
             artifact["types"],
         )

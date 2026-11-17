@@ -114,6 +114,12 @@ jobs:
       - name: Install web dependencies
         run: npm --prefix web ci
 
+      - name: Check populated swim exercise contracts
+        run: >
+          python scripts/run_isolated_tests.py
+          tests/smoke/test_api_swim_exercises.py::test_populated_typescript_contract
+          -q
+
       # pytest isolates HOME; install and launch share the binary cache.
       - name: Install Chromium for Playwright
         env:

@@ -167,3 +167,15 @@ Native review rounds:0/2, manual trigger only after CI/head stable. Review
 findings and exact dispositions will be recorded in PR. Verdict: implementation
 verified locally within disclosed limitations; CI/native review/owner merge
 pending. No merge/cleanup performed; preserve ignored corpus in this worktree.
+
+## CI correction before native review
+
+First Linux run43967405731 on a291d5e:4602passed/44skipped/156deselected,
+1failure in the new combined HTTP+TS test. Observed stderr ERR_MODULE_NOT_FOUND:
+Python contributor job intentionally does not install web/node_modules. The
+HTTP calls all returned200. Inferred: new test had an implicit web dependency.
+Verified by: actual job log and local restricted-PATH run after splitting:
+7HTTP tests PASS, standalone TS check SKIP. With Node22+web deps standalone
+populated check PASS. Existing extractor prerequisite guard reused; the populated
+check is explicitly added to the Web E2E job after npm ci so CI actually executes
+it. Backend implementation unchanged. Next CI and native review still pending.

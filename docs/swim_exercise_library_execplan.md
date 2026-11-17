@@ -153,3 +153,8 @@ extractor. Node22 PATH used for test child processes as well as npm.
 
 Revision17.11.2026: final local evidence and clean role handoff recorded.
 Do not conflate a sandbox broad result plus targeted reruns with one green run.
+
+Revision17.11.2026: first CI exposed implicit TypeScript dependency in a combined
+API test. Split always-on HTTP roundtrip from guarded TS extraction; execute
+populated TS check in existing Web E2E job after npm ci. Local no-Node contour
+7PASS/1SKIP, populated Node22 contour1PASS. No production code change.
