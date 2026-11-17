@@ -56,8 +56,8 @@ export function SourceCapture({ onCaptured }: { onCaptured: (draft: SwimImportDr
         <label className="text-sm text-ink">Название источника<input className={`${input} mt-1`} value={value.source_label} onChange={event => change("source_label", event.target.value)} maxLength={200} /></label>
         <label className="text-sm text-ink">Обозначение недели<input className={`${input} mt-1`} value={value.source_week_label} onChange={event => change("source_week_label", event.target.value)} maxLength={200} /></label>
       </div>
-      {bufferError ? <p role="status" className="text-sm text-tone-warning">{bufferError}</p> : null}
-      {error ? <p role="alert" className="text-sm text-tone-warning">{error}</p> : null}
+      {bufferError ? <p role="status" className="text-sm border-l-2 border-tone-warning pl-3 text-ink">{bufferError}</p> : null}
+      {error ? <p role="alert" className="text-sm border-l-2 border-tone-warning pl-3 text-ink">{error}</p> : null}
       <button className={primary} type="submit" disabled={!value.source_text.trim()}>{busy ? "Сохраняем…" : "Сохранить исходник"}</button>
       <button className={`${button} ml-2`} type="button" onClick={() => change("source_text", "")}>Очистить ввод</button>
     </fieldset>

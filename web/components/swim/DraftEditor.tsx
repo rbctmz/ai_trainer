@@ -90,11 +90,11 @@ export function DraftEditor({ draft, target, busy, onStart, onWritten, onEnd, on
           {target.kind === "node" ? <Choice label="Действие с элементом" value={action} options={[["edit", "Изменить"], ["move", "Переместить"], ["remove", "Удалить из черновика"], ...(selected?.kind === "swim" ? [["binding", "Техника из справочника"] as const] : [])]} onChange={setAction} /> : null}
           {action === "binding" && target.kind === "node" ? <ExercisePicker nodeId={target.id} reference={reference} onChange={setReference} /> : null}
           {target.kind === "add" || action === "move" ? <><Choice label="Куда добавить" value={destination} options={[...document.workouts.map(item => [item.id, item.title] as const), ...groups.map(item => [item.id, item.name] as const)]} onChange={value => { setDestination(value); setPosition(1); }} /><NumberField label="Позиция в списке" value={position} max={101} onChange={value => setPosition(value ?? 0)} /></> : null}
-          {target.kind === "add" || action === "edit" ? <NodeFields node={node} source={draft.source_text} onChange={setNode} kindEditable={target.kind === "add" || selected?.kind === "unresolved"} childrenEditable={target.kind === "add" || selected?.kind === "unresolved"} /> : action === "remove" ? <p className="text-sm text-tone-warning">Элемент и вложенные шаги будут удалены из текущего черновика. Исходник и предыдущие серверные ревизии сохраняются.</p> : null}
+          {target.kind === "add" || action === "edit" ? <NodeFields node={node} source={draft.source_text} onChange={setNode} kindEditable={target.kind === "add" || selected?.kind === "unresolved"} childrenEditable={target.kind === "add" || selected?.kind === "unresolved"} /> : action === "remove" ? <p className="text-sm border-l-2 border-tone-warning pl-3 text-ink">Элемент и вложенные шаги будут удалены из текущего черновика. Исходник и предыдущие серверные ревизии сохраняются.</p> : null}
         </>}
         <div className="flex flex-wrap gap-2"><button type="submit" className={primary}>{action === "remove" && target.kind === "node" ? "Подтвердить удаление элемента" : "Применить правку"}</button><button type="button" className={button} onClick={close}>Отменить правку</button></div>
       </fieldset>
-      {error ? <p role="alert" className="text-sm text-tone-warning">{error}</p> : null}
+      {error ? <p role="alert" className="text-sm border-l-2 border-tone-warning pl-3 text-ink">{error}</p> : null}
     </form>
   </section>;
 }

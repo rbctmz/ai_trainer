@@ -4,13 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, fetcher, isDemo } from "@/lib/api";
 import { swimError, swimPost } from "@/lib/swim-api";
 import type { SwimImportDraftResponse, SwimImportPreviewResponse, SwimProgramAnyVersionResponse } from "@/lib/types";
-import { ProgramStructure } from "./ProgramStructure";
+import { ProgramStructure, ProgramSummary } from "./ProgramStructure";
 import { SourceView } from "./SourceView";
 import { SwimDialogue } from "./SwimDialogue";
 import { ManualStructure } from "./ManualStructure";
 import { DraftEditor } from "./DraftEditor";
 import type { EditTarget } from "./DraftEditor";
 import { SourceCoverage } from "./SourceCoverage";
+import { ResponsiveDisclosure } from "./ResponsiveDisclosure";
 import { button, panel, primary } from "./styles";
 
 export function DraftWorkspace({ draft, reload, onSaved }: {
@@ -90,18 +91,20 @@ export function DraftWorkspace({ draft, reload, onSaved }: {
         {draft.document ? <button type="button" className={button} disabled={busy || needsRead || preview !== null || editing !== null} onClick={() => edit({ kind: "title" })}>Изменить название программы</button> : null}
       </div>
       {busy ? <p role="status" className="mt-3 text-sm text-ink-soft">Ожидаем подтверждение сервера…</p> : null}
-      {error ? <p role="alert" className="mt-3 text-sm text-tone-warning">{error}</p> : null}
+      {error ? <p role="alert" className="mt-3 text-sm border-l-2 border-tone-warning pl-3 text-ink">{error}</p> : null}
     </section>
+    {!preview && draft.document && draft.summary ? <ProgramSummary document={draft.document} summary={draft.summary} /> : null}
     {!draft.document ? <ManualStructure draft={draft} busy={busy || needsRead} onStart={() => { setBusy(true); setError(""); }} onWritten={refresh} onEnd={() => setBusy(false)} onOpenChange={setManualOpen} /> : null}
     {editing && draft.document ? <DraftEditor key={JSON.stringify(editing)} draft={draft} target={editing} busy={busy || needsRead} onStart={() => { setBusy(true); setPreview(null); setError(""); }} onWritten={refresh} onEnd={() => setBusy(false)} onClose={closeEditor} /> : null}
     {preview && preview.draft_revision === draft.revision ? <section className={`${panel} space-y-4`} aria-label="Предпросмотр сохранения">
       <div><h2 className="text-xl font-semibold text-ink">Проверьте всю программу</h2><p className="mt-2 text-sm text-ink-soft">Будет сохранена эта версия всех тренировок. Предпросмотр действителен до {new Date(preview.expires_at).toLocaleString("ru-RU")}.</p></div>
-      <SourceView text={preview.document.source_text} />
-      <ProgramStructure document={preview.document} summary={preview.summary} />
+      <ProgramSummary document={preview.document} summary={preview.summary} />
+      <ResponsiveDisclosure title="Сравнить с исходником"><SourceView text={preview.document.source_text} /></ResponsiveDisclosure>
+      <ProgramStructure document={preview.document} summary={preview.summary} showSummary={false} />
       <div className="flex flex-wrap gap-2"><button type="button" className={primary} disabled={busy || needsRead} onClick={() => void confirm()}>{ambiguous ? "Повторить подтверждение" : "Подтвердить сохранение программы"}</button><button type="button" className={button} disabled={busy} onClick={() => { setPreview(null); setAmbiguous(false); }}>{ambiguous ? "Вернуться к черновику" : "Вернуться к правкам"}</button></div>
     </section> : <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-      <div className="min-w-0 space-y-4"><SourceView text={draft.source_text} /><SwimDialogue draft={draft} busy={busy || needsRead || editing !== null || manualOpen} onStart={() => { setBusy(true); setPreview(null); setError(""); }} onFinish={async () => { await refresh(); setBusy(false); }} /></div>
-      <div className="min-w-0 space-y-4">{draft.document && draft.summary ? <><ProgramStructure document={draft.document} summary={draft.summary} editingDisabled={busy || needsRead || editing !== null} onEditNode={id => edit({ kind: "node", id })} onAddNode={id => edit({ kind: "add", id })} onEditWorkout={id => edit({ kind: "workout", id })} /><SourceCoverage draft={draft} busy={busy || needsRead || editing !== null} onStart={() => { setBusy(true); setPreview(null); setError(""); }} onWritten={refresh} onEnd={() => setBusy(false)} /></> : <div className={panel}><h2 className="text-lg font-semibold text-ink">Структура программы</h2><p className="mt-2 text-sm text-ink-soft">Разберите исходник с Коучем или задайте структуру вручную. Все тренировки будут в одном черновике.</p></div>}</div>
+      <ResponsiveDisclosure title="Исходник и диалог с Коучем" initiallyOpen={!draft.document}><SourceView text={draft.source_text} /><SwimDialogue draft={draft} busy={busy || needsRead || editing !== null || manualOpen} onStart={() => { setBusy(true); setPreview(null); setError(""); }} onFinish={async () => { await refresh(); setBusy(false); }} /></ResponsiveDisclosure>
+      <div className="min-w-0 space-y-4">{draft.document && draft.summary ? <><ProgramStructure document={draft.document} summary={draft.summary} showSummary={false} editingDisabled={busy || needsRead || editing !== null} onEditNode={id => edit({ kind: "node", id })} onAddNode={id => edit({ kind: "add", id })} onEditWorkout={id => edit({ kind: "workout", id })} /><SourceCoverage draft={draft} busy={busy || needsRead || editing !== null} onStart={() => { setBusy(true); setPreview(null); setError(""); }} onWritten={refresh} onEnd={() => setBusy(false)} /></> : <div className={panel}><h2 className="text-lg font-semibold text-ink">Структура программы</h2><p className="mt-2 text-sm text-ink-soft">Разберите исходник с Коучем или задайте структуру вручную. Все тренировки будут в одном черновике.</p></div>}</div>
     </div>}
   </>;
 }

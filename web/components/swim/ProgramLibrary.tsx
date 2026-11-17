@@ -7,15 +7,16 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import { swimError } from "@/lib/swim-api";
 import type { SwimProgramAnyVersionResponse, SwimProgramListResponse } from "@/lib/types";
-import { ProgramStructure, metres } from "./ProgramStructure";
+import { ProgramStructure, ProgramSummary, metres } from "./ProgramStructure";
 import { SourceView } from "./SourceView";
+import { ResponsiveDisclosure } from "./ResponsiveDisclosure";
 import { button, input, panel } from "./styles";
 
 export function ProgramLibrary() {
   const { data, error, mutate } = useSWR<SwimProgramListResponse>("/api/swim-programs", fetcher);
   return <section className={panel} aria-label="Сохранённые программы">
     <h2 className="text-lg font-semibold text-ink">Сохранённые программы</h2>
-    {error ? <div role="alert" className="mt-2 text-sm text-tone-warning">{swimError(error)} <button type="button" className={button} onClick={() => void mutate()}>Повторить чтение библиотеки</button></div> : !data ? <p role="status" className="mt-2 text-sm text-ink-soft">Загружаем библиотеку…</p> : data.items.length ? <ul className="mt-3 space-y-3">{data.items.map(item => <li key={item.program_id}>
+    {error ? <div role="alert" className="mt-2 text-sm border-l-2 border-tone-warning pl-3 text-ink">{swimError(error)} <button type="button" className={button} onClick={() => void mutate()}>Повторить чтение библиотеки</button></div> : !data ? <p role="status" className="mt-2 text-sm text-ink-soft">Загружаем библиотеку…</p> : data.items.length ? <ul className="mt-3 space-y-3">{data.items.map(item => <li key={item.program_id}>
       <Link className="break-words text-sm text-accent underline" href={`/coach/swim?program=${item.program_id}&revision=${item.revision}`}>{item.title}</Link>
       <p className="mt-1 text-sm text-ink-soft">Версия {item.revision} · тренировок: {item.workout_count} · {item.distance_meters === null ? `Дистанция неизвестна; фиксированная часть ${metres(item.known_distance_meters)}` : metres(item.distance_meters)}</p>
     </li>)}</ul> : <p className="mt-2 text-sm text-ink-soft">После подтверждения программа появится здесь.</p>}
@@ -42,6 +43,7 @@ export function SavedProgram({ programId, revision }: { programId: string; revis
         <Link className={button} href={`/coach/swim?program=${programId}`}>Последняя версия</Link>
       </form>
     </section>
-    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"><SourceView text={data.document.source_text} /><ProgramStructure document={data.document} summary={data.summary} /></div>
+    <ProgramSummary document={data.document} summary={data.summary} />
+    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"><ResponsiveDisclosure title="Исходник сохранённой программы"><SourceView text={data.document.source_text} /></ResponsiveDisclosure><ProgramStructure document={data.document} summary={data.summary} showSummary={false} /></div>
   </>;
 }

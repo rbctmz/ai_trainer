@@ -68,6 +68,6 @@ export function ManualStructure({ draft, busy, onStart, onWritten, onEnd, onOpen
         <div className="flex flex-wrap gap-2"><button type="submit" className={primary} disabled={!content.workouts.length}>Записать структуру черновика</button><button type="button" className={button} onClick={() => setStaging({ ...staging, open: false })}>Свернуть форму</button></div>
       </fieldset>
     </form> : null}
-    {error ? <p role="alert" className="mt-3 text-sm text-tone-warning">{error}</p> : null}
+    {error ? <p role="alert" className="mt-3 text-sm border-l-2 border-tone-warning pl-3 text-ink">{error}</p> : null}
   </section>;
 }

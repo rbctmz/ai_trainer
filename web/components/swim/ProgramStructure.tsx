@@ -99,22 +99,26 @@ function Step({ node, source, bindings, onEdit, onAdd, disabled }: {
   </div>;
 }
 
-export function ProgramStructure({ document, summary, onEditNode, onAddNode, onEditWorkout, editingDisabled = false }: {
-  document: Document; summary: Summary; onEditNode?: (id: string) => void;
-  onAddNode?: (id: string) => void; onEditWorkout?: (id: string) => void;
-  editingDisabled?: boolean;
-}) {
-  const source = Array.from(document.source_text);
-  const bindings = new Map<string, SwimExerciseBinding>(document.schema_version === 2 ? document.exercise_bindings.map(binding => [binding.node_id, binding]) : []);
+export function ProgramSummary({ document, summary }: { document: Document; summary: Summary }) {
   const known = "known_distance_meters" in summary ? summary.known_distance_meters : summary.distance_meters;
-  return <div className="space-y-4">
-    <section className={panel} aria-label="Объём программы">
+  return <section className={panel} aria-label="Объём программы">
       <h2 className="text-lg font-semibold text-ink">Объём программы</h2>
       <p className="mt-2 text-lg font-semibold text-ink">{summary.distance_meters === null ? "Полная дистанция неизвестна" : metres(summary.distance_meters)}</p>
       {summary.distance_meters === null ? <p className="mt-1 text-sm text-ink-soft">Известная фиксированная часть: {metres(known)}</p> : null}
       <p className="mt-1 text-sm text-ink-soft">Тренировок: {document.workouts.length} · Полная длительность и TSS не определены</p>
-      {summary.warnings.length ? <ul className="mt-3 space-y-1 text-sm text-tone-warning">{summary.warnings.map((warning, index) => <li key={index}>{warnings[warning.code] || "Требуется проверка структуры."}</li>)}</ul> : null}
-    </section>
+      {summary.warnings.length ? <ul className="mt-3 space-y-1 border-l-2 border-tone-warning pl-3 text-sm text-ink">{summary.warnings.map((warning, index) => <li key={index}>{document.workouts.find(item => item.id === warning.workout_id)?.title}{warning.workout_id ? ": " : ""}{warnings[warning.code] || "Требуется проверка структуры."}</li>)}</ul> : null}
+    </section>;
+}
+
+export function ProgramStructure({ document, summary, onEditNode, onAddNode, onEditWorkout, editingDisabled = false, showSummary = true }: {
+  document: Document; summary: Summary; onEditNode?: (id: string) => void;
+  onAddNode?: (id: string) => void; onEditWorkout?: (id: string) => void;
+  editingDisabled?: boolean; showSummary?: boolean;
+}) {
+  const source = Array.from(document.source_text);
+  const bindings = new Map<string, SwimExerciseBinding>(document.schema_version === 2 ? document.exercise_bindings.map(binding => [binding.node_id, binding]) : []);
+  return <div className="space-y-4">
+    {showSummary ? <ProgramSummary document={document} summary={summary} /> : null}
     <section className="space-y-4" aria-label="Структура программы">
       <h2 className="text-lg font-semibold text-ink">Структура программы</h2>
       {document.workouts.map(workout => {

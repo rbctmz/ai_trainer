@@ -53,7 +53,7 @@ export function ExerciseEditor({ initial, baseRevision, onSaved, onClose }: { in
     <ExerciseDefinition document={preview.document} />
     <p className="text-sm text-ink-soft">Определение не содержит дозировку. Уже сохранённые программы сохранят свои версии техники.</p>
     <div className="flex flex-wrap gap-2"><button type="button" className={primary} disabled={busy} onClick={() => void confirm()}>Подтвердить сохранение упражнения</button><button type="button" className={button} disabled={busy} onClick={() => { setPreview(null); setConfirmation(null); }}>Вернуться к определению</button></div>
-    {error ? <p role="alert" className="text-sm text-tone-warning">{error}</p> : null}
+    {error ? <p role="alert" className="text-sm border-l-2 border-tone-warning pl-3 text-ink">{error}</p> : null}
   </section>;
   return <section className={panel} aria-label="Определение упражнения"><form className="space-y-4" onSubmit={event => { event.preventDefault(); void prepare(); }}>
     <h2 className="text-lg font-semibold text-ink">{baseRevision ? "Новая версия упражнения" : "Новое упражнение"}</h2>
@@ -71,6 +71,6 @@ export function ExerciseEditor({ initial, baseRevision, onSaved, onClose }: { in
       <button type="button" className={button} onClick={() => setDocument({ ...document, video_cues: [...document.video_cues, { source_label: "", start_seconds: 0, end_seconds: 0 }] })}>Добавить видео-фрагмент</button>
       <div className="flex flex-wrap gap-2"><button type="submit" className={primary}>Предпросмотр упражнения</button><button type="button" className={button} onClick={onClose}>Закрыть определение</button></div>
     </fieldset>
-    {error ? <p role="alert" className="text-sm text-tone-warning">{error}</p> : null}
+    {error ? <p role="alert" className="text-sm border-l-2 border-tone-warning pl-3 text-ink">{error}</p> : null}
   </form></section>;
 }

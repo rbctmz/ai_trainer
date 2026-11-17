@@ -46,7 +46,7 @@ export function SourceCoverage({ draft, busy, onStart, onWritten, onEnd }: {
           </fieldset>
         </form> : null}
       </li>; })}</ul>
-      {error ? <p role="alert" className="mt-3 text-sm text-tone-warning">{error}</p> : null}
+      {error ? <p role="alert" className="mt-3 text-sm border-l-2 border-tone-warning pl-3 text-ink">{error}</p> : null}
     </section> : null}
     {draft.acknowledgements.length ? <details className={panel}><summary className="cursor-pointer text-sm text-ink focus:ring-2 focus:ring-accent">Подтверждённые пояснения ({draft.acknowledgements.length})</summary><ul className="mt-3 space-y-3">{draft.acknowledgements.map((ack, index) => <li key={index}><blockquote className="whitespace-pre-wrap break-words text-sm text-ink-soft">{source.slice(ack.span.start, ack.span.end).join("")}</blockquote><p className="mt-1 text-sm text-ink">{ack.reason}</p></li>)}</ul></details> : null}
   </>;

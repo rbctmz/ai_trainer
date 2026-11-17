@@ -83,7 +83,7 @@ export function SwimDialogue({ draft, busy, onStart, onFinish }: {
     {!draft.document ? <button type="button" disabled={!ready || busy} className={`${primary} mt-3`} onClick={() => void send("Разбери весь сохранённый исходник тренера. Неясные места оставь вопросами; сохрани все тренировки и серии.")}>Разобрать с Коучем</button> : null}
     {lines.length ? <div className="mt-4 space-y-3" aria-label="История разбора">{lines.map((line, index) => <div key={index} className="min-w-0 rounded-lg bg-surface-muted p-3"><p className="text-sm font-medium text-ink">{line.role === "user" ? "Вы" : "Коуч"}</p><p className="mt-1 whitespace-pre-wrap break-words text-sm text-ink-soft">{line.text}</p></div>)}</div> : null}
     {progress ? <p role="status" className="mt-3 text-sm text-ink-soft">{progress}</p> : null}
-    {error ? <p role="alert" className="mt-3 text-sm text-tone-warning">{error}</p> : null}
+    {error ? <p role="alert" className="mt-3 text-sm border-l-2 border-tone-warning pl-3 text-ink">{error}</p> : null}
     <form className="mt-4 space-y-2" onSubmit={event => { event.preventDefault(); void send(message); }}>
       <label htmlFor="swim-coach-message" className="block text-sm text-ink">Запрос Коучу</label>
       <textarea id="swim-coach-message" className={`${input} min-h-24`} disabled={!ready || busy} value={message} onChange={event => setMessage(event.target.value)} placeholder="Уточните задание или опишите одну правку" />
