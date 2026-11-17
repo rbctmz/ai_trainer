@@ -1,6 +1,7 @@
 """Manual rich prescriptions and bounded edits use the same persisted draft."""
 
 import re
+from uuid import uuid4
 
 import pytest
 from playwright.sync_api import expect
@@ -93,6 +94,7 @@ def test_manual_three_workouts_ranges_attempts_and_exact_patch_without_ai(web_st
         expect(page.get_by_role("status").filter(has_text="Сохранённая версия 1")).to_be_visible()
         saved = api_get(web_stack, f"/api/swim-programs/{raw['program_id']}/versions/1")
         assert saved["document"] == changed["document"] and ai_calls == []
+        assert not [error for error in web_stack.js_errors if error.startswith("pageerror:") or "hydration" in error.lower()]
     finally:
         page.unroute("**/api/coach/swim-import*", forbid_ai)
 
@@ -172,3 +174,47 @@ def test_timed_group_effort_and_breath_rest_survive_bounded_form_edits(web_stack
     assert group["steps"][-1]["seconds"] is None and group["last_rest"] == "include"
     assert changed["summary"]["distance_meters"] is None
     assert changed["summary"]["known_distance_meters"] == 1000
+
+
+def test_initial_manual_structure_pins_selected_exercise_atomically(web_stack):
+    exercise = {
+        "schema_version": 1, "id": str(uuid4()), "name": "Atomic synthetic technique",
+        "variant": "One arm", "instructions": "Version one cue", "environments": ["pool"], "equipment": ["fins"],
+    }
+    preview = api_post(web_stack, "/api/swim-exercises/preview", {"document": exercise})
+    saved = api_post(web_stack, "/api/swim-exercises/confirm", {**preview, "base_revision": 0, "request_id": str(uuid4()), "confirm": True})
+    raw = api_post(web_stack, "/api/swim-imports", {"source_text": "Synthetic assignment 150 metres with buoy", "request_id": str(uuid4())})
+    page = web_stack.page
+    page.goto(web_stack.web_base + f"/coach/swim?draft={raw['import_id']}")
+    page.get_by_role("button", name="Создать структуру вручную", exact=True).click()
+    form = page.get_by_role("region", name="Ручная структура", exact=True)
+    form.get_by_label("Название программы", exact=True).fill("Atomic manual program")
+    form.get_by_role("button", name="Привязать весь исходник", exact=True).click()
+    form.get_by_role("button", name="Добавить тренировку", exact=True).click()
+    workout = form.get_by_role("article", name="Ручная тренировка 1", exact=True)
+    workout.get_by_label("Название тренировки", exact=True).fill("Pool assignment")
+    workout.get_by_label("Длина бассейна, м", exact=True).fill("25")
+    workout.get_by_role("button", name="Добавить шаг", exact=True).click()
+    step = workout.get_by_role("group", name="Элемент 1", exact=True)
+    step.get_by_label("Название элемента", exact=True).fill("Original assignment name")
+    step.get_by_label("Объём шага", exact=True).select_option("distance")
+    step.get_by_label("Дистанция, м", exact=True).fill("150")
+    step.get_by_label("Колобашка", exact=True).check()
+    step.get_by_label("Инструкция", exact=True).fill("Original assignment cue")
+    picker = step.get_by_role("region", name="Выбор упражнения", exact=True)
+    picker.get_by_label("Поиск упражнения", exact=True).fill("Atomic synthetic technique")
+    picker.get_by_label("Поиск упражнения", exact=True).press("Enter")
+    expect(form).to_be_visible()
+    assert api_get(web_stack, f"/api/swim-imports/{raw['import_id']}")["revision"] == 0
+    picker.get_by_role("button", name="Выбрать: Atomic synthetic technique — One arm · версия 1", exact=True).click()
+    new = {**saved["document"], "instructions": "Version two cue"}
+    new_preview = api_post(web_stack, "/api/swim-exercises/preview", {"document": new})
+    api_post(web_stack, "/api/swim-exercises/confirm", {**new_preview, "base_revision": 1, "request_id": str(uuid4()), "confirm": True})
+    form.get_by_role("button", name="Записать структуру черновика", exact=True).click()
+    expect(form).not_to_be_visible()
+    result = api_get(web_stack, f"/api/swim-imports/{raw['import_id']}")
+    binding = result["document"]["exercise_bindings"][0]
+    node = result["document"]["workouts"][0]["steps"][0]
+    assert binding["revision"] == 1 and binding["document"] == saved["document"]
+    assert node["quantity"] == {"kind": "distance", "meters": 150}
+    assert node["equipment"] == ["pull_buoy"] and node["instructions"] == "Original assignment cue"
