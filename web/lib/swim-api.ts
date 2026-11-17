@@ -27,9 +27,9 @@ export async function swimPost<T>(path: string, body: unknown): Promise<T> {
   return postJSON<T>(path, body);
 }
 
-export async function streamSwimCoach(payload: SwimCoachTurnRequest, onEvent: (event: SwimCoachEvent) => void): Promise<void> {
+export async function streamSwimCoach(payload: SwimCoachTurnRequest, onEvent: (event: SwimCoachEvent) => void, signal?: AbortSignal): Promise<void> {
   const response = await fetch(withDemo("/api/coach/swim-import"), {
-    method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" }, body: JSON.stringify(payload),
+    method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" }, body: JSON.stringify(payload), signal,
   });
   if (!response.ok || !response.body) {
     let data: Record<string, unknown> | undefined;

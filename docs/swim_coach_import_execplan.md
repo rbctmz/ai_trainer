@@ -39,6 +39,7 @@ work survive. Unknown distance/duration/load are displayed rather than invented.
 - [x] M2D #772 contract and actual browser RED: missing Coach entry link,1FAIL39.13s. First setup attempt lacked Chromium in scratch HOME; installed in separate /private/tmp/ai-trainer-playwright and reran. No personal app/DB.
 - [x] M2D first source prototype GREEN: actual browser source capture/exact Unicode/spacing→URL→reload,1PASS8.08s; no AI request. New route/entry, input recovery buffer, selected-source read and root-list errors.94contract checks and web lint/build PASS. Structure/Coach/editor/save controls are not yet implemented.
 - [x] M2D whole-program renderer RED cc345d1 (2FAIL17.07s)→GREEN (3PASS9.33s): all3workouts/server6100m and unknown total with fixed1000m + timed175/25cycle. Web lint/build PASS. Pinned technique/source fragments are readable; Coach/edit/save are pending.
+- [x] M2D Coach journey RED68426f2(1FAIL35.66s disabled action)→GREEN1PASS7.32s: real API/DB + guarded synthetic native provider,3workouts→question→one context patch→full preview→explicit confirm→actual version GET→no-AI reopen. Separate source/boundary suite5PASS plus1expectedRED for absent manual editor; lost confirm response retries identical token into one version, concurrent draft rejects stale save.96contract checks PASS. This is not live model quality evidence.
 - [ ] Full-goal audit: actual source→clarification→single edit→save→reload, current CI/review, explicit limitations.
 
 ## Context and Orientation

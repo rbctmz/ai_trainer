@@ -117,3 +117,73 @@ def test_unknown_time_cycle_is_displayed_without_invented_metres(web_stack):
     expect(page.get_by_role("region", name="Структура программы")).to_contain_text(
         "25 м"
     )
+
+
+def test_lost_confirm_response_retries_exact_preview_once(web_stack):
+    from tests.smoke._swim_import_fixtures import exact_program_v2
+
+    draft = seeded_draft(web_stack, exact_program_v2())
+    page = web_stack.page
+    page.goto(web_stack.web_base + f"/coach/swim?draft={draft['import_id']}")
+    page.get_by_role("button", name="Подготовить предпросмотр", exact=True).click()
+    expect(page.get_by_role("region", name="Предпросмотр сохранения")).to_be_visible()
+    attempts = []
+
+    def lose_first_response(route):
+        attempts.append(route.request.post_data_json)
+        response = route.fetch()
+        assert response.status == 200
+        if len(attempts) == 1:
+            route.abort()
+        else:
+            route.fulfill(response=response)
+
+    page.route("**/api/swim-programs/confirm*", lose_first_response)
+    try:
+        page.get_by_role("button", name="Подтвердить сохранение программы", exact=True).click()
+        expect(page.get_by_role("alert").filter(has_text="Результат сохранения")).to_be_visible()
+        expect(page.get_by_role("region", name="Предпросмотр сохранения")).to_be_visible()
+        page.get_by_role("button", name="Повторить подтверждение", exact=True).click()
+        expect(page.get_by_role("status").filter(has_text="Сохранённая версия 1")).to_be_visible()
+        assert attempts[0] == attempts[1]
+        with urllib.request.urlopen(web_stack.api_base + f"/api/swim-programs/{draft['program_id']}?demo=1", timeout=30) as response:
+            assert json.loads(response.read())["revision"] == 1
+    finally:
+        page.unroute("**/api/swim-programs/confirm*", lose_first_response)
+
+
+def test_concurrent_draft_change_rejects_preview_and_preserves_source(web_stack):
+    from tests.smoke._swim_import_fixtures import exact_program_v2
+
+    draft = seeded_draft(web_stack, exact_program_v2())
+    page = web_stack.page
+    page.goto(web_stack.web_base + f"/coach/swim?draft={draft['import_id']}")
+    page.get_by_role("button", name="Подготовить предпросмотр", exact=True).click()
+    expect(page.get_by_role("region", name="Предпросмотр сохранения")).to_be_visible()
+    api_post(web_stack, f"/api/swim-imports/{draft['import_id']}/patch", {
+        "expected_revision": 1, "request_id": str(uuid4()),
+        "operation": {"op": "set_title", "title": "Concurrent human correction"},
+    })
+    page.get_by_role("button", name="Подтвердить сохранение программы", exact=True).click()
+    expect(page.get_by_role("alert").filter(has_text="Черновик изменился")).to_be_visible()
+    page.get_by_role("button", name="Вернуться к черновику", exact=True).click()
+    page.get_by_role("button", name="Обновить черновик", exact=True).click()
+    expect(page.get_by_role("heading", name="Concurrent human correction", exact=True)).to_be_visible()
+    expect(page.get_by_label("Исходный текст", exact=True)).to_have_value(draft["source_text"])
+    with pytest.raises(urllib.error.HTTPError) as failed:
+        urllib.request.urlopen(web_stack.api_base + f"/api/swim-programs/{draft['program_id']}?demo=1", timeout=30)
+    assert failed.value.code == 404
+
+
+def test_missing_native_provider_keeps_source_and_manual_action(web_stack):
+    from tests.smoke._swim_import_fixtures import exact_program_v2
+
+    raw = api_post(web_stack, "/api/swim-imports", {
+        "source_text": exact_program_v2()["source_text"], "request_id": str(uuid4()),
+    })
+    page = web_stack.page
+    page.goto(web_stack.web_base + f"/coach/swim?draft={raw['import_id']}")
+    page.get_by_role("button", name="Разобрать с Коучем", exact=True).click()
+    expect(page.get_by_role("alert").filter(has_text="структуру")).to_be_visible()
+    expect(page.get_by_label("Исходный текст", exact=True)).to_have_value(raw["source_text"])
+    expect(page.get_by_role("button", name="Создать структуру вручную", exact=True)).to_be_enabled()
