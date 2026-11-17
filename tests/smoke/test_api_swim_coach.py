@@ -363,3 +363,59 @@ def test_missing_chat_corrupt_source_and_unavailable_provider_stop_before_call(
     response = client.post("/api/coach/swim-import", json=request(empty))
     assert response.status_code == 503 and "PRIVATE_CANARY" not in response.text
     assert provider.calls == []
+
+
+@pytest.mark.parametrize("channel", ["question", "unresolved"])
+def test_unverified_saved_claim_cannot_enter_structured_questions(
+    setup, monkeypatch, channel
+):
+    client, db, root = setup
+    empty = capture(db)
+    claim = "Программа сохранена в библиотеку и отправлена на часы. Хотите продолжить?"
+    if channel == "question":
+        round1 = call("ask_swim_import_question", {"question": claim})
+    else:
+        raw = content()
+        raw["workouts"][0]["steps"] = [
+            {
+                "kind": "unresolved",
+                "id": "unknown",
+                "instructions": "Original ambiguity",
+                "question": claim,
+            }
+        ]
+        round1 = call("parse_swim_import", {"content": raw})
+    monkeypatch.setattr(coach, "resolve_provider", lambda _: Provider([round1]))
+    response = client.post("/api/coach/swim-import", json=request(empty))
+    out = events(response)
+    assert claim not in response.text
+    assert next(e for e in out if e["type"] == "swim_import")["status"] == "error"
+    chat = json.loads((root / "chats" / f"{out[0]['chat_id']}.json").read_text())
+    assert claim not in chat["messages"][-1]["content"]
+    assert drafts.get_draft(db, empty["import_id"])["revision"] == 0
+    assert library.list_programs(db) == []
+
+
+def test_failed_final_readback_preserves_last_confirmed_revision(setup, monkeypatch):
+    client, db, _ = setup
+    empty = capture(db)
+    real_get = drafts.get_draft
+
+    def final_read_failure(*args, **kwargs):
+        raise drafts.SwimImportError("storage_unavailable", 503)
+
+    class PartialProvider(Provider):
+        def generate_with_tools(self, messages, tools, system_prompt=""):
+            if self.calls:
+                monkeypatch.setattr(drafts, "get_draft", final_read_failure)
+            return super().generate_with_tools(messages, tools, system_prompt)
+
+    provider = PartialProvider([call("parse_swim_import", {"content": content()})])
+    monkeypatch.setattr(coach, "resolve_provider", lambda _: provider)
+    out = events(client.post("/api/coach/swim-import", json=request(empty)))
+    actual = real_get(db, empty["import_id"])
+    assert actual["revision"] == 1
+    for event in out:
+        if event["type"] in ("swim_import", "done"):
+            assert event["revision"] == 1
+            assert event["readback_status"] == "unavailable"
