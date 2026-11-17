@@ -373,12 +373,8 @@
       ]
     },
     "/api/swim-imports": {
-      "interface": "SwimImportDraftResponse",
-      "method": "POST",
-      "scenarios": [{"state":"empty","expect":200,"json":{
-        "source_text":"Synthetic import source retained before AI.",
-        "request_id":"66666666-6666-4666-8666-666666666666"
-      }}]
+      "interface": "SwimImportListResponse",
+      "scenarios": [{"state":"empty","expect":200},{"state":"demo","expect":200}]
     },
     "/api/swim-exercises/preview": {
       "interface": "SwimExercisePreviewResponse",

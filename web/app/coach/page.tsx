@@ -1,6 +1,7 @@
 "use client";
 
 import { CycleState } from "@/components/planning/CyclePanel";
+import Link from "next/link";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
@@ -214,6 +215,7 @@ function CoachContent() {
       </fieldset>
 
       <section className="flex h-[calc(100vh-180px)] min-h-[420px] min-w-0 flex-col rounded-card border border-surface-border bg-surface shadow-card">
+        <div className="border-b border-surface-border px-4 py-3"><Link href="/coach/swim" className="text-sm font-medium text-accent underline focus:outline-none focus:ring-2 focus:ring-accent">Программа тренера</Link></div>
         <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto p-4">
           {loadError ? (
             <div className="flex h-full flex-col items-center justify-center text-center">

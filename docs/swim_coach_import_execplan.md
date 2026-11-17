@@ -37,6 +37,7 @@ work survive. Unknown distance/duration/load are displayed rather than invented.
 - [ ] M2D web source/structure/editor/save/readback and isolated user acceptance.
 - [x] M2C #773 owner accepted/merged8ba8e4917.11.2026 14:15:18UTC; #771 closed. Final CI4677PASS/47skip/156deselected, E2E132PASS, populated TS3PASS, scoped native round2 clean, bothP2 resolved. No additional model calls.
 - [x] M2D #772 contract and actual browser RED: missing Coach entry link,1FAIL39.13s. First setup attempt lacked Chromium in scratch HOME; installed in separate /private/tmp/ai-trainer-playwright and reran. No personal app/DB.
+- [x] M2D first source prototype GREEN: actual browser source capture/exact Unicode/spacing→URL→reload,1PASS8.08s; no AI request. New route/entry, input recovery buffer, selected-source read and root-list errors.94contract checks and web lint/build PASS. Structure/Coach/editor/save controls are not yet implemented.
 - [ ] Full-goal audit: actual source→clarification→single edit→save→reload, current CI/review, explicit limitations.
 
 ## Context and Orientation
