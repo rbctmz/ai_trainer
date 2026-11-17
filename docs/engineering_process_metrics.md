@@ -992,3 +992,22 @@ absent, cost belongs to owner; bucket privacy owner-reported, policy not separat
 audited. Windows/ACL unverified; escaped-defect observation remains open. Public
 closure evidence is in #626/#622; private receipts stay outside Git. This factual
 documentation update is Class C: no behavior, contract or retention-policy change.
+
+## Class A Post-Merge Record — PR #766 / issue #761 (17.11.2026)
+
+M1 trainer-authored swimming library merged16.11.2026 as
+`50421021545aba4b9d19274152eb899c4bcde610`. PR opened15:14:46UTC, merged19:44:14UTC;
+calendar PR cycle4h29m28s, active work/wait time not captured. Issue lead time
+not captured in this receipt. One native clean round on`3cc405af38` (1/2), no
+formal review objects or inline findings visible in the readback; owner accepted
+review and authorized merge in chat. Current-head CI green at acceptance,
+4573passed/44skipped/156deselected per M1 acceptance receipt. Local pre-merge
+DSH subprocess timeout and Node25 dylib limitation were disclosed separately;
+CI result is not a claim that the local broad contour was entirely green.
+No escaped defect linked to #766 observed at this checkpoint; observation remains
+open. Source: [PR](https://github.com/rbctmz/ai_trainer/pull/766),
+[authenticated clean result](https://github.com/rbctmz/ai_trainer/pull/766#issuecomment-6920963666).
+
+Observed: GitHub readback confirms merge SHA/timestamps and one clean current-head
+comment, reviews array empty. Inferred: review used1of2rounds, not zero merely
+because the clean result is a comment. Verified by: gh pr view766 JSON on17.11.2026.
