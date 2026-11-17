@@ -199,11 +199,17 @@ def pytest_runtest_makereport(item, call):
 
 
 @pytest.fixture(scope="module")
-def web_stack():
+def web_stack(request):
     from scripts.scratch_runtime import ScratchScope, scope_from_environment
     parent_scope = scope_from_environment()
     if parent_scope is None:
         raise RuntimeError("scratch_identity_unknown: bootstrap")
+    app_name = {
+        None: "api.main:app",
+        "swim_native": "tests.e2e.swim_acceptance_app:app",
+    }.get(getattr(request, "param", None))
+    if app_name is None:
+        raise RuntimeError("unsupported E2E app scenario")
     session_scope = ScratchScope.create(parent=parent_scope.root / "tmp")
     tmp_dir = session_scope.root
     api_port = _free_port()
@@ -240,7 +246,7 @@ def web_stack():
         validate_acceptance_child_environment(api_env)
         with api_log.open("wb") as log_handle:
             api_proc = subprocess.Popen(
-                [sys.executable, "-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", str(api_port)],
+                [sys.executable, "-m", "uvicorn", app_name, "--host", "127.0.0.1", "--port", str(api_port)],
                 cwd=REPO_ROOT,
                 env=api_env,
                 stdout=log_handle,
