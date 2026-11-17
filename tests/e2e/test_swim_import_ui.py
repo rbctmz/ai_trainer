@@ -187,3 +187,57 @@ def test_missing_native_provider_keeps_source_and_manual_action(web_stack):
     expect(page.get_by_role("alert").filter(has_text="структуру")).to_be_visible()
     expect(page.get_by_label("Исходный текст", exact=True)).to_have_value(raw["source_text"])
     expect(page.get_by_role("button", name="Создать структуру вручную", exact=True)).to_be_enabled()
+
+
+def test_lost_capture_response_recovers_input_and_replays_same_source(web_stack):
+    page = web_stack.page
+    page.goto(web_stack.web_base + "/coach/swim")
+    page.get_by_label("Текст тренера", exact=True).fill(SOURCE)
+    attempts, retained = [], []
+
+    def lose_once(route):
+        attempts.append(route.request.post_data_json)
+        response = route.fetch()
+        retained.append(response.json()["import_id"])
+        if len(attempts) == 1:
+            route.abort()
+        else:
+            route.fulfill(response=response)
+
+    page.route(re.compile(r".*/api/swim-imports(?:\?.*)?$"), lose_once)
+    try:
+        page.get_by_role("button", name="Сохранить исходник", exact=True).click()
+        expect(page.get_by_role("alert").filter(has_text="Не удалось получить подтверждение")).to_be_visible()
+        page.reload()
+        expect(page.get_by_label("Текст тренера", exact=True)).to_have_value(SOURCE)
+        page.get_by_role("button", name="Сохранить исходник", exact=True).click()
+        expect(page.get_by_label("Исходный текст", exact=True)).to_have_value(SOURCE)
+        assert attempts[0] == attempts[1] and retained[0] == retained[1]
+        expect(page).to_have_url(re.compile(retained[0]))
+    finally:
+        page.unroute(re.compile(r".*/api/swim-imports(?:\?.*)?$"), lose_once)
+
+
+def test_legacy_v1_saved_program_is_readable_without_ai_or_conversion(web_stack):
+    from tests.smoke._swim_program_fixtures import example_program
+
+    document = example_program()
+    preview = api_post(web_stack, "/api/swim-programs/preview", {"document": document, "base_revision": 0})
+    saved = api_post(web_stack, "/api/swim-programs/confirm", {"preview_id": preview["preview_id"], "confirm": True})
+    assert saved["document"]["schema_version"] == 1
+    page = web_stack.page
+    ai_calls = []
+
+    def forbid_ai(route):
+        ai_calls.append(route.request.url)
+        route.abort()
+
+    page.route("**/api/coach/swim-import*", forbid_ai)
+    try:
+        page.goto(web_stack.web_base + f"/coach/swim?program={saved['program_id']}&revision=1")
+        expect(page.get_by_role("region", name="Объём программы")).to_contain_text(re.compile(r"6\s?100\s?м"))
+        expect(page.get_by_label("Исходный текст", exact=True)).to_have_value(document["source_text"])
+        expect(page.get_by_role("region", name="Структура программы").get_by_role("article")).to_have_count(3)
+        assert ai_calls == []
+    finally:
+        page.unroute("**/api/coach/swim-import*", forbid_ai)

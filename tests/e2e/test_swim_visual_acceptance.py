@@ -44,11 +44,17 @@ def test_program_geometry_primary_contrast_and_optional_synthetic_evidence(web_s
                 colors = action.evaluate("element => {const css=getComputedStyle(element); return {fg: css.color, bg: css.backgroundColor, height: element.getBoundingClientRect().height};}")
                 assert contrast(colors["fg"], colors["bg"]) >= 4.5, (theme, width, colors)
                 assert colors["height"] >= 44
+                warning = page.get_by_role("region", name="Объём программы").locator("li").first()
+                warning_colors = warning.evaluate("element => ({fg: getComputedStyle(element).color, bg: getComputedStyle(element.closest('section')).backgroundColor})")
+                assert contrast(warning_colors["fg"], warning_colors["bg"]) >= 4.5, (theme, warning_colors)
+                if width < 1024:
+                    expect(page.get_by_role("region", name="Объём программы").get_by_text(re.compile(r"6\s?100\s?м"), exact=True)).to_be_in_viewport()
                 if capture and width != 320:
                     folder = ROOT / "docs/design/evidence/issue-772"
                     folder.mkdir(parents=True, exist_ok=True)
                     filename = f"program-{theme}-{width}.png"
                     page.screenshot(path=str(folder / filename), full_page=True)
+                    page.screenshot(path=str(folder / filename.replace(".png", "-first-screen.png")), full_page=False)
                     records.append({"file": filename, "theme": theme, "viewport": {"width": width, "height": 900}, "colors": colors})
         if capture:
             files = sorted((ROOT / "web/components/swim").glob("*.tsx")) + [ROOT / "web/components/swim/styles.ts", ROOT / "web/app/coach/swim/page.tsx", ROOT / "web/lib/swim-api.ts"]
