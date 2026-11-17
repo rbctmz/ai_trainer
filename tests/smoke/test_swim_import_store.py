@@ -195,6 +195,9 @@ def test_exact_exercise_revision_is_snapshotted_without_prescription_inheritance
     )
     saved = library.confirm_preview(db, prepare(db, draft)["preview_id"], now=NOW)
     assert saved["document"] == before
+    with db._connect() as conn:
+        conn.execute("DELETE FROM swim_exercise_versions")
+    assert library.get_version(db, saved["program_id"]) == saved
     incompatible = patch(
         db,
         draft,
@@ -417,3 +420,72 @@ def test_retained_command_actor_tamper_is_corruption(tmp_path):
         conn.execute("UPDATE swim_import_revisions SET actor='coach' WHERE revision=1")
     with pytest.raises(store.SwimImportError, match="corrupt"):
         store.get_draft(db, draft["import_id"])
+
+
+def test_source_capture_failure_and_version_failure_leave_no_partial_rows(tmp_path):
+    db = Database(str(tmp_path / "atomic.sqlite"))
+    with db._connect() as conn:
+        conn.execute(
+            "CREATE TRIGGER fail_revision BEFORE INSERT ON swim_import_revisions BEGIN SELECT RAISE(ABORT,'synthetic'); END"
+        )
+    with pytest.raises(store.SwimImportError):
+        capture(db)
+    assert store.list_drafts(db) == []
+    with db._connect() as conn:
+        conn.execute("DROP TRIGGER fail_revision")
+    draft = parse(db, capture(db))
+    preview = prepare(db, draft)
+    with db._connect() as conn:
+        conn.execute(
+            "CREATE TRIGGER fail_receipt BEFORE UPDATE ON swim_program_previews BEGIN SELECT RAISE(ABORT,'synthetic'); END"
+        )
+    with pytest.raises(library.SwimProgramError):
+        library.confirm_preview(db, preview["preview_id"], now=NOW)
+    assert library.list_programs(db) == []
+    assert store.get_draft(db, draft["import_id"]) == draft
+    with db._connect() as conn:
+        conn.execute("DROP TRIGGER fail_receipt")
+    assert library.confirm_preview(db, preview["preview_id"], now=NOW)["revision"] == 1
+
+
+def test_confirm_snapshot_observes_complete_import_and_replay_does_not_repeat(
+    tmp_path, monkeypatch
+):
+    from config.settings import Settings
+    from services import snapshot_runtime as runtime
+    from services.swim_programs import confirm
+
+    db = Database(str(tmp_path / "snapshot-commit.sqlite"))
+    monkeypatch.setattr(Settings, "AUTO_BACKUP_ENABLED", True)
+    monkeypatch.setattr(Settings, "BACKUP_DIR", str(tmp_path / "backups"))
+    monkeypatch.setattr(Settings, "DATABASE_PATH", db.db_path)
+    monkeypatch.setattr(Settings, "ACCEPTANCE_MODE", False)
+    runtime.reset_for_tests()
+    calls = []
+
+    def check(*args):
+        reopened = Database(db.db_path)
+        calls.append(
+            (
+                store.get_draft(reopened, draft["import_id"]),
+                library.get_version(reopened, draft["program_id"]),
+            )
+        )
+        return runtime.empty_status("degraded", "backup_io_error")
+
+    monkeypatch.setattr(runtime, "check_snapshot", check)
+    try:
+        draft = parse(db, capture(db))
+        preview = store.prepare(
+            db,
+            draft["import_id"],
+            PrepareDraft(
+                draft_revision=1, base_library_revision=0, request_id=request_id()
+            ),
+        )
+        assert not calls
+        saved = confirm(db, preview["preview_id"])
+        assert calls == [(draft, saved)]
+        assert confirm(db, preview["preview_id"]) == saved and calls == [(draft, saved)]
+    finally:
+        runtime.reset_for_tests()

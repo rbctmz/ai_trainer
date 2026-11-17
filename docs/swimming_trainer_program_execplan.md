@@ -2,8 +2,8 @@
 
 
 Living ExecPlan per `.agent/PLANS.md`; epic #760. Historical implementation sections below describe M1 #761; M1 is merged
-in PR #766 at5042102. Current work is M2A #767 in
-docs/swim_exercise_library_execplan.md; roadmap docs/swimming_trainer_program_roadmap.md owns M2–M5. Contract
+in PR #766 at5042102. M2A #768 is merged d2e1cf3; current M2B #769 follows
+docs/swim_coach_import_execplan.md; roadmap docs/swimming_trainer_program_roadmap.md owns M2–M5. Contract
 is docs/swim_program_library_slice_spec.md. Owner Greg authorized implementation
 16.11.2026; merge and live writes remain explicit owner decisions.
 
@@ -34,7 +34,8 @@ changes. Unknown full duration/TSS are not invented to fit an old planner budget
 - [x] M1 contracts/checks/self-review and native review completed in PR #766.
 - [x] M1 PR #766 pushed, checks and bounded native review accepted by owner.
 - [x] Owner accepted and merged #766 on16.11.2026, main5042102.
-- [ ] M2A #767 exercise catalog/API: separate ExecPlan; Coach/browser M2 remains open.
+- [x] M2A #767 / #768 exercise catalog/API merged d2e1cf3 after owner acceptance.
+- [ ] M2 #762: rich drafts #769, Coach and browser per swim_coach_import_execplan.md.
 
 ## Context and Orientation
 

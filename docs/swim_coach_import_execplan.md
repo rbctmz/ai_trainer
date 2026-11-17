@@ -21,10 +21,12 @@ work survive. Unknown distance/duration/load are displayed rather than invented.
 - [x]17.11.2026: owner approved #768 review/merge; main d2e1cf3, issue767 closed.
 - [x] Active M2 goal and five-step plan recorded in #762; private24-case corpus remains ignored.
 - [x] M2B #769 created, branch codex/issue-769-swim-import-draft based on merged main.
-- [ ] M2B contract/RED/GREEN: source-bound rich documents and editable retained drafts.
+- [x] M2B contract/RED/GREEN: source-bound rich documents and editable retained drafts.
 - [x] Domain RED: test_swim_program_v2.py collection fails because the version-aware adapter does not yet exist; frozen V1 warning order verified against main.
 - [x] Domain GREEN: 54 focused V1/V2/exercise tests pass; strict version dispatch, Unicode source spans and resource bounds checked.
 - [x] Store RED→GREEN: retained source/draft, bounded edits, stale generic confirm, exact exercise snapshot, race, corruption, rollback and Backup API restore; 54 focused store/domain checks pass.
+- [x] API RED→GREEN and populated TS:139 combined focused checks PASS, then2 additional atomic/snapshot cases PASS in a33-test final focused run. Ruff/diff, extractor, web lint/build PASS with Node22.
+- [ ] Full contributor-safe pass running; DSH preflight failures observed, cause not yet established for this run. CI/native pending.
 - [ ] M2B reviewable PR, CI, bounded independent review; merge only owner decision.
 - [ ] M2C Coach read/prepare/patch tools with trusted turn binding and provider-path checks.
 - [ ] M2D web source/structure/editor/save/readback and isolated user acceptance.
@@ -199,7 +201,10 @@ clarification: timed block finishes the current full200mcycle.
 ## Outcomes & Retrospective
 
 
-M2A is merged. M2B contract/implementation in progress; M2C/M2D not implemented.
+M2A is merged. M2B domain/store/API implemented and focused checks pass; broad
+validation, CI and independent review remain. M2C/M2D are not implemented.
 The complete M2 goal is active, not achieved by catalog API or planning alone.
 
 Revision17.11.2026: initial full-goal plan after owner approval and M2A merge.
+Revision17.11.2026: M2B GREEN checkpoints and retained-preview receipt semantics;
+kept full-goal distinction and recorded predecessor's actual merge outcomes.

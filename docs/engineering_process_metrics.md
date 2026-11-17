@@ -1011,3 +1011,23 @@ open. Source: [PR](https://github.com/rbctmz/ai_trainer/pull/766),
 Observed: GitHub readback confirms merge SHA/timestamps and one clean current-head
 comment, reviews array empty. Inferred: review used1of2rounds, not zero merely
 because the clean result is a comment. Verified by: gh pr view766 JSON on17.11.2026.
+
+## Class A Post-Merge Record — PR #768 / issue #767 (17.11.2026)
+
+M2A private swimming exercise catalog merged as
+`d2e1cf364e988cf1a64dd64b1de8060f2b5e23d6` at07:55:43UTC. Opened16.11.2026
+22:10:13UTC: calendar PR cycle9h45m30s; active work/wait split not captured.
+One native round on fd66f9d695 (1/2), clean result6941845120; explicit owner
+acceptance in chat and receipt6942163804 before SHA-bound protected merge.
+No second full-diff round or unresolved findings. Final Linux CI4603PASS /
+45skipped /156deselected; web contract/E2E/populated TS and secret scan GREEN.
+
+First CI failed because a combined API/TS test assumed web dependencies in the
+Python job. Fixed-in fd66f9d: always-on HTTP test plus guarded extraction and
+explicit populated check after npm ci. Local167focusedPASS, Ruff/lint/build
+PASS; broad sandbox4621PASS/18skip plus8localhost-only failures, separately
+resolved by permitted51+1PASS reruns. This is not one green local broad run.
+User checkout/runtime, athlete DB and watches were not updated by remote merge.
+No escaped defect linked to #768 observed at this checkpoint; observation open.
+Verified by: authenticated PR metadata17.11.2026 and final current-head CI/review
+readback. M2 Coach/import UI remains active under #762; #769 is its next slice.
