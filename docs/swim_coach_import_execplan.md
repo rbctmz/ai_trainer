@@ -31,6 +31,8 @@ work survive. Unknown distance/duration/load are displayed rather than invented.
 - [x] M2B #770 merged ee8279b17.11.2026 08:54:02UTC after explicit owner approval. CI4645PASS/46skip/156deselected, E2E132PASS, native clean3bce1d6 (1/2), zero threads. #769 closed.
 - [x] M2C #771 and M2D #772 created with bounded scope/acceptance; next branch codex/issue-771-swim-coach-tools based on merged main. M2C spec handed to Domain/API for RED.
 - [ ] M2C Coach read/prepare/patch tools with trusted turn binding and provider-path checks.
+- [x] M2C tools RED63f28da→GREENeb4b91e;8adapter/wire +54existing native/runtime checks PASS. API RED302495d→GREEN74combined Coach checks; separate HTTP/SSE mode, no screen changes. Combined final focused215PASS; lint/build/contracts/Ruff PASS.
+- [ ] M2C broad/CI, independent review and owner merge gate.
 - [ ] M2D web source/structure/editor/save/readback and isolated user acceptance.
 - [ ] Full-goal audit: actual source→clarification→single edit→save→reload, current CI/review, explicit limitations.
 
@@ -203,7 +205,8 @@ clarification: timed block finishes the current full200mcycle.
 ## Outcomes & Retrospective
 
 
-M2A/M2B are merged. M2C tools spec is ready for RED; M2C/M2D are not implemented.
+M2A/M2B are merged. M2C tools/API/SSE are implemented on its branch and pass
+focused checks; broad/CI/review remain. M2D is not implemented.
 M2B final current-head bundle is PR770. Local broad4659PASS/18skip/156deselected
 plus7fail/5errors; permitted rerun52PASS,4DSH timeouts remain. One DSH case also
 fails on isolated clean baseline d2e1cf3 (60.26s); scripts/tests unchanged. Cause

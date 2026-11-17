@@ -3140,3 +3140,20 @@ export interface SwimImportPreviewResponse {
   import_id: string;
   draft_revision: number;
 }
+
+// M2C (#771): import-only Coach authority; an update is always a draft.
+export interface SwimCoachTurnRequest {
+  message: string;
+  import_id: string;
+  expected_revision: number;
+  request_id: string;
+  chat_id?: string | null;
+  provider?: string | null;
+}
+export type SwimCoachToolName = "get_swim_import" | "search_swim_exercises" | "get_swim_exercise" | "get_swim_program" | "parse_swim_import" | "patch_swim_import" | "ask_swim_import_question" | "unsupported";
+export type SwimCoachEvent =
+  | { type: "meta"; chat_id: string; import_id: string }
+  | { type: "tool_call"; name: string; tool_name: SwimCoachToolName; status: "done" | "error"; native: true }
+  | { type: "swim_import"; import_id: string; revision: number; status: "draft" | "unparsed" | "error"; code: string | null; library_saved: false }
+  | { type: "token"; content: string }
+  | { type: "done"; chat_id: string; import_id: string; revision: number };

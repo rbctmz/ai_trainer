@@ -1031,3 +1031,23 @@ User checkout/runtime, athlete DB and watches were not updated by remote merge.
 No escaped defect linked to #768 observed at this checkpoint; observation open.
 Verified by: authenticated PR metadata17.11.2026 and final current-head CI/review
 readback. M2 Coach/import UI remains active under #762; #769 is its next slice.
+
+## Class A Post-Merge Record — PR #770 / issue #769 (17.11.2026)
+
+M2B source-bound rich swimming drafts merged
+`ee8279b75c91f3ba91dd13c50244608722140a64` at08:54:02UTC. Opened08:32:14UTC:
+calendar PR cycle21m48s; active/wait split not measured. One clean manual native
+round on3bce1d6701, receipt6943004418,1/2budget and zero open threads. Owner
+explicitly accepted review/merge in chat; acceptance recorded before SHA-bound
+merge. Issue769 closed; no extra full review. Final Linux CI44047810688:
+4645PASS/46skip/156deselected; E2E132PASS, populated TS2PASS, contract and secret
+scan GREEN. Local139combined focusedPASS, then2additional atomic/snapshot cases
+in a33-test focusedPASS; Ruff/lint/build/diff PASS.
+
+Full local sandbox4659PASS/18skip/156deselected +7fail/5errors. Separate permitted
+rerun52PASS,4DSH timeout failures persist. A short-limit case reproduces on an
+isolated clean git archive of baseline d2e1cf3 (60.26s); script/test diff empty.
+Cause unknown; no claim of one fully green local broad run or proven platform
+cause. Leftover synthetic processes checked absent. Public final bundle in PR770.
+No escaped defect linked to #770 observed at this checkpoint; observation open.
+Active full M2 goal continues in #771/#772; user runtime/personal DB not updated.

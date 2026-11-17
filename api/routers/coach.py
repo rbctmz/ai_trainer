@@ -56,8 +56,10 @@ from models.coach_tool_presenter import format_tool_result
 from services.agent_log import PROPOSAL_RESOLVED, record_agent_decision
 from services.intervals_plan_delivery import athlete_local_date
 from utils.product_semantics import tool_label
+from api.routers.swim_coach import router as swim_coach_router
 
 router = APIRouter(prefix="/api/coach", tags=["coach"])
+router.include_router(swim_coach_router)
 
 
 class ChatRequest(BaseModel):

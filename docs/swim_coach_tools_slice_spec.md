@@ -181,3 +181,49 @@ Spec verdict: ready for Domain/API RED implementation, not merge readiness.
 Spec Owner explicitly hands this contract to Domain/API Implementer in this task.
 Independent review0/2; implementation/CI/owner merge gate pending. UI handoff is
 only typed requests/events/errors; #772 owns styling/interaction and screenshots.
+
+## Slice review template completion / evidence
+
+Author/checker/merge owner: Domain/API Implementer / native manual review /
+Greg. Candidate/acceptance SHA pending; budget0/2, no exception. ClassA triggers:
+model authority/source identity, API/SSE/shared runtime extension. Screenshots
+N/A until #772. Observable acceptance, checks and cleanup owner are assigned.
+
+Public contracts: additive explicit POST and typed SSE; mirrored types.ts and
+populated conformance in web CI. Ordinary ChatRequest/SSE and marker dispatch
+unchanged. Native loop's optional system_prompt_override preserves its default.
+No new config/CLI/table/cursor/chat metadata. M2B receipts and existing chat
+history retain their reset/lifecycle semantics; DB reset is not redefined as
+deletion of historical chat files. Source of truth stays selected-store M2B.
+Context keys are import UUID, expected revision and user request UUID; actor is
+server-owned coach. Same call retry returns prior result; differing second write
+fails. Rollback is a reviewed bounded edit, not removal of retained history.
+
+| State / invariant | RED or falsifier | GREEN checkpoint |
+| --- | --- | --- |
+| no source/id/actor/save authority |63f28da: adapter absent |5initial adapter cases PASS |
+| recursive schema/native args | real DeepSeek wire builder stub | root refs retained; broken JSON no write |
+| one mutation/retry/stale | second operation and old revision | refusal or same receipt |
+| no recovery/planning side effects |302495d: API contract absent; spies forbid old pipeline | dedicated endpoint avoids it |
+| false saved/sent narration | injected provider completion claim | server draft/error, library empty |
+| unavailable/unsupported provider | pre-stream refusal | source retained, zero generate calls |
+| failure before/after write | provider/history faults | safe actual revision readback |
+| three-workout program | parse plus title-only next turn |6100metres, one program event |
+| wrong store/corrupt source | demo source in real request; corrupt row |404/503 before provider, no echo |
+
+Current/empty/parsed/historical draft × same/stale/retry × missing/unsupported/
+error/partial provider × real/demo × failed/working history are exercised where
+relevant. M2B restart/reset/Backup API restore regressions remain green; no new
+domain state is introduced. ASRs/ADRs/tactics/trade-offs are recorded above.
+
+Tool GREEN eb4b91e:62focused adapter/native/runtime checks PASS. API working
+GREEN:74combined Coach checks PASS, including TS and history/context faults.
+Combined final focused M1/catalog/M2B/Coach/contract contour215PASS; Ruff, diff,
+extractor freshness and web lint/build PASS (Node22). Source-hash extraction
+needed regeneration after types.ts changed, even for separate SSE roots.
+Broad/CI/native pending. No paid provider call or private corpus read occurred.
+
+Self-review: no reproduced open blocker in new behavior. Live interpretation
+and actual provider schema acceptance remain unverified; SDK wire stubs prove
+neither. Native round1 not requested yet. Final verdict BLOCK pending required
+broad/CI/independent review and explicit owner merge; final bundle belongs in PR.

@@ -222,3 +222,144 @@ def test_populated_typescript_swim_turn_contract(setup, monkeypatch):
             validate(event, artifact["types"]["SwimCoachEvent"], artifact["types"])
             == []
         )
+
+
+def test_three_workouts_stay_one_program_and_chat_continues_same_draft(
+    setup, monkeypatch
+):
+    from tests.smoke._swim_import_fixtures import exact_program_v2
+
+    client, db, _ = setup
+    raw = exact_program_v2()
+    empty = capture(db, raw["source_text"])
+    initial = {key: raw[key] for key in ("title", "source_spans", "workouts")}
+    monkeypatch.setattr(
+        coach,
+        "resolve_provider",
+        lambda _: Provider([call("parse_swim_import", {"content": initial})]),
+    )
+    first = events(client.post("/api/coach/swim-import", json=request(empty)))
+    draft = drafts.get_draft(db, empty["import_id"])
+    assert [w["distance_meters"] for w in draft["summary"]["workouts"]] == [
+        2200,
+        2000,
+        1900,
+    ]
+    assert draft["summary"]["distance_meters"] == 6100
+    assert len([e for e in first if e["type"] == "swim_import"]) == 1
+    original = deepcopy(draft["document"])
+    monkeypatch.setattr(
+        coach,
+        "resolve_provider",
+        lambda _: Provider(
+            [
+                call(
+                    "patch_swim_import",
+                    {"operation": {"op": "set_title", "title": "User-reviewed title"}},
+                )
+            ]
+        ),
+    )
+    second = events(
+        client.post(
+            "/api/coach/swim-import",
+            json=request(
+                draft, chat_id=first[0]["chat_id"], message="Change only title"
+            ),
+        )
+    )
+    assert second[0]["chat_id"] == first[0]["chat_id"]
+    expected = deepcopy(original)
+    expected["title"] = "User-reviewed title"
+    assert drafts.get_draft(db, empty["import_id"])["document"] == expected
+    assert library.list_programs(db) == []
+
+
+def test_demo_context_never_resolves_real_source(tmp_path, monkeypatch):
+    from api import deps
+    from api.routers.swim_imports import router as imports_router
+    from config.settings import Settings
+    from tests.smoke._swim_import_fixtures import SOURCE
+
+    monkeypatch.setattr(Settings, "DATABASE_PATH", str(tmp_path / "real.sqlite"))
+    monkeypatch.setattr(Settings, "CHATS_DIR", str(tmp_path / "chats"))
+    monkeypatch.setattr(deps, "DEMO_DB_PATH", str(tmp_path / "demo.sqlite"))
+    deps._reset_db_cache()
+    provider = Provider([call("parse_swim_import", {"content": content()})])
+    monkeypatch.setattr(coach, "resolve_provider", lambda _: provider)
+    app = FastAPI()
+    app.include_router(imports_router)
+    app.include_router(coach.router)
+    try:
+        with TestClient(app) as client:
+            empty = client.post(
+                "/api/swim-imports?demo=1",
+                json={"source_text": SOURCE, "request_id": str(uuid4())},
+            ).json()
+            assert (
+                client.post("/api/coach/swim-import", json=request(empty)).status_code
+                == 404
+            )
+            assert provider.calls == []
+            demo = events(
+                client.post("/api/coach/swim-import?demo=1", json=request(empty))
+            )
+            assert demo[-1]["revision"] == 1
+            assert client.get("/api/swim-imports").json() == {"items": []}
+            assert (
+                client.get(f"/api/swim-imports/{empty['import_id']}?demo=1").json()[
+                    "revision"
+                ]
+                == 1
+            )
+    finally:
+        deps._reset_db_cache()
+
+
+def test_chat_failure_after_tool_write_keeps_truthful_draft_readback(
+    setup, monkeypatch
+):
+    from models.chat_manager import ChatManager
+
+    client, db, _ = setup
+    empty = capture(db)
+    provider = Provider([call("parse_swim_import", {"content": content()})])
+    monkeypatch.setattr(coach, "resolve_provider", lambda _: provider)
+
+    class FailingAssistantHistory(ChatManager):
+        def add_message(self, chat_id, role, content):
+            if role == "assistant":
+                raise OSError("PRIVATE_CANARY storage diagnostic")
+            return super().add_message(chat_id, role, content)
+
+    monkeypatch.setattr(coach, "_chat_manager", FailingAssistantHistory)
+    result = client.post("/api/coach/swim-import", json=request(empty))
+    update = next(e for e in events(result) if e["type"] == "swim_import")
+    assert update["status"] == "error" and update["revision"] == 1
+    assert update["code"] == "swim_coach_history_unavailable"
+    assert drafts.get_draft(db, empty["import_id"])["revision"] == 1
+    assert "PRIVATE_CANARY" not in result.text and library.list_programs(db) == []
+
+
+def test_missing_chat_corrupt_source_and_unavailable_provider_stop_before_call(
+    setup, monkeypatch
+):
+    client, db, _ = setup
+    empty = capture(db)
+    provider = Provider()
+    monkeypatch.setattr(coach, "resolve_provider", lambda _: provider)
+    assert (
+        client.post(
+            "/api/coach/swim-import", json=request(empty, chat_id="missing-chat")
+        ).status_code
+        == 404
+    )
+    assert provider.calls == []
+    provider.is_available = lambda: False
+    assert client.post("/api/coach/swim-import", json=request(empty)).status_code == 503
+    assert provider.calls == []
+    with db._connect() as conn:
+        conn.execute("UPDATE swim_import_sources SET source_text='PRIVATE_CANARY'")
+    response = client.post("/api/coach/swim-import", json=request(empty))
+    assert response.status_code == 503 and "PRIVATE_CANARY" not in response.text
+    assert provider.calls == []
