@@ -44,7 +44,7 @@ def test_program_geometry_primary_contrast_and_optional_synthetic_evidence(web_s
                 colors = action.evaluate("element => {const css=getComputedStyle(element); return {fg: css.color, bg: css.backgroundColor, height: element.getBoundingClientRect().height};}")
                 assert contrast(colors["fg"], colors["bg"]) >= 4.5, (theme, width, colors)
                 assert colors["height"] >= 44
-                warning = page.get_by_role("region", name="Объём программы").locator("li").first()
+                warning = page.get_by_role("region", name="Объём программы").locator("li").first
                 warning_colors = warning.evaluate("element => ({fg: getComputedStyle(element).color, bg: getComputedStyle(element.closest('section')).backgroundColor})")
                 assert contrast(warning_colors["fg"], warning_colors["bg"]) >= 4.5, (theme, warning_colors)
                 if width < 1024:

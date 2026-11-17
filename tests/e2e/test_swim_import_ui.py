@@ -196,6 +196,9 @@ def test_lost_capture_response_recovers_input_and_replays_same_source(web_stack)
     attempts, retained = [], []
 
     def lose_once(route):
+        if route.request.method != "POST":
+            route.continue_()
+            return
         attempts.append(route.request.post_data_json)
         response = route.fetch()
         retained.append(response.json()["import_id"])
