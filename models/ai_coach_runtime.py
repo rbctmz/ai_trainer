@@ -433,6 +433,7 @@ def run_native_tool_loop(
     tool_result_formatter: Callable[[str, Any], str],
     *,
     max_rounds: int = 2,
+    system_prompt_override: str | None = None,
 ) -> tuple[str, list[Dict[str, Any]]]:
     """Нативный цикл инструментов (Issue #190).
 
@@ -444,7 +445,7 @@ def run_native_tool_loop(
     proposals и grounding-fallback (#189) остаются общим кодом. Ноль вызовов —
     пустой список: grounding срабатывает на существующих call sites.
     """
-    system_prompt = create_native_chat_system_prompt(ai_tools)
+    system_prompt = system_prompt_override if system_prompt_override is not None else create_native_chat_system_prompt(ai_tools)
     schemas = (
         list(ai_tools.get_tool_schemas())
         if ai_tools is not None and hasattr(ai_tools, "get_tool_schemas")

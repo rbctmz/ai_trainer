@@ -119,6 +119,7 @@ jobs:
           python scripts/run_isolated_tests.py
           tests/smoke/test_api_swim_exercises.py::test_populated_typescript_contract
           tests/smoke/test_api_swim_imports.py::test_populated_typescript_contract
+          tests/smoke/test_api_swim_coach.py::test_populated_typescript_swim_turn_contract
           -q
 
       # pytest isolates HOME; install and launch share the binary cache.

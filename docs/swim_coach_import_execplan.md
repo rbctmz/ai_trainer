@@ -26,9 +26,14 @@ work survive. Unknown distance/duration/load are displayed rather than invented.
 - [x] Domain GREEN: 54 focused V1/V2/exercise tests pass; strict version dispatch, Unicode source spans and resource bounds checked.
 - [x] Store RED→GREEN: retained source/draft, bounded edits, stale generic confirm, exact exercise snapshot, race, corruption, rollback and Backup API restore; 54 focused store/domain checks pass.
 - [x] API RED→GREEN and populated TS:139 combined focused checks PASS, then2 additional atomic/snapshot cases PASS in a33-test final focused run. Ruff/diff, extractor, web lint/build PASS with Node22.
-- [ ] Full contributor-safe pass running; DSH preflight failures observed, cause not yet established for this run. CI/native pending.
-- [ ] M2B reviewable PR, CI, bounded independent review; merge only owner decision.
+- [x] Full contributor-safe pass completed with disclosed local limitations; baseline disproof and separate permitted reruns recorded below. Linux CI/native complete.
+- [x] M2B reviewable PR, CI, bounded independent review and explicit owner merge decision.
+- [x] M2B #770 merged ee8279b17.11.2026 08:54:02UTC after explicit owner approval. CI4645PASS/46skip/156deselected, E2E132PASS, native clean3bce1d6 (1/2), zero threads. #769 closed.
+- [x] M2C #771 and M2D #772 created with bounded scope/acceptance; next branch codex/issue-771-swim-coach-tools based on merged main. M2C spec handed to Domain/API for RED.
 - [ ] M2C Coach read/prepare/patch tools with trusted turn binding and provider-path checks.
+- [x] M2C tools RED63f28da→GREENeb4b91e;8adapter/wire +54existing native/runtime checks PASS. API RED302495d→GREEN74combined Coach checks; separate HTTP/SSE mode, no screen changes. Combined final focused215PASS; lint/build/contracts/Ruff PASS.
+- [ ] M2C broad/CI, independent review and owner merge gate.
+- [x] M2C #773 opened. Native round1 on3fd2669 found2P2; own RED d227749 reproduces3failures. Bounded question-claim guard and truthful last-confirmed revision/readback_status pass156focused checks; final CI/delta review pending.
 - [ ] M2D web source/structure/editor/save/readback and isolated user acceptance.
 - [ ] Full-goal audit: actual source→clarification→single edit→save→reload, current CI/review, explicit limitations.
 
@@ -201,10 +206,16 @@ clarification: timed block finishes the current full200mcycle.
 ## Outcomes & Retrospective
 
 
-M2A is merged. M2B domain/store/API implemented and focused checks pass; broad
-validation, CI and independent review remain. M2C/M2D are not implemented.
+M2A/M2B are merged. M2C tools/API/SSE are implemented on its branch and pass
+focused checks; broad/CI/review remain. M2D is not implemented.
+M2B final current-head bundle is PR770. Local broad4659PASS/18skip/156deselected
+plus7fail/5errors; permitted rerun52PASS,4DSH timeouts remain. One DSH case also
+fails on isolated clean baseline d2e1cf3 (60.26s); scripts/tests unchanged. Cause
+unknown. Linux CI is green separately; do not claim a fully green local broad.
 The complete M2 goal is active, not achieved by catalog API or planning alone.
 
 Revision17.11.2026: initial full-goal plan after owner approval and M2A merge.
 Revision17.11.2026: M2B GREEN checkpoints and retained-preview receipt semantics;
 kept full-goal distinction and recorded predecessor's actual merge outcomes.
+Revision17.11.2026: owner accepted/merged #770; recorded final CI/review/baseline
+limitation, created #771/#772 and began explicit M2C contract handoff.

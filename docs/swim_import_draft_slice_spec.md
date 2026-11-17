@@ -219,3 +219,15 @@ Final verdict: BLOCK pending broad/CI/native and owner acceptance. Review
 findings table is currently empty because no independent round has run, not
 because code is certified. Evidence bundle/current head is maintained in PR770.
 No branch/worktree deletion: ignored private corpus remains in this checkout.
+
+## Post-merge checkpoint —17.11.2026
+
+The pending verdict above records its publication checkpoint. Final #770 accepted
+and merged by owner decision as ee8279b75c91f3ba91dd13c50244608722140a64 at08:54:02UTC;
+#769 closed. Reviewed3bce1d6, clean native receipt6943004418,1/2rounds, zero threads.
+CI44047810688 GREEN:4645PASS/46skip/156deselected, web E2E132PASS and populated
+TS2PASS, contract/secret scan GREEN. Local full4659PASS with separately disclosed
+7fail/5errors; permitted rerun52PASS but4DSH timeouts remain. One reproduced on
+isolated clean baseline d2e1cf3; cause unknown, not a new-swimming causal claim.
+Final evidence bundle/owner acceptance is in PR770. M2B READY/merged; M2 remains
+active through #771/#772. Personal runtime/DB and watches unchanged by merge.

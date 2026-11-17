@@ -45,6 +45,19 @@ test_swim_import_store.py, test_api_swim_imports.py plus M1/catalog regressions.
 Coach/web/calendar/watch delivery and live-model quality are not proved here.
 Contract: ../swim_import_draft_slice_spec.md; full plan: ../swim_coach_import_execplan.md.
 
+## Source-bound swimming Coach (candidate #771)
+
+Uses the M2B draft authority without adding another domain store. ASR-MOD-2/3:
+dedicated import endpoint and adapter; old Coach request and default native/
+marker behavior unchanged. REL-1/2: immutable source before provider resolution,
+bounded parse/patch, explicit unsupported/errors and readback after partial
+failure. SEC-1: source/id/actor/save/send are outside model authority; safe errors
+and no free-form AI completion claim. Existing M2B REL-3/DEP-2 receipts/reset/
+restore remain the state boundary. Evidence: test_swim_coach_tools.py,
+test_api_swim_coach.py and native/runtime/M2B regressions. Live understanding,
+provider schema acceptance and browser acceptance remain separate evidence.
+Spec: ../swim_coach_tools_slice_spec.md. This does not promote global ASR status.
+
 ## Planning preview → confirm (delivered S1; #685 / #691, parent #677)
 
 Статус на 2026-10-17: **S1 реализован и принят; #691 слит как `93fa4f4`
