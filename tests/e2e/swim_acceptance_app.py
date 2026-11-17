@@ -15,7 +15,11 @@ if os.environ.get("AI_TRAINER_E2E_SCOPE") != "1" or scope_from_environment() is 
 validate_acceptance_child_environment(dict(os.environ))
 
 from api.main import app  # noqa: E402,F401
+from api.deps import get_database  # noqa: E402
 from api.routers import coach  # noqa: E402
+from fastapi import Depends  # noqa: E402
+from data.database import Database  # noqa: E402
+from uuid import UUID  # noqa: E402
 from tests.smoke._swim_import_fixtures import exact_program_v2  # noqa: E402
 
 
@@ -54,3 +58,15 @@ class SyntheticNativeProvider:
 
 
 coach.resolve_provider = lambda _: SyntheticNativeProvider()
+
+
+@app.post("/_e2e/swim-previews/{preview_id}/expire")
+def expire_preview(preview_id: UUID, db: Database = Depends(get_database)):
+    """Explicit owned-test fault, never registered by api.main production imports."""
+    conn = db._connect()
+    try:
+        conn.execute("UPDATE swim_program_previews SET expires_at=? WHERE preview_id=?", ("2000-01-01T00:00:00+00:00", str(preview_id)))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"expired": str(preview_id)}
