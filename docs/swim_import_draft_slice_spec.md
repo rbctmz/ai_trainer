@@ -117,9 +117,12 @@ Library current/history readers supportV1/V2; list exposes schema version and
 nullable distance/known fixed distance. V1 document/fingerprint/derived summary
 bytes and applied receipts remain valid without rewriting rows.
 
-Extract transaction-scoped create/confirm helpers inside swim_program_store so
+Extract a transaction-scoped create helper inside swim_program_store; common
+confirm already owns one writer connection and calls the binding guard there, so
 import revision check, preview binding and library receipt share one connection.
 No nested writer transaction or external connection between guard and write.
+Imported preview rows/receipts persist until reset for request replay, while
+authority expires after24h; legacy unbound previews retain their pruning policy.
 Post-commit backup occurs only after complete commit, once per new save; replay
 and preview-only operations do not snapshot. Crash/injected failure rolls back
 binding/version/receipt together. Old un-applied preview expiry remains24h; draft

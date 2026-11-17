@@ -24,6 +24,7 @@ work survive. Unknown distance/duration/load are displayed rather than invented.
 - [ ] M2B contract/RED/GREEN: source-bound rich documents and editable retained drafts.
 - [x] Domain RED: test_swim_program_v2.py collection fails because the version-aware adapter does not yet exist; frozen V1 warning order verified against main.
 - [x] Domain GREEN: 54 focused V1/V2/exercise tests pass; strict version dispatch, Unicode source spans and resource bounds checked.
+- [x] Store RED→GREEN: retained source/draft, bounded edits, stale generic confirm, exact exercise snapshot, race, corruption, rollback and Backup API restore; 54 focused store/domain checks pass.
 - [ ] M2B reviewable PR, CI, bounded independent review; merge only owner decision.
 - [ ] M2C Coach read/prepare/patch tools with trusted turn binding and provider-path checks.
 - [ ] M2D web source/structure/editor/save/readback and isolated user acceptance.
@@ -128,6 +129,13 @@ Decision: document-level exercise bindings pin node id, definition id/revision/h
 and full definition snapshot. Model input passes references only; server loads
 the content. Rationale: preserve source prescription separately from technique;
 no automatic equipment/pace rewrite. Date/author17.11.2026, Spec Owner.
+
+Decision: extract only transaction-scoped preview creation; common confirm already
+owns one writer transaction, so call the V2 binding guard there directly rather
+than add an unused confirm wrapper. Import preview rows retain replay receipts
+alongside draft history until reset, but expire as authority after24h. Rationale:
+retry must return the original token even after a draft edit; retaining it never
+bypasses expiry/current-revision checks. Date/author17.11.2026, Domain/API handoff.
 
 ## Concrete Steps
 

@@ -356,3 +356,64 @@ def test_preview_request_replay_after_edit_returns_original_token(tmp_path):
     assert store.prepare(db, draft["import_id"], command, now=NOW) == preview
     with pytest.raises(library.SwimProgramError, match="swim_import_stale"):
         library.confirm_preview(db, preview["preview_id"], now=NOW)
+
+
+def test_structural_edits_preserve_source_and_reject_cycles_and_roots(tmp_path):
+    db = Database(str(tmp_path / "structure.sqlite"))
+    draft = parse(db, capture(db))
+    added = patch(
+        db,
+        draft,
+        {
+            "op": "add_node",
+            "parent_id": "one.timed",
+            "index": 1,
+            "node": {
+                "kind": "rest",
+                "id": "new.pause",
+                "mode": "open",
+                "breaths": {"minimum": 3, "maximum": 4},
+            },
+        },
+    )
+    moved = patch(
+        db,
+        added,
+        {"op": "move_node", "node_id": "new.pause", "parent_id": "one", "index": 2},
+    )
+    assert moved["document"]["workouts"][0]["steps"][-1]["id"] == "new.pause"
+    assert moved["document"]["source_text"] == SOURCE
+    for operation in [
+        {
+            "op": "move_node",
+            "node_id": "one.timed",
+            "parent_id": "one.timed",
+            "index": 0,
+        },
+        {"op": "remove_node", "node_id": "one"},
+        {"op": "set_rest", "node_id": "one.fixed", "mode": "open"},
+        {
+            "op": "resolve_node",
+            "node_id": "one.fixed",
+            "node": {
+                "kind": "swim",
+                "id": "one.fixed",
+                "name": "X",
+                "quantity": {"kind": "open"},
+            },
+        },
+    ]:
+        with pytest.raises(store.SwimImportError):
+            patch(db, moved, operation)
+        assert store.get_draft(db, draft["import_id"]) == moved
+    removed = patch(db, moved, {"op": "remove_node", "node_id": "new.pause"})
+    assert removed["document"] == draft["document"]
+
+
+def test_retained_command_actor_tamper_is_corruption(tmp_path):
+    db = Database(str(tmp_path / "actor.sqlite"))
+    draft = parse(db, capture(db))
+    with db._connect() as conn:
+        conn.execute("UPDATE swim_import_revisions SET actor='coach' WHERE revision=1")
+    with pytest.raises(store.SwimImportError, match="corrupt"):
+        store.get_draft(db, draft["import_id"])
