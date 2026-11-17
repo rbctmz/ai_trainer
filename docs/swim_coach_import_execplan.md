@@ -40,6 +40,7 @@ work survive. Unknown distance/duration/load are displayed rather than invented.
 - [x] M2D first source prototype GREEN: actual browser source capture/exact Unicode/spacing→URL→reload,1PASS8.08s; no AI request. New route/entry, input recovery buffer, selected-source read and root-list errors.94contract checks and web lint/build PASS. Structure/Coach/editor/save controls are not yet implemented.
 - [x] M2D whole-program renderer RED cc345d1 (2FAIL17.07s)→GREEN (3PASS9.33s): all3workouts/server6100m and unknown total with fixed1000m + timed175/25cycle. Web lint/build PASS. Pinned technique/source fragments are readable; Coach/edit/save are pending.
 - [x] M2D Coach journey RED68426f2(1FAIL35.66s disabled action)→GREEN1PASS7.32s: real API/DB + guarded synthetic native provider,3workouts→question→one context patch→full preview→explicit confirm→actual version GET→no-AI reopen. Separate source/boundary suite5PASS plus1expectedRED for absent manual editor; lost confirm response retries identical token into one version, concurrent draft rejects stale save.96contract checks PASS. This is not live model quality evidence.
+- [x] M2D manual form RED8e7745f(1FAIL35.36s)→working GREEN:3workouts with distance/time/attempts,60–70→60–90rest bounded edit, explicit Unicode code-point fragment after emoji, manual/patch staging recovered on reload. Coverage RED1353cae→explicit human acknowledgement and unresolved→swim resolution. Combined9browser scenarios PASS20.65s; Ruff/lint/TypeScript PASS. Server source_gaps describe document coverage and remain after acknowledgement; UI shows exact receipt separately, never computes readiness.
 - [ ] Full-goal audit: actual source→clarification→single edit→save→reload, current CI/review, explicit limitations.
 
 ## Context and Orientation
@@ -211,9 +212,11 @@ clarification: timed block finishes the current full200mcycle.
 ## Outcomes & Retrospective
 
 
-M2A/M2B/M2C are merged. M2D contract/browser RED are ready; its UI is not yet
-implemented. Active branch codex/issue-772-swim-import-web is based on merged
-main8ba8e49. Full goal remains active through UI and acceptance.
+M2A/M2B/M2C are merged. M2D source, whole-program view, Coach turn, manual/direct
+editing and explicit library save/readback work on the branch and have isolated
+browser proof. Catalog UI, remaining boundary/visual acceptance and current
+CI/native review are pending. Active branch codex/issue-772-swim-import-web is
+based on merged main8ba8e49. Full goal remains active through UI and acceptance.
 M2B final current-head bundle is PR770. Local broad4659PASS/18skip/156deselected
 plus7fail/5errors; permitted rerun52PASS,4DSH timeouts remain. One DSH case also
 fails on isolated clean baseline d2e1cf3 (60.26s); scripts/tests unchanged. Cause

@@ -116,10 +116,10 @@ def test_source_gap_acknowledgement_and_unresolved_resolution_are_explicit(web_s
     gaps.get_by_role("button", name="Это пояснение, а не задание", exact=True).click()
     gaps.get_by_label("Почему фрагмент не требует шага", exact=True).fill("Синтетический заголовок примера")
     gaps.get_by_role("button", name="Подтвердить пояснение", exact=True).click()
-    expect(gaps).not_to_be_visible()
+    expect(gaps).to_contain_text("Подтверждено как пояснение: Синтетический заголовок примера")
     acknowledged = api_get(web_stack, f"/api/swim-imports/{draft['import_id']}")
     assert acknowledged["acknowledgements"][0]["reason"] == "Синтетический заголовок примера"
-    assert acknowledged["summary"]["source_gaps"] == []
+    assert acknowledged["summary"]["source_gaps"] == draft["summary"]["source_gaps"]
     page.get_by_role("button", name="Изменить: Неразобранный элемент", exact=True).click()
     editor = page.get_by_role("region", name="Правка элемента", exact=True)
     expect(editor).to_be_focused()

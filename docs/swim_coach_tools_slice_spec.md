@@ -259,3 +259,14 @@ including RU/EN claim cases, ordinary questions, retained unsafe draft question,
 build/CI and scoped delta review still pending. Round2 must examine only changes
 after3fd2669, not begin another full-diff audit. Findings get exact fixed-in SHA
 in their GitHub threads before resolving; owner merge approval still required.
+
+## Final outcome17.11.2026
+
+The pending statements above describe their checkpoints. Final reviewed head
+07f241f99002cde4720361110e5fc4b4d8fcb1a3 passed Linux CI44092282658:
+4677PASS/47skip/156deselected,132E2E and3populated TS checks. Secret scan GREEN.
+Both round1P2s fixed-in07f241f and their threads resolved; scoped native round2
+receipt6949480707 clean. Review budget2/2 exhausted, no further full-diff review.
+Owner explicitly accepted review/merge; PR773 merged8ba8e497949acb76c2f7ade7d4283608f67a4577
+at14:15:18UTC, issue771 closed. No personal runtime/DB update or model calls.
+M2 continues with the actual web flow in #772; this slice alone is not full M2.
