@@ -139,7 +139,7 @@ revision/preview, preserving original source and all history.
 | Trusted source | Submitted replacement source/id/actor rejected; failed AI needs no source recapture |
 | Exact exercise | rev1 snapshot persists after rev2; missing/corrupt/inapplicable variant explicit; no gear inheritance |
 | Bounded patch | One pause change has exactly one intended difference; immutable source and siblings |
-| Stale token bypass | Change draft after preview; both common/import confirmation paths reject old token |
+| Stale token bypass | Change draft after preview; common confirmation rejects old token through HTTP and direct store |
 | Atomic/replay/races | One winner, no partial versions; lost response returns same receipt; applied retry after later revision |
 | Reset/restore | All new tables reset; Backup API restore retains source/drafts/snapshots/library/receipts |
 | API/contracts | Safe errors, real/demo isolation, mirrored TS and populated conformance |
@@ -164,3 +164,58 @@ Spec self-review verdict: ready for bounded RED implementation, not completion.
 Native round0/2; findings/CI/current head recorded in PR. Merge owner Greg.
 M2C receives trusted source/draft/patch contracts; UI receives only validated
 semantics and DTOs. Full goal remains incomplete until Coach+web acceptance.
+
+## Slice spec review template completion
+
+Author: Spec Owner → Domain/API Implementer (same local task, explicit handoff
+above). Independent checker: native GitHub review, manual only. Merge/cleanup
+owner Greg. Issue #769 / PR #770. Candidate796188c; acceptance SHA pending.
+Automatic ClassA triggers: persistent state, source/identity/provenance, shared
+API/TS contract. Review exception N/A; budget0/2. No UI screen is changed,
+so screenshot/design acceptance is N/A here and required in M2D.
+
+Definition of done: observable criteria and named checks above; owner assigned.
+HTTP/TS: compatible V1 plus additive import endpoints and rich response union.
+Database: additive3tables, initialized/reset in Database; no old row rewrite.
+SSE/events/config/CLI: unchanged. Source of truth is selected-store immutable
+source + append-only revision; UUID/request receipt, revision/CAS, canonical hash
+and pinned definition id/revision/hash own provenance. Cursor N/A: no ingestion
+cursor or provider sync. New persistent rows retained until explicit full reset;
+unbound legacy previews prune, imported tokens expire24h but receipts persist.
+Rollback is a reviewed inverse bounded edit followed by a new preview/save;
+removing a newly added/moved pause reproduces the original exact document while
+preserving every intermediate revision in test_structural_edits_preserve_source_and_reject_cycles_and_roots.
+
+| Identity | Time / evidence | Fallback | Expected result / falsifier |
+| --- | --- | --- | --- |
+| V1 current/history | before/after schema init | unchanged bytes | frozen fingerprint/readback |
+| V2 source/catalog | current/historical/present | pinned snapshot | read saved version after catalog revision/deletion |
+| draft current | equal revision / parsed or empty | retained original | restart/no-AI readback |
+| un-applied preview | current/stale/expired | fail closed | generic confirm409, no saved version |
+| applied preview | later draft/library/expired | original receipt | return old version once, no new backup |
+| source/draft/binding | missing/corrupt | fail closed |503; historical library content independently readable |
+| simultaneous commands | same expected revision | no overwrite | one winner, other409 |
+
+| Invariant | RED checkpoint / expected failure | GREEN evidence |
+| --- | --- | --- |
+| V1/V2 quantities and provenance | ecd05b5: adapter module absent |54domain/catalog tests |
+| retained draft/edit/common guard | a619ce7: import store absent | source/store/race/restore tests PASS |
+| public request/readback/TS | ded8672: router absent |26HTTP/TS tests;139combined PASS |
+| partial source/version failure | new fault triggers | no partial rows; later retry succeeds |
+| post-save durability | independent connection in snapshot callback | source/draft/library visible together; replay no second snapshot |
+
+Delivery slices pushed: domain RED→GREEN7a96a1a; store RED→GREENe09af3a;
+API RED→GREEN796188c. Required ASRs/ADRs and tactics are above; trade-off is
+retained source/history storage in exchange for recoverable import and exact
+readback. No live-model quality claim. Full local/CI receipts and native result
+are pending; this is not READY to merge. No self-review blocker reproduced in
+new behavior; broad DSH failures are under investigation, not silently waived.
+
+| Native round | Reviewed SHA | Trigger | Disposition / stop |
+| ---: | --- | --- | --- |
+|1|pending|manual|not requested yet|
+
+Final verdict: BLOCK pending broad/CI/native and owner acceptance. Review
+findings table is currently empty because no independent round has run, not
+because code is certified. Evidence bundle/current head is maintained in PR770.
+No branch/worktree deletion: ignored private corpus remains in this checkout.
