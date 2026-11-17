@@ -35,6 +35,8 @@ work survive. Unknown distance/duration/load are displayed rather than invented.
 - [ ] M2C broad/CI, independent review and owner merge gate.
 - [x] M2C #773 opened. Native round1 on3fd2669 found2P2; own RED d227749 reproduces3failures. Bounded question-claim guard and truthful last-confirmed revision/readback_status pass156focused checks; final CI/delta review pending.
 - [ ] M2D web source/structure/editor/save/readback and isolated user acceptance.
+- [x] M2C #773 owner accepted/merged8ba8e4917.11.2026 14:15:18UTC; #771 closed. Final CI4677PASS/47skip/156deselected, E2E132PASS, populated TS3PASS, scoped native round2 clean, bothP2 resolved. No additional model calls.
+- [x] M2D #772 contract and actual browser RED: missing Coach entry link,1FAIL39.13s. First setup attempt lacked Chromium in scratch HOME; installed in separate /private/tmp/ai-trainer-playwright and reran. No personal app/DB.
 - [ ] Full-goal audit: actual source→clarification→single edit→save→reload, current CI/review, explicit limitations.
 
 ## Context and Orientation
@@ -206,8 +208,9 @@ clarification: timed block finishes the current full200mcycle.
 ## Outcomes & Retrospective
 
 
-M2A/M2B are merged. M2C tools/API/SSE are implemented on its branch and pass
-focused checks; broad/CI/review remain. M2D is not implemented.
+M2A/M2B/M2C are merged. M2D contract/browser RED are ready; its UI is not yet
+implemented. Active branch codex/issue-772-swim-import-web is based on merged
+main8ba8e49. Full goal remains active through UI and acceptance.
 M2B final current-head bundle is PR770. Local broad4659PASS/18skip/156deselected
 plus7fail/5errors; permitted rerun52PASS,4DSH timeouts remain. One DSH case also
 fails on isolated clean baseline d2e1cf3 (60.26s); scripts/tests unchanged. Cause
