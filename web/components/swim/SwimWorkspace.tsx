@@ -7,6 +7,7 @@ import { fetcher } from "@/lib/api";
 import { swimError } from "@/lib/swim-api";
 import type { SwimImportDraftResponse, SwimImportListResponse } from "@/lib/types";
 import { SourceCapture } from "./SourceCapture";
+import { ProgramStructure } from "./ProgramStructure";
 import { button, input, panel } from "./styles";
 
 export function SwimWorkspace() {
@@ -28,6 +29,7 @@ export function SwimWorkspace() {
         <p role="status" className="mt-1 text-sm text-ink-soft">Источник сохранён · {draft.document ? "Черновик программы" : "Структура ещё не разобрана"}</p>
         <label htmlFor="swim-source-original" className="mt-4 block text-sm text-ink">Исходный текст</label><textarea id="swim-source-original" className={`${input} mt-1 min-h-52 whitespace-pre-wrap`} readOnly value={draft.source_text} />
         <div className="mt-4 flex flex-wrap gap-2"><button type="button" className={button} disabled>Разобрать с Коучем</button><button type="button" className={button} disabled>Создать структуру вручную</button></div>
+        {draft.document && draft.summary ? <div className="mt-4"><ProgramStructure document={draft.document} summary={draft.summary} /></div> : null}
       </section>}
     </> : <>
       <SourceCapture onCaptured={captured => { void refreshList(); router.replace(`/coach/swim?draft=${captured.import_id}`); }} />

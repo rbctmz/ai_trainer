@@ -30,14 +30,15 @@ work survive. Unknown distance/duration/load are displayed rather than invented.
 - [x] M2B reviewable PR, CI, bounded independent review and explicit owner merge decision.
 - [x] M2B #770 merged ee8279b17.11.2026 08:54:02UTC after explicit owner approval. CI4645PASS/46skip/156deselected, E2E132PASS, native clean3bce1d6 (1/2), zero threads. #769 closed.
 - [x] M2C #771 and M2D #772 created with bounded scope/acceptance; next branch codex/issue-771-swim-coach-tools based on merged main. M2C spec handed to Domain/API for RED.
-- [ ] M2C Coach read/prepare/patch tools with trusted turn binding and provider-path checks.
+- [x] M2C Coach read/prepare/patch tools with trusted turn binding and provider-path checks.
 - [x] M2C tools RED63f28da→GREENeb4b91e;8adapter/wire +54existing native/runtime checks PASS. API RED302495d→GREEN74combined Coach checks; separate HTTP/SSE mode, no screen changes. Combined final focused215PASS; lint/build/contracts/Ruff PASS.
-- [ ] M2C broad/CI, independent review and owner merge gate.
+- [x] M2C broad/CI, independent review and owner merge gate (receipt below).
 - [x] M2C #773 opened. Native round1 on3fd2669 found2P2; own RED d227749 reproduces3failures. Bounded question-claim guard and truthful last-confirmed revision/readback_status pass156focused checks; final CI/delta review pending.
 - [ ] M2D web source/structure/editor/save/readback and isolated user acceptance.
 - [x] M2C #773 owner accepted/merged8ba8e4917.11.2026 14:15:18UTC; #771 closed. Final CI4677PASS/47skip/156deselected, E2E132PASS, populated TS3PASS, scoped native round2 clean, bothP2 resolved. No additional model calls.
 - [x] M2D #772 contract and actual browser RED: missing Coach entry link,1FAIL39.13s. First setup attempt lacked Chromium in scratch HOME; installed in separate /private/tmp/ai-trainer-playwright and reran. No personal app/DB.
 - [x] M2D first source prototype GREEN: actual browser source capture/exact Unicode/spacing→URL→reload,1PASS8.08s; no AI request. New route/entry, input recovery buffer, selected-source read and root-list errors.94contract checks and web lint/build PASS. Structure/Coach/editor/save controls are not yet implemented.
+- [x] M2D whole-program renderer RED cc345d1 (2FAIL17.07s)→GREEN (3PASS9.33s): all3workouts/server6100m and unknown total with fixed1000m + timed175/25cycle. Web lint/build PASS. Pinned technique/source fragments are readable; Coach/edit/save are pending.
 - [ ] Full-goal audit: actual source→clarification→single edit→save→reload, current CI/review, explicit limitations.
 
 ## Context and Orientation
