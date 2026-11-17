@@ -1,6 +1,7 @@
 """Bounded native Coach authority over a retained source, without model calls."""
 
 from copy import deepcopy
+import json
 from uuid import uuid4
 
 import pytest
@@ -185,7 +186,8 @@ def test_actual_native_loop_carries_nested_content_under_source_prompt(tmp_path)
     )  # Runtime text is untrusted; HTTP rendering is tested separately.
     assert len(results) == 1 and results[0]["success"]
     assert len(provider.calls) == 2
-    assert empty["source_text"] in provider.calls[0][2]
+    prompt_data = json.loads(provider.calls[0][2].split("\nSOURCE_DATA_JSON\n", 1)[1])
+    assert prompt_data["source_text"] == empty["source_text"]
     assert (
         drafts.get_draft(db, empty["import_id"])["document"]["workouts"][0]["steps"][1][
             "repeat"
@@ -193,3 +195,87 @@ def test_actual_native_loop_carries_nested_content_under_source_prompt(tmp_path)
         == "current_cycle"
     )
     assert library.list_programs(db) == []
+
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_deepseek_wire_keeps_root_definitions_and_malformed_arguments_fail(
+    tmp_path, malformed
+):
+    from types import SimpleNamespace
+    from models.ai_providers import DeepSeekProvider
+
+    db = Database(str(tmp_path / "wire.sqlite"))
+    empty = capture(db)
+    tools = adapter(db, empty)
+    provider = DeepSeekProvider(api_key="test-key")
+    recorded = {}
+
+    def create(**kwargs):
+        recorded.update(kwargs)
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=None,
+                        tool_calls=[
+                            SimpleNamespace(
+                                id="call1",
+                                function=SimpleNamespace(
+                                    name="parse_swim_import",
+                                    arguments=(
+                                        '{"content":'
+                                        if malformed
+                                        else json.dumps({"content": content()})
+                                    ),
+                                ),
+                            )
+                        ],
+                    )
+                )
+            ]
+        )
+
+    provider.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    result = provider.generate_with_tools(
+        [{"role": "user", "content": "Interpret"}],
+        tools.get_tool_schemas(),
+        system_prompt=tools.system_prompt(),
+    )
+    actual_schema = next(
+        t["function"]["parameters"]
+        for t in recorded["tools"]
+        if t["function"]["name"] == "parse_swim_import"
+    )
+    assert actual_schema == next(
+        s["parameters"]
+        for s in tools.get_tool_schemas()
+        if s["name"] == "parse_swim_import"
+    )
+    assert (
+        "$defs" in actual_schema
+        and actual_schema["properties"]["content"]["$ref"] == "#/$defs/InitialContent"
+    )
+    call = result["tool_calls"][0]
+    envelope = tools.execute_tool(call["name"], **call["arguments"])
+    assert envelope["success"] is not malformed
+    assert drafts.get_draft(db, empty["import_id"])["revision"] == (
+        0 if malformed else 1
+    )
+    assert library.list_programs(db) == []
+
+
+def test_reads_and_questions_are_bounded(tmp_path):
+    db = Database(str(tmp_path / "limits.sqlite"))
+    tools = adapter(db, capture(db))
+    for _ in range(3):
+        assert tools.execute_tool(
+            "ask_swim_import_question", question="Which variant?"
+        )["success"]
+    assert not tools.execute_tool("ask_swim_import_question", question="Another?")[
+        "success"
+    ]
+    for _ in range(4):
+        assert tools.execute_tool("search_swim_exercises", query="synthetic")["success"]
+    assert tools.execute_tool("get_swim_import")["error"] == "swim_coach_read_limit"
