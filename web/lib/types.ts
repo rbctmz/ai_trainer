@@ -2861,7 +2861,9 @@ export interface SwimProgramListResponse {
     title: string;
     source_week_label: string | null;
     workout_count: number;
-    distance_meters: number;
+    schema_version: 1 | 2;
+    distance_meters: number | null;
+    known_distance_meters: number;
     updated_at: string;
   }[];
 }
@@ -2928,4 +2930,213 @@ export interface SwimExerciseResolveRequest {
 export interface SwimExerciseResolveResponse {
   exercise: SwimExerciseVersionResponse;
   step: SwimProgramSwimStep;
+}
+
+// M2B (#769): retained source and bounded rich prescription drafts.
+export interface SwimSourceSpan { start: number; end: number }
+export interface SwimIntegerRange { minimum: number; maximum: number }
+export interface SwimSubjectiveEffortV2 extends SwimSubjectiveEffort {
+  scope: "within_node" | "across_repetitions";
+}
+export type SwimQuantity =
+  | { kind: "distance"; meters: number }
+  | { kind: "duration"; seconds: number }
+  | { kind: "attempts"; count: SwimIntegerRange; distance_hint_meters?: number | null }
+  | { kind: "open" };
+export type SwimRepeat =
+  | { kind: "count"; count: SwimIntegerRange }
+  | { kind: "time"; seconds: number; finish: "timer" | "current_cycle" };
+
+export interface SwimV2SwimInput {
+  kind: "swim";
+  id: string;
+  name: string;
+  quantity: SwimQuantity;
+  instructions?: string;
+  source_spans?: SwimSourceSpan[];
+  stroke?: SwimProgramSwimStep["stroke"];
+  equipment?: SwimProgramSwimStep["equipment"];
+  effort?: SwimSubjectiveEffortV2 | null;
+}
+export interface SwimV2SwimStep extends SwimV2SwimInput {
+  instructions: string;
+  source_spans: SwimSourceSpan[];
+  stroke: SwimProgramSwimStep["stroke"];
+  equipment: SwimProgramSwimStep["equipment"];
+  effort: SwimSubjectiveEffortV2 | null;
+}
+export interface SwimV2RestInput {
+  kind: "rest";
+  id: string;
+  mode: "fixed" | "approximate" | "open";
+  seconds?: SwimIntegerRange | null;
+  breaths?: SwimIntegerRange | null;
+  instructions?: string;
+  source_spans?: SwimSourceSpan[];
+}
+export interface SwimV2RestStep extends SwimV2RestInput {
+  seconds: SwimIntegerRange | null;
+  breaths: SwimIntegerRange | null;
+  instructions: string;
+  source_spans: SwimSourceSpan[];
+}
+export interface SwimV2GroupInput {
+  kind: "group";
+  id: string;
+  name: string;
+  repeat: SwimRepeat;
+  steps: SwimV2NodeInput[];
+  instructions?: string;
+  source_spans?: SwimSourceSpan[];
+  last_rest?: "include" | "omit" | "unspecified";
+  effort?: SwimSubjectiveEffortV2 | null;
+}
+export interface SwimV2Group extends SwimV2GroupInput {
+  steps: SwimV2Node[];
+  instructions: string;
+  source_spans: SwimSourceSpan[];
+  last_rest: "include" | "omit" | "unspecified";
+  effort: SwimSubjectiveEffortV2 | null;
+}
+export interface SwimV2UnresolvedInput {
+  kind: "unresolved";
+  id: string;
+  instructions: string;
+  question: string;
+  source_spans?: SwimSourceSpan[];
+}
+export interface SwimV2Unresolved extends SwimV2UnresolvedInput {
+  source_spans: SwimSourceSpan[];
+}
+export type SwimV2NodeInput = SwimV2SwimInput | SwimV2RestInput | SwimV2GroupInput | SwimV2UnresolvedInput;
+export type SwimV2Node = SwimV2SwimStep | SwimV2RestStep | SwimV2Group | SwimV2Unresolved;
+
+export interface SwimV2WorkoutInput {
+  id: string;
+  title: string;
+  environment: "pool" | "open_water";
+  pool_length_meters?: number | null;
+  source_spans?: SwimSourceSpan[];
+  steps: SwimV2NodeInput[];
+}
+export interface SwimV2Workout extends SwimV2WorkoutInput {
+  pool_length_meters: number | null;
+  source_spans: SwimSourceSpan[];
+  steps: SwimV2Node[];
+}
+export interface SwimExerciseReference {
+  node_id: string;
+  exercise_id: string;
+  revision: number;
+}
+export interface SwimExerciseBinding extends SwimExerciseReference {
+  fingerprint: string;
+  document: SwimExerciseDocument;
+}
+export interface SwimProgramDocumentV2 {
+  schema_version: 2;
+  origin: "trainer_authored";
+  id: string;
+  title: string;
+  source_id: string;
+  source_text: string;
+  source_sha256: string;
+  source_spans: SwimSourceSpan[];
+  source_week_label: string | null;
+  source_label: string | null;
+  workouts: SwimV2Workout[];
+  exercise_bindings: SwimExerciseBinding[];
+}
+export interface SwimProgramSummaryV2 {
+  distance_meters: number | null;
+  known_distance_meters: number;
+  duration_seconds: null;
+  tss: null;
+  workouts: {
+    workout_id: string;
+    distance_meters: number | null;
+    known_distance_meters: number;
+    compatibility: "compatible" | "incompatible" | "not_applicable";
+  }[];
+  warnings: {
+    code: "pool_distance_not_multiple" | "last_rest_unspecified" | "exercise_environment_mismatch" | "unresolved_source" | "source_not_covered";
+    workout_id: string | null;
+    node_id: string | null;
+  }[];
+  source_gaps: SwimSourceSpan[];
+}
+export interface SwimProgramVersionResponseV2 {
+  program_id: string;
+  revision: number;
+  document: SwimProgramDocumentV2;
+  summary: SwimProgramSummaryV2;
+  fingerprint: string;
+  confirmed_at: string;
+}
+export type SwimProgramAnyVersionResponse = SwimProgramVersionResponse | SwimProgramVersionResponseV2;
+export interface SwimSourceAcknowledgement { span: SwimSourceSpan; reason: string }
+export interface SwimImportCaptureRequest {
+  source_text: string;
+  request_id: string;
+  source_label?: string | null;
+  source_week_label?: string | null;
+}
+export interface SwimImportDraftResponse {
+  import_id: string;
+  program_id: string;
+  source_text: string;
+  source_sha256: string;
+  source_label: string | null;
+  source_week_label: string | null;
+  revision: number;
+  document: SwimProgramDocumentV2 | null;
+  summary: SwimProgramSummaryV2 | null;
+  acknowledgements: SwimSourceAcknowledgement[];
+  fingerprint: string;
+  actor: "user" | "coach";
+  updated_at: string;
+}
+export interface SwimImportListResponse { items: SwimImportDraftResponse[] }
+export interface SwimImportParseRequest {
+  expected_revision: number;
+  request_id: string;
+  content: {
+    title: string;
+    source_spans?: SwimSourceSpan[];
+    workouts: SwimV2WorkoutInput[];
+    exercise_references?: SwimExerciseReference[];
+  };
+}
+export type SwimImportPatchOperation =
+  | { op: "set_rest"; node_id: string; mode: "fixed" | "approximate" | "open"; seconds?: SwimIntegerRange | null; breaths?: SwimIntegerRange | null }
+  | { op: "set_quantity"; node_id: string; quantity: SwimQuantity }
+  | { op: "set_instructions"; node_id: string; instructions: string }
+  | { op: "set_repeat"; node_id: string; repeat: SwimRepeat }
+  | { op: "set_title"; title: string; workout_id?: string | null }
+  | { op: "set_context"; workout_id: string; environment: "pool" | "open_water"; pool_length_meters?: number | null }
+  | { op: "set_binding"; node_id: string; reference: SwimExerciseReference | null }
+  | { op: "add_node"; parent_id: string; index: number; node: SwimV2NodeInput }
+  | { op: "remove_node"; node_id: string }
+  | { op: "move_node"; node_id: string; parent_id: string; index: number }
+  | { op: "replace_node" | "resolve_node"; node_id: string; node: SwimV2NodeInput }
+  | { op: "acknowledge_source"; span: SwimSourceSpan; reason: string };
+export interface SwimImportPatchRequest {
+  expected_revision: number;
+  request_id: string;
+  operation: SwimImportPatchOperation;
+}
+export interface SwimImportPreviewRequest {
+  draft_revision: number;
+  base_library_revision: number;
+  request_id: string;
+}
+export interface SwimImportPreviewResponse {
+  preview_id: string;
+  base_revision: number;
+  document: SwimProgramDocumentV2;
+  summary: SwimProgramSummaryV2;
+  fingerprint: string;
+  expires_at: string;
+  import_id: string;
+  draft_revision: number;
 }

@@ -142,7 +142,10 @@ local serializer probes, provider readback and actual FR255 acceptance.
 
 Implementation and166focused checks, Ruff and web lint/build complete.
 Full sandbox suite completed with localhost-only failures; targeted permitted
-reruns51+1PASS. Current CI and native review pending.
+reruns51+1PASS. Final Linux CI4603PASS/45skip/156deselected, E2E/contract/secret
+scan GREEN; native review clean on fd66f9d (1/2). Owner explicitly accepted
+review/merge17.11.2026; #768 merged d2e1cf3, #767 closed. Active M2B #769 is in
+docs/swim_coach_import_execplan.md.
 M2 Coach/browser and M4 delivery are still open; no runtime rollout performed.
 
 Revision17.11.2026: initial plan and explicit boundaries after owner approval.

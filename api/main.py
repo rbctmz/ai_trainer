@@ -47,6 +47,7 @@ from api.routers import (  # noqa: E402  (after env setup)
     system,
     swim_programs,
     swim_exercises,
+    swim_imports,
     today,
 )
 
@@ -107,6 +108,7 @@ app.include_router(onboarding.router)
 app.include_router(planning.router)
 app.include_router(swim_programs.router)
 app.include_router(swim_exercises.router)
+app.include_router(swim_imports.router)
 app.include_router(planning_cycles.router)
 app.include_router(planning_cycles.build_context_router)
 # FastAPI 0.138 represents included routers lazily.  Register these two

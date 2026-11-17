@@ -31,6 +31,20 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | ASR-DEP-1 | `docker compose up` поднимает весь стек | High | compose + `/api/health` + healthcheck (уже реализованы) | самопроверка compose | ✅ |
 | ASR-DEP-2 | Обновление без потери данных | High | SQLite в named volume; append-only чекпойнты; stopped-service Backup API snapshot, integrity check, atomic restore и pre-restore rollback (#293) | `test_sqlite_backup_restore.py`: clean-volume domain drill + rollback/failure gates | ✅ |
 
+## Source-bound swimming drafts (candidate #769, parent #762)
+
+This bounded Domain/API slice applies existing ASRs without promoting their global
+status. ASR-REL-1/2: preserve original source, nested prescription, ranges and
+unknown distance; unresolved/source gaps remain explicit. ASR-MOD-2/3: shared
+V2 rules plus additive tables/version dispatch, frozen V1 canonical hash and
+receipts unchanged. ASR-REL-3/DEP-2: append-only revisions, writer-transaction
+CAS/preview binding/common-confirm gate, reset and SQLite Backup API restore.
+ASR-SEC-1: no provider/credential I/O; private source excluded from validation
+errors and public fixtures. Evidence: test_swim_program_v2.py,
+test_swim_import_store.py, test_api_swim_imports.py plus M1/catalog regressions.
+Coach/web/calendar/watch delivery and live-model quality are not proved here.
+Contract: ../swim_import_draft_slice_spec.md; full plan: ../swim_coach_import_execplan.md.
+
 ## Planning preview → confirm (delivered S1; #685 / #691, parent #677)
 
 Статус на 2026-10-17: **S1 реализован и принят; #691 слит как `93fa4f4`

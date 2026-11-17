@@ -17,6 +17,7 @@ Owner: Greg. Решение о реализации: 16.11.2026. Epic [#760](htt
 | --- | --- | --- | --- |
 | M1 | [#761](https://github.com/rbctmz/ai_trainer/issues/761) | Versioned Python document, библиотека/API, preview/confirm и история | Нет |
 | M2A | [#767](https://github.com/rbctmz/ai_trainer/issues/767) | Личный справочник упражнений, версии и API; точный вариант → копия шага | M1 |
+| M2B | [#769](https://github.com/rbctmz/ai_trainer/issues/769) | Сохранённый исходник, rich V2, точные версии упражнений, один редактируемый draft/API | M2A |
 | M2 | [#762](https://github.com/rbctmz/ai_trainer/issues/762) | Текст → редактируемая структура рядом с оригиналом → сохранение через web | M1 |
 | M3 | [#763](https://github.com/rbctmz/ai_trainer/issues/763) | Даты/current cycle, защищённый оригинал, предложения/подтверждение/rollback | M1/M2 |
 | M4 | [#764](https://github.com/rbctmz/ai_trainer/issues/764) | Preview, capability-aware serializer/readback, отдельная live-приёмка FR255 | M1/M3 |
@@ -46,12 +47,14 @@ M1 — backend/API foundation: пользовательского web-импор
 
 ## Текущее состояние
 
-M1 завершён: PR #766 merged, main5042102. M2 #762 — дизайн/разбор источников;
-первый срез M2A #767 — справочник/API в работе на
-`codex/issue-767-swim-exercise-library`. Браузерный конструктор и Коуч остаются
-в M2; M3–M5 — backlog. Проверка маршрута Intervals→FR255:
+M1 завершён: #766 merged5042102. M2A завершён: #768 merged d2e1cf3 после
+принятия review владельцем17.11.2026. M2 #762 активен: M2B #769 реализует
+source-bound rich draft/API на `codex/issue-769-swim-import-draft`; проверки
+и review текущего среза ещё не завершены. Далее — инструменты Коуча M2C и
+пользовательский web-сценарий M2D. M3–M5 — backlog. Проверка Intervals→FR255:
 [feasibility](swim_intervals_garmin_feasibility.md), exact/live acceptance ещё нет.
 Полный план: [swimming_trainer_program_execplan.md](swimming_trainer_program_execplan.md).
+Активный M2: [swim_coach_import_execplan.md](swim_coach_import_execplan.md).
 M1 contract: [swim_program_library_slice_spec.md](swim_program_library_slice_spec.md).
 
 17.11.2026: владелец одобрил переиспользование упражнений. M2A отделяет технику
