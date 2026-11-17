@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import re
+import unicodedata
 from typing import Annotated, Any, Union
 from uuid import UUID
 
@@ -29,6 +31,20 @@ from models.swim_import import (
 )
 from models.swim_program import DocumentPart, canonical_json
 from services import swim_imports
+
+
+_COMPLETION_CLAIM = re.compile(
+    r"\b(?:сохран(?:ен(?:а|о|ы)?|енн(?:ый|ая|ое|ые)|ил(?:а|и)?)|"
+    r"отправ(?:лен(?:а|о|ы)?|ленн(?:ый|ая|ое|ые)|ил(?:а|и)?)|"
+    r"загружен(?:а|о|ы)?|загрузил(?:а|и)?|"
+    r"saved|sent|uploaded|published|approved|applied|confirmed)\b"
+)
+
+
+def contains_completion_claim(question: str) -> bool:
+    """Conservative RU/EN completion-language guard, not a semantic truth oracle."""
+    normalized = unicodedata.normalize("NFKC", question).casefold().replace("ё", "е")
+    return bool(_COMPLETION_CLAIM.search(normalized))
 
 
 class NoArgs(DocumentPart):
@@ -222,6 +238,16 @@ class SwimCoachTools:
     def _mutate(
         self, tool_name: str, arguments: ParseArgs | PatchArgs
     ) -> dict[str, Any]:
+        # Questions are another model narrative channel, including inside nodes.
+        if isinstance(arguments, ParseArgs):
+            question_document = arguments.content.model_dump(mode="json")
+        else:
+            replacement = arguments.operation.model_dump(mode="json").get("node")
+            question_document = {"workouts": [replacement]} if replacement else None
+        if any(
+            contains_completion_claim(q) for q in draft_questions(question_document)
+        ):
+            raise SwimCoachToolError("unverified_claim")
         key = canonical_json(
             {"tool": tool_name, "arguments": arguments.model_dump(mode="json")}
         )
@@ -270,6 +296,8 @@ class SwimCoachTools:
             )
         if len(self.questions) >= 3:
             raise SwimCoachToolError("question_limit")
+        if contains_completion_claim(arguments.question):
+            raise SwimCoachToolError("unverified_claim")
         self.questions.append(arguments.question)
         return {
             "question": arguments.question,
@@ -280,3 +308,11 @@ class SwimCoachTools:
     @property
     def mutated(self) -> bool:
         return self._mutation_key is not None
+
+    @property
+    def last_confirmed_revision(self) -> int:
+        return (
+            self._mutation_result["revision"]
+            if self._mutation_result is not None
+            else self.expected_revision
+        )

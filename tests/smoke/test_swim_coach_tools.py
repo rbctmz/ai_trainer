@@ -279,3 +279,37 @@ def test_reads_and_questions_are_bounded(tmp_path):
     for _ in range(4):
         assert tools.execute_tool("search_swim_exercises", query="synthetic")["success"]
     assert tools.execute_tool("get_swim_import")["error"] == "swim_coach_read_limit"
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Программа сохранена. Продолжаем?",
+        "Я сохранил тренировку. Что дальше?",
+        "Тренировка отправлена в Garmin. Продолжить?",
+        "Workout SAVED and SENT. Continue?",
+        "Uploaded to the watch. Anything else?",
+    ],
+)
+def test_model_completion_claims_are_not_accepted_as_questions(tmp_path, question):
+    db = Database(str(tmp_path / "claims.sqlite"))
+    tools = adapter(db, capture(db))
+    result = tools.execute_tool("ask_swim_import_question", question=question)
+    assert not result["success"] and result["error"] == "swim_coach_unverified_claim"
+    assert tools.questions == []
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Сколько отдыхать?",
+        "Какой вариант упражнения выбрать?",
+        "Нужно сохранить этот диапазон?",
+        "Which side first?",
+    ],
+)
+def test_clarification_questions_remain_available(tmp_path, question):
+    db = Database(str(tmp_path / "questions.sqlite"))
+    tools = adapter(db, capture(db))
+    assert tools.execute_tool("ask_swim_import_question", question=question)["success"]
+    assert tools.questions == [question]

@@ -5,7 +5,12 @@ from typing import Any, Callable, Iterator
 from api.swim_coach_contract import SWIM_COACH_EVENT, SwimCoachTurnRequest
 from data import swim_import_store as drafts
 from models.ai_coach_runtime import run_native_tool_loop
-from models.swim_coach_tools import SwimCoachTools, TOOL_SPECS, draft_questions
+from models.swim_coach_tools import (
+    SwimCoachTools,
+    TOOL_SPECS,
+    draft_questions,
+    contains_completion_claim,
+)
 from models.swim_program import canonical_json
 
 LABELS = {
@@ -113,7 +118,14 @@ def _stream_turn(
             system_prompt_override=tools.system_prompt(),
         )
         if any(not result["success"] for result in results):
-            code = "swim_coach_tool_failed"
+            code = (
+                "swim_coach_unverified_claim"
+                if any(
+                    call["code"] == "swim_coach_unverified_claim"
+                    for call in tools.calls
+                )
+                else "swim_coach_tool_failed"
+            )
     except Exception:
         # A previous successful write may already be committed: always read back.
         code = "swim_coach_provider_failed"
@@ -131,14 +143,19 @@ def _stream_turn(
     try:
         current = drafts.get_draft(db, str(request.import_id))
         revision = current["revision"]
+        readback_status = "current"
         if revision != request.expected_revision + int(tools.mutated):
             code = "swim_import_stale"
         questions = list(
             dict.fromkeys([*tools.questions, *draft_questions(current["document"])])
         )[:10]
+        if any(contains_completion_claim(q) for q in questions):
+            code = code or "swim_coach_unverified_claim"
+            questions = [q for q in questions if not contains_completion_claim(q)]
         status = "draft" if current["document"] is not None else "unparsed"
     except drafts.SwimImportError as exc:
-        revision = request.expected_revision
+        revision = tools.last_confirmed_revision
+        readback_status = "unavailable"
         questions, status, code = [], "error", exc.code
     if code is not None:
         status = "error"
@@ -167,8 +184,13 @@ def _stream_turn(
         status=status,
         code=code,
         library_saved=False,
+        readback_status=readback_status,
     )
     yield _event(type="token", content=text)
     yield _event(
-        type="done", chat_id=chat_id, import_id=request.import_id, revision=revision
+        type="done",
+        chat_id=chat_id,
+        import_id=request.import_id,
+        revision=revision,
+        readback_status=readback_status,
     )

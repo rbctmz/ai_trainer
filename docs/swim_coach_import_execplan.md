@@ -33,6 +33,7 @@ work survive. Unknown distance/duration/load are displayed rather than invented.
 - [ ] M2C Coach read/prepare/patch tools with trusted turn binding and provider-path checks.
 - [x] M2C tools RED63f28da→GREENeb4b91e;8adapter/wire +54existing native/runtime checks PASS. API RED302495d→GREEN74combined Coach checks; separate HTTP/SSE mode, no screen changes. Combined final focused215PASS; lint/build/contracts/Ruff PASS.
 - [ ] M2C broad/CI, independent review and owner merge gate.
+- [x] M2C #773 opened. Native round1 on3fd2669 found2P2; own RED d227749 reproduces3failures. Bounded question-claim guard and truthful last-confirmed revision/readback_status pass156focused checks; final CI/delta review pending.
 - [ ] M2D web source/structure/editor/save/readback and isolated user acceptance.
 - [ ] Full-goal audit: actual source→clarification→single edit→save→reload, current CI/review, explicit limitations.
 

@@ -3154,6 +3154,6 @@ export type SwimCoachToolName = "get_swim_import" | "search_swim_exercises" | "g
 export type SwimCoachEvent =
   | { type: "meta"; chat_id: string; import_id: string }
   | { type: "tool_call"; name: string; tool_name: SwimCoachToolName; status: "done" | "error"; native: true }
-  | { type: "swim_import"; import_id: string; revision: number; status: "draft" | "unparsed" | "error"; code: string | null; library_saved: false }
+  | { type: "swim_import"; import_id: string; revision: number; status: "draft" | "unparsed" | "error"; code: string | null; library_saved: false; readback_status: "current" | "unavailable" }
   | { type: "token"; content: string }
-  | { type: "done"; chat_id: string; import_id: string; revision: number };
+  | { type: "done"; chat_id: string; import_id: string; revision: number; readback_status: "current" | "unavailable" };

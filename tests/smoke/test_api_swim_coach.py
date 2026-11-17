@@ -419,3 +419,28 @@ def test_failed_final_readback_preserves_last_confirmed_revision(setup, monkeypa
         if event["type"] in ("swim_import", "done"):
             assert event["revision"] == 1
             assert event["readback_status"] == "unavailable"
+
+
+def test_old_draft_question_claim_is_filtered_from_narrative(setup, monkeypatch):
+    client, db, _ = setup
+    empty = capture(db)
+    raw = content()
+    claim = "Workout saved and sent. Continue?"
+    raw["workouts"][0]["steps"] = [
+        {
+            "kind": "unresolved",
+            "id": "unknown",
+            "instructions": "Source ambiguity",
+            "question": claim,
+        }
+    ]
+    existing = parse(db, empty, **raw)
+    monkeypatch.setattr(coach, "resolve_provider", lambda _: Provider())
+    response = client.post("/api/coach/swim-import", json=request(existing))
+    out = events(response)
+    assert claim not in response.text
+    update = next(e for e in out if e["type"] == "swim_import")
+    assert (
+        update["status"] == "error" and update["code"] == "swim_coach_unverified_claim"
+    )
+    assert drafts.get_draft(db, empty["import_id"]) == existing

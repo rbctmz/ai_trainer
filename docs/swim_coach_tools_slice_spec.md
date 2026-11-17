@@ -169,8 +169,13 @@ tool ambiguity while preserving manual fallback. This does not certify live
 understanding, provider availability, or watch compatibility.
 
 SSE shapes: meta(chat_id); tool_call(name,tool_name,status done/error);
-swim_import(import_id,revision,status draft/unparsed/error,code nullable);
-token(text) for server-composed status/questions; done(chat_id,import_id,revision).
+swim_import(import_id,revision,status draft/unparsed/error,code nullable,
+readback_status current/unavailable); token(content) for server-composed
+status/questions; done(chat_id,import_id,revision,readback_status). If final
+readback fails after a committed write, revision is the last confirmed write
+receipt, explicitly not certified current; it never falls back to the older
+pre-turn revision. When no write succeeded, that last known value is the
+preflight revision. Unavailable readback is an error and requires a fresh read.
 Pre-stream HTTP errors: detail(code,import_id,revision) for domain/provider/context
 failure; validation omits input/source as M2B does. Provider calls run only after
 context/capability checks; streaming exceptions emit safe error+readback identity.
@@ -227,3 +232,30 @@ Self-review: no reproduced open blocker in new behavior. Live interpretation
 and actual provider schema acceptance remain unverified; SDK wire stubs prove
 neither. Native round1 not requested yet. Final verdict BLOCK pending required
 broad/CI/independent review and explicit owner merge; final bundle belongs in PR.
+
+## Native round1 findings and reproduced delta
+
+Round1 on3fd2669 (receipt5935970220) found2blockingP2, both accepted. Owned
+HTTP RED d227749 reproduces3failures: saved/sent claim through ask-question and
+unresolved-question; final readback fault after committed parse reports0instead
+of1. Those are new-mode failures, not waived baseline limitations.
+
+Question text is now checked at the model-tool boundary before a write and again
+before composing narrative from retained draft questions. A conservative RU/EN
+completed-action vocabulary rejects/omits saved/sent/uploaded/approved claims;
+raw original source is not normalized or rewritten. This is not a universal
+semantic truth oracle and may refuse an otherwise legitimate question referring
+to completed actions. Ordinary clarification/infinitive questions remain allowed,
+and manual review remains available. No paid language classifier is introduced.
+
+Readback uses adapter's last confirmed revision on failure, with explicit
+readback_status=unavailable in both import and done events; TS mirrored. Normal
+readback remains current. Partial provider/history errors retain their explicit
+state and no model completion text is promoted to a receipt.
+
+Working GREEN:156focused Coach/native/runtime/full web-conformance tests PASS,
+including RU/EN claim cases, ordinary questions, retained unsafe draft question,
+3original finding reproductions and populated SSE. Ruff/lint/diff PASS; final
+build/CI and scoped delta review still pending. Round2 must examine only changes
+after3fd2669, not begin another full-diff audit. Findings get exact fixed-in SHA
+in their GitHub threads before resolving; owner merge approval still required.

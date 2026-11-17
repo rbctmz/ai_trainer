@@ -53,6 +53,7 @@ class SwimCoachDraftEvent(DocumentPart):
     status: Literal["draft", "unparsed", "error"]
     code: str | None
     library_saved: Literal[False]
+    readback_status: Literal["current", "unavailable"]
 
 
 class SwimCoachToken(DocumentPart):
@@ -65,6 +66,7 @@ class SwimCoachDone(DocumentPart):
     chat_id: str
     import_id: UUID
     revision: int
+    readback_status: Literal["current", "unavailable"]
 
 
 SwimCoachEvent = Annotated[
