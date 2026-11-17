@@ -66,23 +66,24 @@ function dose(node: Node): string {
   return "Дистанция и время не заданы";
 }
 
-function Step({ node, source, bindings, onEdit, onAdd }: {
+function Step({ node, source, bindings, onEdit, onAdd, disabled }: {
   node: Node; source: string[]; bindings: Map<string, SwimExerciseBinding>;
   onEdit?: (id: string) => void; onAdd?: (id: string) => void;
+  disabled: boolean;
 }) {
   const name = "name" in node ? node.name : node.kind === "rest" ? "Отдых" : "Неразобранный элемент";
   const spans = "source_spans" in node ? node.source_spans : [];
   const instruction = node.instructions ? <p className="mt-2 whitespace-pre-wrap break-words text-sm text-ink-soft">{node.instructions}</p> : null;
   const effort = "effort" in node && node.effort ? <p className="mt-2 text-sm text-ink-soft">Субъективное усилие: {node.effort.start_percent} → {node.effort.end_percent}%{"scope" in node.effort ? node.effort.scope === "within_node" ? " · внутри отрезка" : " · от повтора к повтору" : ""}</p> : null;
-  const edit = onEdit ? <button type="button" className={button} aria-label={`Изменить: ${name}`} onClick={() => onEdit(node.id)}>Изменить</button> : null;
+  const edit = onEdit ? <button type="button" className={button} disabled={disabled} aria-label={`Изменить: ${name}`} onClick={() => onEdit(node.id)}>Изменить</button> : null;
   if (node.kind === "group") return <details className="min-w-0 rounded-lg border border-surface-border p-3" aria-label={name}>
     <summary className="cursor-pointer break-words text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent"><span className="font-semibold">{name}</span><span className="ml-2 text-ink-soft">{dose(node)}</span></summary>
     {instruction}{effort}
     {"repeat" in node && node.repeat.kind === "time" ? <p className="mt-2 text-sm text-ink-soft">{node.repeat.finish === "current_cycle" ? "Закончить текущий цикл" : "Закончить по таймеру"}</p> : null}
     {node.last_rest !== "unspecified" ? <p className="mt-2 text-sm text-ink-soft">Последний отдых: {node.last_rest === "include" ? "включён" : "пропущен"}</p> : null}
-    <div className="mt-3 space-y-2 border-l-2 border-surface-border pl-3">{node.steps.map(child => <Step key={child.id} node={child} source={source} bindings={bindings} onEdit={onEdit} onAdd={onAdd} />)}</div>
+    <div className="mt-3 space-y-2 border-l-2 border-surface-border pl-3">{node.steps.map(child => <Step key={child.id} node={child} source={source} bindings={bindings} onEdit={onEdit} onAdd={onAdd} disabled={disabled} />)}</div>
     <SourceFragments spans={spans} source={source} />
-    {onEdit || onAdd ? <div className="mt-3 flex flex-wrap gap-2">{edit}{onAdd ? <button type="button" className={button} onClick={() => onAdd(node.id)}>Добавить шаг в группу</button> : null}</div> : null}
+    {onEdit || onAdd ? <div className="mt-3 flex flex-wrap gap-2">{edit}{onAdd ? <button type="button" className={button} disabled={disabled} onClick={() => onAdd(node.id)}>Добавить шаг в группу</button> : null}</div> : null}
   </details>;
   return <div className={`min-w-0 rounded-lg border p-3 ${node.kind === "unresolved" ? "border-tone-warning/50 bg-tone-warning/5" : "border-surface-border"}`}>
     <div className="flex flex-wrap items-start justify-between gap-2"><p className="min-w-0 break-words text-sm font-medium text-ink">{name}</p><span className="text-sm text-ink-soft">{dose(node)}</span></div>
@@ -98,9 +99,10 @@ function Step({ node, source, bindings, onEdit, onAdd }: {
   </div>;
 }
 
-export function ProgramStructure({ document, summary, onEditNode, onAddNode, onEditWorkout }: {
+export function ProgramStructure({ document, summary, onEditNode, onAddNode, onEditWorkout, editingDisabled = false }: {
   document: Document; summary: Summary; onEditNode?: (id: string) => void;
   onAddNode?: (id: string) => void; onEditWorkout?: (id: string) => void;
+  editingDisabled?: boolean;
 }) {
   const source = Array.from(document.source_text);
   const bindings = new Map<string, SwimExerciseBinding>(document.schema_version === 2 ? document.exercise_bindings.map(binding => [binding.node_id, binding]) : []);
@@ -118,9 +120,9 @@ export function ProgramStructure({ document, summary, onEditNode, onAddNode, onE
       {document.workouts.map(workout => {
         const total = summary.workouts.find(item => item.workout_id === workout.id);
         return <article key={workout.id} className={panel} aria-label={workout.title}>
-          <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="break-words text-lg font-semibold text-ink">{workout.title}</h3><p className="mt-1 text-sm text-ink-soft">{workout.environment === "pool" ? `Бассейн · ${metres(workout.pool_length_meters!)}` : "Открытая вода"} · {total?.distance_meters === null || !total ? "Дистанция неизвестна" : metres(total.distance_meters)}</p></div>{onEditWorkout ? <button type="button" className={button} onClick={() => onEditWorkout(workout.id)}>Изменить тренировку</button> : null}</div>
-          <div className="mt-4 space-y-2">{workout.steps.map(node => <Step key={node.id} node={node} source={source} bindings={bindings} onEdit={onEditNode} onAdd={onAddNode} />)}</div>
-          {onAddNode ? <button type="button" className={`${button} mt-3`} onClick={() => onAddNode(workout.id)}>Добавить шаг</button> : null}
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="break-words text-lg font-semibold text-ink">{workout.title}</h3><p className="mt-1 text-sm text-ink-soft">{workout.environment === "pool" ? `Бассейн · ${metres(workout.pool_length_meters!)}` : "Открытая вода"} · {total?.distance_meters === null || !total ? "Дистанция неизвестна" : metres(total.distance_meters)}</p></div>{onEditWorkout ? <button type="button" className={button} disabled={editingDisabled} onClick={() => onEditWorkout(workout.id)}>Изменить тренировку</button> : null}</div>
+          <div className="mt-4 space-y-2">{workout.steps.map(node => <Step key={node.id} node={node} source={source} bindings={bindings} onEdit={onEditNode} onAdd={onAddNode} disabled={editingDisabled} />)}</div>
+          {onAddNode ? <button type="button" className={`${button} mt-3`} disabled={editingDisabled} onClick={() => onAddNode(workout.id)}>Добавить шаг</button> : null}
         </article>;
       })}
     </section>

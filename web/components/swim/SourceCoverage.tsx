@@ -40,8 +40,10 @@ export function SourceCoverage({ draft, busy, onStart, onWritten, onEnd }: {
         <blockquote className="whitespace-pre-wrap break-words text-sm text-ink">{source.slice(span.start, span.end).join("")}</blockquote>
         {acknowledged ? <p className="mt-2 text-sm text-ink">Подтверждено как пояснение: {acknowledged.reason}</p> : <button type="button" className={`${button} mt-2`} disabled={busy} onClick={() => { setSelected(span); setReason(""); }}>Это пояснение, а не задание</button>}
         {selected?.start === span.start && selected.end === span.end ? <form className="mt-3 space-y-2" aria-label={`Пояснение фрагмента ${index + 1}`} onSubmit={event => { event.preventDefault(); void acknowledge(); }}>
+          <fieldset disabled={busy} className="space-y-2">
           <TextField label="Почему фрагмент не требует шага" value={reason} required multiline onChange={setReason} />
           <button type="submit" className={primary} disabled={busy || !reason.trim()}>Подтвердить пояснение</button>
+          </fieldset>
         </form> : null}
       </li>; })}</ul>
       {error ? <p role="alert" className="mt-3 text-sm text-tone-warning">{error}</p> : null}

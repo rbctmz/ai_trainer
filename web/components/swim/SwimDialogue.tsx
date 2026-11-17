@@ -63,7 +63,7 @@ export function SwimDialogue({ draft, busy, onStart, onFinish }: {
       }, abort.signal);
       if (answer) setLines(previous => [...previous, { role: "assistant", text: answer }]);
       if (failure) setError(swimError(new ApiError(422, "swim turn", failure)));
-      if (unavailable) setError("Коуч не смог прочитать результат. Проверяем актуальный черновик на сервере.");
+      if (unavailable) setError("В ответе Коуча нет актуального чтения результата. Продолжайте после обновления черновика с сервера.");
       // No automatic resend on ambiguous transport outcome; read the real draft.
       setMessage("");
     } catch (cause) {

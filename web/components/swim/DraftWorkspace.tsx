@@ -41,14 +41,14 @@ export function DraftWorkspace({ draft, reload, onSaved }: {
   }, [editing, editorReady, editKey]);
   useEffect(() => { setPreview(null); setAmbiguous(false); }, [draft.revision]);
   function edit(target: EditTarget) {
-    if (busy || needsRead) return;
+    if (busy || needsRead || editing !== null) return;
     editTrigger.current = document.activeElement as HTMLElement | null;
     setEditing(target); setPreview(null);
   }
   function closeEditor() { setEditing(null); requestAnimationFrame(() => editTrigger.current?.focus()); }
 
   async function refresh() {
-    try { await reload(); setNeedsRead(false); }
+    try { await reload(); setNeedsRead(false); setError(""); }
     catch { setNeedsRead(true); setError("Не удалось прочитать актуальный черновик. Повторите чтение перед продолжением."); }
   }
   async function prepare() {
@@ -101,7 +101,7 @@ export function DraftWorkspace({ draft, reload, onSaved }: {
       <div className="flex flex-wrap gap-2"><button type="button" className={primary} disabled={busy || needsRead} onClick={() => void confirm()}>{ambiguous ? "Повторить подтверждение" : "Подтвердить сохранение программы"}</button><button type="button" className={button} disabled={busy} onClick={() => { setPreview(null); setAmbiguous(false); }}>{ambiguous ? "Вернуться к черновику" : "Вернуться к правкам"}</button></div>
     </section> : <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
       <div className="min-w-0 space-y-4"><SourceView text={draft.source_text} /><SwimDialogue draft={draft} busy={busy || needsRead || editing !== null || manualOpen} onStart={() => { setBusy(true); setPreview(null); setError(""); }} onFinish={async () => { await refresh(); setBusy(false); }} /></div>
-      <div className="min-w-0 space-y-4">{draft.document && draft.summary ? <><ProgramStructure document={draft.document} summary={draft.summary} onEditNode={busy || needsRead || editing ? undefined : id => edit({ kind: "node", id })} onAddNode={busy || needsRead || editing ? undefined : id => edit({ kind: "add", id })} onEditWorkout={busy || needsRead || editing ? undefined : id => edit({ kind: "workout", id })} /><SourceCoverage draft={draft} busy={busy || needsRead || editing !== null} onStart={() => { setBusy(true); setPreview(null); setError(""); }} onWritten={refresh} onEnd={() => setBusy(false)} /></> : <div className={panel}><h2 className="text-lg font-semibold text-ink">Структура программы</h2><p className="mt-2 text-sm text-ink-soft">Разберите исходник с Коучем или задайте структуру вручную. Все тренировки будут в одном черновике.</p></div>}</div>
+      <div className="min-w-0 space-y-4">{draft.document && draft.summary ? <><ProgramStructure document={draft.document} summary={draft.summary} editingDisabled={busy || needsRead || editing !== null} onEditNode={id => edit({ kind: "node", id })} onAddNode={id => edit({ kind: "add", id })} onEditWorkout={id => edit({ kind: "workout", id })} /><SourceCoverage draft={draft} busy={busy || needsRead || editing !== null} onStart={() => { setBusy(true); setPreview(null); setError(""); }} onWritten={refresh} onEnd={() => setBusy(false)} /></> : <div className={panel}><h2 className="text-lg font-semibold text-ink">Структура программы</h2><p className="mt-2 text-sm text-ink-soft">Разберите исходник с Коучем или задайте структуру вручную. Все тренировки будут в одном черновике.</p></div>}</div>
     </div>}
   </>;
 }
