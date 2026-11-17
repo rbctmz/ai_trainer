@@ -165,6 +165,19 @@ private safe errors, no provider/personal writes. Reuse ADR0001/0002/SQLite.
 Trade-off: a dedicated full-width workspace makes original/structure review
 readable while Coach remains the entry. Generic Coach/history is not redesigned.
 
-Status: contract ready for bounded UI/acceptance RED, not implemented/accepted.
-Candidate/CI/native/evidence bundle pending. Full M2 goal stays active until this
-actual user path and any remaining live-model evidence boundary are audited.
+Status18.11.2026: implemented in draft PR774 with19case isolated browser proof.
+Source/dialogue/manual/direct editing, source acknowledgements, catalog and
+initial atomic bindings, full preview/human confirm/immutable readback are present.
+Own REDs and GREENs are in docs/swim_coach_import_execplan.md; synthetic screen
+bundle and UI hashes are in docs/design/evidence/issue-772. Sequential19case
+run passed59.40s without cleanup signal; lint/build/Ruff PASS. Local full Python
+4709PASS/16skip/174deselected plus4unchanged DSH timeouts, with prior baseline
+reproduction disclosed in the ExecPlan. CI, native review (0/2) and owner acceptance
+are pending. Model/SDK doubles
+do not prove live language quality; fresh paid-call budget remains required.
+Full M2 goal stays active through those remaining gates; this is no live rollout.
+
+Self-review handoff: ready for CI/independent review against the named criteria.
+No reproduced open new-product blocker remains after the own RED→GREEN fixes.
+This is not a merge verdict: current CI and human acceptance remain required.
+No new domain/API contract, migration, dependency or provider/watch write was added.

@@ -28,11 +28,13 @@ export function SwimWorkspace() {
     </header>
     {selected || program || catalog ? <>
       <div className="flex flex-wrap gap-2"><Link href="/coach/swim" className={button}>Все программы</Link></div>
-      {catalog ? <ExerciseCatalog key={`${params.get("exercise")}/${params.get("exercise_revision")}`} exerciseId={params.get("exercise")} revision={params.get("exercise_revision")} /> : program ? <SavedProgram key={`${program}/${params.get("revision")}`} programId={program} revision={params.get("revision")} /> : error ? <div role="alert" className={panel}>{swimError(error)} <button type="button" className={button} onClick={() => void refresh()}>Повторить чтение черновика</button></div> : !draft ? <p role="status" className="text-sm text-ink-soft">Загружаем исходник…</p> : <DraftWorkspace key={draft.import_id} draft={draft} reload={async () => {
+      {catalog ? <ExerciseCatalog key={`${params.get("exercise")}/${params.get("exercise_revision")}`} exerciseId={params.get("exercise")} revision={params.get("exercise_revision")} /> : program ? <SavedProgram key={`${program}/${params.get("revision")}`} programId={program} revision={params.get("revision")} /> : error && !draft ? <div role="alert" className={panel}>{swimError(error)} <button type="button" className={button} onClick={() => void refresh()}>Повторить чтение черновика</button></div> : !draft ? <p role="status" className="text-sm text-ink-soft">Загружаем исходник…</p> : <>
+        {error ? <p role="alert" className={`${panel} border-l-2 border-tone-warning`}>Не удалось обновить черновик. Показана последняя прочитанная версия. Повторите чтение перед продолжением.</p> : null}
+        <DraftWorkspace key={draft.import_id} draft={draft} readError={!!error} reload={async () => {
         // api-contract: exclude: selected private UUID; populated HTTP and browser draft readback cover this path.
         const current = await fetcher<SwimImportDraftResponse>(`/api/swim-imports/${encodeURIComponent(draft.import_id)}`);
         await refresh(current, { revalidate: false }); void refreshList();
-      }} onSaved={version => { router.push(`/coach/swim?program=${version.program_id}&revision=${version.revision}`); }} />}
+      }} onSaved={version => { router.push(`/coach/swim?program=${version.program_id}&revision=${version.revision}`); }} /></>}
     </> : <>
       <SourceCapture onCaptured={captured => { void refreshList(); router.replace(`/coach/swim?draft=${captured.import_id}`); }} />
       <section className={panel} aria-label="Черновики программ"><h2 className="text-lg font-semibold text-ink">Продолжить работу</h2>

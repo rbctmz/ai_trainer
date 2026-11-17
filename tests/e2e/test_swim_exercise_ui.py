@@ -65,3 +65,4 @@ def test_catalog_confirm_pin_version_and_reopen_after_catalog_revision(web_stack
     expect(page.locator("body")).not_to_contain_text("Изменённая синтетическая инструкция")
     saved = api_get(web_stack, f"/api/swim-programs/{draft['program_id']}/versions/1")
     assert saved["document"] == linked["document"]
+    assert not [error for error in web_stack.js_errors if error.startswith("pageerror:") or "hydration" in error.lower()]

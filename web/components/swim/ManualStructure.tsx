@@ -3,11 +3,16 @@
 import { useEffect, useState } from "react";
 import { isDemo } from "@/lib/api";
 import { swimError, swimPost } from "@/lib/swim-api";
-import type { SwimImportDraftResponse, SwimImportParseRequest } from "@/lib/types";
+import type { SwimImportDraftResponse, SwimImportParseRequest, SwimV2NodeInput } from "@/lib/types";
 import { ContextFields, LocalSteps, SpanPicker, TextField } from "./EditorFields";
 import { button, panel, primary } from "./styles";
+import { ExercisePicker } from "./ExercisePicker";
 
 type Staging = { request: SwimImportParseRequest; open: boolean };
+
+function assignmentIds(nodes: SwimV2NodeInput[]): string[] {
+  return nodes.flatMap(node => node.kind === "swim" ? [node.id] : node.kind === "group" ? assignmentIds(node.steps) : []);
+}
 
 export function ManualStructure({ draft, busy, onStart, onWritten, onEnd, onOpenChange }: {
   draft: SwimImportDraftResponse; busy: boolean; onStart: () => void;
@@ -33,7 +38,11 @@ export function ManualStructure({ draft, busy, onStart, onWritten, onEnd, onOpen
   useEffect(() => { onOpenChange(!!staging?.open); }, [staging?.open, onOpenChange]);
   if (draft.document) return null;
   const content = staging?.request.content;
-  const change = (next: SwimImportParseRequest["content"]) => setStaging({ open: true, request: { expected_revision: draft.revision, request_id: crypto.randomUUID(), content: next } });
+  const change = (next: SwimImportParseRequest["content"]) => {
+    // References are fields of visible swim controls, not orphaned form inputs.
+    const visibleIds = new Set(next.workouts.flatMap(workout => assignmentIds(workout.steps)));
+    setStaging({ open: true, request: { expected_revision: draft.revision, request_id: crypto.randomUUID(), content: { ...next, exercise_references: (next.exercise_references ?? []).filter(reference => visibleIds.has(reference.node_id)) } } });
+  };
   async function submit() {
     if (!staging || busy) return;
     onStart(); setError("");
@@ -59,7 +68,7 @@ export function ManualStructure({ draft, busy, onStart, onWritten, onEnd, onOpen
             <TextField label="Название тренировки" required value={workout.title} onChange={title => update({ ...workout, title })} />
             <ContextFields workout={workout} onChange={update} />
             <SpanPicker text={draft.source_text} spans={workout.source_spans ?? []} onChange={source_spans => update({ ...workout, source_spans })} />
-            <LocalSteps source={draft.source_text} nodes={workout.steps} onChange={steps => update({ ...workout, steps })} />
+            <LocalSteps source={draft.source_text} nodes={workout.steps} onChange={steps => update({ ...workout, steps })} renderTechnique={nodeId => <ExercisePicker nodeId={nodeId} reference={content.exercise_references?.find(reference => reference.node_id === nodeId) ?? null} onChange={reference => change({ ...content, exercise_references: [...(content.exercise_references ?? []).filter(item => item.node_id !== nodeId), ...(reference ? [reference] : [])] })} />} />
             <button type="button" className={button} onClick={() => change({ ...content, workouts: content.workouts.filter((_, at) => at !== index) })}>Убрать тренировку {index + 1} из формы</button>
           </article>;
         })}

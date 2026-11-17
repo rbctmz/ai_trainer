@@ -14,13 +14,15 @@ import { SourceCoverage } from "./SourceCoverage";
 import { ResponsiveDisclosure } from "./ResponsiveDisclosure";
 import { button, panel, primary } from "./styles";
 
-export function DraftWorkspace({ draft, reload, onSaved }: {
+export function DraftWorkspace({ draft, reload, onSaved, readError = false }: {
   draft: SwimImportDraftResponse; reload: () => Promise<void>;
   onSaved: (version: SwimProgramAnyVersionResponse) => void;
+  readError?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [needsRead, setNeedsRead] = useState(false);
+  const [readPending, setNeedsRead] = useState(false);
+  const needsRead = readPending || readError;
   const [preview, setPreview] = useState<SwimImportPreviewResponse | null>(null);
   const [ambiguous, setAmbiguous] = useState(false);
   const [editing, setEditing] = useState<EditTarget | null>(null);

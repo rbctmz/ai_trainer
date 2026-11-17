@@ -54,8 +54,11 @@ M1 завершён: #766 merged5042102. M2A завершён: #768 merged d2e1c
 owner acceptance и clean review. M2C #771 / #773 merged8ba8e49 после
 явного принятия review владельцем, зелёного CI и scoped native round2.
 Сейчас [#772](https://github.com/rbctmz/ai_trainer/issues/772): web-сценарий.
-На ветке проверены source/reload, whole-program Coach→уточнение→preview→save,
-ручная программа и точечные правки; каталог в UI и полная приёмка ещё впереди.
+В draft PR774 проверены source/reload, whole-program Coach→уточнение→preview→save,
+ручные/точечные правки и каталог с exact-version bindings.19браузерных сценариев
+прошли, последовательная очистка проверена. В полном локальном Python-наборе
+4709успешных и4ранее наблюдавшихся DSH timeout; CI/review, решение владельца и
+live-provider evidence проверяются отдельно. M2 ещё не объявлен завершённым.
 M3–M5 — backlog. Проверка Intervals→FR255:
 [feasibility](swim_intervals_garmin_feasibility.md), exact/live acceptance ещё нет.
 Полный план: [swimming_trainer_program_execplan.md](swimming_trainer_program_execplan.md).

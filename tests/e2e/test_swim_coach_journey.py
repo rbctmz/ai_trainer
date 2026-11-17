@@ -66,6 +66,7 @@ def test_coach_whole_program_clarify_preview_confirm_and_no_ai_reopen(web_stack)
         expect(page.get_by_role("status").filter(has_text="Сохранённая версия 1")).to_be_visible()
         assert ai_calls == []
         expect(page.locator("body")).not_to_contain_text("UNTRUSTED_COMPLETION_CANARY")
+        assert not [error for error in web_stack.js_errors if error.startswith("pageerror:") or "hydration" in error.lower()]
     finally:
         page.unroute("**/api/coach/swim-import*", forbid_ai)
 

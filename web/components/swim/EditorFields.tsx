@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import type { SwimIntegerRange, SwimSourceSpan, SwimSubjectiveEffortV2, SwimV2NodeInput, SwimV2WorkoutInput } from "@/lib/types";
 import { button, input } from "./styles";
 
@@ -9,8 +9,11 @@ export function Field({ label, children }: { label: string; children: (id: strin
   const id = useId();
   return <div className="min-w-0"><label htmlFor={id} className="block text-sm text-ink">{label}</label><div className="mt-1">{children(id)}</div></div>;
 }
-export function TextField({ label, value, onChange, required = false, multiline = false }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; multiline?: boolean }) {
-  return <Field label={label}>{id => multiline ? <textarea id={id} className={`${input} min-h-24`} value={value} required={required} onChange={event => onChange(event.target.value)} /> : <input id={id} className={input} value={value} required={required} onChange={event => onChange(event.target.value)} />}</Field>;
+export function TextField({ label, value, onChange, required = false, multiline = false, onEnter }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; multiline?: boolean; onEnter?: () => void }) {
+  const enter = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (onEnter && !multiline && event.key === "Enter") { event.preventDefault(); onEnter(); }
+  };
+  return <Field label={label}>{id => multiline ? <textarea id={id} className={`${input} min-h-24`} value={value} required={required} onChange={event => onChange(event.target.value)} /> : <input id={id} className={input} value={value} required={required} onChange={event => onChange(event.target.value)} onKeyDown={enter} />}</Field>;
 }
 export function NumberField({ label, value, onChange, min = 1, max = 86400, required = true }: { label: string; value: number | null | undefined; onChange: (value: number | null) => void; min?: number; max?: number; required?: boolean }) {
   return <Field label={label}>{id => <input id={id} className={input} type="number" step="1" min={min} max={max} required={required} value={value === 0 && min > 0 ? "" : value ?? ""} onChange={event => onChange(event.target.value === "" ? null : Number(event.target.value))} />}</Field>;
@@ -53,7 +56,7 @@ function EffortFields({ value, onChange }: { value: SwimSubjectiveEffortV2 | nul
   </div>;
 }
 
-export function NodeFields({ node, onChange, source, childrenEditable = false, kindEditable = true }: { node: SwimV2NodeInput; onChange: (node: SwimV2NodeInput) => void; source: string; childrenEditable?: boolean; kindEditable?: boolean }) {
+export function NodeFields({ node, onChange, source, childrenEditable = false, kindEditable = true, renderTechnique }: { node: SwimV2NodeInput; onChange: (node: SwimV2NodeInput) => void; source: string; childrenEditable?: boolean; kindEditable?: boolean; renderTechnique?: (nodeId: string) => ReactNode }) {
   return <div className="min-w-0 space-y-3">
     {kindEditable ? <Choice label="Тип элемента" value={node.kind} options={[["swim", "Отрезок / упражнение"], ["rest", "Отдых"], ["group", "Серия / круги"], ["unresolved", "Нужно уточнение"]]} onChange={kind => onChange({ ...newNode(kind, node.id), instructions: node.instructions ?? "", source_spans: node.source_spans ?? [] })} /> : null}
     {node.kind === "swim" || node.kind === "group" ? <TextField label="Название элемента" value={node.name} required onChange={name => onChange({ ...node, name })} /> : null}
@@ -63,6 +66,7 @@ export function NodeFields({ node, onChange, source, childrenEditable = false, k
       <Choice label="Стиль" value={node.stroke ?? "unspecified"} options={[["unspecified", "Не указан"], ["freestyle", "Кроль"], ["backstroke", "На спине"], ["breaststroke", "Брасс"], ["butterfly", "Баттерфляй"], ["mixed", "Смешанный"], ["drill", "Упражнение"]]} onChange={stroke => onChange({ ...node, stroke })} />
       <fieldset><legend className="text-sm text-ink">Снаряжение задания</legend><div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">{([ ["fins", "Ласты"], ["pull_buoy", "Колобашка"], ["kickboard", "Доска"], ["paddles", "Лопатки"], ["snorkel", "Трубка"], ["other", "Другое"] ] as const).map(([item, label]) => <label key={item} className="flex min-h-8 items-center gap-2 text-sm text-ink"><input type="checkbox" checked={node.equipment?.includes(item) ?? false} onChange={event => onChange({ ...node, equipment: event.target.checked ? [...node.equipment ?? [], item] : (node.equipment ?? []).filter(value => value !== item) })} />{label}</label>)}</div></fieldset>
       <EffortFields value={node.effort} onChange={effort => onChange({ ...node, effort })} />
+      {renderTechnique?.(node.id)}
     </> : node.kind === "rest" ? <>
       <Choice label="Режим отдыха" value={node.mode} options={[["open", "Произвольный / по выдохам"], ["fixed", "Точно по времени"], ["approximate", "Примерно / диапазон времени"]]} onChange={mode => onChange({ ...node, mode, seconds: mode === "open" ? null : { minimum: 0, maximum: 0 }, breaths: null })} />
       {node.mode !== "open" ? <RangeFields from="Отдых от, с" to="Отдых до, с" value={node.seconds ?? { minimum: 0, maximum: 0 }} onChange={seconds => onChange({ ...node, seconds })} /> : <><label className="flex min-h-8 items-center gap-2 text-sm text-ink"><input type="checkbox" checked={!!node.breaths} onChange={event => onChange({ ...node, breaths: event.target.checked ? { minimum: 0, maximum: 0 } : null })} />Указаны выдохи в воду</label>{node.breaths ? <RangeFields from="Выдохов от" to="Выдохов до" max={100} value={node.breaths} onChange={breaths => onChange({ ...node, breaths })} /> : null}</>}
@@ -72,15 +76,15 @@ export function NodeFields({ node, onChange, source, childrenEditable = false, k
       {node.repeat.kind === "count" ? <RangeFields from="Повторов от" to="Повторов до" max={100} value={node.repeat.count} onChange={count => onChange({ ...node, repeat: { kind: "count", count } })} /> : <><NumberField label="Время серии, с" value={node.repeat.seconds} onChange={seconds => { if (node.repeat.kind === "time") onChange({ ...node, repeat: { ...node.repeat, seconds: seconds ?? 0 } }); }} /><Choice label="Когда закончить" value={node.repeat.finish} options={[["timer", "По таймеру"], ["current_cycle", "Закончить текущий цикл"]]} onChange={finish => { if (node.repeat.kind === "time") onChange({ ...node, repeat: { ...node.repeat, finish } }); }} /></>}
       <Choice label="Отдых после последнего повтора" value={node.last_rest ?? "unspecified"} options={[["unspecified", "Не уточнён"], ["include", "Включён"], ["omit", "Пропущен"]]} onChange={last_rest => onChange({ ...node, last_rest })} />
       <EffortFields value={node.effort} onChange={effort => onChange({ ...node, effort })} />
-      {childrenEditable ? <LocalSteps nodes={node.steps} source={source} onChange={steps => onChange({ ...node, steps })} /> : <p className="text-sm text-ink-soft">Вложенные шаги меняются отдельно в структуре программы.</p>}
+      {childrenEditable ? <LocalSteps nodes={node.steps} source={source} renderTechnique={renderTechnique} onChange={steps => onChange({ ...node, steps })} /> : <p className="text-sm text-ink-soft">Вложенные шаги меняются отдельно в структуре программы.</p>}
     </> : <TextField label="Вопрос разбора" value={node.question} required onChange={question => onChange({ ...node, question })} />}
     <TextField label="Инструкция" value={node.instructions ?? ""} multiline required={node.kind === "unresolved"} onChange={instructions => onChange({ ...node, instructions })} />
     <SpanPicker text={source} spans={node.source_spans ?? []} onChange={source_spans => onChange({ ...node, source_spans })} />
   </div>;
 }
 
-export function LocalSteps({ nodes, source, onChange }: { nodes: SwimV2NodeInput[]; source: string; onChange: (nodes: SwimV2NodeInput[]) => void }) {
-  return <div className="min-w-0 space-y-3">{nodes.map((node, index) => <fieldset key={node.id} className="min-w-0 space-y-3 rounded-lg border border-surface-border p-3"><legend className="px-1 text-sm font-semibold text-ink">Элемент {index + 1}</legend><NodeFields node={node} source={source} childrenEditable onChange={changed => onChange(nodes.map((value, at) => at === index ? changed : value))} /><div className="flex flex-wrap gap-2"><button type="button" className={button} onClick={() => onChange(nodes.filter((_, at) => at !== index))}>Убрать элемент {index + 1}</button>{index > 0 ? <button type="button" className={button} onClick={() => { const moved = [...nodes]; [moved[index - 1], moved[index]] = [moved[index], moved[index - 1]]; onChange(moved); }}>Выше</button> : null}</div></fieldset>)}<button type="button" className={button} onClick={() => onChange([...nodes, newNode()])}>Добавить шаг</button></div>;
+export function LocalSteps({ nodes, source, onChange, renderTechnique }: { nodes: SwimV2NodeInput[]; source: string; onChange: (nodes: SwimV2NodeInput[]) => void; renderTechnique?: (nodeId: string) => ReactNode }) {
+  return <div className="min-w-0 space-y-3">{nodes.map((node, index) => <fieldset key={node.id} className="min-w-0 space-y-3 rounded-lg border border-surface-border p-3"><legend className="px-1 text-sm font-semibold text-ink">Элемент {index + 1}</legend><NodeFields node={node} source={source} childrenEditable renderTechnique={renderTechnique} onChange={changed => onChange(nodes.map((value, at) => at === index ? changed : value))} /><div className="flex flex-wrap gap-2"><button type="button" className={button} onClick={() => onChange(nodes.filter((_, at) => at !== index))}>Убрать элемент {index + 1}</button>{index > 0 ? <button type="button" className={button} onClick={() => { const moved = [...nodes]; [moved[index - 1], moved[index]] = [moved[index], moved[index - 1]]; onChange(moved); }}>Выше</button> : null}</div></fieldset>)}<button type="button" className={button} onClick={() => onChange([...nodes, newNode()])}>Добавить шаг</button></div>;
 }
 
 export function ContextFields({ workout, onChange }: { workout: SwimV2WorkoutInput; onChange: (workout: SwimV2WorkoutInput) => void }) {

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from datetime import datetime, timezone
 
 import pytest
 from playwright.sync_api import expect
@@ -55,11 +56,11 @@ def test_program_geometry_primary_contrast_and_optional_synthetic_evidence(web_s
                     filename = f"program-{theme}-{width}.png"
                     page.screenshot(path=str(folder / filename), full_page=True)
                     page.screenshot(path=str(folder / filename.replace(".png", "-first-screen.png")), full_page=False)
-                    records.append({"file": filename, "theme": theme, "viewport": {"width": width, "height": 900}, "colors": colors})
+                    records.append({"file": filename, "theme": theme, "viewport": {"width": width, "height": 900}, "colors": colors, "primary_contrast": round(contrast(colors["fg"], colors["bg"]), 3), "warning_contrast": round(contrast(warning_colors["fg"], warning_colors["bg"]), 3)})
         if capture:
             files = sorted((ROOT / "web/components/swim").glob("*.tsx")) + [ROOT / "web/components/swim/styles.ts", ROOT / "web/app/coach/swim/page.tsx", ROOT / "web/lib/swim-api.ts"]
             hashes = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
-            metadata = {"fixture": "exact_program_v2 anonymous synthetic", "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "source_sha256": hashes, "screenshots": records, "limitations": "Real components/API/temp DB; no owner acceptance, screen-reader certification or live AI quality inference."}
+            metadata = {"fixture": "exact_program_v2 anonymous synthetic", "captured_at": datetime.now(timezone.utc).isoformat(), "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "source_sha256": hashes, "screenshots": records, "limitations": "Real components/API/temp DB; no owner acceptance, screen-reader certification or live AI quality inference."}
             (ROOT / "docs/design/evidence/issue-772/metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
     finally:
         page.set_viewport_size({"width": 1280, "height": 900})
