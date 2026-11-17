@@ -210,3 +210,55 @@ def test_malformed_rich_documents_are_rejected(change):
         raw["schema_version"] = 3
     with pytest.raises(ValidationError):
         validate_program_document(raw)
+
+
+def test_unicode_source_coverage_and_unresolved_are_explicit():
+    import hashlib
+
+    raw = rich_program()
+    raw["source_text"] = "🏊 Разминка\nНеясная часть"
+    raw["source_sha256"] = hashlib.sha256(raw["source_text"].encode()).hexdigest()
+    raw["source_spans"] = [{"start": 0, "end": 10}]
+    raw["workouts"][0]["steps"] = [
+        {
+            "kind": "unresolved",
+            "id": "unclear",
+            "instructions": "Retain wording",
+            "question": "Which scope?",
+            "source_spans": [{"start": 11, "end": 15}],
+        }
+    ]
+    summary = summarize_document(validate_program_document(raw))
+    assert summary["distance_meters"] is None
+    assert summary["source_gaps"] == [{"start": 15, "end": len(raw["source_text"])}]
+    assert {w["code"] for w in summary["warnings"]} == {
+        "unresolved_source",
+        "source_not_covered",
+    }
+
+
+@pytest.mark.parametrize("version", [True, 2.0, "2"])
+def test_version_dispatch_never_coerces(version):
+    raw = rich_program()
+    raw["schema_version"] = version
+    with pytest.raises(ValidationError):
+        validate_program_document(raw)
+
+
+def test_expansion_depth_and_identity_limits():
+    raw = rich_program()
+    child = meters("leaf", 100)
+    for level in range(7):
+        child = {
+            "kind": "group",
+            "id": f"group{level}",
+            "name": "Repeat",
+            "repeat": {"kind": "count", "count": {"minimum": 100, "maximum": 100}},
+            "steps": [child],
+        }
+    raw["workouts"][0]["steps"] = [child]
+    with pytest.raises(ValidationError):
+        validate_program_document(raw)
+    raw["workouts"][0]["steps"] = [child["steps"][0]["steps"][0]["steps"][0]]
+    with pytest.raises(ValidationError, match="expanded program limit"):
+        validate_program_document(raw)

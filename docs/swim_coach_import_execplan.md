@@ -23,6 +23,7 @@ work survive. Unknown distance/duration/load are displayed rather than invented.
 - [x] M2B #769 created, branch codex/issue-769-swim-import-draft based on merged main.
 - [ ] M2B contract/RED/GREEN: source-bound rich documents and editable retained drafts.
 - [x] Domain RED: test_swim_program_v2.py collection fails because the version-aware adapter does not yet exist; frozen V1 warning order verified against main.
+- [x] Domain GREEN: 54 focused V1/V2/exercise tests pass; strict version dispatch, Unicode source spans and resource bounds checked.
 - [ ] M2B reviewable PR, CI, bounded independent review; merge only owner decision.
 - [ ] M2C Coach read/prepare/patch tools with trusted turn binding and provider-path checks.
 - [ ] M2D web source/structure/editor/save/readback and isolated user acceptance.
@@ -99,6 +100,11 @@ Observed: M1 quantity/rest/repeat fields are single positive integer metres or
 counts; private corpus includes time-based patterns and ranges. Inferred: forcing
 those into schema1 would alter meaning. Verified by: four existing representation
 probes and current code inspection; V2 preserves them without midpoint estimates.
+
+Observed: Pydantic rejects a field discriminator when the frozen V1 version field
+has a before-validator. Inferred: callable tagged dispatch can retain that exact
+validation without editing V1. Verified by: the same collection failure disappears
+with tagged dispatch; frozen hash and strict bool/float/string-version tests pass.
 
 Observed: generic M1 confirm accepts any retained preview UUID. Inferred: a
 M2-only endpoint guard would be bypassed by generic confirm. Verified by: API/store
