@@ -134,3 +134,41 @@ def test_source_gap_acknowledgement_and_unresolved_resolution_are_explicit(web_s
     assert resolved["summary"]["distance_meters"] == 100
     page.get_by_role("button", name="Подготовить предпросмотр", exact=True).click()
     expect(page.get_by_role("region", name="Предпросмотр сохранения")).to_be_visible()
+
+
+def test_timed_group_effort_and_breath_rest_survive_bounded_form_edits(web_stack):
+    from tests.smoke._swim_import_fixtures import rich_program
+
+    draft = seeded_draft(web_stack, rich_program())
+    page = web_stack.page
+    page.goto(web_stack.web_base + f"/coach/swim?draft={draft['import_id']}")
+    page.get_by_text("Timed cycle", exact=True).click()
+    page.get_by_role("button", name="Изменить: Timed cycle", exact=True).click()
+    editor = page.get_by_role("region", name="Правка элемента", exact=True)
+    editor.get_by_label("Задать субъективное усилие", exact=True).check()
+    editor.get_by_label("Усилие от, %", exact=True).fill("50")
+    editor.get_by_label("Усилие до, %", exact=True).fill("90")
+    editor.get_by_label("Изменение усилия", exact=True).select_option("across_repetitions")
+    editor.get_by_role("button", name="Применить правку", exact=True).click()
+    expect(editor).not_to_be_visible()
+    page.get_by_role("button", name="Добавить шаг в группу", exact=True).click()
+    add = page.get_by_role("region", name="Новый элемент", exact=True)
+    add.get_by_label("Тип элемента", exact=True).select_option("rest")
+    add.get_by_label("Указаны выдохи в воду", exact=True).check()
+    add.get_by_label("Выдохов от", exact=True).fill("3")
+    add.get_by_label("Выдохов до", exact=True).fill("4")
+    add.get_by_role("button", name="Применить правку", exact=True).click()
+    expect(add).not_to_be_visible()
+    page.get_by_role("button", name="Изменить: Timed cycle", exact=True).click()
+    editor.get_by_label("Отдых после последнего повтора", exact=True).select_option("include")
+    editor.get_by_role("button", name="Применить правку", exact=True).click()
+    expect(editor).not_to_be_visible()
+    changed = api_get(web_stack, f"/api/swim-imports/{draft['import_id']}")
+    group = changed["document"]["workouts"][0]["steps"][1]
+    assert group["repeat"] == {"kind": "time", "seconds": 1800, "finish": "current_cycle"}
+    assert group["effort"] == {"kind": "subjective", "start_percent": 50, "end_percent": 90, "scope": "across_repetitions"}
+    assert group["steps"][:2] == draft["document"]["workouts"][0]["steps"][1]["steps"]
+    assert group["steps"][-1]["breaths"] == {"minimum": 3, "maximum": 4}
+    assert group["steps"][-1]["seconds"] is None and group["last_rest"] == "include"
+    assert changed["summary"]["distance_meters"] is None
+    assert changed["summary"]["known_distance_meters"] == 1000

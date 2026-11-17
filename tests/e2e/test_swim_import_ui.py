@@ -244,3 +244,48 @@ def test_legacy_v1_saved_program_is_readable_without_ai_or_conversion(web_stack)
         assert ai_calls == []
     finally:
         page.unroute("**/api/coach/swim-import*", forbid_ai)
+
+
+def test_background_read_error_retains_ambiguous_reviewed_preview(web_stack):
+    from tests.smoke._swim_import_fixtures import exact_program_v2
+
+    draft = seeded_draft(web_stack, exact_program_v2())
+    page = web_stack.page
+    page.goto(web_stack.web_base + f"/coach/swim?draft={draft['import_id']}")
+    page.get_by_role("button", name="Подготовить предпросмотр", exact=True).click()
+    preview = page.get_by_role("region", name="Предпросмотр сохранения", exact=True)
+    expect(preview).to_be_visible()
+    attempts = []
+
+    def lose_once(route):
+        attempts.append(route.request.post_data_json)
+        response = route.fetch()
+        if len(attempts) == 1:
+            route.abort()
+        else:
+            route.fulfill(response=response)
+
+    def unavailable(route):
+        route.fulfill(status=503, content_type="application/json", body='{"detail":{"code":"swim_import_storage_unavailable"}}')
+
+    current_path = f"**/api/swim-imports/{draft['import_id']}?*"
+    page.route("**/api/swim-programs/confirm*", lose_once)
+    try:
+        page.get_by_role("button", name="Подтвердить сохранение программы", exact=True).click()
+        expect(page.get_by_role("alert").filter(has_text="Результат сохранения")).to_be_visible()
+        page.route(current_path, unavailable)
+        # SWR's default focus throttle is 5s from mount. Exercise its actual event path.
+        page.wait_for_timeout(5100)
+        with page.expect_response(lambda response: f"/api/swim-imports/{draft['import_id']}?" in response.url and response.status == 503):
+            page.evaluate("window.dispatchEvent(new Event('focus'))")
+        expect(preview).to_be_visible()
+        expect(page.get_by_role("button", name="Повторить подтверждение", exact=True)).to_be_disabled()
+        page.unroute(current_path, unavailable)
+        page.get_by_role("button", name="Обновить черновик", exact=True).click()
+        expect(page.get_by_role("button", name="Повторить подтверждение", exact=True)).to_be_enabled()
+        page.get_by_role("button", name="Повторить подтверждение", exact=True).click()
+        expect(page.get_by_role("status").filter(has_text="Сохранённая версия 1")).to_be_visible()
+        assert attempts[0] == attempts[1]
+    finally:
+        page.unroute("**/api/swim-programs/confirm*", lose_once)
+        page.unroute(current_path, unavailable)
