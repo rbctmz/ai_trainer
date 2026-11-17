@@ -1,0 +1,89 @@
+{
+  "fixture": "exact_program_v2 anonymous synthetic",
+  "captured_at": "2026-11-17T22:32:40.961528+00:00",
+  "git_head": "097daefbd07662b836a64c60e7dac56473de38b9",
+  "source_sha256": {
+    "web/components/swim/DraftEditor.tsx": "3fc33073e86996f985ed546caaa287108a7229deeec1dd735e7780865c6d44b6",
+    "web/components/swim/DraftWorkspace.tsx": "e6a627f11b156624211386d505b93d92347c7adb9517c8b7f284a0b6d4e59f7d",
+    "web/components/swim/EditorFields.tsx": "d66b3edc4e789d57fdb47d3c3631bcfb029120fdf4d0f882e2612db4b970abe1",
+    "web/components/swim/ExerciseCatalog.tsx": "8794f4c74c18526ff09eba289187546e2f28ef3b20d9e565f5c998a4779b0a04",
+    "web/components/swim/ExerciseDefinition.tsx": "3a52039af411b9091bb0deea937c121e8ee37704fd3ec8b282fb257a724d3e2c",
+    "web/components/swim/ExerciseEditor.tsx": "d79773d9f301c93a7e36cf32450b8ce9017a1eddc2ad5aa07203be9b1b9e8b31",
+    "web/components/swim/ExercisePicker.tsx": "b3747f6b8e2c800feda37e4f6112dd26e6a10ce671105387220beaddcecc88ce",
+    "web/components/swim/ManualStructure.tsx": "b553e5e54853cd7514b35200fb22230dd5a6d153055d0e53ae339666628cd28b",
+    "web/components/swim/ProgramLibrary.tsx": "13aaae11dd5d54d3ed5f4240f61b4101255b2fc4bf9814b8c1b14a79de18f09d",
+    "web/components/swim/ProgramStructure.tsx": "dbed2e6987c4d4be4a20a5243156f44c83999c885e7fe1f52043e161a9bba712",
+    "web/components/swim/ResponsiveDisclosure.tsx": "affd1db17430054b15f55a33a0fe2c367a3e9762da043072915ab72669707f35",
+    "web/components/swim/SourceCapture.tsx": "6466f726d6c8529c28ed731049f40025439bc0329553b82def710129f7420b1e",
+    "web/components/swim/SourceCoverage.tsx": "560aa05676c6c95a53507e0ad36ca2325184aee14347c86c918e73ff0c31ae9c",
+    "web/components/swim/SourceView.tsx": "ec6b754605e5e83130c7345102ba9119c762735d4e933b225e515c23a502fc1b",
+    "web/components/swim/SwimDialogue.tsx": "186b3011aeff90f33f5c095914b7e23982bacac633681f4390d25ed03b52e56c",
+    "web/components/swim/SwimWorkspace.tsx": "76f93a9d72bb34080c96b35e7173108013f78e878c7371714f380ad1baab4dcd",
+    "web/components/swim/styles.ts": "26a3000d738fcc5b51b31b6cbe81c20536a887c29de56e3c013bcf5ca28bf457",
+    "web/app/coach/swim/page.tsx": "c40ef9b3a531ef8e5d6f428f7a7244e38683e9c798d1ecf539e8433acfe5ba73",
+    "web/lib/swim-api.ts": "d07c3cb02af9d54ce15d85891fbe7a1ca813ad30e805079e4600e7deba3fd1ca"
+  },
+  "screenshots": [
+    {
+      "file": "program-light-1280.png",
+      "theme": "light",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "colors": {
+        "fg": "rgb(255, 255, 255)",
+        "bg": "rgb(29, 78, 216)",
+        "height": 44
+      },
+      "primary_contrast": 6.702,
+      "warning_contrast": 17.853
+    },
+    {
+      "file": "program-light-390.png",
+      "theme": "light",
+      "viewport": {
+        "width": 390,
+        "height": 900
+      },
+      "colors": {
+        "fg": "rgb(255, 255, 255)",
+        "bg": "rgb(29, 78, 216)",
+        "height": 44
+      },
+      "primary_contrast": 6.702,
+      "warning_contrast": 17.853
+    },
+    {
+      "file": "program-dark-1280.png",
+      "theme": "dark",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "colors": {
+        "fg": "rgb(255, 255, 255)",
+        "bg": "rgb(29, 78, 216)",
+        "height": 44
+      },
+      "primary_contrast": 6.702,
+      "warning_contrast": 16.296
+    },
+    {
+      "file": "program-dark-390.png",
+      "theme": "dark",
+      "viewport": {
+        "width": 390,
+        "height": 900
+      },
+      "colors": {
+        "fg": "rgb(255, 255, 255)",
+        "bg": "rgb(29, 78, 216)",
+        "height": 44
+      },
+      "primary_contrast": 6.702,
+      "warning_contrast": 16.296
+    }
+  ],
+  "limitations": "Real components/API/temp DB; no owner acceptance, screen-reader certification or live AI quality inference."
+}
