@@ -6,6 +6,7 @@ import pytest
 from playwright.sync_api import expect
 
 from tests.e2e.test_swim_import_ui import api_post
+from tests.e2e.test_swim_import_ui import seeded_draft
 from tests.e2e.test_swim_coach_journey import api_get
 
 pytestmark = pytest.mark.e2e
@@ -67,11 +68,24 @@ def test_manual_three_workouts_ranges_attempts_and_exact_patch_without_ai(web_st
         page.get_by_role("button", name="Изменить: Отдых", exact=True).click()
         patch = page.get_by_role("region", name="Правка элемента", exact=True)
         patch.get_by_label("Отдых до, с", exact=True).fill("90")
+        page.reload()
+        patch = page.get_by_role("region", name="Правка элемента", exact=True)
+        expect(patch.get_by_label("Отдых до, с", exact=True)).to_have_value("90")
+        patch.get_by_text("Привязка к исходнику (0)", exact=True).click()
+        patch.get_by_label("Выделите фрагмент исходника", exact=True).evaluate("""element => {
+            const start = element.value.indexOf('100 м');
+            element.focus(); element.setSelectionRange(start, start + 4);
+        }""")
+        patch.get_by_label("Выделите фрагмент исходника", exact=True).press("Shift+ArrowRight")
+        patch.get_by_role("button", name="Привязать выделенный фрагмент", exact=True).click()
         patch.get_by_role("button", name="Применить правку", exact=True).click()
+        expect(patch).not_to_be_visible()
         changed = api_get(web_stack, f"/api/swim-imports/{raw['import_id']}")
         assert changed["revision"] == 2
         before = draft["document"]
         before["workouts"][0]["steps"][1]["seconds"]["maximum"] = 90
+        start = source_text.index("100 м")
+        before["workouts"][0]["steps"][1]["source_spans"] = [{"start": start, "end": start + 5}]
         assert changed["document"] == before
         expect(page.get_by_role("region", name="Структура программы")).to_contain_text(re.compile("60–90 с отдыха"))
         page.get_by_role("button", name="Подготовить предпросмотр", exact=True).click()
@@ -81,3 +95,42 @@ def test_manual_three_workouts_ranges_attempts_and_exact_patch_without_ai(web_st
         assert saved["document"] == changed["document"] and ai_calls == []
     finally:
         page.unroute("**/api/coach/swim-import*", forbid_ai)
+
+
+def test_source_gap_acknowledgement_and_unresolved_resolution_are_explicit(web_stack):
+    from tests.smoke._swim_import_fixtures import rich_program
+
+    document = rich_program()
+    document["source_spans"] = []
+    document["workouts"][0]["steps"] = [{
+        "kind": "unresolved", "id": "unclear", "instructions": "Synthetic ambiguous instruction",
+        "question": "Какова дистанция?", "source_spans": [],
+    }]
+    draft = seeded_draft(web_stack, document)
+    page = web_stack.page
+    page.goto(web_stack.web_base + f"/coach/swim?draft={draft['import_id']}")
+    page.get_by_role("button", name="Подготовить предпросмотр", exact=True).click()
+    expect(page.get_by_role("alert").filter(has_text="неразобранные фрагменты")).to_be_visible()
+    gaps = page.get_by_role("region", name="Несопоставленные фрагменты", exact=True)
+    expect(gaps).to_contain_text(document["source_text"].strip())
+    gaps.get_by_role("button", name="Это пояснение, а не задание", exact=True).click()
+    gaps.get_by_label("Почему фрагмент не требует шага", exact=True).fill("Синтетический заголовок примера")
+    gaps.get_by_role("button", name="Подтвердить пояснение", exact=True).click()
+    expect(gaps).not_to_be_visible()
+    acknowledged = api_get(web_stack, f"/api/swim-imports/{draft['import_id']}")
+    assert acknowledged["acknowledgements"][0]["reason"] == "Синтетический заголовок примера"
+    assert acknowledged["summary"]["source_gaps"] == []
+    page.get_by_role("button", name="Изменить: Неразобранный элемент", exact=True).click()
+    editor = page.get_by_role("region", name="Правка элемента", exact=True)
+    expect(editor).to_be_focused()
+    editor.get_by_label("Тип элемента", exact=True).select_option("swim")
+    editor.get_by_label("Название элемента", exact=True).fill("Уточнённый отрезок")
+    editor.get_by_label("Объём шага", exact=True).select_option("distance")
+    editor.get_by_label("Дистанция, м", exact=True).fill("100")
+    editor.get_by_role("button", name="Применить правку", exact=True).click()
+    expect(editor).not_to_be_visible()
+    resolved = api_get(web_stack, f"/api/swim-imports/{draft['import_id']}")
+    assert resolved["document"]["workouts"][0]["steps"][0]["id"] == "unclear"
+    assert resolved["summary"]["distance_meters"] == 100
+    page.get_by_role("button", name="Подготовить предпросмотр", exact=True).click()
+    expect(page.get_by_role("region", name="Предпросмотр сохранения")).to_be_visible()
