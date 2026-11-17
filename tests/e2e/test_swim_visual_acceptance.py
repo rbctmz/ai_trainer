@@ -49,7 +49,7 @@ def test_program_geometry_primary_contrast_and_optional_synthetic_evidence(web_s
                 warning_colors = warning.evaluate("element => ({fg: getComputedStyle(element).color, bg: getComputedStyle(element.closest('section')).backgroundColor})")
                 assert contrast(warning_colors["fg"], warning_colors["bg"]) >= 4.5, (theme, warning_colors)
                 if width < 1024:
-                    expect(page.get_by_role("region", name="Объём программы").get_by_text(re.compile(r"6\s?100\s?м"), exact=True)).to_be_in_viewport()
+                    expect(page.get_by_role("region", name="Объём программы").get_by_text(re.compile(r"6\s?100\s?м"), exact=True), f"Program volume must be in first viewport: {theme}/{width}px").to_be_in_viewport()
                 if capture and width != 320:
                     folder = ROOT / "docs/design/evidence/issue-772"
                     folder.mkdir(parents=True, exist_ok=True)
@@ -59,7 +59,7 @@ def test_program_geometry_primary_contrast_and_optional_synthetic_evidence(web_s
                     records.append({"file": filename, "theme": theme, "viewport": {"width": width, "height": 900}, "colors": colors, "primary_contrast": round(contrast(colors["fg"], colors["bg"]), 3), "warning_contrast": round(contrast(warning_colors["fg"], warning_colors["bg"]), 3)})
         if capture:
             files = sorted((ROOT / "web/components/swim").glob("*.tsx")) + [ROOT / "web/components/swim/styles.ts", ROOT / "web/app/coach/swim/page.tsx", ROOT / "web/lib/swim-api.ts"]
-            hashes = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
+            hashes = [{"path": str(path.relative_to(ROOT)), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()} for path in files]
             metadata = {"fixture": "exact_program_v2 anonymous synthetic", "captured_at": datetime.now(timezone.utc).isoformat(), "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "source_sha256": hashes, "screenshots": records, "limitations": "Real components/API/temp DB; no owner acceptance, screen-reader certification or live AI quality inference."}
             (ROOT / "docs/design/evidence/issue-772/metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
     finally:

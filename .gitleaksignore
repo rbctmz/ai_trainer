@@ -84,3 +84,8 @@ docs/reports/2026-10-01-daily-story-consistency/evidence/candidate-export.json:g
 # whole manifest bytes so a replacement value cannot inherit this exception.
 2200bdb4ecb3e4be26e4d015cd97f9d6b3be7d86:docs/reports/2026-10-02-issue-674-empty-today/native-round-1/source-hashes.json:generic-api-key:3
 docs/reports/2026-10-02-issue-674-empty-today/native-round-1/source-hashes.json:generic-api-key:3
+
+# PR #774: one historical source-file SHA256, recomputed against the immutable
+#097daef source blob. Current metadata uses path/sha256 records; no tree-wide or
+#current-line exception is granted.
+d840b494020bad1163b4664c1b081f209dd1458a:docs/design/evidence/issue-772/metadata.json:generic-api-key:24

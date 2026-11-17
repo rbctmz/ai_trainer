@@ -87,6 +87,7 @@ export function DraftWorkspace({ draft, reload, onSaved, readError = false }: {
     <section className={panel} aria-label="Программа тренера">
       <h2 className="break-words text-xl font-semibold text-ink">{draft.document?.title || draft.source_week_label || draft.source_label || "Исходник тренера"}</h2>
       <p role="status" className="mt-1 text-sm text-ink-soft">Источник сохранён · {draft.document ? "Черновик программы" : "Структура ещё не разобрана"}</p>
+      {!preview && draft.document && draft.summary ? <ProgramSummary document={draft.document} summary={draft.summary} inline /> : null}
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" className={primary} disabled={!editorReady || busy || needsRead || !draft.document || preview !== null || editing !== null || manualOpen} onClick={() => void prepare()}>Подготовить предпросмотр</button>
         <button type="button" className={button} disabled={busy} onClick={() => void refresh()}>Обновить черновик</button>
@@ -95,7 +96,6 @@ export function DraftWorkspace({ draft, reload, onSaved, readError = false }: {
       {busy ? <p role="status" className="mt-3 text-sm text-ink-soft">Ожидаем подтверждение сервера…</p> : null}
       {error ? <p role="alert" className="mt-3 text-sm border-l-2 border-tone-warning pl-3 text-ink">{error}</p> : null}
     </section>
-    {!preview && draft.document && draft.summary ? <ProgramSummary document={draft.document} summary={draft.summary} /> : null}
     {!draft.document ? <ManualStructure draft={draft} busy={busy || needsRead} onStart={() => { setBusy(true); setError(""); }} onWritten={refresh} onEnd={() => setBusy(false)} onOpenChange={setManualOpen} /> : null}
     {editing && draft.document ? <DraftEditor key={JSON.stringify(editing)} draft={draft} target={editing} busy={busy || needsRead} onStart={() => { setBusy(true); setPreview(null); setError(""); }} onWritten={refresh} onEnd={() => setBusy(false)} onClose={closeEditor} /> : null}
     {preview && preview.draft_revision === draft.revision ? <section className={`${panel} space-y-4`} aria-label="Предпросмотр сохранения">

@@ -99,10 +99,11 @@ function Step({ node, source, bindings, onEdit, onAdd, disabled }: {
   </div>;
 }
 
-export function ProgramSummary({ document, summary }: { document: Document; summary: Summary }) {
+export function ProgramSummary({ document, summary, inline = false }: { document: Document; summary: Summary; inline?: boolean }) {
   const known = "known_distance_meters" in summary ? summary.known_distance_meters : summary.distance_meters;
-  return <section className={panel} aria-label="Объём программы">
-      <h2 className="text-lg font-semibold text-ink">Объём программы</h2>
+  const Heading = inline ? "h3" : "h2";
+  return <section className={inline ? "mt-3 border-t border-surface-border bg-surface pt-3" : panel} aria-label="Объём программы">
+      <Heading className="text-lg font-semibold text-ink">Объём программы</Heading>
       <p className="mt-2 text-lg font-semibold text-ink">{summary.distance_meters === null ? "Полная дистанция неизвестна" : metres(summary.distance_meters)}</p>
       {summary.distance_meters === null ? <p className="mt-1 text-sm text-ink-soft">Известная фиксированная часть: {metres(known)}</p> : null}
       <p className="mt-1 text-sm text-ink-soft">Тренировок: {document.workouts.length} · Полная длительность и TSS не определены</p>

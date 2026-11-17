@@ -281,3 +281,18 @@ current state. Browser input buffers are not preview/save authority.18.11.2026.
 Revision18.11.2026: M2D implemented in draft PR774,19browser cases, responsive
 synthetic evidence and own failure reproductions recorded. Preserve the separate
 local-cleanup/CI/native/owner and live-model boundaries; no runtime/personal rollout.
+
+CI d840b49: contributor-safe Python and contract jobs passed. Browser job ran
+150PASS/1FAIL: the strict first-viewport volume assertion failed; its old message
+did not identify the active narrow width, so no platform/font cause is asserted.
+Move the server summary before actions within the program card and retain the
+strict390/320 assertion, now labelled with theme/width. Fresh isolated19case run:
+19PASS61.63s, clean teardown; Node22 lint/build and Ruff passed.
+
+Gitleaks at d840b49 flagged metadata.json line24. Verified by recomputing the
+immutable097daef source blob: the value is that file's SHA256. Replace filename-
+keyed checksum metadata with path/sha256 records and allow only the exact
+historical commit/line fingerprint. No current-file/directory exception. Security
+regressions first2FAIL/6PASS, then security+contract106PASS11.08s. Regenerated
+synthetic screenshots match all19 current UI source hashes. Current-head CI and
+native review remain pending; these checks do not imply owner/live-model acceptance.
