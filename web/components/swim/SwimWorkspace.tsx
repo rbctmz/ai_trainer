@@ -9,6 +9,7 @@ import type { SwimImportDraftResponse, SwimImportListResponse } from "@/lib/type
 import { SourceCapture } from "./SourceCapture";
 import { DraftWorkspace } from "./DraftWorkspace";
 import { ProgramLibrary, SavedProgram } from "./ProgramLibrary";
+import { ExerciseCatalog } from "./ExerciseCatalog";
 import { button, panel } from "./styles";
 
 export function SwimWorkspace() {
@@ -16,17 +17,18 @@ export function SwimWorkspace() {
   const params = useSearchParams();
   const selected = params.get("draft");
   const program = params.get("program");
+  const catalog = params.get("catalog") === "1";
   const { data: list, error: listError, mutate: refreshList } = useSWR<SwimImportListResponse>("/api/swim-imports", fetcher);
   // api-contract: exclude selected private UUID; populated HTTP/TS and browser readback cover this path.
   const { data: draft, error, mutate: refresh } = useSWR<SwimImportDraftResponse>(selected ? `/api/swim-imports/${encodeURIComponent(selected)}` : null, fetcher);
   return <main className="space-y-4">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div><h1 className="text-2xl font-semibold text-ink">Программы плавания</h1><p className="mt-1 text-sm text-ink-soft">Исходник тренера, проверяемый черновик и сохранённая программа.</p></div>
-      <Link href="/coach" className={button}>К диалогу с Коучем</Link>
+      <div className="flex flex-wrap gap-2"><Link href="/coach/swim?catalog=1" className={button}>Справочник упражнений</Link><Link href="/coach" className={button}>К диалогу с Коучем</Link></div>
     </header>
-    {selected || program ? <>
+    {selected || program || catalog ? <>
       <div className="flex flex-wrap gap-2"><Link href="/coach/swim" className={button}>Все программы</Link></div>
-      {program ? <SavedProgram key={`${program}/${params.get("revision")}`} programId={program} revision={params.get("revision")} /> : error ? <div role="alert" className={panel}>{swimError(error)} <button type="button" className={button} onClick={() => void refresh()}>Повторить чтение черновика</button></div> : !draft ? <p role="status" className="text-sm text-ink-soft">Загружаем исходник…</p> : <DraftWorkspace key={draft.import_id} draft={draft} reload={async () => {
+      {catalog ? <ExerciseCatalog key={`${params.get("exercise")}/${params.get("exercise_revision")}`} exerciseId={params.get("exercise")} revision={params.get("exercise_revision")} /> : program ? <SavedProgram key={`${program}/${params.get("revision")}`} programId={program} revision={params.get("revision")} /> : error ? <div role="alert" className={panel}>{swimError(error)} <button type="button" className={button} onClick={() => void refresh()}>Повторить чтение черновика</button></div> : !draft ? <p role="status" className="text-sm text-ink-soft">Загружаем исходник…</p> : <DraftWorkspace key={draft.import_id} draft={draft} reload={async () => {
         // api-contract: exclude: selected private UUID; populated HTTP and browser draft readback cover this path.
         const current = await fetcher<SwimImportDraftResponse>(`/api/swim-imports/${encodeURIComponent(draft.import_id)}`);
         await refresh(current, { revalidate: false }); void refreshList();

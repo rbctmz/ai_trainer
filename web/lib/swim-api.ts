@@ -16,6 +16,10 @@ export function swimError(error: unknown): string {
     swim_import_invalid_document: "Проверьте поля структуры и привязки к исходнику.",
     swim_import_invalid_request: "Проверьте введённые значения.",
     swim_coach_invalid_request: "Проверьте текст запроса.",
+    swim_exercise_invalid_request: "Проверьте название, вариант, инструкцию, среду и границы видео-фрагментов.",
+    swim_exercise_stale: "В справочнике появилась новая версия. Откройте её перед следующей правкой.",
+    swim_coach_history_unavailable: "История диалога недоступна. Обновите черновик и проверьте результат перед продолжением.",
+    swim_coach_chat_not_found: "Диалог не найден. Очистите буфер диалога и повторите запрос; исходник и черновик сохранены отдельно.",
   };
   if (code && messages[code]) return messages[code];
   if (error instanceof ApiError && error.status === 404) return "Программа не найдена. Выберите её из списка или сохраните новый исходник.";

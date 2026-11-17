@@ -6,6 +6,7 @@ import type {
   SwimProgramNode, SwimProgramSummary, SwimProgramSummaryV2, SwimSourceSpan, SwimV2Node,
 } from "@/lib/types";
 import { button, panel } from "./styles";
+import { videoTime } from "./ExerciseDefinition";
 
 type Document = SwimProgramDocument | SwimProgramDocumentV2;
 type Summary = SwimProgramSummary | SwimProgramSummaryV2;
@@ -39,7 +40,7 @@ function Technique({ binding }: { binding: SwimExerciseBinding }) {
     <summary className="cursor-pointer text-ink focus:outline-none focus:ring-2 focus:ring-accent">Техника: {binding.document.name} — {binding.document.variant} · версия {binding.revision}</summary>
     <p className="mt-2 whitespace-pre-wrap break-words text-ink">{binding.document.instructions}</p>
     {binding.document.equipment.length ? <p className="mt-2 text-ink-soft">Снаряжение варианта: {binding.document.equipment.map(item => equipment[item]).join(", ")}</p> : null}
-    {binding.document.video_cues.map((cue, index) => <p className="mt-2 text-ink-soft" key={index}>Видео «{cue.source_label}»: {clock(cue.start_seconds)} — {clock(cue.end_seconds)}</p>)}
+    {binding.document.video_cues.map((cue, index) => <p className="mt-2 text-ink-soft" key={index}>Видео «{cue.source_label}»: {videoTime(cue.start_seconds)} — {videoTime(cue.end_seconds)}</p>)}
   </details>;
 }
 
