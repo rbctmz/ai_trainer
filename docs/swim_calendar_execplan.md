@@ -14,7 +14,14 @@ show a workout with unknown load or duration and retain that uncertainty.
 
 - [x] 18.11.2026: read #763/#668, the merged M2 baseline, ADR-0001, reliability
   and compatibility ASRs, and both selected-cycle publication paths.
-- [ ] Protect the additive assignment state at checkpoint boundaries.
+- [x] Protect the additive assignment state at checkpoint boundaries. RED
+  c844afa reproduced five cases. The checkpoint serializer lost the field,
+  the adjustment writer accepted removal/substitution, and retained rebuild
+  publication accepted omission/out-of-period references. All five pass after
+  adding preservation and transaction guards. The wider cycle/demand/recovery
+  suite passed 179 cases. Two added integration cases prove generic history
+  restore keeps the current references and the new cycle leaves the old
+  schedule in history. The latest focused run passed all seven cases.
 - [ ] Add authoritative date validation, retained preview/confirm, diff and
   history/rollback with owned SQLite proof.
 - [ ] Project readbacks into Plan and add a library entry point and review UI.
@@ -29,7 +36,8 @@ show a workout with unknown load or duration and retain that uncertainty.
 - **Inferred**: protecting one writer or one rescale function leaves paths that
   can omit calendar assignments. Test the two writer paths and roundtrip.
 - **Verified by**: repository search of all insertion and association call
-  sites. Runtime RED recorded after the initial cases run.
+  sites, followed by five isolated pytest failures on the unmodified writers
+  and five passes with the snapshot and transaction guards.
 - **Observed**: #668 is open and Git has local candidate branches. A search of
   tracked main code returned no `allowed_sports_by_day`.
 - **Inferred**: M3 needs the shared eligibility semantics from that candidate,

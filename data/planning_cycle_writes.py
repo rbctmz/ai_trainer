@@ -8,6 +8,7 @@ from config.settings import Settings
 from data.planning_cycles import PlanningCycleStore
 from models.planning_build_confirmation import PlanningBuildPreviewError, fingerprint
 from models.planning_cycle import checkpoint_period, project_cycle_context, CycleStateCorrupt
+from models.swim_calendar import guard_generic_calendar_write
 from utils.athlete_time import athlete_local_date
 
 TOKEN_FIELDS = ("cycle_id", "cycle_revision", "selection_revision", "checkpoint_id", "athlete_day", "constraint_fingerprint")
@@ -98,6 +99,7 @@ def append_cycle_child(conn: sqlite3.Connection, context: dict, checkpoint: dict
     cycle = store.cycle(context["cycle_id"])
     if action != "restore" and (period.start.isoformat(), period.end.isoformat()) != (cycle["start_date"], cycle["end_date"]):
         raise PlanningBuildPreviewError("cycle_not_current", "Изменение не может менять период цикла.")
+    guard_generic_calendar_write(previous["goal_plan_snapshot"], snapshot)
     conn.execute("INSERT INTO planning_cycle_versions VALUES(?,?,?)", (checkpoint_id, context["cycle_id"], action))
     conn.execute("UPDATE planning_cycles SET current_checkpoint_id=?,revision=revision+1,start_date=?,end_date=? WHERE id=?",
                  (checkpoint_id, period.start.isoformat(), period.end.isoformat(), context["cycle_id"]))

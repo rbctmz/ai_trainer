@@ -12,6 +12,7 @@ from models.planning_execution import (
 from models.plan_events import synchronize_goal_plan_events
 from models.plan_science_audit import audit_training_plan
 from models.session_identity import ensure_session_identities
+from models.swim_calendar import inherit_calendar
 from models.planning_summary import (
     summarize_execution_adaptation_pressure,
     summarize_near_term_edit,
@@ -299,6 +300,7 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     }
     if goal_plan.get("identity_namespace") is not None:
         goal_plan_snapshot["identity_namespace"] = goal_plan["identity_namespace"]
+    inherit_calendar(goal_plan_snapshot, goal_plan)
 
     plan_adjustment = constraint_summary.get("plan_adjustment", {}) or {}
     execution_adaptation_pressure = summarize_execution_adaptation_pressure(

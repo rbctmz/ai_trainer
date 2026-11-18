@@ -41,6 +41,7 @@ from models.planning_build_confirmation import (
     dependency_components,
 )
 from models.planning_cycle import CycleStateCorrupt
+from models.swim_calendar import inherit_calendar, validate_calendar_dates
 from models.banister import BanisterModel, tsb_zone
 from models.dashboard_summary import project_readiness_snapshot
 from services.readiness_snapshot import project_persisted_readiness_snapshot
@@ -1993,9 +1994,12 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
     if lifecycle:
         response["lifecycle"] = lifecycle
 
+    if lifecycle and lifecycle["action"] == "edit_current":
+        inherit_calendar(goal_plan, existing_plan or {})
     checkpoint = build_planning_checkpoint(goal_plan)
     checkpoint.update(effective_totals)
     final_plan = checkpoint["goal_plan_snapshot"]
+    validate_calendar_dates(final_plan)
     final_plan["forecast_input"] = forecast_input
     if lifecycle and "entry_inputs" in inputs:
         final_plan["entry_evidence"] = inputs["entry_inputs"]
@@ -3568,6 +3572,7 @@ def rollback_recovery_replan(
     restored = restore_goal_plan_from_checkpoint(rollback_checkpoint)
     if not restored or not restored.get("daily_plan"):
         raise ValueError("recovery rollback checkpoint cannot be restored")
+    inherit_calendar(restored, latest["goal_plan_snapshot"])
     restored = with_checkpoint_provenance(
         restored,
         source="restore_version",
@@ -3701,6 +3706,7 @@ def restore_history_version(
     restored = restore_goal_plan_from_checkpoint(target)
     if restored is None or not restored.get("daily_plan"):
         raise ValueError("checkpoint cannot be restored")
+    inherit_calendar(restored, latest["goal_plan_snapshot"])
     restored = with_checkpoint_provenance(
         restored,
         source="restore_version",

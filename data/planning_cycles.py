@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from models.planning_cycle import CycleStateCorrupt, checkpoint_period
 from models.planning_build_confirmation import PlanningBuildPreviewError
+from models.swim_calendar import guard_generic_calendar_write
 
 _VERSION_DELETE_GUARD = """CREATE TRIGGER IF NOT EXISTS planning_cycle_versions_no_delete
     BEFORE DELETE ON planning_cycle_versions
@@ -101,6 +102,7 @@ def publish_cycle_checkpoint(conn: sqlite3.Connection, lifecycle: dict, checkpoi
                 or checkpoint["goal_plan_snapshot"].get("identity_namespace") != target
                 or checkpoint["goal_plan_snapshot"].get("checkpoint_parent_id") is not None):
             raise PlanningBuildPreviewError("preview_corrupt", "Принадлежность предпросмотра повреждена.", status=500)
+        guard_generic_calendar_write({}, checkpoint["goal_plan_snapshot"])
         if source:
             conn.execute("UPDATE planning_cycles SET status='closed',closed_at=?,revision=revision+1 WHERE id=?",
                          (instant, source["id"]))
@@ -117,6 +119,7 @@ def publish_cycle_checkpoint(conn: sqlite3.Connection, lifecycle: dict, checkpoi
                 != previous["goal_plan_snapshot"].get("identity_namespace")
                 or checkpoint["goal_plan_snapshot"].get("checkpoint_parent_id") != source["current_checkpoint_id"]):
             raise PlanningBuildPreviewError("preview_corrupt", "Изменение нарушает принадлежность или период цикла.", status=500)
+        guard_generic_calendar_write(previous["goal_plan_snapshot"], checkpoint["goal_plan_snapshot"])
         conn.execute("INSERT INTO planning_cycle_versions VALUES(?,?,'edit')", (checkpoint_id, target))
         conn.execute("""UPDATE planning_cycles SET current_checkpoint_id=?,revision=revision+1,end_date=? WHERE id=?""",
                      (checkpoint_id, lifecycle["end_date"], target))
