@@ -3,7 +3,7 @@
     "source": "web/lib/types.ts",
     "source_sha256": "0661c74426f4f249a9f628493a07efccad4eab5f76c9eb0403b579946538c108",
     "registry": "tests/contracts/registry.json",
-    "registry_sha256": "acb0e0772a9c4996a378057a154d6a06016f97b4910b7b9a5bb88fd2f691f0f8"
+    "registry_sha256": "51d87f3b7d0ed47e64b4f160097cd21e9a8348bd08fd16421bbe8adef8a670e2"
   },
   "roots": [
     "ActivitiesResponse",

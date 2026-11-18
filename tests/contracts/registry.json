@@ -390,16 +390,14 @@
       "interface": "SwimDeliveryPreview",
       "method": "POST",
       "scenarios": [
-        {"state":"empty", "expect":409, "json":{"request_id":"33333333-3333-4333-8333-333333333333",
-          "assignment_id":"55555555-5555-4555-8555-555555555555", "expected_checkpoint_id":1}}
+        {"state":"empty", "expect":200, "prepare_swim_delivery":"preview"}
       ]
     },
     "/api/planning/swim-calendar/delivery/confirm": {
       "interface": "SwimDeliveryConfirmed",
       "method": "POST",
       "scenarios": [
-        {"state":"empty", "expect":404, "json":{"preview_id":"33333333-3333-4333-8333-333333333333",
-          "confirm":true}}
+        {"state":"empty", "expect":200, "prepare_swim_delivery":"confirm"}
       ]
     },
     "/api/swim-programs": {

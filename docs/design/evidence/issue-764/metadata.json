@@ -1,0 +1,34 @@
+{
+  "fixture": "anonymous exact_program_v2",
+  "capture": "isolated transport 18.11.2026",
+  "files": [
+    {
+      "path": "web/components/planning/SwimCalendarWorkspace.tsx",
+      "sha256": "e4c4ffcdb03e63b2897b5d5df58a90f1887f0c3d3516f53ce31df3096df7246f"
+    },
+    {
+      "path": "web/components/planning/SwimDeliveryPanel.tsx",
+      "sha256": "bb60e9616ffe86e084e45528c8db804230ad12e67dac1ccf1b709380504bbde9"
+    },
+    {
+      "path": "tests/e2e/test_swim_delivery_ui.py",
+      "sha256": "4d1c2ce20ba3b34362687e99ca6d307a012d5b7f638a03712423d6f65010dbda"
+    },
+    {
+      "path": "docs/design/evidence/issue-764/swim-delivery-preview-dark-390.png",
+      "sha256": "95582e762985f253d81f4865f613d1c44902587c4b5c623929c2aa4c839f2786"
+    },
+    {
+      "path": "docs/design/evidence/issue-764/swim-delivery-preview-light-1280.png",
+      "sha256": "f86cb6e00e256f2e5fdd32a491ef2d5953b78c43e8d7a754c039bf9f567843a6"
+    },
+    {
+      "path": "docs/design/evidence/issue-764/swim-delivery-receipt-dark-390.png",
+      "sha256": "40e36f5615912f04947716191716bf25f6c015dcdec5c1e8b1c61331d393aa96"
+    },
+    {
+      "path": "docs/design/evidence/issue-764/swim-delivery-receipt-light-1280.png",
+      "sha256": "0a6dfda0d08333d7a2a1d179669acbe2458bd01ead059aa1b1accb8114bf69cc"
+    }
+  ]
+}

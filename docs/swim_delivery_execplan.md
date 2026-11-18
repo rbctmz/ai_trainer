@@ -41,8 +41,12 @@ a real FR255 must agree on the selected control workout and its rest behavior.
   API. RED 6accce1 found no route. The real HTTP flow proves the retained
   preview and strict Boolean confirmation, plus receipt reload without a second
   write. Update the generated contract with the new response shapes.
-- [ ] Wire the confirmed calendar action, verify the isolated browser flow,
-  and run CI and independent review. Human acceptance precedes merge.
+- [x] Wire the action into the selected calendar row. Two isolated browser
+  journeys passed in 13.30s on 390 px dark and 1280 px light. The initial
+  fixture mistakenly tried to save V2 through the V1 entry point. The actual
+  V2 source-bound import path produces the saved task for acceptance.
+- [ ] Verify current GitHub CI and independent review. Human acceptance
+  precedes merge.
 - [ ] Obtain scope-bound approval and verify receipt and behavior on FR255.
   Check the three complete controls and wider supported profiles separately.
 
@@ -105,6 +109,11 @@ See the slice matrix. A successful provider response body alone is
 insufficient. For the live check prepare a short 25 m test with distinct
 distance steps, fixed and Lap rests, and a last rest at a repeat boundary.
 Exact distance at each hop and device-observed rest behavior are required.
+Candidate control for 25 m: 75 m, 50 seconds rest, 2 × (50 m, 60 seconds
+rest) including last rest, 25 m, manual Lap with three exhalations, then
+50 m. Total 250 m. Bind the exact date, selected assignment and account
+when requesting live approval. Capture provider identity, independent
+workout_doc and the observed FR255 meters and rest behavior.
 
 ## Idempotence and Recovery
 
@@ -137,4 +146,7 @@ transport steps and receipt status. It does not derive workout semantics.
 
 ## Outcomes & Retrospective
 
-Pending implementation and device acceptance.
+The code path is implemented in the candidate branch. Local browser and
+provider-double evidence covers preview, explicit confirmation, readback
+and reload. CI, review, merge and actual Intervals.icu/FR255 verification
+remain open.

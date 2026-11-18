@@ -12,6 +12,7 @@ import type {
 import { button, input, panel, primary } from "@/components/swim/styles";
 import { ProgramWorkoutSteps } from "@/components/swim/ProgramStructure";
 import { AuthoredSwimRow } from "./AuthoredSwimRow";
+import { SwimDeliveryPanel } from "./SwimDeliveryPanel";
 
 type Edit = { kind: "move" | "substitute"; row: SwimCalendarRow };
 type Pending = { expected_checkpoint_id: number; operation: SwimCalendarOperation; request_id: string };
@@ -47,6 +48,8 @@ function Calendar({ selectedCheckpoint, programId, revision }: {
   const historical = useSWR<SwimCalendarRead>(selectedCheckpoint ? `/api/planning/swim-calendar?checkpoint_id=${selectedCheckpoint}` : null, fetcher);
   const { data: history } = useSWR<PlanningHistory>("/api/planning/history", fetcher);
   const [edit, setEdit] = useState<Edit | null>(null);
+  const [delivery, setDelivery] = useState<string | null>(null);
+  const deliveryOrigin = useRef<HTMLButtonElement | null>(null);
   const [moveDate, setMoveDate] = useState("");
   const [rollback, setRollback] = useState("");
   const [preview, setPreview] = useState<SwimCalendarPreview | null>(null);
@@ -187,7 +190,19 @@ function Calendar({ selectedCheckpoint, programId, revision }: {
               onClick={() => setEdit({ kind: "substitute", row })}>Заменить</button>
             <button type="button" className={button} disabled={!editable} aria-label={`Убрать: ${row.title}`}
               onClick={() => void propose({ kind: "remove", assignment_id: row.assignment_id })}>Убрать</button>
+            <button type="button" className={button} disabled={!editable} aria-label={`Доставка на Garmin: ${row.title}`}
+              aria-expanded={delivery === row.assignment_id} onClick={event => {
+                deliveryOrigin.current = event.currentTarget;
+                setEdit(null);
+                setDelivery(row.assignment_id);
+              }}>Доставка на Garmin</button>
           </div> : null}
+          {!selectedCheckpoint && delivery === row.assignment_id && data?.checkpoint_id ? <SwimDeliveryPanel
+            key={row.assignment_id} row={row} checkpointId={data.checkpoint_id} editable={editable}
+            onClose={() => {
+              setDelivery(null);
+              requestAnimationFrame(() => deliveryOrigin.current?.focus());
+            }} /> : null}
           {edit?.row.assignment_id === row.assignment_id && !preview ? <div className="mt-3">
             {edit.kind === "move" ? <form className="flex flex-wrap items-end gap-2" onSubmit={event => {
               event.preventDefault();
