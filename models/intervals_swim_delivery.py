@@ -9,6 +9,8 @@ from models.swim_delivery import SwimDeliveryStep, SwimDeliveryWorkout
 from models.swim_program import RestStep, SubjectiveEffort
 from models.swim_program_v2 import RestStepV2, SubjectiveEffortV2
 
+_LAP_CARRIER_SECONDS = 1
+
 _EQUIPMENT = {
     "fins": "Ласты",
     "pull_buoy": "Колобашка",
@@ -51,9 +53,9 @@ class IntervalsSwimStep:
         if not self.is_rest:
             return f"- {self.cue} {self.distance_meters}mtr intensity=active"
         if self.until_lap_press:
-            # Zero supplies a duration token without guessing elapsed time.
-            # Readback must prove that the provider compiled it as open rest.
-            return f"- {self.cue} 0s intensity=rest Press lap"
+            # Intervals drops a zero-duration step. The positive carrier is
+            # parser metadata. Press lap controls the end of the device step.
+            return f"- {self.cue} {_LAP_CARRIER_SECONDS}s intensity=rest Press lap"
         return f"- {self.cue} {self.duration_seconds}s intensity=rest"
 
 
@@ -181,7 +183,10 @@ def _step_matches(expected: IntervalsSwimStep, actual: object) -> bool:
     ):
         return False
     if expected.until_lap_press:
-        return duration_type in (None, "open") and _no_number(actual.get("duration"))
+        duration = actual.get("duration")
+        return duration_type in (None, "open") and (
+            _no_number(duration) or _matches_number(duration, _LAP_CARRIER_SECONDS)
+        )
     return duration_type in (None, "time") and _matches_number(actual.get("duration"), expected.duration_seconds)
 
 
