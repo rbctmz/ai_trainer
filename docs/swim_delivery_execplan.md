@@ -16,7 +16,9 @@ a real FR255 must agree on the selected control workout and its rest behavior.
   current Intervals transport, issue #702 and the applicable ASRs/ADR.
 - [x] Establish a separate worktree. Define the owner approval and evidence
   boundaries, authored step projection and candidate transport.
-- [ ] Implement and test provider-neutral expansion with both library schemas.
+- [x] Provider-neutral projection passes 16 cases for both schemas. RED
+  9489593 fails because the projection does not exist yet. GREEN preserves
+  all three totals, exact pauses, nested round identity and authored content.
 - [ ] Verify native text plus structured readback against independent cases.
 - [ ] Bind preview and confirmation to the current assignment, with repeat,
   conflict and uncertain-write handling. Verify data lifecycle and API.
