@@ -63,8 +63,13 @@ a real FR255 must agree on the selected control workout and its rest behavior.
   Intervals.icu event 157655413. A separate GET returned eight of nine
   steps, with pool length and distance preserved and the 50/60/60 s
   rests present. The Lap step was absent and the receipt stayed unverified.
-- [ ] Verify the positive metadata token in the same live event after
-  a separate owner decision, then verify the synchronized workout on FR255.
+- [x] After a second explicit owner approval, one targeted PUT changed only
+  the Lap representation in event 157655413. Independent GET verified all
+  nine steps, 25 m pool, 250 m and timed rests 50/60/60 s. Step eight
+  returned intensity rest, duration 1 (parser metadata), and
+  until_lap_press=true with no distance. No provider push error reported.
+- [ ] Verify the synchronized workout on FR255 and merge the reviewed
+  transport correction.
 - [ ] Obtain scope-bound approval and verify receipt and behavior on FR255.
   Check the three complete controls and wider supported profiles separately.
 
@@ -95,8 +100,8 @@ a real FR255 must agree on the selected control workout and its rest behavior.
 - **Verified by**: the live event's separate GET returned eight steps
   and internal receipt `provider_unverified / step_count`. RED 2a46427
   reproduces the old encoding and acceptance failures. The proposed
-  transport change passes 44 focused local checks. Provider and device
-  verification of the correction are pending.
+  transport change passes 44 focused local checks and the second independent
+  GET of the live event. Device verification is pending.
 
 ## Decision Log
 
@@ -176,9 +181,9 @@ transport steps and receipt status. It does not derive workout semantics.
 
 ## Outcomes & Retrospective
 
-The code path is implemented in the candidate branch. Local browser and
-provider-double evidence covers preview, explicit confirmation, readback
-and reload. CI, review, merge and actual Intervals.icu/FR255 verification
+PR #776 merged after green CI and human approval. Local browser and
+provider-double evidence covers preview, confirmation, readback and
+receipt reload. A single real Intervals.icu event was created, then
+corrected in place after a second approval. The compiled program now
+matches. FR255 step behavior and merge of the transport correction
 remain open.
-
-The first live event exists. It lacks its open rest and remains unverified.

@@ -1071,3 +1071,26 @@ run; DSH cause remains unknown. No escaped defect observed at this checkpoint;
 observation open. #772 owns the user interface and full M2 acceptance. Synthetic
 native/SDK stubs do not prove live-model quality. No additional paid calls or
 personal runtime/DB/watch changes.
+
+## Class A Post-Merge Record — PR #776 / issue #764 (18.11.2026)
+
+The authored swim delivery code merged as `fb7b4ab` at 14:58:02 UTC.
+The PR opened at 13:48:28 UTC. Elapsed time was 1h09m34s. Active work and
+wait were not measured separately. First native review on d370da7 found
+four distinct blocking P2s across five threads. RED 31b5f7d reproduced
+them. Fix aa438ae confirmed provider uniqueness, retained group cues on
+rests, applied the step limit after last-rest policy and retained receipt
+access after the date changed. All threads resolved. The second native
+review was clean and the owner approved merge on the exact head.
+
+[Final CI](https://github.com/rbctmz/ai_trainer/actions/runs/44325933984)
+passed 4754 Python and 155 browser scenarios. Ruff, contracts and Secret
+scan passed. The final local focused run passed 231 checks and the two
+browser cases at dark 390 px and light 1280 px.
+
+The 250 m live control subsequently exposed an unrepresented Lap step:
+the Intervals parser skipped a zero-duration step and the application
+returned an unverified receipt. A separately approved change to a one
+second parser field with the Lap flag recovered all nine steps in live
+readback of event 157655413. The physical watch check and review of the
+code correction are tracked in #764.
