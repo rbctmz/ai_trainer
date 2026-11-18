@@ -1,0 +1,306 @@
+"""Bind transport preparation to one exact and presently eligible assignment."""
+
+from uuid import UUID, uuid4
+
+import pytest
+
+from data.swim_program_store import confirm_preview, create_preview
+from models.planning_build_confirmation import PlanningBuildPreviewError
+from models.swim_calendar import SwimCalendarRequest
+from services.swim_calendar import confirm_calendar, preview_calendar
+from tests.smoke._planning_cycle_regressions import TODAY, legacy_db
+from tests.smoke._swim_program_fixtures import changed_program, example_program
+from tests.swim_delivery_fixtures import IntervalsSandbox
+
+
+@pytest.fixture
+def assignment(tmp_path, monkeypatch):
+    db = legacy_db(tmp_path, monkeypatch, start=TODAY)
+    saved = confirm_preview(db, create_preview(db, example_program(), base_revision=0)["preview_id"])
+    check = preview_calendar(db, SwimCalendarRequest.model_validate({
+        "request_id": str(uuid4()),
+        "expected_checkpoint_id": db.get_current_planning_checkpoint()["id"],
+        "operation": {
+            "kind": "place",
+            "program_id": saved["program_id"],
+            "program_revision": saved["revision"],
+            "dates": {"one": "2026-10-17"},
+        },
+    }))
+    assigned = check["changes"][0]["after"]
+    receipt = confirm_calendar(db, check["preview_id"])
+    return db, assigned, receipt["checkpoint_id"]
+
+
+def test_prepare_uses_selected_assignment_and_pinned_version(assignment):
+    from services.swim_delivery import prepare_swim_delivery
+
+    db, assigned, checkpoint_id = assignment
+    edited = changed_program()
+    edited["workouts"][0]["steps"][0]["distance_meters"] = 600
+    second = confirm_preview(db, create_preview(db, edited, base_revision=1)["preview_id"])
+    assert second["revision"] == 2
+
+    prepared = prepare_swim_delivery(db, UUID(assigned["assignment_id"]), checkpoint_id)
+    assert prepared.assignment.program_revision == 1
+    assert prepared.assignment.program_fingerprint == assigned["program_fingerprint"]
+    assert prepared.target_date.isoformat() == "2026-10-17"
+    assert prepared.compiled.distance_meters == 2200
+    assert prepared.payload["description"].endswith("100mtr intensity=active")
+    assert prepared.payload["type"] == "Swim"
+    assert prepared.payload["start_date_local"] == "2026-10-17T00:00:00"
+    from models.intervals_workout_delivery import provider_event_is_owned
+
+    assert not provider_event_is_owned(prepared.payload)
+    assert db.get_current_planning_checkpoint()["id"] == checkpoint_id
+
+
+def test_stale_preview_cannot_prepare_old_date_after_move(assignment):
+    from services.swim_delivery import prepare_swim_delivery
+
+    db, assigned, checkpoint_id = assignment
+    assignment_id = UUID(assigned["assignment_id"])
+    old = prepare_swim_delivery(db, assignment_id, checkpoint_id)
+    proposed = preview_calendar(db, SwimCalendarRequest.model_validate({
+        "request_id": str(uuid4()),
+        "expected_checkpoint_id": checkpoint_id,
+        "operation": {"kind": "move", "assignment_id": str(assignment_id), "date": "2026-10-18"},
+    }))
+    new = confirm_calendar(db, proposed["preview_id"])
+    with pytest.raises(PlanningBuildPreviewError) as raised:
+        prepare_swim_delivery(db, assignment_id, checkpoint_id)
+    assert raised.value.code == "cycle_stale"
+    after = prepare_swim_delivery(db, assignment_id, new["checkpoint_id"])
+    assert old.payload["external_id"] == after.payload["external_id"]
+    assert old.target_date != after.target_date
+    assert old.compiled == after.compiled
+
+
+def test_late_rest_constraint_prevents_transport_preparation(assignment):
+    from services.swim_delivery import prepare_swim_delivery
+
+    db, assigned, checkpoint_id = assignment
+    db.save_coach_constraint(date=assigned["date"], kind="forced_rest", cycle_scope="athlete")
+
+    with pytest.raises(PlanningBuildPreviewError) as raised:
+        prepare_swim_delivery(db, UUID(assigned["assignment_id"]), checkpoint_id)
+    assert raised.value.code == "swim_calendar_protected_day"
+
+
+def _preview_delivery(assignment):
+    from services.swim_delivery import preview_swim_delivery
+
+    db, row, checkpoint_id = assignment
+    return preview_swim_delivery(db, uuid4(), UUID(row["assignment_id"]), checkpoint_id)
+
+
+def test_preview_and_verified_receipt_preserve_provider_and_calendar_identity(assignment):
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, _, checkpoint_id = assignment
+    provider = IntervalsSandbox()
+    preview = _preview_delivery(assignment)
+    assert preview["target_date"] == "2026-10-17"
+    assert preview["distance_meters"] == 2200
+    assert preview["checkpoint_id"] == checkpoint_id
+    assert provider.creates == 0
+    assert preview["steps"][3]["distance_meters"] == 50
+    assert preview["steps"][4]["clock"] == "time"
+    assert preview["steps"][8]["clock"] == "lap"
+    receipt = confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider)
+    assert receipt["status"] == "provider_verified"
+    assert receipt["provider_event_id"] == 101
+    assert receipt["device_verified"] is False
+    from services.swim_delivery import read_swim_delivery
+
+    assert read_swim_delivery(db, UUID(receipt["assignment_id"])) == {"receipt": receipt}
+    assert confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider) == receipt
+    assert provider.creates == 1
+    assert db.get_current_planning_checkpoint()["id"] == checkpoint_id
+
+
+def test_confirmation_refuses_late_constraint_before_calling_provider(assignment):
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, row, _ = assignment
+    preview = _preview_delivery(assignment)
+    provider = IntervalsSandbox()
+    db.save_coach_constraint(date=row["date"], kind="forced_rest", cycle_scope="athlete")
+    with pytest.raises(PlanningBuildPreviewError) as raised:
+        confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider)
+    assert raised.value.code in {"cycle_stale", "swim_calendar_protected_day"}
+    assert provider.creates == 0
+
+
+def test_acknowledgement_loss_can_be_reconciled_without_a_second_write(assignment):
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, _, _ = assignment
+    preview = _preview_delivery(assignment)
+    provider = IntervalsSandbox()
+    provider.lose_response = True
+    first = confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider)
+    assert first["status"] == "provider_unverified"
+    assert first["provider_event_id"] is None
+    later = confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider)
+    assert later["status"] == "provider_verified"
+    assert later["provider_event_id"] == 101
+    assert provider.creates == 1
+
+
+def test_provider_changed_structure_is_reported_and_never_replaced(assignment):
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, _, _ = assignment
+    preview = _preview_delivery(assignment)
+    provider = IntervalsSandbox()
+    provider.mismatch = True
+    receipt = confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider)
+    assert receipt["status"] == "provider_unverified"
+    assert receipt["reason"] == "total_distance"
+    with pytest.raises(PlanningBuildPreviewError) as raised:
+        other = _preview_delivery(assignment)
+        confirm_swim_delivery(db, UUID(other["preview_id"]), client=provider)
+    assert raised.value.code == "swim_delivery_existing_attempt"
+    assert provider.creates == 1
+
+
+def test_existing_calendar_event_refuses_first_write(assignment):
+    from services.swim_delivery import confirm_swim_delivery, prepare_swim_delivery
+
+    db, row, checkpoint_id = assignment
+    preview = _preview_delivery(assignment)
+    candidate = prepare_swim_delivery(db, UUID(row["assignment_id"]), checkpoint_id)
+    provider = IntervalsSandbox()
+    provider.events = [{**candidate.payload, "id": 7345}]
+    with pytest.raises(PlanningBuildPreviewError) as raised:
+        confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider)
+    assert raised.value.code == "swim_delivery_provider_conflict"
+    assert provider.creates == 0
+
+
+def test_two_concurrent_confirmations_claim_one_provider_write(assignment):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, _, _ = assignment
+    preview = _preview_delivery(assignment)
+    barrier = Barrier(2)
+
+    class ConcurrentProvider(IntervalsSandbox):
+        def list_workout_events(self, oldest, newest, *, strict):
+            observed = super().list_workout_events(oldest, newest, strict=strict)
+            if self.creates == 0:
+                barrier.wait(timeout=5)
+            return observed
+
+    provider = ConcurrentProvider()
+    preview_id = UUID(preview["preview_id"])
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        calls = [pool.submit(confirm_swim_delivery, db, preview_id, client=provider) for _ in range(2)]
+        receipts = [call.result(timeout=10) for call in calls]
+    assert provider.creates == 1
+    assert any(row["status"] == "provider_verified" for row in receipts)
+
+
+def test_unknown_preflight_and_demo_refuse_writes(assignment):
+    from services.intervals_icu import IntervalsICUError
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, _, _ = assignment
+    preview = _preview_delivery(assignment)
+
+    class UnknownCalendar(IntervalsSandbox):
+        def list_workout_events(self, _oldest, _newest, *, strict):
+            assert strict
+            raise IntervalsICUError("calendar timed out")
+
+    provider = UnknownCalendar()
+    for demo, reason in [(False, "swim_delivery_preflight_unknown"), (True, "swim_delivery_demo")]:
+        with pytest.raises(PlanningBuildPreviewError) as raised:
+            confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider, demo=demo)
+        assert raised.value.code == reason
+    assert provider.creates == 0
+
+
+def test_backup_and_reset_include_retained_attempt(assignment, tmp_path):
+    from contextlib import closing
+    import sqlite3
+
+    from data.database import Database
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, _, _ = assignment
+    preview = _preview_delivery(assignment)
+    provider = IntervalsSandbox()
+    preview_id = UUID(preview["preview_id"])
+    first = confirm_swim_delivery(db, preview_id, client=provider)
+    backup_path = tmp_path / "swim-delivery-backup.sqlite"
+    with closing(db._connect()) as source, closing(sqlite3.connect(backup_path)) as destination:
+        source.backup(destination)
+    recovered = Database(str(backup_path))
+    assert confirm_swim_delivery(recovered, preview_id, client=provider) == first
+    assert provider.creates == 1
+    db.clear_all_data()
+    with pytest.raises(PlanningBuildPreviewError) as raised:
+        confirm_swim_delivery(db, preview_id, client=provider)
+    assert raised.value.code == "swim_delivery_preview_not_found"
+    assert provider.creates == 1
+
+
+def test_delivery_http_flow_requires_explicit_confirmation_and_reads_receipt(assignment, monkeypatch):
+    from services import swim_delivery
+    from tests.smoke._planning_cycle_regressions import client_for
+
+    db, row, checkpoint_id = assignment
+    provider = IntervalsSandbox()
+    monkeypatch.setattr(swim_delivery, "get_client", lambda: provider)
+    root = "/api/planning/swim-calendar/delivery"
+    with client_for(db) as client:
+        initial = client.get(root, params={"assignment_id": row["assignment_id"]})
+        assert initial.status_code == 200, initial.text
+        assert initial.json() == {"receipt": None}
+        response = client.post(f"{root}/preview", json={
+            "request_id": str(uuid4()),
+            "assignment_id": row["assignment_id"],
+            "expected_checkpoint_id": checkpoint_id,
+        })
+        assert response.status_code == 200, response.text
+        preview = response.json()
+        assert preview["assignment"]["program_revision"] == 1
+        assert len(preview["steps"]) == 28
+        request = {"preview_id": preview["preview_id"]}
+        for confirm in (False, 1, "true"):
+            assert client.post(f"{root}/confirm", json={**request, "confirm": confirm}).status_code == 422
+        assert provider.creates == 0
+        sent = client.post(f"{root}/confirm", json={**request, "confirm": True})
+        assert sent.status_code == 200, sent.text
+        receipt = sent.json()
+        assert receipt["status"] == "provider_verified"
+        assert receipt["device_verified"] is False
+        assert receipt.pop("backup")["state"] == "disabled"
+        assert client.get(root, params={"assignment_id": row["assignment_id"]}).json() == {"receipt": receipt}
+        assert provider.creates == 1
+
+
+def test_duplicate_after_creation_blocks_verification_even_with_known_event_id(assignment):
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, _, _ = assignment
+    preview = _preview_delivery(assignment)
+
+    class DuplicateProvider(IntervalsSandbox):
+        def create_event(self, payload):
+            created = super().create_event(payload)
+            self.events.append({**created, "id": 987})
+            return created
+
+    provider = DuplicateProvider()
+    preview_id = UUID(preview["preview_id"])
+    first = confirm_swim_delivery(db, preview_id, client=provider)
+    assert first["status"] == "provider_unverified"
+    assert first["reason"] == "provider_event_ambiguous"
+    assert first["provider_event_id"] == 101
+    assert confirm_swim_delivery(db, preview_id, client=provider)["reason"] == "provider_event_ambiguous"
+    assert provider.creates == 1

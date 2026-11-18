@@ -380,6 +380,26 @@
       "interface": "SwimCalendarRead",
       "scenarios": [{"state":"empty","expect":200},{"state":"demo","expect":200}]
     },
+    "/api/planning/swim-calendar/delivery": {
+      "interface": "SwimDeliveryRead",
+      "scenarios": [
+        {"state":"empty", "expect":200, "query_params":{"assignment_id":"55555555-5555-4555-8555-555555555555"}}
+      ]
+    },
+    "/api/planning/swim-calendar/delivery/preview": {
+      "interface": "SwimDeliveryPreview",
+      "method": "POST",
+      "scenarios": [
+        {"state":"empty", "expect":200, "prepare_swim_delivery":"preview"}
+      ]
+    },
+    "/api/planning/swim-calendar/delivery/confirm": {
+      "interface": "SwimDeliveryConfirmed",
+      "method": "POST",
+      "scenarios": [
+        {"state":"empty", "expect":200, "prepare_swim_delivery":"confirm"}
+      ]
+    },
     "/api/swim-programs": {
       "interface": "SwimProgramListResponse",
       "scenarios": [{"state":"empty","expect":200},{"state":"demo","expect":200}]

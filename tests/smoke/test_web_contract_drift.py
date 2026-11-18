@@ -204,6 +204,44 @@ def _resolve_param(db: Database, client: TestClient, source: str) -> str:
     raise AssertionError(f"неизвестный источник параметра пути: {source}")
 
 
+def _prepare_swim_delivery_body(db, client, action, monkeypatch):
+    from data.swim_program_store import confirm_preview, create_preview
+    from models.planning_checkpoints import build_planning_checkpoint
+    from services import swim_delivery
+    from tests.planning_fixtures import seed_checkpoint
+    from tests.smoke._planning_cycle_regressions import plan
+    from tests.smoke._swim_program_fixtures import example_program
+    from tests.swim_delivery_fixtures import IntervalsSandbox
+
+    root = "/api/planning/swim-calendar"
+    observed = client.get("/api/planning/cycles/current").json()["athlete_day"]
+    start = datetime.fromisoformat(observed).date()
+    seed_checkpoint(db, build_planning_checkpoint(plan(start)))
+    checkpoint = db.get_current_planning_checkpoint()["id"]
+    version = confirm_preview(db, create_preview(db, example_program(), base_revision=0)["preview_id"])
+    result = client.post(f"{root}/preview", json={
+        "request_id": str(uuid4()),
+        "expected_checkpoint_id": checkpoint,
+        "operation": {"kind": "place", "program_id": version["program_id"],
+                      "program_revision": version["revision"], "dates": {"one": observed}},
+    })
+    assert result.status_code == 200, result.text
+    ready = result.json()
+    committed = client.post(f"{root}/confirm", json={"preview_id": ready["preview_id"], "confirm": True})
+    assert committed.status_code == 200, committed.text
+    body = {
+        "request_id": str(uuid4()),
+        "assignment_id": ready["changes"][0]["after"]["assignment_id"],
+        "expected_checkpoint_id": committed.json()["checkpoint_id"],
+    }
+    if action == "preview":
+        return body
+    shown = client.post(f"{root}/delivery/preview", json=body)
+    assert shown.status_code == 200, shown.text
+    monkeypatch.setattr(swim_delivery, "get_client", lambda: IntervalsSandbox())
+    return {"preview_id": shown.json()["preview_id"], "confirm": True}
+
+
 def _cases():
     cases = []
     for path, entry in sorted(REGISTRY["endpoints"].items()):
@@ -257,6 +295,8 @@ def test_endpoint_scenario(path: str, interface: str, scenario: dict, network_gu
         prepared = client.post("/api/planning/build", json=cycle_build_body(scenario["prepare_preview"]))
         assert prepared.status_code == 200, prepared.text
         body = {**body, "preview_id": prepared.json()["confirmation"]["preview_id"]}
+    if scenario.get("prepare_swim_delivery"):
+        body = _prepare_swim_delivery_body(db, client, scenario["prepare_swim_delivery"], network_guard)
     response = client.request(method, url,
                               params=scenario.get("query_params"), json=body)
     assert response.status_code == scenario["expect"], (

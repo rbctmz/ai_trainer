@@ -21,6 +21,8 @@ from fastapi import Depends  # noqa: E402
 from data.database import Database  # noqa: E402
 from uuid import UUID  # noqa: E402
 from tests.smoke._swim_import_fixtures import exact_program_v2  # noqa: E402
+from services import swim_delivery  # noqa: E402
+from tests.swim_delivery_fixtures import IntervalsSandbox  # noqa: E402
 
 
 class SyntheticNativeProvider:
@@ -70,3 +72,12 @@ def expire_preview(preview_id: UUID, db: Database = Depends(get_database)):
     finally:
         conn.close()
     return {"expired": str(preview_id)}
+
+
+delivery_transport = IntervalsSandbox()
+swim_delivery.get_client = lambda: delivery_transport
+
+
+@app.get("/_e2e/swim-delivery-state")
+def swim_delivery_state():
+    return {"creates": delivery_transport.creates}

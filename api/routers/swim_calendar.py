@@ -1,6 +1,7 @@
 """Selected-cycle authored swim calendar commands."""
 
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
@@ -9,9 +10,12 @@ from api.routers.planning_cycles import CycleRoute
 from api.swim_calendar_contract import (
     SwimCalendarConfirm, SwimCalendarPreview, SwimCalendarRead, SwimCalendarReceipt,
 )
+from api.swim_delivery_contract import (
+    SwimDeliveryConfirmed, SwimDeliveryPreview, SwimDeliveryRead, SwimDeliveryRequest,
+)
 from data.database import Database
 from models.swim_calendar import SwimCalendarRequest
-from services import swim_calendar
+from services import swim_calendar, swim_delivery
 from services.snapshot_runtime import backup_boundary
 
 
@@ -35,3 +39,23 @@ def preview(request: SwimCalendarRequest, db: Database = Depends(get_database)) 
 @backup_boundary("user_command", response=True)
 def confirm(request: SwimCalendarConfirm, db: Database = Depends(get_database)) -> dict[str, Any]:
     return swim_calendar.confirm_calendar(db, str(request.preview_id))
+
+
+@router.get("/delivery", response_model=SwimDeliveryRead)
+def delivery_read(assignment_id: UUID, db: Database = Depends(get_database)) -> dict[str, Any]:
+    return swim_delivery.read_swim_delivery(db, assignment_id)
+
+
+@router.post("/delivery/preview", response_model=SwimDeliveryPreview)
+def delivery_preview(request: SwimDeliveryRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
+    return swim_delivery.preview_swim_delivery(
+        db, request.request_id, request.assignment_id, request.expected_checkpoint_id,
+    )
+
+
+@router.post("/delivery/confirm", response_model=SwimDeliveryConfirmed)
+@backup_boundary("user_command", response=True)
+def delivery_confirm(
+    request: SwimCalendarConfirm, demo: bool = Query(False), db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    return swim_delivery.confirm_swim_delivery(db, request.preview_id, demo=demo)
