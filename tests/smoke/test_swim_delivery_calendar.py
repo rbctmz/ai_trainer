@@ -84,3 +84,140 @@ def test_late_rest_constraint_prevents_transport_preparation(assignment):
     with pytest.raises(PlanningBuildPreviewError) as raised:
         prepare_swim_delivery(db, UUID(assigned["assignment_id"]), checkpoint_id)
     assert raised.value.code == "swim_calendar_protected_day"
+
+
+class IntervalsSandbox:
+    def __init__(self):
+        self.events = []
+        self.creates = 0
+        self.lose_response = False
+        self.mismatch = False
+
+    def is_configured(self):
+        return True
+
+    def list_workout_events(self, oldest, newest, *, strict):
+        assert strict and oldest == newest
+        return [event for event in self.events if event["start_date_local"][:10] == oldest.isoformat()]
+
+    def get_workout_event(self, event_id):
+        return next(event for event in self.events if event["id"] == event_id)
+
+    def create_event(self, payload):
+        import re
+        from services.intervals_icu import IntervalsICUError
+
+        self.creates += 1
+        rows = []
+        pattern = re.compile(r"- (?P<cue>.+) (?P<amount>\d+)(?P<unit>mtr|s) intensity=(?P<role>active|rest)(?P<lap> Press lap)?$")
+        for line in payload["description"].splitlines()[2:]:
+            matched = pattern.fullmatch(line)
+            assert matched, line
+            row = {"text": matched["cue"], "intensity": matched["role"]}
+            row["distance" if matched["unit"] == "mtr" else "duration"] = int(matched["amount"])
+            if matched["lap"]:
+                row["until_lap_press"] = True
+            rows.append(row)
+        if self.mismatch:
+            rows[0]["distance"] -= 25
+        record = {
+            **payload,
+            "id": 101,
+            "workout_doc": {
+                "options": {"pool_length": "25m"}, "steps": rows,
+                "distance": sum(row.get("distance", 0) for row in rows),
+            },
+        }
+        self.events.append(record)
+        if self.lose_response:
+            raise IntervalsICUError("simulated acknowledgement loss")
+        return record
+
+
+def _preview_delivery(assignment):
+    from services.swim_delivery import preview_swim_delivery
+
+    db, row, checkpoint_id = assignment
+    return preview_swim_delivery(db, uuid4(), UUID(row["assignment_id"]), checkpoint_id)
+
+
+def test_preview_and_verified_receipt_preserve_provider_and_calendar_identity(assignment):
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, _, checkpoint_id = assignment
+    provider = IntervalsSandbox()
+    preview = _preview_delivery(assignment)
+    assert preview["target_date"] == "2026-10-17"
+    assert preview["distance_meters"] == 2200
+    assert preview["checkpoint_id"] == checkpoint_id
+    assert provider.creates == 0
+    assert preview["steps"][3]["distance_meters"] == 50
+    assert preview["steps"][4]["clock"] == "time"
+    assert preview["steps"][8]["clock"] == "lap"
+    receipt = confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider)
+    assert receipt["status"] == "provider_verified"
+    assert receipt["provider_event_id"] == 101
+    assert receipt["device_verified"] is False
+    assert confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider) == receipt
+    assert provider.creates == 1
+    assert db.get_current_planning_checkpoint()["id"] == checkpoint_id
+
+
+def test_confirmation_refuses_late_constraint_before_calling_provider(assignment):
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, row, _ = assignment
+    preview = _preview_delivery(assignment)
+    provider = IntervalsSandbox()
+    db.save_coach_constraint(date=row["date"], kind="forced_rest", cycle_scope="athlete")
+    with pytest.raises(PlanningBuildPreviewError) as raised:
+        confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider)
+    assert raised.value.code in {"cycle_stale", "swim_calendar_protected_day"}
+    assert provider.creates == 0
+
+
+def test_acknowledgement_loss_can_be_reconciled_without_a_second_write(assignment):
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, _, _ = assignment
+    preview = _preview_delivery(assignment)
+    provider = IntervalsSandbox()
+    provider.lose_response = True
+    first = confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider)
+    assert first["status"] == "provider_unverified"
+    assert first["provider_event_id"] is None
+    later = confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider)
+    assert later["status"] == "provider_verified"
+    assert later["provider_event_id"] == 101
+    assert provider.creates == 1
+
+
+def test_provider_changed_structure_is_reported_and_never_replaced(assignment):
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, _, _ = assignment
+    preview = _preview_delivery(assignment)
+    provider = IntervalsSandbox()
+    provider.mismatch = True
+    receipt = confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider)
+    assert receipt["status"] == "provider_unverified"
+    assert receipt["reason"] == "total_distance"
+    with pytest.raises(PlanningBuildPreviewError) as raised:
+        other = _preview_delivery(assignment)
+        confirm_swim_delivery(db, UUID(other["preview_id"]), client=provider)
+    assert raised.value.code == "swim_delivery_existing_attempt"
+    assert provider.creates == 1
+
+
+def test_existing_calendar_event_refuses_first_write(assignment):
+    from services.swim_delivery import confirm_swim_delivery, prepare_swim_delivery
+
+    db, row, checkpoint_id = assignment
+    preview = _preview_delivery(assignment)
+    candidate = prepare_swim_delivery(db, UUID(row["assignment_id"]), checkpoint_id)
+    provider = IntervalsSandbox()
+    provider.events = [{**candidate.payload, "id": 7345}]
+    with pytest.raises(PlanningBuildPreviewError) as raised:
+        confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider)
+    assert raised.value.code == "swim_delivery_provider_conflict"
+    assert provider.creates == 0
