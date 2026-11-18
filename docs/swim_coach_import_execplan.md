@@ -1,8 +1,9 @@
 # Довести программу тренера до проверяемого сохранения через Коуча
 
 Living ExecPlan per .agent/PLANS.md; parent #762 / epic #760. Owner Greg set the
-active goal17.11.2026. M1 #766 and exercise catalog #768 are merged; current main
-is d2e1cf364e988cf1a64dd64b1de8060f2b5e23d6. M2 spans explicit Domain/API and UI
+active goal17.11.2026. M1 #766, catalog #768, rich drafts #770 and bounded Coach
+#773 are merged. M2D branch is based on8ba8e497949acb76c2f7ade7d4283608f67a4577;
+draft PR #774 carries its web implementation. M2 spans explicit Domain/API and UI
 handoffs, with a reviewable checkpoint per bounded issue. No new paid AI calls,
 personal DB changes, provider/watch writes or automatic merges are authorized.
 
@@ -30,28 +31,50 @@ work survive. Unknown distance/duration/load are displayed rather than invented.
 - [x] M2B reviewable PR, CI, bounded independent review and explicit owner merge decision.
 - [x] M2B #770 merged ee8279b17.11.2026 08:54:02UTC after explicit owner approval. CI4645PASS/46skip/156deselected, E2E132PASS, native clean3bce1d6 (1/2), zero threads. #769 closed.
 - [x] M2C #771 and M2D #772 created with bounded scope/acceptance; next branch codex/issue-771-swim-coach-tools based on merged main. M2C spec handed to Domain/API for RED.
-- [ ] M2C Coach read/prepare/patch tools with trusted turn binding and provider-path checks.
+- [x] M2C Coach read/prepare/patch tools with trusted turn binding and provider-path checks.
 - [x] M2C tools RED63f28da→GREENeb4b91e;8adapter/wire +54existing native/runtime checks PASS. API RED302495d→GREEN74combined Coach checks; separate HTTP/SSE mode, no screen changes. Combined final focused215PASS; lint/build/contracts/Ruff PASS.
-- [ ] M2C broad/CI, independent review and owner merge gate.
+- [x] M2C broad/CI, independent review and owner merge gate (receipt below).
 - [x] M2C #773 opened. Native round1 on3fd2669 found2P2; own RED d227749 reproduces3failures. Bounded question-claim guard and truthful last-confirmed revision/readback_status pass156focused checks; final CI/delta review pending.
-- [ ] M2D web source/structure/editor/save/readback and isolated user acceptance.
+- [x] M2D web source/structure/editor/save/readback and isolated browser proof; owner acceptance remains a separate gate below.
+- [x] M2C #773 owner accepted/merged8ba8e4917.11.2026 14:15:18UTC; #771 closed. Final CI4677PASS/47skip/156deselected, E2E132PASS, populated TS3PASS, scoped native round2 clean, bothP2 resolved. No additional model calls.
+- [x] M2D #772 contract and actual browser RED: missing Coach entry link,1FAIL39.13s. First setup attempt lacked Chromium in scratch HOME; installed in separate /private/tmp/ai-trainer-playwright and reran. No personal app/DB.
+- [x] M2D first source prototype GREEN: actual browser source capture/exact Unicode/spacing→URL→reload,1PASS8.08s; no AI request. New route/entry, input recovery buffer, selected-source read and root-list errors.94contract checks and web lint/build PASS. Structure/Coach/editor/save controls are not yet implemented.
+- [x] M2D whole-program renderer RED cc345d1 (2FAIL17.07s)→GREEN (3PASS9.33s): all3workouts/server6100m and unknown total with fixed1000m + timed175/25cycle. Web lint/build PASS. Pinned technique/source fragments are readable; Coach/edit/save are pending.
+- [x] M2D Coach journey RED68426f2(1FAIL35.66s disabled action)→GREEN1PASS7.32s: real API/DB + guarded synthetic native provider,3workouts→question→one context patch→full preview→explicit confirm→actual version GET→no-AI reopen. Separate source/boundary suite5PASS plus1expectedRED for absent manual editor; lost confirm response retries identical token into one version, concurrent draft rejects stale save.96contract checks PASS. This is not live model quality evidence.
+- [x] M2D manual form RED8e7745f(1FAIL35.36s)→working GREEN:3workouts with distance/time/attempts,60–70→60–90rest bounded edit, explicit Unicode code-point fragment after emoji, manual/patch staging recovered on reload. Coverage RED1353cae→explicit human acknowledgement and unresolved→swim resolution. Combined9browser scenarios PASS20.65s; Ruff/lint/TypeScript PASS. Server source_gaps describe document coverage and remain after acknowledgement; UI shows exact receipt separately, never computes readiness.
+- [x] M2D catalog RED55a2843(1FAIL35.65s)→GREEN1PASS9.18s: human definition preview/confirm→exact rev1 binding→program save→catalog rev2→program still rev1, unchanged workouts/dose/gear.98contract checks, lint/build PASS. Remaining fault/viewport/keyboard evidence, broad/CI/native and owner acceptance pending.
+- [x] M2D visual/fault REDd7b246d:2FAIL(primary contrast2.66:1; opening button unmounted so cancel lost focus),3fault casesPASS. Fixed button-color class conflict and kept disabled edit buttons mounted; GREEN5PASS13.46s, light/dark390/1280screens captured and320no-overflow checked. Visual inspection found mobile summary below source/dialogue; composition refinement pending, not owner acceptance or final visual verdict.
+- [x] Mobile priority REDf222ab7(summary outside initial390viewport); warning-color measurement RED e55dc90(2.15:1 on white; first test attempt had a Locator typo and is not product evidence). Summary extracted above source/dialogue; mobile disclosure, readable ink warnings with tone border, contextual workout labels. Combined16browser scenarios PASS55.14s, lint/build PASS; actual source/definition input replay/reload and V1 historical read included. Synthetic screen metadata binds exact UI file hashes; owner UX acceptance and remaining read-failure audit still pending.
+- [x] Background read failure RED759dbc0(1FAIL19.18s)→GREEN12PASS34.39s: keep mounted cached draft/preview, block mutations until fresh GET, then same-token retry. Complex time/finish-cycle/effort/breath form edits preserve unknown totals and unrelated children.
+- [x] Initial-manual exercise selection REDce8903f(1FAIL39.80s missing picker)→GREEN1PASS10.02s: selected rev1 is resolved atomically on initial parse even after catalog rev2. Search Enter does not submit the program; original assignment dose/gear/instruction are unchanged.
+- [x]18.11.2026: combined19browser scenarios PASS72.38s; no pageerror/hydration failures in happy paths. Final Node22 lint/build and Ruff PASS; screenshot hashes match all UI files. That run reported a parent-scope atexit cleanup refusal after tests; cause unknown, sequential rerun pending. Full contributor-safe Python run in progress.
+- [x]18.11.2026 final local bundle: sequential19browser cases PASS59.40s with no cleanup message; Node22 lint/build and Ruff PASS. Full contributor-safe run4709PASS/16skip/174deselected plus4unchanged DSH timeout failures in832.30s. Relevant script/test diff against8ba8e49 empty; previous clean-baseline d2e1cf3 probe reproduces the short-limit case60.26s. No claim of a green local full suite or proven platform cause. No owned test servers/DSH processes remained; pre-existing personal port8000 was not touched.
+- [ ] M2D final local/CI bundle, bounded native review and explicit owner merge decision.
+- [ ] Live-provider evidence decision: prepare a bounded evaluation and obtain a fresh budget before any paid call; synthetic integration is not language-quality proof.
 - [ ] Full-goal audit: actual source→clarification→single edit→save→reload, current CI/review, explicit limitations.
 
 ## Context and Orientation
 
 
-models/swim_program.py is the frozen schema1 contract. data/swim_program_store.py
-retains24-hour previews and immutable library versions. models/swim_exercise.py
-and data/swim_exercise_store.py own reusable definitions; catalog resolve returns
-both pinned version content and a copied M1 step. No exercise lineage is yet
-stored in complete programs. models/ai_tools.py owns Coach's tools;
-models/ai_coach_runtime.py runs native/marker tool paths. api/routers/coach.py
-saves user messages through models/chat_manager.py and owns the trusted request
-boundary. Current message content is stripped before general chat storage, so
-M2 import must capture explicit source text before any normalization/model call.
-web/app/coach/page.tsx currently holds one proposal; a whole program must remain
-one proposal with multiple workouts. api/routers/decisions.py owns existing human
-confirmation, but model tools must never gain a self-approve operation.
+models/swim_program.py is the frozen schema1 contract. models/swim_program_v2.py
+and models/swim_program_documents.py add source-bound rich prescriptions and
+version-aware validation without converting historical V1. data/swim_program_store.py
+retains24-hour previews and immutable library versions; data/swim_import_store.py
+retains original sources, append-only draft revisions, human acknowledgements
+and preview ownership. V2 stores full exact exercise snapshots separately from
+prescription quantities/equipment. models/swim_exercise.py/data/swim_exercise_store.py
+own catalog definitions; models/swim_coach_tools.py offers only source-bound
+reads, one successful parse/patch per turn and clarification questions. Common
+Coach tools and native/marker runtime remain supported for ordinary chat.
+
+api/routers/swim_imports.py captures the original before AI and injects trusted
+identity/source/snapshots. api/routers/swim_coach.py uses those retained drafts;
+chat history is conversation context, never the canonical source. The model
+cannot approve/save/send. The common swim-program confirm route checks V2 draft
+ownership in the same SQLite writer transaction. web/app/coach/page.tsx retains
+its ordinary single proposal and links to /coach/swim. That dedicated workspace
+in web/components/swim renders the whole program, manual/dialogue edits and human
+preview/confirm/readback. No planning/calendar/watch or personal DB rollout occurs.
 
 ## Plan of Work
 
@@ -118,6 +141,27 @@ Observed: generic M1 confirm accepts any retained preview UUID. Inferred: a
 M2-only endpoint guard would be bypassed by generic confirm. Verified by: API/store
 call tracing; RED must attempt both paths after changing the draft. No causal
 claim of an existing product bug: this is a new ownership boundary.
+
+Observed: browser tests measured primary-button contrast2.66:1, warning text2.15:1,
+missing return focus after cancelling an editor and mobile volume below the first
+screen. Inferred: conflicting text classes, unmounted opening buttons and source/
+dialogue order explain these within the new workspace. Verified by: actual computed
+CSS, focus/geometry REDd7b246d/f222ab7/e55dc90 and passing corrected browser checks.
+
+Observed: a503 focus revalidation after an ambiguous confirm response removed the
+reviewed preview. Inferred: the loader's error branch unmounted its stateful child
+despite available cached data; a focus-event503 with retained data could falsify
+this. Verified by: RED759dbc0 reproduced that exact disappearance; kept cached
+draft/preview mounted, blocked actions until GET and passed same-token retry.
+
+Observed: one combined19case run ended with19PASS and an atexit
+scratch_cleanup_unowned at scripts/scratch_runtime.py:166. Inferred: initial
+owner-mismatch interpretation was rejected by line inspection:166 wraps an
+OSError from rmtree after identity/PID checks. Filesystem cause remains unknown;
+do not attribute it to concurrency or the new feature. Verified by: code/trace
+comparison; subsequent sequential19case run passed59.40s with no cleanup signal.
+That does not establish the filesystem cause. No ownership guard is weakened and no
+refused directory is manually deleted.
 
 ## Decision Log
 
@@ -206,8 +250,13 @@ clarification: timed block finishes the current full200mcycle.
 ## Outcomes & Retrospective
 
 
-M2A/M2B are merged. M2C tools/API/SSE are implemented on its branch and pass
-focused checks; broad/CI/review remain. M2D is not implemented.
+M2A/M2B/M2C are merged. M2D source, whole-program view, Coach turn, manual/direct
+editing, versioned catalog and explicit library save/readback work on the branch
+and have19case isolated browser proof. Final sequential cleanup audit is clean;
+the disclosed local full suite has4unchanged DSH timeouts. Current CI/native
+review, owner decision and live-provider evidence decision are pending.
+Active branch codex/issue-772-swim-import-web is
+based on merged main8ba8e49. Full goal remains active through UI and acceptance.
 M2B final current-head bundle is PR770. Local broad4659PASS/18skip/156deselected
 plus7fail/5errors; permitted rerun52PASS,4DSH timeouts remain. One DSH case also
 fails on isolated clean baseline d2e1cf3 (60.26s); scripts/tests unchanged. Cause
@@ -219,3 +268,31 @@ Revision17.11.2026: M2B GREEN checkpoints and retained-preview receipt semantics
 kept full-goal distinction and recorded predecessor's actual merge outcomes.
 Revision17.11.2026: owner accepted/merged #770; recorded final CI/review/baseline
 limitation, created #771/#772 and began explicit M2C contract handoff.
+
+Decision: UI implementation hands existing DTOs and source/structure/manual/
+catalog/confirm components to Supervisor for final checks, CI/review and owner
+decision. Rationale: domain semantics remain the merged contracts; app integration
+and evidence are checked independently of paid model quality.18.11.2026.
+
+Decision: use server summaries above mobile disclosures; retain a reviewed preview
+on failed background reads but require a fresh read before further action.
+Rationale: visibility and network errors must not erase reviewed work or invent
+current state. Browser input buffers are not preview/save authority.18.11.2026.
+Revision18.11.2026: M2D implemented in draft PR774,19browser cases, responsive
+synthetic evidence and own failure reproductions recorded. Preserve the separate
+local-cleanup/CI/native/owner and live-model boundaries; no runtime/personal rollout.
+
+CI d840b49: contributor-safe Python and contract jobs passed. Browser job ran
+150PASS/1FAIL: the strict first-viewport volume assertion failed; its old message
+did not identify the active narrow width, so no platform/font cause is asserted.
+Move the server summary before actions within the program card and retain the
+strict390/320 assertion, now labelled with theme/width. Fresh isolated19case run:
+19PASS61.63s, clean teardown; Node22 lint/build and Ruff passed.
+
+Gitleaks at d840b49 flagged metadata.json line24. Verified by recomputing the
+immutable097daef source blob: the value is that file's SHA256. Replace filename-
+keyed checksum metadata with path/sha256 records and allow only the exact
+historical commit/line fingerprint. No current-file/directory exception. Security
+regressions first2FAIL/6PASS, then security+contract106PASS11.08s. Regenerated
+synthetic screenshots match all19 current UI source hashes. Current-head CI and
+native review remain pending; these checks do not imply owner/live-model acceptance.

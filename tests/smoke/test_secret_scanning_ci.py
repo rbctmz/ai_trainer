@@ -113,6 +113,10 @@ def test_gitleaks_exceptions_are_only_verified_non_secret_shapes() -> None:
     assert re.fullmatch(r"[0-9a-f]{64}", review_digest)
     expected.add(f"{review_checksum_path}:generic-api-key:3")
     expected.add(f"{review_checksum_commit}:{review_checksum_path}:generic-api-key:3")
+    # PR #774: the historical filename-keyed row was independently recomputed
+    # against the immutable source blob in097daef. Only that commit/row is ignored;
+    # current evidence uses explicit path/sha256 records and has no tree exception.
+    expected.add("d840b494020bad1163b4664c1b081f209dd1458a:docs/design/evidence/issue-772/metadata.json:generic-api-key:24")
     assert fingerprints == expected
     assert not any("archived/" in fingerprint for fingerprint in fingerprints)
     assert not Path("archived/old_debug_scripts/debug_body_battery.py").exists()
@@ -120,6 +124,23 @@ def test_gitleaks_exceptions_are_only_verified_non_secret_shapes() -> None:
     attributes = ATTRIBUTES.read_text()
     assert "archived/old_debug_scripts/debug_body_battery.py binary" in attributes
     assert "archived/old_fix_tests/test_fixed_sync.py binary" in attributes
+
+
+def test_swim_ui_evidence_checksums_are_records_not_key_like_field_names() -> None:
+    metadata = json.loads(Path("docs/design/evidence/issue-772/metadata.json").read_text())
+    records = metadata["source_sha256"]
+    assert isinstance(records, list) and records
+    paths = []
+    for record in records:
+        assert set(record) == {"path", "sha256"}
+        path, digest = record["path"], record["sha256"]
+        assert path.startswith("web/components/swim/") or path in {
+            "web/app/coach/swim/page.tsx", "web/lib/swim-api.ts",
+        }
+        assert re.fullmatch(r"[0-9a-f]{64}", digest)
+        paths.append(path)
+    assert len(paths) == len(set(paths))
+    assert "web/lib/swim-api.ts" in paths
 
 
 def _write_fake_scanner(path: Path, exit_code: int) -> None:

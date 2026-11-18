@@ -3,7 +3,7 @@
     "source": "web/lib/types.ts",
     "source_sha256": "53ee2bfb88e03e8245f0e9c84949877169a60700368f882d10851d4c7903fb4d",
     "registry": "tests/contracts/registry.json",
-    "registry_sha256": "164ae0e37ef51048dca8ed789be95dfe4e2a40ac151ecdce890a19f4625d778b"
+    "registry_sha256": "1c3f27c5d4167dc1e6a52a034857d6639700fe81a4c148b99fae5adda8f945ed"
   },
   "roots": [
     "ActivitiesResponse",
@@ -35,8 +35,10 @@
     "SessionFeedbackHistoryResponse",
     "SessionProjection",
     "SleepSummary",
+    "SwimExerciseListResponse",
     "SwimExercisePreviewResponse",
-    "SwimImportDraftResponse",
+    "SwimImportListResponse",
+    "SwimProgramListResponse",
     "SwimProgramPreviewResponse",
     "SyncJobResponse",
     "SyncProvidersResponse",
@@ -33807,6 +33809,51 @@
       "record_values": null,
       "array_length": null
     },
+    "SwimExerciseListResponse": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "items": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "SwimExerciseVersionResponse",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
     "SwimExercisePreviewResponse": {
       "kinds": [
         "object"
@@ -33882,6 +33929,106 @@
           }
         },
         "node_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "revision": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "SwimExerciseVersionResponse": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "confirmed_at": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "document": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "SwimExerciseDocument",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "exercise_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "fingerprint": {
           "optional": false,
           "spec": {
             "kinds": [
@@ -34229,6 +34376,51 @@
             "literals": [],
             "widened": false,
             "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "SwimImportListResponse": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "items": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "SwimImportDraftResponse",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
             "fields": null,
             "ref": null,
             "wildcard": false,
@@ -34878,6 +35070,210 @@
               "items": null,
               "fields": null,
               "ref": "SwimProgramNode",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "SwimProgramListResponse": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "items": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": {
+                "distance_meters": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "null",
+                      "number"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "known_distance_meters": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "number"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "program_id": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "revision": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "number"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "schema_version": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "number"
+                    ],
+                    "literals": [
+                      1,
+                      2
+                    ],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "source_week_label": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "null",
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "title": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "updated_at": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "string"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                },
+                "workout_count": {
+                  "optional": false,
+                  "spec": {
+                    "kinds": [
+                      "number"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  }
+                }
+              },
+              "ref": null,
               "wildcard": false,
               "variants": null,
               "record_values": null,

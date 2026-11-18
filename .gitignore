@@ -296,3 +296,7 @@ workout_*.zip
 
 # Public competitor announcement registry (contains no athlete data)
 !research/intervals_apps_2026_10_registry.json
+
+# Public synthetic swimming UI evidence (never athlete screenshots)
+!docs/design/evidence/issue-772/*.png
+!docs/design/evidence/issue-772/metadata.json

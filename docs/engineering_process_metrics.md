@@ -1051,3 +1051,23 @@ Cause unknown; no claim of one fully green local broad run or proven platform
 cause. Leftover synthetic processes checked absent. Public final bundle in PR770.
 No escaped defect linked to #770 observed at this checkpoint; observation open.
 Active full M2 goal continues in #771/#772; user runtime/personal DB not updated.
+
+## Class A Post-Merge Record — PR #773 / issue #771 (17.11.2026)
+
+M2C bounded swimming Coach tools merged8ba8e497949acb76c2f7ade7d4283608f67a4577
+at14:15:18UTC. Opened09:28:06UTC: calendar PR cycle4h47m12s; active/wait split
+not measured. Native round1 found2blockingP2s; own RED d227749 reproduced3HTTP
+failures. Fixed-in07f241f: question completion-claim guard and truthful committed
+revision when readback fails. Both threads resolved, scoped native round2 clean
+(receipt6949480707), budget2/2. Explicit owner acceptance preceded SHA-bound merge.
+
+Final CI44092282658:4677PASS/47skip/156deselected;132E2E,3populated TS, web lint/
+build/contracts and secret scan GREEN. Final focused156PASS. Earlier local broad
+4680PASS/18skip/156deselected plus8fail/5errors:4unchanged DSH timeouts,
+8localhost cases subsequently52PASS under permitted execution, and1artifact
+freshness failure from regeneration during an already-collected run. Fresh
+full web-contract module69PASS separately. No claim of one green local broad
+run; DSH cause remains unknown. No escaped defect observed at this checkpoint;
+observation open. #772 owns the user interface and full M2 acceptance. Synthetic
+native/SDK stubs do not prove live-model quality. No additional paid calls or
+personal runtime/DB/watch changes.
