@@ -35,7 +35,14 @@ show a workout with unknown load or duration and retain that uncertainty.
   Explicit accessible labels and a history readback assertion produced two
   passes. Final M2/M3 focused browser run: 11 passed in 39.96s with no cleanup
   error. The last combined planning/Recovery/contract run passed 295 cases.
-- [ ] Verify full flow, current CI, independent review and owner decision.
+- [x] First CI run passed for 93c2a0a. Independent review found one blocking
+  P2 and no P1. The RED case in 3ed6f3f reproduces the reviewer’s 409 through
+  the live-plan constraint commit and calendar preview APIs.
+- [x] Keep protection from race overlays separate from the checks for active
+  constraints. All 23 calendar command and checkpoint cases pass, including
+  running-only, swimming-only, whole-day, and overlapping race-rest cases.
+- [ ] Verify CI and the scoped review for the correction, then obtain the
+  owner's decision.
 
 ## Surprises & Discoveries
 
@@ -66,6 +73,14 @@ show a workout with unknown load or duration and retain that uncertainty.
   while historical reads must keep their prior meaning.
 - **Verified by**: isolated HTTP/service fixture and the current Plan browser
   check. The new note identifies the date conflict without a checkpoint write.
+- **Observed**: removing the only generated run from a day also adds the
+  date to the checkpoint's shared protected-date list. The swim preview
+  then returned a 409.
+- **Inferred**: the list describes effects on the generated plan. Calendar
+  placement needs the original race protection and the live constraint scope.
+- **Verified by**: the same isolated write and preview now allow a run-only
+  constraint. Separate cases preserve race taper and recovery days and
+  refuse whole-day and swim-specific constraints.
 
 ## Decision Log
 

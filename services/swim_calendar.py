@@ -22,6 +22,7 @@ from models.swim_calendar import (
     SwimCalendarAssignment, SwimCalendarRequest, calendar_assignments, calendar_payload,
     validate_calendar_dates,
 )
+from models.training_planner import apply_race_event_overlays
 from services.planning_cycle_build import scoped_constraints
 from services.snapshot_runtime import backup_boundary, mark_committed
 
@@ -167,11 +168,20 @@ def _placement_conflicts(
     known_cycles = {row[0] for row in conn.execute("SELECT id FROM planning_cycles")}
     available = (snapshot.get("constraint_summary") or {}).get("available_day_indices")
     sport_rules = snapshot.get("allowed_sports_by_day") or {}
-    protected = {stored_day(day) for day in snapshot.get("protected_dates") or []}
-    protected.update(
-        stored_day(event["date"]) for event in normalized_events(snapshot.get("events"))
+    events = normalized_events(snapshot.get("events"))
+    protected = {
+        stored_day(event["date"]) for event in events
         if event.get("confirmed") is True
-    )
+    }
+    # The aggregate includes days emptied by constraints on generated sessions.
+    # Recover the race portion for these dates, then check constraint scope below.
+    overlay_dates = dates.intersection(stored_day(day) for day in snapshot.get("protected_dates") or [])
+    if events and overlay_dates:
+        _, _, overlay = apply_race_event_overlays(
+            [(datetime.combine(day, datetime.min.time()), 0.0, {}) for day in sorted(overlay_dates)],
+            [], events, goal_type=snapshot.get("goal_type") or "",
+        )
+        protected.update(stored_day(day) for day in overlay["protected_dates"])
     conflicts = {}
     for day in dates:
         if available is not None and day.weekday() not in available:
