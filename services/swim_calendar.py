@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 import json
 import sqlite3
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from data.database import Database
 from data.planning_cycle_writes import (
@@ -17,6 +17,7 @@ from models.plan_events import normalized_events
 from models.planning_build_confirmation import PlanningBuildPreviewError, canonical_json, fingerprint, utc_text
 from models.planning_cycle import stored_day
 from models.planning_sport_days import sports_allowed_on_day
+from models.swim_program_documents import ProgramDocument, validate_program_document
 from models.swim_calendar import (
     MoveAssignment, PlaceWorkouts, RemoveAssignment, RollbackCalendar, SubstituteAssignment,
     SwimCalendarAssignment, SwimCalendarRequest, calendar_assignments, calendar_payload,
@@ -120,6 +121,31 @@ def read_calendar(
             "checkpoint_id": checkpoint_id,
             "assignments": projected,
         }
+
+
+def delivery_source(
+    conn: sqlite3.Connection, assignment_id: UUID, expected_checkpoint_id: int,
+) -> tuple[dict, SwimCalendarAssignment, ProgramDocument]:
+    """Resolve one current, eligible assignment and exact saved library version."""
+    context = read_write_context(conn)
+    if context["checkpoint_id"] != expected_checkpoint_id:
+        raise _error("cycle_stale", "Цикл изменился. Обновите календарь.")
+    checkpoint = PlanningCycleStore(conn).checkpoint(expected_checkpoint_id)
+    snapshot = checkpoint["goal_plan_snapshot"]
+    assignment = next(
+        (item for item in calendar_assignments(snapshot) if item.assignment_id == assignment_id), None,
+    )
+    if assignment is None:
+        raise _error("swim_calendar_assignment_not_found", "Назначение отсутствует в текущем календаре.", 404)
+    if assignment.date.isoformat() < context["athlete_day"]:
+        raise _error("swim_calendar_past_date", "Прошедшие назначения сохранены в истории.")
+    conflicts = _placement_conflicts(conn, context["cycle_id"], snapshot, {assignment.date})
+    if assignment.date in conflicts:
+        raise conflicts[assignment.date]
+    program = _library_version(conn, assignment.program_id, assignment.program_revision)
+    if program["fingerprint"] != assignment.program_fingerprint:
+        raise _error("swim_calendar_corrupt", "Версия назначенной программы не совпадает с сохранённой.", 503)
+    return write_token(context), assignment, validate_program_document(program["document"])
 
 
 def _prepare_assignments(conn, current, before, operation):

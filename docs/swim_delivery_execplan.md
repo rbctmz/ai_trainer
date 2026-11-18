@@ -25,8 +25,12 @@ a real FR255 must agree on the selected control workout and its rest behavior.
   It rejects missing rests, distance from rest, dropped cues and lost Lap.
   The three complete controls also retain 2200/2000/1900 m in native text.
   The live provider's handling of the zero-duration Lap token is pending.
-- [ ] Bind preview and confirmation to the current assignment, with repeat,
-  conflict and uncertain-write handling. Verify data lifecycle and API.
+- [x] Resolve a delivery candidate from the selected calendar without
+  provider I/O. RED 27673d3 defines version pinning, stale date and late
+  forced rest. All three pass. The separate ai_trainer_swim namespace
+  stays outside generic plan cleanup.
+- [ ] Retain the preview and complete confirmation, with repeat, conflict
+  and uncertain-write handling. Verify data lifecycle and API.
 - [ ] Wire the confirmed calendar action, verify the isolated browser flow,
   and run CI and independent review. Human acceptance precedes merge.
 - [ ] Obtain scope-bound approval and verify receipt and behavior on FR255.
@@ -97,7 +101,12 @@ Exact distance at each hop and device-observed rest behavior are required.
 Use stable per-assignment ownership and a confirmation receipt independent
 of normal calendar checkpoints. Preflight known state, distinguish
 successful readback from uncertainty, prevent duplication on replay and
-leave unrelated events untouched. Reversible live test evidence includes
+leave unrelated events untouched. Only create a new event after a strict preflight and
+the locally committed reservation. A malformed provider list is unknown.
+After creation use the provider event ID when available and check identity
+and workout_doc. Lost acknowledgement permits readback only. Use single
+event creation so a hidden or moved event cannot be overwritten by upsert.
+Reversible live test evidence includes
 the exact lab event and explicit approval for any cleanup action.
 
 ## Artifacts and Notes
