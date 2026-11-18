@@ -144,3 +144,14 @@ def test_three_control_descriptions_keep_exact_meters_and_nested_group_effort():
     assert encoded[1].description.count("120s intensity=rest") == 3
     assert encoded[2].description.count("Выдохи три") == 12
     assert encoded[2].description.count("процентов по ходу серии") == 12
+
+
+def test_rest_only_group_keeps_its_author_instructions_in_preview_and_native_text():
+    from models.intervals_swim_delivery import encode_intervals_swim
+
+    encoded = encode_intervals_swim(project([
+        swim("work", 50),
+        group("rest_only", 2, [rest("rest")], instructions="Паузы стоя у бортика", last_rest="include"),
+    ]))
+    assert all("Паузы стоя у бортика" in rest_step.cue for rest_step in encoded.steps[1:])
+    assert encoded.description.count("Паузы стоя у бортика") == 2

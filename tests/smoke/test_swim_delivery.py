@@ -126,3 +126,22 @@ def test_repeat_range_requires_an_explicit_count():
         project_swim_delivery(validate_program_document(program), "one")
     assert raised.value.code == "unsupported_repeat_range"
     assert raised.value.node_id == "one.main"
+
+
+def test_limit_applies_after_omitting_final_rest():
+    from models.swim_delivery import SwimDeliveryUnsupported, project_swim_delivery
+
+    program = example_program()
+    outer = group("outer", 1, [
+        group("inner", 50, [swim("work", 25), rest("in")], last_rest="include"),
+        rest("out"),
+    ], last_rest="omit")
+    program["workouts"][0]["steps"] = [outer]
+    result = project_swim_delivery(validate_program_document(program), "one")
+    assert len(result.steps) == 100
+    assert result.steps[-1].node.id == "in"
+
+    outer["last_rest"] = "include"
+    with pytest.raises(SwimDeliveryUnsupported) as raised:
+        project_swim_delivery(validate_program_document(program), "one")
+    assert raised.value.code == "step_limit"

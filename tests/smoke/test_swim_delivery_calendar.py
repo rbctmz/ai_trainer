@@ -281,3 +281,25 @@ def test_delivery_http_flow_requires_explicit_confirmation_and_reads_receipt(ass
         assert receipt.pop("backup")["state"] == "disabled"
         assert client.get(root, params={"assignment_id": row["assignment_id"]}).json() == {"receipt": receipt}
         assert provider.creates == 1
+
+
+def test_duplicate_after_creation_blocks_verification_even_with_known_event_id(assignment):
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, _, _ = assignment
+    preview = _preview_delivery(assignment)
+
+    class DuplicateProvider(IntervalsSandbox):
+        def create_event(self, payload):
+            created = super().create_event(payload)
+            self.events.append({**created, "id": 987})
+            return created
+
+    provider = DuplicateProvider()
+    preview_id = UUID(preview["preview_id"])
+    first = confirm_swim_delivery(db, preview_id, client=provider)
+    assert first["status"] == "provider_unverified"
+    assert first["reason"] == "provider_event_ambiguous"
+    assert first["provider_event_id"] == 101
+    assert confirm_swim_delivery(db, preview_id, client=provider)["reason"] == "provider_event_ambiguous"
+    assert provider.creates == 1

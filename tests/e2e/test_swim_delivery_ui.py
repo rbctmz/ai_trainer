@@ -1,6 +1,6 @@
 """Calendar delivery through the actual API with an owned Intervals double."""
 
-from datetime import date
+from datetime import date, timedelta
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -85,8 +85,15 @@ def test_calendar_preview_confirm_and_receipt_reload(web_stack, width, theme):
             page.screenshot(path=evidence_dir / f"swim-delivery-receipt-{theme}-{width}.png", full_page=True)
         panel.get_by_role("button", name="Закрыть доставку", exact=True).click()
         expect(open_delivery).to_be_focused()
+        tomorrow = (date.fromisoformat(today) + timedelta(days=1)).isoformat()
+
+        def show_next_day(route):
+            response = route.fetch()
+            route.fulfill(response=response, json={**response.json(), "athlete_day": tomorrow})
+
+        page.route("**/api/planning/cycles/current", show_next_day)
         page.reload()
-        open_delivery.click()
+        open_delivery.click(timeout=6000)
         expect(panel).to_contain_text("Тренировка сверена в Intervals.icu")
         assert page.request.get(f"{api}/_e2e/swim-delivery-state").json()["creates"] == starting_count + 1
         receipt = page.request.get(f"{root}/delivery", params={"assignment_id": assignment_id}).json()["receipt"]
