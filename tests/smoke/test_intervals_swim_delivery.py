@@ -34,7 +34,7 @@ def provider_compiled_workout():
             {"text": "Отдых. Synthetic rest", "duration": 60, "intensity": "rest"},
             {"text": "Кроль", "distance": 50.0, "intensity": "active"},
             {"text": "Отдых. Synthetic rest", "duration": 60, "intensity": "rest"},
-            {"text": "Отдых. Synthetic rest. Выдохи три", "duration": 0,
+            {"text": "Отдых. Synthetic rest. Выдохи три", "duration": 1,
              "until_lap_press": True, "intensity": "rest"},
             {"text": "Заминка", "distance": 50.0, "intensity": "active"},
         ],
@@ -54,7 +54,7 @@ def test_native_intervals_description_keeps_the_rest_outside_provider_repeat_log
         "- Отдых. Synthetic rest 60s intensity=rest",
         "- Кроль 50mtr intensity=active",
         "- Отдых. Synthetic rest 60s intensity=rest",
-        "- Отдых. Synthetic rest. Выдохи три 0s intensity=rest Press lap",
+        "- Отдых. Synthetic rest. Выдохи три 1s intensity=rest Press lap",
         "- Заминка 50mtr intensity=active",
     ]
 
@@ -155,3 +155,18 @@ def test_rest_only_group_keeps_its_author_instructions_in_preview_and_native_tex
     ]))
     assert all("Паузы стоя у бортика" in rest_step.cue for rest_step in encoded.steps[1:])
     assert encoded.description.count("Паузы стоя у бортика") == 2
+
+
+
+def test_lap_metadata_never_counts_as_prescribed_rest_or_distance():
+    from models.intervals_swim_delivery import encode_intervals_swim, verify_intervals_swim
+
+    workout = encode_intervals_swim(control_workout())
+    assert workout.steps[5].duration_seconds is None
+    provider = provider_compiled_workout()
+    assert verify_intervals_swim(workout, provider) is None
+    provider["steps"][5]["distance"] = 1
+    mismatch = verify_intervals_swim(workout, provider)
+    assert mismatch.code == "step_mismatch" and mismatch.step_number == 6
+    provider["steps"].pop(5)
+    assert verify_intervals_swim(workout, provider).code == "step_count"
