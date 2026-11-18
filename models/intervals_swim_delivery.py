@@ -111,14 +111,15 @@ def _range_cue(bounds: tuple[int, int]) -> str:
 def _encode_step(step: SwimDeliveryStep) -> IntervalsSwimStep:
     node = step.node
     if isinstance(node, (RestStep, RestStepV2)):
-        notes = ["Отдых", node.instructions]
+        notes = ["Отдых", node.instructions, *(round_.instructions for round_ in step.rounds)]
         if step.rest_breaths is not None:
             notes.append(f"Выдохи {_range_cue(step.rest_breaths)}")
         seconds = step.rest_seconds
         if node.mode == "approximate" and seconds is not None:
             notes.append(f"Ориентир {_range_cue(seconds)} секунд")
         duration = seconds[0] if node.mode == "fixed" and seconds is not None else None
-        return IntervalsSwimStep(_cue_text(". ".join(filter(None, notes))), None, duration, duration is None)
+        cue = _cue_text(". ".join(dict.fromkeys(filter(None, notes))))
+        return IntervalsSwimStep(cue, None, duration, duration is None)
 
     notes = [node.name, node.instructions, _STROKES.get(node.stroke, "")]
     notes.extend(_EQUIPMENT[item] for item in node.equipment)

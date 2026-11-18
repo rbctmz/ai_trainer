@@ -191,7 +191,8 @@ def test_two_concurrent_confirmations_claim_one_provider_write(assignment):
     class ConcurrentProvider(IntervalsSandbox):
         def list_workout_events(self, oldest, newest, *, strict):
             observed = super().list_workout_events(oldest, newest, strict=strict)
-            barrier.wait(timeout=5)
+            if self.creates == 0:
+                barrier.wait(timeout=5)
             return observed
 
     provider = ConcurrentProvider()

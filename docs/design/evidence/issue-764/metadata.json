@@ -1,26 +1,26 @@
 {
   "fixture": "anonymous exact_program_v2",
-  "capture": "isolated transport 18.11.2026",
+  "capture": "isolated transport, includes receipt reload next day, 18.11.2026",
   "files": [
     {
       "path": "web/components/planning/SwimCalendarWorkspace.tsx",
-      "sha256": "e4c4ffcdb03e63b2897b5d5df58a90f1887f0c3d3516f53ce31df3096df7246f"
+      "sha256": "3df6a1259085d25767bdf0ace829c4d5ce687e4996c79541be993d56b1a79b44"
     },
     {
       "path": "web/components/planning/SwimDeliveryPanel.tsx",
-      "sha256": "bb60e9616ffe86e084e45528c8db804230ad12e67dac1ccf1b709380504bbde9"
+      "sha256": "57f752c2afc2543ed4d64ef2f964bd62726a6016b0387d8e984a4a469685f6bb"
     },
     {
       "path": "tests/e2e/test_swim_delivery_ui.py",
-      "sha256": "4d1c2ce20ba3b34362687e99ca6d307a012d5b7f638a03712423d6f65010dbda"
+      "sha256": "c4d78e80e1a7952e8e7c31e585a986c84c478f6e2756549b556d6a81299c20c9"
     },
     {
       "path": "docs/design/evidence/issue-764/swim-delivery-preview-dark-390.png",
-      "sha256": "95582e762985f253d81f4865f613d1c44902587c4b5c623929c2aa4c839f2786"
+      "sha256": "4f77564528cc3baa43d98fb927455c5df46a0e2fe416361684f3d651c7f7f362"
     },
     {
       "path": "docs/design/evidence/issue-764/swim-delivery-preview-light-1280.png",
-      "sha256": "f86cb6e00e256f2e5fdd32a491ef2d5953b78c43e8d7a754c039bf9f567843a6"
+      "sha256": "8b8d5fa4b80c45ce306b083e55a95bffb7ecc7c873cb314cf1b8d9e779365916"
     },
     {
       "path": "docs/design/evidence/issue-764/swim-delivery-receipt-dark-390.png",

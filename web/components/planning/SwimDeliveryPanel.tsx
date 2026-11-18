@@ -154,8 +154,11 @@ export function SwimDeliveryPanel({ row, checkpointId, editable, onClose }: {
     </> : error ? <>
       <p role="alert" className="text-sm text-ink">Не удалось прочитать квитанцию отправки.</p>
       <button type="button" className={button} onClick={() => void mutate()}>Повторить чтение</button>
-    </> : data ? <button type="button" className={primary} disabled={!editable || busy} onClick={() => void prepare()}>
-      {busy ? "Готовим шаги…" : "Проверить отправку"}
-    </button> : <p role="status" className="text-sm text-ink-soft">Читаем состояние доставки…</p>}
+    </> : data ? editable
+      ? <button type="button" className={primary} disabled={busy} onClick={() => void prepare()}>
+        {busy ? "Готовим шаги…" : "Проверить отправку"}
+      </button>
+      : <p className="text-sm text-ink-soft">Квитанции для этого назначения пока нет.</p>
+      : <p role="status" className="text-sm text-ink-soft">Читаем состояние доставки…</p>}
   </section>;
 }

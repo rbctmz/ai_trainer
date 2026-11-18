@@ -273,13 +273,18 @@ def _store_receipt(db: Database, preview_id: UUID, incoming: dict) -> dict:
 
 def _observe_event(client: IntervalsICUClient, stored: dict, event_id: int | None) -> dict:
     try:
-        if event_id is None:
-            matches = _owned_matches(client, stored)
-            if len(matches) != 1:
-                return _receipt(stored, reason="provider_event_ambiguous" if matches else "provider_event_unknown")
-            event_id = _provider_id(matches[0])
-        if event_id is None:
-            return _receipt(stored, reason="provider_event_unknown")
+        matches = _owned_matches(client, stored)
+        if len(matches) != 1:
+            return _receipt(
+                stored, event_id=event_id,
+                reason="provider_event_ambiguous" if matches else "provider_event_unknown",
+            )
+        listed_id = _provider_id(matches[0])
+        if listed_id is None:
+            return _receipt(stored, event_id=event_id, reason="provider_event_unknown")
+        if event_id is not None and listed_id != event_id:
+            return _receipt(stored, event_id=event_id, reason="provider_identity_mismatch")
+        event_id = listed_id
         event = client.get_workout_event(event_id)
     except (IntervalsICUError, UnicodeError):
         return _receipt(stored, event_id=event_id, reason="provider_readback_unknown")

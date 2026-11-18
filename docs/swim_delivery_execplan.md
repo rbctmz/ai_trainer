@@ -45,7 +45,17 @@ a real FR255 must agree on the selected control workout and its rest behavior.
   journeys passed in 13.30s on 390 px dark and 1280 px light. The initial
   fixture mistakenly tried to save V2 through the V1 entry point. The actual
   V2 source-bound import path produces the saved task for acceptance.
-- [ ] Verify current GitHub CI and independent review. Human acceptance
+- [x] CI on d370da7 passed 4751 Python, 155 browser scenarios, populated
+  TS and Secret scan. Native review found four distinct blocking P2 cases,
+  one reported twice. RED 31b5f7d independently reproduced the three
+  backend problems and receipt entry disappearing after the day changed.
+- [x] Check provider uniqueness on every readback, retain group cues on
+  rests, apply the export limit after the last-rest policy, and make the
+  current calendar receipt visible after its date. 231 local checks and
+  two browser scenarios on the final tree pass. A combined earlier run
+  passed four scenarios and emitted a scratch cleanup warning afterward.
+  The two final focused runs ended without that warning.
+- [ ] Verify current GitHub CI and scoped second review. Human acceptance
   precedes merge.
 - [ ] Obtain scope-bound approval and verify receipt and behavior on FR255.
   Check the three complete controls and wider supported profiles separately.

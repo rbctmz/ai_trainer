@@ -183,14 +183,16 @@ function Calendar({ selectedCheckpoint, programId, revision }: {
       <ul className="mt-3 space-y-3">
         {rows.map(row => <li key={row.assignment_id} className="rounded-lg border border-surface-border p-3">
           <AuthoredSwimRow row={row} showDate />
-          {!selectedCheckpoint && row.date >= (cycle?.athlete_day ?? "") ? <div className="mt-2 flex flex-wrap gap-2">
-            <button type="button" className={button} disabled={!editable} aria-label={`Перенести: ${row.title}`}
-              onClick={() => { setEdit({ kind: "move", row }); setMoveDate(row.date); }}>Перенести</button>
-            <button type="button" className={button} disabled={!editable} aria-label={`Заменить: ${row.title}`}
-              onClick={() => setEdit({ kind: "substitute", row })}>Заменить</button>
-            <button type="button" className={button} disabled={!editable} aria-label={`Убрать: ${row.title}`}
-              onClick={() => void propose({ kind: "remove", assignment_id: row.assignment_id })}>Убрать</button>
-            <button type="button" className={button} disabled={!editable} aria-label={`Доставка на Garmin: ${row.title}`}
+          {!selectedCheckpoint ? <div className="mt-2 flex flex-wrap gap-2">
+            {row.date >= (cycle?.athlete_day ?? "") ? <>
+              <button type="button" className={button} disabled={!editable} aria-label={`Перенести: ${row.title}`}
+                onClick={() => { setEdit({ kind: "move", row }); setMoveDate(row.date); }}>Перенести</button>
+              <button type="button" className={button} disabled={!editable} aria-label={`Заменить: ${row.title}`}
+                onClick={() => setEdit({ kind: "substitute", row })}>Заменить</button>
+              <button type="button" className={button} disabled={!editable} aria-label={`Убрать: ${row.title}`}
+                onClick={() => void propose({ kind: "remove", assignment_id: row.assignment_id })}>Убрать</button>
+            </> : null}
+            <button type="button" className={button} disabled={busy || !!preview} aria-label={`Доставка на Garmin: ${row.title}`}
               aria-expanded={delivery === row.assignment_id} onClick={event => {
                 deliveryOrigin.current = event.currentTarget;
                 setEdit(null);
@@ -198,7 +200,8 @@ function Calendar({ selectedCheckpoint, programId, revision }: {
               }}>Доставка на Garmin</button>
           </div> : null}
           {!selectedCheckpoint && delivery === row.assignment_id && data?.checkpoint_id ? <SwimDeliveryPanel
-            key={row.assignment_id} row={row} checkpointId={data.checkpoint_id} editable={editable}
+            key={row.assignment_id} row={row} checkpointId={data.checkpoint_id}
+            editable={editable && !!cycle && row.date >= cycle.athlete_day}
             onClose={() => {
               setDelivery(null);
               requestAnimationFrame(() => deliveryOrigin.current?.focus());

@@ -106,19 +106,21 @@ def project_swim_delivery(document: ProgramDocument, workout_id: str) -> SwimDel
     }
     unspecified_last_rest: list[str] = []
 
-    def expand_sequence(nodes: list[SwimNode] | list[SwimNodeV2]) -> list[SwimDeliveryStep]:
+    def expand_sequence(
+        nodes: list[SwimNode] | list[SwimNodeV2], *, limit: int = MAX_SWIM_DELIVERY_STEPS,
+    ) -> list[SwimDeliveryStep]:
         steps: list[SwimDeliveryStep] = []
         for node in nodes:
             steps.extend(expand(node))
-            if len(steps) > MAX_SWIM_DELIVERY_STEPS:
+            if len(steps) > limit:
                 raise SwimDeliveryUnsupported("step_limit", node.id)
         return steps
 
     def expand(node: SwimNode | SwimNodeV2) -> list[SwimDeliveryStep]:
         if isinstance(node, (SwimGroup, SwimGroupV2)):
             count = _repeat_count(node)
-            sequence = expand_sequence(node.steps)
             omit_last = node.last_rest == "omit"
+            sequence = expand_sequence(node.steps, limit=MAX_SWIM_DELIVERY_STEPS + int(omit_last))
             if len(sequence) * count - int(omit_last) > MAX_SWIM_DELIVERY_STEPS:
                 raise SwimDeliveryUnsupported("step_limit", node.id)
             if (
