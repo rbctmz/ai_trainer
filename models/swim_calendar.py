@@ -1,24 +1,84 @@
 """Exact library references in an additive planning checkpoint field."""
 
 from datetime import date
-from typing import Any, Mapping
+from typing import Annotated, Any, Literal, Mapping
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, ValidationError
 
 from models.planning_build_confirmation import PlanningBuildPreviewError
 from models.planning_cycle import stored_day
+from models.swim_program import Identifier
 
 
-class SwimCalendarAssignment(BaseModel):
+def _parse_day(value: Any) -> date:
+    if type(value) is date:
+        return value
+    if isinstance(value, str):
+        parsed = date.fromisoformat(value)
+        if parsed.isoformat() == value:
+            return parsed
+    raise ValueError("expected YYYY-MM-DD")
+
+
+LocalDay = Annotated[date, BeforeValidator(_parse_day)]
+Revision = Annotated[int, Field(strict=True, ge=1)]
+
+
+class CalendarModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+
+class SwimCalendarAssignment(CalendarModel):
     assignment_id: UUID
-    date: date
+    date: LocalDay
     program_id: UUID
-    program_revision: int = Field(strict=True, ge=1)
+    program_revision: Revision
     program_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
-    workout_id: str = Field(min_length=1, max_length=200)
+    workout_id: Identifier
+
+
+class PlaceWorkouts(CalendarModel):
+    kind: Literal["place"]
+    program_id: UUID
+    program_revision: Revision
+    dates: dict[Identifier, LocalDay] = Field(min_length=1, max_length=24)
+
+
+class MoveAssignment(CalendarModel):
+    kind: Literal["move"]
+    assignment_id: UUID
+    date: LocalDay
+
+
+class SubstituteAssignment(CalendarModel):
+    kind: Literal["substitute"]
+    assignment_id: UUID
+    program_id: UUID
+    program_revision: Revision
+    workout_id: Identifier
+
+
+class RemoveAssignment(CalendarModel):
+    kind: Literal["remove"]
+    assignment_id: UUID
+
+
+class RollbackCalendar(CalendarModel):
+    kind: Literal["rollback"]
+    checkpoint_id: Revision
+
+
+CalendarOperation = Annotated[
+    PlaceWorkouts | MoveAssignment | SubstituteAssignment | RemoveAssignment | RollbackCalendar,
+    Field(discriminator="kind"),
+]
+
+
+class SwimCalendarRequest(CalendarModel):
+    request_id: UUID
+    expected_checkpoint_id: Revision
+    operation: CalendarOperation
 
 
 _ASSIGNMENTS = TypeAdapter(list[SwimCalendarAssignment])

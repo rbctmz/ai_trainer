@@ -24,6 +24,11 @@ show a workout with unknown load or duration and retain that uncertainty.
   schedule in history. The latest focused run passed all seven cases.
 - [ ] Add authoritative date validation, retained preview/confirm, diff and
   history/rollback with owned SQLite proof.
+  Initial service and typed HTTP routes pass 11 focused cases, including the
+  seven checkpoint cases. The command cases cover place, move, rollback, stale
+  confirm, replay, exact date override, an explicit human action and unknown
+  dose. The next acceptance pass adds expiry, same-cycle restrictions, reset
+  and confirmed version substitution.
 - [ ] Project readbacks into Plan and add a library entry point and review UI.
 - [ ] Verify full flow, current CI, independent review and owner decision.
 
@@ -111,6 +116,16 @@ Starting main 1fd9d67. M2 documentation remains on its separate local branch.
 
 Use additive Python snapshot state, selected-cycle writer token, immutable
 swimming library versions, shared date eligibility and typed planning API/TS.
+
+Domain/API to UI handoff. Consume the typed GET, POST preview and POST confirm
+under `/api/planning/swim-calendar`. Preview has dated before/after rows with
+exact library IDs, workouts, environment, distance and unknown duration/load.
+Each exact prescription opens through the existing immutable library route.
+The Plan weeks projection displays assignments from the same checkpoint as its
+generated rows. The editing page makes date, source version and before/after
+visible before confirmation. Reuse the existing planning and swimming card
+tokens and disclose incomplete TSS near the weekly chart. Verify the controls
+and preview on a narrow and wide synthetic acceptance viewport.
 
 ## Outcomes & Retrospective
 

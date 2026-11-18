@@ -1996,6 +1996,8 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
 
     if lifecycle and lifecycle["action"] == "edit_current":
         inherit_calendar(goal_plan, existing_plan or {})
+        if "allowed_sports_by_day" in (existing_plan or {}):
+            goal_plan["allowed_sports_by_day"] = existing_plan["allowed_sports_by_day"]
     checkpoint = build_planning_checkpoint(goal_plan)
     checkpoint.update(effective_totals)
     final_plan = checkpoint["goal_plan_snapshot"]

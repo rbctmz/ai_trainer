@@ -32,6 +32,7 @@ CHECKPOINT_SOURCE_LABELS = {
     "bike_tss_materialization_repair": "Исправление шагов вело после согласования TSS",
     "materialization_repair": "Восстановление исполнимых тренировок",
     "restore_version": "Восстановленная версия",
+    "swim_calendar": "Назначения плавания",
     "legacy_checkpoint": "Сохранённая версия",
 }
 
@@ -300,6 +301,8 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     }
     if goal_plan.get("identity_namespace") is not None:
         goal_plan_snapshot["identity_namespace"] = goal_plan["identity_namespace"]
+    if "allowed_sports_by_day" in goal_plan:
+        goal_plan_snapshot["allowed_sports_by_day"] = goal_plan["allowed_sports_by_day"]
     inherit_calendar(goal_plan_snapshot, goal_plan)
 
     plan_adjustment = constraint_summary.get("plan_adjustment", {}) or {}
