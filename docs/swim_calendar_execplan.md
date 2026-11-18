@@ -22,14 +22,19 @@ show a workout with unknown load or duration and retain that uncertainty.
   suite passed 179 cases. Two added integration cases prove generic history
   restore keeps the current references and the new cycle leaves the old
   schedule in history. The latest focused run passed all seven cases.
-- [ ] Add authoritative date validation, retained preview/confirm, diff and
-  history/rollback with owned SQLite proof.
-  Initial service and typed HTTP routes pass 11 focused cases, including the
-  seven checkpoint cases. The command cases cover place, move, rollback, stale
-  confirm, replay, exact date override, an explicit human action and unknown
-  dose. The next acceptance pass adds expiry, same-cycle restrictions, reset
-  and confirmed version substitution.
-- [ ] Project readbacks into Plan and add a library entry point and review UI.
+- [x] Add authoritative date validation, retained preview/confirm, diff and
+  history/rollback with owned SQLite proof. The command cases cover place,
+  move, substitute, remove, rollback, actual concurrent stale confirm, replay,
+  exact date override, explicit human action, unknown dose, expiry, full reset
+  and a Backup API roundtrip. The eighth checkpoint test confirms an actual
+  edit-current rebuild preserves the authored reference.
+- [x] Project readbacks into Plan and add a library entry point and review UI.
+  Browser RED c700d5a failed at the missing library link. Two expanded cases
+  exercised appointment, exact steps, move and rollback in dark390/light1280.
+  Initial expanded run reached move but timed out at the rollback selector.
+  Explicit accessible labels and a history readback assertion produced two
+  passes. Final M2/M3 focused browser run: 11 passed in 39.96s with no cleanup
+  error. The last combined planning/Recovery/contract run passed 295 cases.
 - [ ] Verify full flow, current CI, independent review and owner decision.
 
 ## Surprises & Discoveries
@@ -58,6 +63,10 @@ show a workout with unknown load or duration and retain that uncertainty.
 - 18.11.2026: use a dedicated authored-calendar proposal with full cycle CAS.
   Existing general restore and rescale retain authored references. The authored
   rollback proposal restores only its own part of the historical checkpoint.
+- 18.11.2026: retain ordinary plan numeric calculations and disclose the
+  unmeasured authored load next to the chart and forecast context. Surface a
+  dated review action from the existing Recovery readiness evidence. Only
+  the user supplies a new date and confirms a reviewed move.
 
 ## Context and Orientation
 
@@ -111,6 +120,9 @@ both referenced library versions and their checkpoints.
 ## Artifacts and Notes
 
 Starting main 1fd9d67. M2 documentation remains on its separate local branch.
+Synthetic screenshots and source checksums are under
+`docs/design/evidence/issue-763`. Tests use a temporary demo store and
+leave no application instance running.
 
 ## Interfaces and Dependencies
 
@@ -129,4 +141,5 @@ and preview on a narrow and wide synthetic acceptance viewport.
 
 ## Outcomes & Retrospective
 
-Contract and baseline identified. Implementation and acceptance are tracked above.
+Calendar and protection work locally through the user-facing entry points.
+The latest progress and pending CI/review gates are tracked above.

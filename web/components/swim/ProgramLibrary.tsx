@@ -41,6 +41,7 @@ export function SavedProgram({ programId, revision }: { programId: string; revis
         <label className="min-w-0 text-sm text-ink">Версия для открытия<input className={`${input} mt-1 max-w-40`} type="number" min="1" step="1" required value={requested} onChange={event => setRequested(event.target.value)} /></label>
         <button type="submit" className={button}>Открыть версию</button>
         <Link className={button} href={`/coach/swim?program=${programId}`}>Последняя версия</Link>
+        <Link className={button} href={`/planning/swim?program=${data.program_id}&revision=${data.revision}`}>Назначить даты</Link>
       </form>
     </section>
     <ProgramSummary document={data.document} summary={data.summary} />

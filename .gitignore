@@ -300,3 +300,5 @@ workout_*.zip
 # Public synthetic swimming UI evidence (never athlete screenshots)
 !docs/design/evidence/issue-772/*.png
 !docs/design/evidence/issue-772/metadata.json
+!docs/design/evidence/issue-763/*.png
+!docs/design/evidence/issue-763/metadata.json

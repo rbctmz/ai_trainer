@@ -615,6 +615,7 @@ def current_status(db: Database) -> Dict[str, Any]:
         active_only=True,
         limit=100,
     )
+    calendar = ((selected_checkpoint or {}).get("goal_plan_snapshot") or {}).get("swim_calendar")
     return {
         "metrics": {
             "ctl": round(float(metrics.get("ctl") or 0.0), 1),
@@ -634,6 +635,7 @@ def current_status(db: Database) -> Dict[str, Any]:
         "active_constraints": active_constraints,
         "has_plan": checkpoint is not None,
         "has_actionable_plan": checkpoint is not None and actionable(context),
+        **({"has_authored_swim": True} if calendar else {}),
         "cycle_context": context,
         "checkpoint": checkpoint,
         "demand": demand_profile(_persisted_demand_level(db)),
@@ -2641,6 +2643,14 @@ def week_by_week_plan(db: Database) -> Dict[str, Any]:
     for row in chart_rows:
         row["target_percent"] = round((float(row["target_tss"]) / chart_maximum) * 100, 1) if chart_maximum else 0.0
         row["actual_percent"] = round((float(row["actual_tss"] or 0.0) / chart_maximum) * 100, 1) if row["actual_tss"] is not None and chart_maximum else None
+    authored_calendar = {}
+    if goal_plan.get("swim_calendar"):
+        from services.swim_calendar import read_calendar
+        try:
+            assignments = read_calendar(db, checkpoint_id=checkpoint["id"])["assignments"]
+            authored_calendar = {"authored_swim": {"state": "available", "assignments": assignments}}
+        except PlanningBuildPreviewError:
+            authored_calendar = {"authored_swim": {"state": "unavailable", "assignments": []}}
     return {
         "has_plan": True,
         "state": "available",
@@ -2649,6 +2659,7 @@ def week_by_week_plan(db: Database) -> Dict[str, Any]:
         "chart": {"metric": "tss", "maximum_tss": chart_maximum, "weeks": chart_rows},
         "weeks": weeks,
         "data_quality": dict(reconciliation.get("data_quality") or {}),
+        **authored_calendar,
     }
 
 
@@ -3638,9 +3649,11 @@ def planning_history(db: Database, limit: int = 10) -> Dict[str, Any]:
             outcome = f"{outcome} · {transition['headline']}" if outcome != "Нет" else str(transition["headline"])
         if outcome == "Нет":
             outcome = str(summary.get("headline") or provenance.get("detail") or "План сохранён")
+        authored_rows = (checkpoint.get("goal_plan_snapshot") or {}).get("swim_calendar")
         items.append(
             {
                 "cycle_id": row["cycle_id"],
+                **({"has_authored_swim": True} if isinstance(authored_rows, list) and authored_rows else {}),
                 "can_restore": row["can_restore"],
                 "restore_action": row["restore_action"],
                 "checkpoint_id": summary.get("checkpoint_id"),

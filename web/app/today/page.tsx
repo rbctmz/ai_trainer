@@ -240,6 +240,11 @@ export default function TodayPage() {
             </button>
           </header>
           <TodayStateSummary readiness={readiness} wellness={data.subjective_wellness} />
+          {data.authored_swim_review_dates?.length ? <section className="rounded-card border border-tone-warning/40 bg-surface p-4 text-sm text-ink">
+            <h2 className="font-semibold">Проверьте плавание в плане</h2>
+            <p className="mt-1 text-ink-soft">На {data.authored_swim_review_dates.join(", ")} назначены тренировки тренера. Их нагрузка пока неизвестна.</p>
+            <Link href="/planning/swim" className="mt-2 inline-block text-ink underline">Проверить даты и предложить перенос</Link>
+          </section> : null}
 
           {isCompact ? (
             <>

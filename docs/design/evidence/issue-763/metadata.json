@@ -1,0 +1,54 @@
+{
+  "fixture": "anonymous example_program",
+  "capture": "11 case isolated browser run on 18.11.2026",
+  "files": [
+    {
+      "path": "web/app/planning/swim/page.tsx",
+      "sha256": "5534cdd1a344d02778fdba698973d559300776737741341e56be63aeb87905d4"
+    },
+    {
+      "path": "web/app/planning/page.tsx",
+      "sha256": "0872d021cf0f5e3b9f3ee533b95ef609171ec46be254b9975eae70133b48246f"
+    },
+    {
+      "path": "web/app/today/page.tsx",
+      "sha256": "83f43b247e09f4cf4ba25b624cdc5b18039e4f0b191364300f3558a298c235de"
+    },
+    {
+      "path": "web/components/planning/AuthoredSwimRow.tsx",
+      "sha256": "33b6545cdd391bb35c984b90b11f4ad97ee55428651480e67b1d29b2a6c89156"
+    },
+    {
+      "path": "web/components/planning/SwimCalendarWorkspace.tsx",
+      "sha256": "fea1e0ec760fe9dbaa9d270a5b792dc3633892b18408e920dcd525c77d0834d8"
+    },
+    {
+      "path": "web/components/swim/ProgramStructure.tsx",
+      "sha256": "06a2901bd15e0e111edc44ecf0c711202402440669e93d73c5ceb9e27955cff5"
+    },
+    {
+      "path": "web/components/swim/ProgramLibrary.tsx",
+      "sha256": "c39d158158ed6b6a99c948f08266938a5e4ea6d8b2b9a617f31d5ff14f7833a6"
+    },
+    {
+      "path": "tests/e2e/test_swim_calendar_ui.py",
+      "sha256": "8d71324022cea4528238256ac1eb46975597f9b0885219b15d0a02b80d42b464"
+    },
+    {
+      "path": "docs/design/evidence/issue-763/calendar-preview-dark-390.png",
+      "sha256": "4e5d25aa47410c70e948c61d164714007fa8b0c0ee1cced78228ba9277cf6886"
+    },
+    {
+      "path": "docs/design/evidence/issue-763/calendar-preview-light-1280.png",
+      "sha256": "c50c39db31ded955e05c551c994208a5bd46f290624d544642302e6639ba66c4"
+    },
+    {
+      "path": "docs/design/evidence/issue-763/calendar-week-dark-390.png",
+      "sha256": "97478e80c829b58590615d3e3ee1c16e8b5d47d51291c26851105436e77cc5ae"
+    },
+    {
+      "path": "docs/design/evidence/issue-763/calendar-week-light-1280.png",
+      "sha256": "6b940b221500e676814b9dcd0c2574459786ad40742bc5776d85358984963b6e"
+    }
+  ]
+}

@@ -111,6 +111,17 @@ export function ProgramSummary({ document, summary, inline = false }: { document
     </section>;
 }
 
+export function ProgramWorkoutSteps({ document, workoutId }: { document: Document; workoutId: string }) {
+  const workout = document.workouts.find(item => item.id === workoutId);
+  if (!workout) return <p role="alert" className="text-sm text-ink">Тренировка недоступна в этой версии.</p>;
+  const source = Array.from(document.source_text);
+  const bindings = new Map<string, SwimExerciseBinding>(document.schema_version === 2
+    ? document.exercise_bindings.map(binding => [binding.node_id, binding]) : []);
+  return <div className="space-y-2">
+    {workout.steps.map(node => <Step key={node.id} node={node} source={source} bindings={bindings} disabled />)}
+  </div>;
+}
+
 export function ProgramStructure({ document, summary, onEditNode, onAddNode, onEditWorkout, editingDisabled = false, showSummary = true }: {
   document: Document; summary: Summary; onEditNode?: (id: string) => void;
   onAddNode?: (id: string) => void; onEditWorkout?: (id: string) => void;

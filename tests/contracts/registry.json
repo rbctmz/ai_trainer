@@ -376,6 +376,10 @@
       "interface": "SwimImportListResponse",
       "scenarios": [{"state":"empty","expect":200},{"state":"demo","expect":200}]
     },
+    "/api/planning/swim-calendar": {
+      "interface": "SwimCalendarRead",
+      "scenarios": [{"state":"empty","expect":200},{"state":"demo","expect":200}]
+    },
     "/api/swim-programs": {
       "interface": "SwimProgramListResponse",
       "scenarios": [{"state":"empty","expect":200},{"state":"demo","expect":200}]

@@ -47,6 +47,13 @@ use shared Python checks and return explicit refusal or uncertainty. An unresolv
 load assessment must remain visible through confirmation. It grants no authority
 to rescale a workout, move it, or replace a generated session.
 
+Recovery uses its existing freshness and confidence gate. When a protected
+assignment shares a day with an evidenced recovery conflict, or is scheduled
+today under a fresh low-readiness signal, Today suggests reviewing the date.
+The athlete can prepare a move from that assignment in the calendar. The
+suggestion has no inferred intensity, automatic date, or treatment advice.
+It is scoped to the evaluated checkpoint and never a generic rescale proposal.
+
 Reuse the weekday/date semantics from #668 if its contract is available on the
 branch. Review baseline found no implementation on main 1fd9d67. Bring in the
 shared eligibility rule once and keep #668's scheduler/brick work in its own scope.
@@ -80,3 +87,13 @@ selection or explicit checkpoint, checking ownership for historical queries.
 
 M4 owns export/provider writes. M5 owns matching and accounting. The user's
 calendar and database are outside the synthetic acceptance environment.
+
+## ASR and delivery evidence
+
+ASR-REL-1/2: exact authored references, explicit uncertainty, current-cycle
+CAS and append-only rollback. ASR-MOD-2/3: additive snapshot state and
+provider-free reads through existing shared Python and typed web projections.
+ASR-DEP-2: SQLite initialization, atomic confirmation, reset and Backup API
+restore on synthetic data. ADR-0001 remains the product surface boundary.
+The ExecPlan carries the RED/GREEN record and gates. The final CI, independent
+review and merge decision are recorded in the PR.

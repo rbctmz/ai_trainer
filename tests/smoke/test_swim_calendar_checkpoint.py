@@ -130,3 +130,18 @@ def test_cycle_switch_preserves_old_schedule_without_adopting_it(calendar_db):
     latest = calendar_db.get_current_planning_checkpoint()
     assert "swim_calendar" not in latest["goal_plan_snapshot"]
     assert calendar_db.get_planning_checkpoint(old["id"]) == old
+
+
+def test_real_edit_current_rebuild_carries_exact_references(tmp_path, monkeypatch):
+    from tests.smoke.test_planning_cycle_build_v2 import confirm, prepare
+
+    base = build_planning_checkpoint(plan(TODAY - timedelta(days=4), days=14))
+    base["goal_plan_snapshot"]["swim_calendar"] = authored_calendar()
+    db = legacy_db(tmp_path, monkeypatch, payloads=[base])
+    old = db.get_current_planning_checkpoint()
+    shown = prepare(db, action="edit_current", available_hours=6)
+    confirm(db, shown)
+    rebuilt = db.get_current_planning_checkpoint()
+    assert rebuilt["id"] != old["id"]
+    assert rebuilt["goal_plan_snapshot"]["swim_calendar"] == authored_calendar()
+    assert db.get_planning_checkpoint(old["id"]) == old
