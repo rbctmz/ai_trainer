@@ -8,6 +8,7 @@ from config.settings import Settings
 from data.planning_cycles import PlanningCycleStore
 from models.planning_build_confirmation import PlanningBuildPreviewError, fingerprint
 from models.planning_cycle import checkpoint_period, project_cycle_context, CycleStateCorrupt
+from models.swim_calendar import calendar_payload, guard_generic_calendar_write, validate_calendar_dates
 from utils.athlete_time import athlete_local_date
 
 TOKEN_FIELDS = ("cycle_id", "cycle_revision", "selection_revision", "checkpoint_id", "athlete_day", "constraint_fingerprint")
@@ -80,7 +81,8 @@ def check_restore_owner(conn: sqlite3.Connection, context: dict, checkpoint_id: 
 
 
 def append_cycle_child(conn: sqlite3.Connection, context: dict, checkpoint: dict, checkpoint_id: int,
-                       *, action: str = "adjustment", restore_legacy: bool = False) -> None:
+                       *, action: str = "adjustment", restore_legacy: bool = False,
+                       reviewed_swim_calendar: list[dict] | None = None) -> None:
     store = PlanningCycleStore(conn)
     if restore_legacy and action != "restore":
         raise PlanningBuildPreviewError("invalid_cycle_request", "Требуется явное действие legacy-восстановления.", status=422)
@@ -98,6 +100,12 @@ def append_cycle_child(conn: sqlite3.Connection, context: dict, checkpoint: dict
     cycle = store.cycle(context["cycle_id"])
     if action != "restore" and (period.start.isoformat(), period.end.isoformat()) != (cycle["start_date"], cycle["end_date"]):
         raise PlanningBuildPreviewError("cycle_not_current", "Изменение не может менять период цикла.")
+    if reviewed_swim_calendar is None:
+        guard_generic_calendar_write(previous["goal_plan_snapshot"], snapshot)
+    else:
+        if calendar_payload(snapshot) != reviewed_swim_calendar:
+            raise PlanningBuildPreviewError("swim_calendar_corrupt", "Назначения не соответствуют предпросмотру.", status=500)
+        validate_calendar_dates(snapshot)
     conn.execute("INSERT INTO planning_cycle_versions VALUES(?,?,?)", (checkpoint_id, context["cycle_id"], action))
     conn.execute("UPDATE planning_cycles SET current_checkpoint_id=?,revision=revision+1,start_date=?,end_date=? WHERE id=?",
                  (checkpoint_id, period.start.isoformat(), period.end.isoformat(), context["cycle_id"]))

@@ -1,9 +1,11 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import useSWR, { useSWRConfig } from "swr";
 import { ApiError, fetcher, postJSON, withDemo } from "@/lib/api";
 import { CyclePanel } from "@/components/planning/CyclePanel";
+import { AuthoredSwimRow } from "@/components/planning/AuthoredSwimRow";
 import { AdherenceRibbon } from "@/components/AdherenceRibbon";
 import { DEFAULT_DEMAND_OPTIONS, PlanBuilder, Stat } from "@/components/planning/PlanBuilder";
 import { WorkoutStrip } from "@/components/WorkoutStrip";
@@ -24,6 +26,7 @@ import {
   ReconResponse,
   RestoreHistoryResult,
   WeekByWeekPlan,
+  SwimCalendarRow,
 } from "@/lib/types";
 
 const READER_TABS = ["overview", "weeks", "execution"] as const;
@@ -276,6 +279,10 @@ export default function PlanningPage() {
       </section>
 
       {status.cycle_context ? <CyclePanel context={status.cycle_context} locked={locked} onLockChange={setCycleLocked} onStartNew={() => {if (locked) return; setBuildAction("start_new"); setBuilderGeneration(value => value + 1); setTab("build");}} /> : null}
+      <Link href="/planning/swim" className="inline-block text-sm font-medium text-ink underline">Календарь тренировок тренера</Link>
+      {status.has_authored_swim && tab !== "weeks" ? <p className="text-sm text-ink-soft">
+        TSS плавания тренера пока неизвестен. Расчёты плана и прогноза охватывают нагрузку с известным TSS.
+      </p> : null}
       <fieldset disabled={cycleLocked} className="min-w-0 space-y-5">
       {hasPlan ? (
         <>
@@ -962,9 +969,18 @@ function PlanWeeks({ onResolveAmbiguous }: { onResolveAmbiguous: () => void }) {
   if (data.state !== "available" || !data.weeks.length || Array.isArray(data.chart)) {
     return <LocalDataGap label={data.reason ?? "Недели плана пока недоступны в сохранённом checkpoint."} />;
   }
+  const swimByDate = new Map<string, SwimCalendarRow[]>();
+  for (const assignment of data.authored_swim?.assignments ?? []) {
+    const rows = swimByDate.get(assignment.date) ?? [];
+    rows.push(assignment);
+    swimByDate.set(assignment.date, rows);
+  }
   return (
     <section className="space-y-4">
       <WeekLoadChart chart={data.chart} />
+      {data.authored_swim?.state === "unavailable"
+        ? <p role="alert" className="text-sm text-ink-soft">Назначения тренера пока недоступны.</p>
+        : swimByDate.size > 0 ? <p className="text-sm text-ink-soft">TSS плавания тренера пока неизвестен. График показывает нагрузку с известным TSS.</p> : null}
       <p className="text-xs text-ink-faint">
         {data.window?.returned_weeks} из {data.window?.total_weeks} недель сохранённого плана. Факт и статусы совпадений получены одним локальным снимком на {data.as_of}.
       </p>
@@ -993,7 +1009,7 @@ function PlanWeeks({ onResolveAmbiguous }: { onResolveAmbiguous: () => void }) {
           </summary>
           <div className="border-t border-surface-border p-4">
             <div className="grid gap-2">
-              {week.days.map((day) => <WeekDay key={day.date} day={day} onResolveAmbiguous={onResolveAmbiguous} />)}
+              {week.days.map((day) => <WeekDay key={day.date} day={day} authoredSwim={swimByDate.get(day.date) ?? []} onResolveAmbiguous={onResolveAmbiguous} />)}
             </div>
           </div>
         </details>
@@ -1027,8 +1043,8 @@ function WeekLoadChart({ chart }: { chart: Exclude<WeekByWeekPlan["chart"], []> 
   );
 }
 
-function WeekDay({ day, onResolveAmbiguous }: { day: WeekByWeekPlan["weeks"][number]["days"][number]; onResolveAmbiguous: () => void }) {
-  const dayLabel = day.plan_state === "rest" ? "Отдых" : day.plan_state === "unplanned" ? "Вне плана" : "Запланировано";
+function WeekDay({ day, authoredSwim, onResolveAmbiguous }: { day: WeekByWeekPlan["weeks"][number]["days"][number]; authoredSwim: SwimCalendarRow[]; onResolveAmbiguous: () => void }) {
+  const dayLabel = authoredSwim.length ? "Запланировано" : day.plan_state === "rest" ? "Отдых" : day.plan_state === "unplanned" ? "Вне плана" : "Запланировано";
   return (
     <article className="rounded-lg bg-surface-muted p-3">
       <div className="flex flex-wrap items-start justify-between gap-2 text-sm">
@@ -1037,7 +1053,8 @@ function WeekDay({ day, onResolveAmbiguous }: { day: WeekByWeekPlan["weeks"][num
       </div>
       {day.events.length ? <div className="mt-2 text-xs text-ink-soft">{day.events.map((event) => <span key={`${event.priority}-${event.date}`} className="mr-2"><strong className="text-ink">{event.priority}</strong> · {event.label}</span>)}</div> : null}
       {day.sessions.length ? <div className="mt-2 grid gap-2">{day.sessions.map((session) => <WeekLeaf key={session.session_id || session.name} session={session} dayIndex={day.index} onResolveAmbiguous={onResolveAmbiguous} />)}</div> : null}
-      {day.plan_state === "rest" && !day.unplanned_tss ? <p className="mt-2 text-xs text-ink-faint">День отдыха.</p> : null}
+      {authoredSwim.map(row => <div className="mt-2 rounded-md border border-surface-border bg-surface p-3" key={row.assignment_id}><AuthoredSwimRow row={row} /></div>)}
+      {day.plan_state === "rest" && !day.unplanned_tss && !authoredSwim.length ? <p className="mt-2 text-xs text-ink-faint">День отдыха.</p> : null}
       {day.unplanned_activities.length ? <p className="mt-2 text-xs text-tone-warning">Вне плана: {day.unplanned_activities.map((activity) => activity.name || activity.sport).join(" · ")}</p> : null}
     </article>
   );
@@ -1168,6 +1185,9 @@ function AdjustmentHistory({locked}: {locked: boolean}) {
                   <div className="text-sm text-ink-soft">{item.outcome_note}</div>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {item.has_authored_swim && item.cycle_id && item.checkpoint_id ? <Link
+                    href={`/planning/swim?checkpoint=${item.checkpoint_id}`}
+                    className="text-xs text-ink underline">Плавание в этой версии</Link> : null}
                   {isActive ? (
                     <span className="text-[11px] text-ink-faint">активная версия</span>
                   ) : !item.can_restore ? <span className="text-[11px] text-ink-faint">Историческая версия · только чтение</span> : isConfirming ? (

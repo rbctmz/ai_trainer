@@ -1,0 +1,54 @@
+{
+  "fixture": "anonymous example_program",
+  "capture": "2 current-head calendar browser cases on 18.11.2026",
+  "files": [
+    {
+      "path": "web/app/planning/swim/page.tsx",
+      "sha256": "5534cdd1a344d02778fdba698973d559300776737741341e56be63aeb87905d4"
+    },
+    {
+      "path": "web/app/planning/page.tsx",
+      "sha256": "0872d021cf0f5e3b9f3ee533b95ef609171ec46be254b9975eae70133b48246f"
+    },
+    {
+      "path": "web/app/today/page.tsx",
+      "sha256": "83f43b247e09f4cf4ba25b624cdc5b18039e4f0b191364300f3558a298c235de"
+    },
+    {
+      "path": "web/components/planning/AuthoredSwimRow.tsx",
+      "sha256": "1c077dd28a34c4b207d477ae2014169f836346650526fc2903b390adaf1382d4"
+    },
+    {
+      "path": "web/components/planning/SwimCalendarWorkspace.tsx",
+      "sha256": "fea1e0ec760fe9dbaa9d270a5b792dc3633892b18408e920dcd525c77d0834d8"
+    },
+    {
+      "path": "web/components/swim/ProgramStructure.tsx",
+      "sha256": "06a2901bd15e0e111edc44ecf0c711202402440669e93d73c5ceb9e27955cff5"
+    },
+    {
+      "path": "web/components/swim/ProgramLibrary.tsx",
+      "sha256": "c39d158158ed6b6a99c948f08266938a5e4ea6d8b2b9a617f31d5ff14f7833a6"
+    },
+    {
+      "path": "tests/e2e/test_swim_calendar_ui.py",
+      "sha256": "235f0938814ffc77b864d655beb104b67f83b0c73c414d6cf76ee542644c27bc"
+    },
+    {
+      "path": "docs/design/evidence/issue-763/calendar-preview-dark-390.png",
+      "sha256": "4e5d25aa47410c70e948c61d164714007fa8b0c0ee1cced78228ba9277cf6886"
+    },
+    {
+      "path": "docs/design/evidence/issue-763/calendar-preview-light-1280.png",
+      "sha256": "c50c39db31ded955e05c551c994208a5bd46f290624d544642302e6639ba66c4"
+    },
+    {
+      "path": "docs/design/evidence/issue-763/calendar-week-dark-390.png",
+      "sha256": "447d3e0f0242fe6220b6e95d4039b60c2335cda4a19d09f6e8e086e47e5b6298"
+    },
+    {
+      "path": "docs/design/evidence/issue-763/calendar-week-light-1280.png",
+      "sha256": "31001531e3949a9c9529c46ea8f746eae2ec16825af74ac6c7b3ba88416925fe"
+    }
+  ]
+}

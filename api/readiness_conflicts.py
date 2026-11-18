@@ -12,6 +12,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+from models.planning_build_confirmation import PlanningBuildPreviewError
+from models.swim_calendar import calendar_assignments
 
 from api.planning_service import get_active_plan
 from data.database import Database
@@ -100,4 +102,17 @@ def build_readiness_conflict_report(
 
     if goal_plan is None and not report["data_gap"]:
         report["reason"] = "Нет активного плана — сверять готовность не с чем."
+    if isinstance(checkpoint, dict) and goal_plan and goal_plan.get("swim_calendar") and not report["data_gap"]:
+        try:
+            assignments = calendar_assignments(goal_plan)
+        except PlanningBuildPreviewError:
+            assignments = []
+        conflict_dates = {conflict["date"] for conflict in report["conflicts"]}
+        signal_low_today = report["readiness"]["status"] == "low"
+        dates = sorted({
+            row.date.isoformat() for row in assignments
+            if row.date.isoformat() in conflict_dates or (row.date == today and signal_low_today)
+        })
+        if dates:
+            report["authored_swim_review"] = {"checkpoint_id": checkpoint.get("id"), "dates": dates}
     return report

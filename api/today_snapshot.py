@@ -176,6 +176,8 @@ def build_today_decision_snapshot(
         "frequency": get_briefing_frequency(db),
         "is_quiet_day": is_quiet_day(gate, active_proposal),
     }
+    authored_review = report.get("authored_swim_review") or {}
+    review_dates = authored_review.get("dates") if checkpoint and authored_review.get("checkpoint_id") == checkpoint.get("id") else None
     return {
         "snapshot_version": TODAY_SNAPSHOT_VERSION,
         "cycle_context": cycle_context,
@@ -190,6 +192,7 @@ def build_today_decision_snapshot(
         "readiness_source": "canonical_snapshot",
         "subjective_wellness": snapshot.get("subjective_wellness"),
         "session": session,
+        **({"authored_swim_review_dates": review_dates} if review_dates else {}),
         "device_sync_hint": _device_sync_hint(
             checkpoint, as_of, db.get_approved_recovery_replan_deliveries()
         ),

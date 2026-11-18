@@ -959,6 +959,7 @@ export interface PlanningReadinessSnapshot extends ReadinessSnapshot {
 }
 
 export interface PlanningStatus {
+  has_authored_swim?: boolean;
   cycle_context?: CycleContext;
   has_actionable_plan?: boolean;
   metrics: PlanningLoadMetrics;
@@ -1869,6 +1870,56 @@ export interface WeekByWeekPlan {
       };
   weeks: WeekByWeekWeek[];
   data_quality?: { status?: string; reasons?: string[] };
+  authored_swim?: { state: "available" | "unavailable"; assignments: SwimCalendarRow[] };
+}
+
+export interface SwimCalendarRow {
+  assignment_id: string;
+  date: string;
+  program_id: string;
+  program_revision: number;
+  program_fingerprint: string;
+  workout_id: string;
+  origin: "trainer_authored";
+  title: string;
+  source_week_label: string | null;
+  environment: "pool" | "open_water";
+  pool_length_meters: number | null;
+  distance_meters: number | null;
+  known_distance_meters: number;
+  distance_compatibility: "compatible" | "incompatible" | "not_applicable";
+  duration_minutes: null;
+  tss: null;
+  date_review_reason?: string | null;
+}
+
+export interface SwimCalendarRead {
+  cycle_id: string | null;
+  checkpoint_id: number | null;
+  assignments: SwimCalendarRow[];
+}
+
+export type SwimCalendarOperation =
+  | { kind: "place"; program_id: string; program_revision: number; dates: Record<string, string> }
+  | { kind: "move"; assignment_id: string; date: string }
+  | { kind: "remove"; assignment_id: string }
+  | { kind: "substitute"; assignment_id: string; program_id: string; program_revision: number; workout_id: string }
+  | { kind: "rollback"; checkpoint_id: number };
+
+export interface SwimCalendarPreview {
+  preview_id: string;
+  cycle_id: string;
+  base_checkpoint_id: number;
+  expires_at: string;
+  changes: { before: SwimCalendarRow | null; after: SwimCalendarRow | null }[];
+  warnings: { date: string; code: "load_uncertain" | "other_sessions_on_day" }[];
+}
+
+export interface SwimCalendarReceipt {
+  cycle_id: string;
+  checkpoint_id: number;
+  preview_id: string;
+  backup: BackupStatus;
 }
 
 export interface IntervalsDeliveryResult {
@@ -2210,6 +2261,7 @@ export interface AdjustResult {
 
 export interface PlanningHistoryItem {
   cycle_id?: string | null;
+  has_authored_swim?: boolean;
   can_restore?: boolean;
   restore_action?: "restore_version" | "restore_legacy_version";
   checkpoint_id: number | null;
@@ -2619,6 +2671,7 @@ export interface TodayResponse {
   readiness: TodayReadiness | null;
   readiness_source: string;
   session: TodaySession | null;
+  authored_swim_review_dates?: string[];
   device_sync_hint?: { reason: string; at: string } | null;
   gate: TodayGate;
   briefing: TodayBriefing;
