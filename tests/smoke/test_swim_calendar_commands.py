@@ -146,6 +146,60 @@ def test_legacy_confirmed_event_date_still_blocks_placement(calendar):
     assert refused.json()["code"] == "swim_calendar_protected_day"
 
 
+@pytest.mark.parametrize(("sport", "expected_status"), [("run", 200), ("swim", 409), (None, 409)])
+def test_placement_uses_constraint_sport_after_active_plan_update(calendar, sport, expected_status):
+    from api.planning_service import apply_constraint_to_active_plan
+
+    db, saved = calendar
+    target = (TODAY + timedelta(days=1)).isoformat()
+    result = apply_constraint_to_active_plan(db, {
+        "date": target, "kind": "unavailable", "sport": sport, "cycle_scope": "athlete",
+    })
+    assert result["active_plan_updated"]
+    if sport != "swim":
+        snapshot = db.get_current_planning_checkpoint()["goal_plan_snapshot"]
+        assert target in snapshot["protected_dates"]
+    with client_for(db) as client:
+        root = "/api/planning/swim-calendar"
+        response = client.post(f"{root}/preview", json=place_request(db, saved, 1))
+        assert response.status_code == expected_status, response.text
+        if expected_status == 409:
+            assert response.json()["code"] == "swim_calendar_protected_day"
+            return
+        confirmed = client.post(f"{root}/confirm", json={
+            "preview_id": response.json()["preview_id"], "confirm": True,
+        })
+        assert confirmed.status_code == 200, confirmed.text
+        assert client.get(root).json()["assignments"][0].get("date_review_reason") is None
+
+
+@pytest.mark.parametrize("offset", [2, 6])
+def test_other_sport_constraint_cannot_override_race_rest(tmp_path, monkeypatch, offset):
+    from api.planning_service import apply_constraint_to_active_plan
+    from models.training_planner import apply_race_event_overlays
+
+    goal = plan(TODAY)
+    race_day = (TODAY + timedelta(days=4)).isoformat()
+    goal["events"][0]["date"] = goal["event_date"] = race_day
+    _, _, overlay = apply_race_event_overlays(
+        goal["daily_plan"], goal["weekly_summary"], goal["events"], goal_type=goal["goal_type"],
+    )
+    goal["protected_dates"] = overlay["protected_dates"]
+    goal["event_overlays"] = overlay["overlays"]
+    target = (TODAY + timedelta(days=offset)).isoformat()
+    assert target in goal["protected_dates"]
+    db = legacy_db(tmp_path, monkeypatch, payloads=[build_planning_checkpoint(goal)])
+    saved = confirm_preview(db, create_preview(db, example_program(), base_revision=0)["preview_id"])
+    result = apply_constraint_to_active_plan(db, {
+        "date": target, "kind": "unavailable", "sport": "run", "cycle_scope": "athlete",
+    })
+    assert result["active_plan_updated"]
+    with client_for(db) as client:
+        refused = client.post("/api/planning/swim-calendar/preview", json=place_request(db, saved, offset))
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["code"] == "swim_calendar_protected_day"
+
+
 def test_added_rest_constraint_flags_current_assignment_but_keeps_history(calendar):
     from models.swim_calendar import SwimCalendarRequest
     from services.swim_calendar import confirm_calendar, preview_calendar, read_calendar
