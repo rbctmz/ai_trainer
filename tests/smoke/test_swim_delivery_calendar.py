@@ -293,3 +293,38 @@ def test_backup_and_reset_include_retained_attempt(assignment, tmp_path):
         confirm_swim_delivery(db, preview_id, client=provider)
     assert raised.value.code == "swim_delivery_preview_not_found"
     assert provider.creates == 1
+
+
+def test_delivery_http_flow_requires_explicit_confirmation_and_reads_receipt(assignment, monkeypatch):
+    from services import swim_delivery
+    from tests.smoke._planning_cycle_regressions import client_for
+
+    db, row, checkpoint_id = assignment
+    provider = IntervalsSandbox()
+    monkeypatch.setattr(swim_delivery, "get_client", lambda: provider)
+    root = "/api/planning/swim-calendar/delivery"
+    with client_for(db) as client:
+        initial = client.get(root, params={"assignment_id": row["assignment_id"]})
+        assert initial.status_code == 200, initial.text
+        assert initial.json() == {"receipt": None}
+        response = client.post(f"{root}/preview", json={
+            "request_id": str(uuid4()),
+            "assignment_id": row["assignment_id"],
+            "expected_checkpoint_id": checkpoint_id,
+        })
+        assert response.status_code == 200, response.text
+        preview = response.json()
+        assert preview["assignment"]["program_revision"] == 1
+        assert len(preview["steps"]) == 28
+        request = {"preview_id": preview["preview_id"]}
+        for confirm in (False, 1, "true"):
+            assert client.post(f"{root}/confirm", json={**request, "confirm": confirm}).status_code == 422
+        assert provider.creates == 0
+        sent = client.post(f"{root}/confirm", json={**request, "confirm": True})
+        assert sent.status_code == 200, sent.text
+        receipt = sent.json()
+        assert receipt["status"] == "provider_verified"
+        assert receipt["device_verified"] is False
+        assert receipt.pop("backup")["state"] == "disabled"
+        assert client.get(root, params={"assignment_id": row["assignment_id"]}).json() == {"receipt": receipt}
+        assert provider.creates == 1
