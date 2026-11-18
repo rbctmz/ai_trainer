@@ -158,6 +158,9 @@ def test_preview_and_verified_receipt_preserve_provider_and_calendar_identity(as
     assert receipt["status"] == "provider_verified"
     assert receipt["provider_event_id"] == 101
     assert receipt["device_verified"] is False
+    from services.swim_delivery import read_swim_delivery
+
+    assert read_swim_delivery(db, UUID(receipt["assignment_id"])) == {"receipt": receipt}
     assert confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider) == receipt
     assert provider.creates == 1
     assert db.get_current_planning_checkpoint()["id"] == checkpoint_id
@@ -221,3 +224,72 @@ def test_existing_calendar_event_refuses_first_write(assignment):
         confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider)
     assert raised.value.code == "swim_delivery_provider_conflict"
     assert provider.creates == 0
+
+
+def test_two_concurrent_confirmations_claim_one_provider_write(assignment):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, _, _ = assignment
+    preview = _preview_delivery(assignment)
+    barrier = Barrier(2)
+
+    class ConcurrentProvider(IntervalsSandbox):
+        def list_workout_events(self, oldest, newest, *, strict):
+            observed = super().list_workout_events(oldest, newest, strict=strict)
+            barrier.wait(timeout=5)
+            return observed
+
+    provider = ConcurrentProvider()
+    preview_id = UUID(preview["preview_id"])
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        calls = [pool.submit(confirm_swim_delivery, db, preview_id, client=provider) for _ in range(2)]
+        receipts = [call.result(timeout=10) for call in calls]
+    assert provider.creates == 1
+    assert any(row["status"] == "provider_verified" for row in receipts)
+
+
+def test_unknown_preflight_and_demo_refuse_writes(assignment):
+    from services.intervals_icu import IntervalsICUError
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, _, _ = assignment
+    preview = _preview_delivery(assignment)
+
+    class UnknownCalendar(IntervalsSandbox):
+        def list_workout_events(self, _oldest, _newest, *, strict):
+            assert strict
+            raise IntervalsICUError("calendar timed out")
+
+    provider = UnknownCalendar()
+    for demo, reason in [(False, "swim_delivery_preflight_unknown"), (True, "swim_delivery_demo")]:
+        with pytest.raises(PlanningBuildPreviewError) as raised:
+            confirm_swim_delivery(db, UUID(preview["preview_id"]), client=provider, demo=demo)
+        assert raised.value.code == reason
+    assert provider.creates == 0
+
+
+def test_backup_and_reset_include_retained_attempt(assignment, tmp_path):
+    from contextlib import closing
+    import sqlite3
+
+    from data.database import Database
+    from services.swim_delivery import confirm_swim_delivery
+
+    db, _, _ = assignment
+    preview = _preview_delivery(assignment)
+    provider = IntervalsSandbox()
+    preview_id = UUID(preview["preview_id"])
+    first = confirm_swim_delivery(db, preview_id, client=provider)
+    backup_path = tmp_path / "swim-delivery-backup.sqlite"
+    with closing(db._connect()) as source, closing(sqlite3.connect(backup_path)) as destination:
+        source.backup(destination)
+    recovered = Database(str(backup_path))
+    assert confirm_swim_delivery(recovered, preview_id, client=provider) == first
+    assert provider.creates == 1
+    db.clear_all_data()
+    with pytest.raises(PlanningBuildPreviewError) as raised:
+        confirm_swim_delivery(db, preview_id, client=provider)
+    assert raised.value.code == "swim_delivery_preview_not_found"
+    assert provider.creates == 1

@@ -859,6 +859,8 @@ class Database:
         initialize_swim_imports(conn)
         from data.swim_calendar_store import initialize as initialize_swim_calendar
         initialize_swim_calendar(conn)
+        from data.swim_delivery_store import initialize as initialize_swim_delivery
+        initialize_swim_delivery(conn)
         # M1 (#270): persistent per-provider / per-domain sync cursor. cursor_value is
         # the ISO-date HIGH-WATER boundary of the window a provider has fully, cleanly
         # processed (NOT the last activity's date). Advanced only after a whole
@@ -5801,6 +5803,7 @@ class Database:
 
         cursor.execute('DELETE FROM planning_build_previews')
         cursor.execute('DELETE FROM swim_calendar_previews')
+        cursor.execute('DELETE FROM swim_delivery_previews')
         cursor.execute('DELETE FROM swim_import_previews')
         cursor.execute('DELETE FROM swim_import_revisions')
         cursor.execute('DELETE FROM swim_import_sources')

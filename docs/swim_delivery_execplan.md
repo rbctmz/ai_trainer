@@ -33,8 +33,11 @@ a real FR255 must agree on the selected control workout and its rest behavior.
   and exact event-ID readback. RED 66bc756 shows the legacy empty fallback.
   Synthetic HTTP responses verify that malformed lists cannot grant write
   permission and that a different event ID cannot stand in for the target.
-- [ ] Retain the preview and complete confirmation, with repeat, conflict
-  and uncertain-write handling. Verify data lifecycle and API.
+- [x] Retain the preview and confirm a single provider attempt. RED
+  04668a2 defines the missing interaction. Eleven service scenarios cover
+  selection, immutable source, replay, concurrent claims, stale constraints,
+  unknown preflight, demo refusal, provider mismatch, backup and full reset.
+- [ ] Expose the preview, confirm and readback through typed API contracts.
 - [ ] Wire the confirmed calendar action, verify the isolated browser flow,
   and run CI and independent review. Human acceptance precedes merge.
 - [ ] Obtain scope-bound approval and verify receipt and behavior on FR255.
