@@ -1,0 +1,109 @@
+# Place and protect trainer workouts in the selected planning cycle
+
+Issue #763. Contract [swim_calendar_slice_spec.md](swim_calendar_slice_spec.md).
+This plan follows .agent/PLANS.md and the Class A workflow.
+
+## Purpose / Big Picture
+
+An athlete assigns their saved trainer workouts to actual dates, reviews the
+calendar effects and confirms. Later adjustments preserve the exact intervals
+and equipment until the athlete confirms an authored change. The calendar can
+show a workout with unknown load or duration and retain that uncertainty.
+
+## Progress
+
+- [x] 18.11.2026: read #763/#668, the merged M2 baseline, ADR-0001, reliability
+  and compatibility ASRs, and both selected-cycle publication paths.
+- [ ] Protect the additive assignment state at checkpoint boundaries.
+- [ ] Add authoritative date validation, retained preview/confirm, diff and
+  history/rollback with owned SQLite proof.
+- [ ] Project readbacks into Plan and add a library entry point and review UI.
+- [ ] Verify full flow, current CI, independent review and owner decision.
+
+## Surprises & Discoveries
+
+- **Observed**: normal adjustment writes call `append_cycle_child`. Exact
+  edit-current build publications call `publish_cycle_checkpoint` separately.
+  `build_planning_checkpoint` enumerates snapshot keys, so restore by itself
+  does not ensure a new field survives the next serialization.
+- **Inferred**: protecting one writer or one rescale function leaves paths that
+  can omit calendar assignments. Test the two writer paths and roundtrip.
+- **Verified by**: repository search of all insertion and association call
+  sites. Runtime RED recorded after the initial cases run.
+- **Observed**: #668 is open and Git has local candidate branches. A search of
+  tracked main code returned no `allowed_sports_by_day`.
+- **Inferred**: M3 needs the shared eligibility semantics from that candidate,
+  with a small and explicit handoff before date validation is declared complete.
+- **Verified by**: authenticated issue #668 and local branch/code inventory.
+
+## Decision Log
+
+- 18.11.2026: add typed references in cycle checkpoint snapshots. Existing
+  immutable library versions provide source, series and equipment without a
+  lossy conversion to generic TSS-based materialized steps. Generic snapshot
+  history and cycle ownership remain the lifecycle authority.
+- 18.11.2026: use a dedicated authored-calendar proposal with full cycle CAS.
+  Existing general restore and rescale retain authored references. The authored
+  rollback proposal restores only its own part of the historical checkpoint.
+
+## Context and Orientation
+
+`data/planning_cycle_writes.py` owns mutable-cycle CAS and appends generic
+children. `data/planning_cycles.py` handles retained build publication.
+`models/planning_checkpoints.py` serializes and restores the snapshot.
+`data/swim_program_store.py` resolves an immutable program version.
+`api/planning_service.py` and `web/app/planning/page.tsx` project the calendar.
+The library route is `web/app/coach/swim/page.tsx`.
+
+## Plan of Work
+
+First implement protection at both SQLite writer paths with a synthetic
+checkpoint roundtrip. Verify normal edits still commit with the same authored
+array and that omission, substitution and out-of-cycle dates fail without
+changing history. This is a model/data handoff within #763.
+
+Then add the domain and API commands. Capture selected-cycle and source
+version in one coherent preview, bind command and receipt to concrete state, and
+exercise expiry, race, lost response, dates and history/rollback. Preserve
+uncertainty and expose actionable reasons. Hand typed DTOs and fixtures to UI.
+
+Finally render library-to-calendar and proposal/confirmation in Next using the
+server rules. Capture the isolated browser journey, synchronize TS contracts,
+run full CI and review the concrete PR. The owner decides merge for that head.
+
+## Concrete Steps
+
+From branch `codex/issue-763-swim-calendar` use the repository's Python
+environment and `scripts/run_isolated_tests.py`. Start with the focused
+`tests/smoke/test_swim_calendar_checkpoint.py` and cycle writer/build suites.
+Run contributor-safe Python, Ruff, contract extraction/inventory, web lint/build,
+then browser acceptance with an owned scratch database. Commit completed RED and
+GREEN steps on the task branch. Keep production data and provider credentials
+out of the isolated tests.
+
+## Validation and Acceptance
+
+Use three synthetic workouts, a missing-duration chart case, a cross-week move
+and the prior checkpoint as rollback target. Verify identity, exact source and
+structure lookup, no mutation in generic flows, proper CAS, exact replay and
+independent cycle lifecycle. The issue and slice spec enumerate remaining gates.
+
+## Idempotence and Recovery
+
+Only the explicit confirmation publishes a new author-calendar snapshot.
+Generic writers cannot change authored references. Confirm replay returns the
+existing receipt with its original checkpoint ID. History and backup retain
+both referenced library versions and their checkpoints.
+
+## Artifacts and Notes
+
+Starting main 1fd9d67. M2 documentation remains on its separate local branch.
+
+## Interfaces and Dependencies
+
+Use additive Python snapshot state, selected-cycle writer token, immutable
+swimming library versions, shared date eligibility and typed planning API/TS.
+
+## Outcomes & Retrospective
+
+Contract and baseline identified. Implementation and acceptance are tracked above.
