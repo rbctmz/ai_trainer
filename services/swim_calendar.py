@@ -13,6 +13,7 @@ from data.planning_cycle_writes import (
 from data.planning_cycles import PlanningCycleStore
 from data.swim_program_store import SwimProgramError, _version
 from models.coach_constraints import PROTECTIVE_CONSTRAINT_KINDS, normalize_constraint_sport
+from models.plan_events import normalized_events
 from models.planning_build_confirmation import PlanningBuildPreviewError, canonical_json, fingerprint, utc_text
 from models.planning_cycle import stored_day
 from models.planning_sport_days import sports_allowed_on_day
@@ -150,6 +151,10 @@ def _date_warnings(conn, current, snapshot, changes, after):
     available = (snapshot.get("constraint_summary") or {}).get("available_day_indices")
     sport_rules = snapshot.get("allowed_sports_by_day") or {}
     protected = {stored_day(day) for day in snapshot.get("protected_dates") or []}
+    protected.update(
+        stored_day(event["date"]) for event in normalized_events(snapshot.get("events"))
+        if event.get("confirmed") is True
+    )
     generated_days = {stored_day(day["date"]): day for day in snapshot["daily_plan"]}
     warnings = []
     for old, new in changes:

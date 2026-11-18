@@ -53,6 +53,13 @@ show a workout with unknown load or duration and retain that uncertainty.
 - **Inferred**: M3 needs the shared eligibility semantics from that candidate,
   with a small and explicit handoff before date validation is declared complete.
 - **Verified by**: authenticated issue #668 and local branch/code inventory.
+- **Observed**: a legacy checkpoint can contain a confirmed event without a
+  generated protected-date list. The isolated HTTP check accepted placement on
+  that event date.
+- **Inferred**: the event declaration must protect its own date independently
+  of a later race overlay calculation.
+- **Verified by**: the same synthetic checkpoint gained a 409 refusal after
+  including confirmed events through the existing event normalizer.
 
 ## Decision Log
 
