@@ -21,6 +21,7 @@ class SwimCalendarRow(SwimCalendarAssignment):
     distance_compatibility: Literal["compatible", "incompatible", "not_applicable"]
     duration_minutes: None
     tss: None
+    date_review_reason: str | None = None
 
 
 class SwimCalendarRead(CalendarModel):

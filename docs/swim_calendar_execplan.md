@@ -60,6 +60,12 @@ show a workout with unknown load or duration and retain that uncertainty.
   of a later race overlay calculation.
 - **Verified by**: the same synthetic checkpoint gained a 409 refusal after
   including confirmed events through the existing event normalizer.
+- **Observed**: adding a rest constraint after confirmation left the current
+  calendar row looking unchanged even though the date was now restricted.
+- **Inferred**: current reads must use the same date policy as new proposals,
+  while historical reads must keep their prior meaning.
+- **Verified by**: isolated HTTP/service fixture and the current Plan browser
+  check. The new note identifies the date conflict without a checkpoint write.
 
 ## Decision Log
 

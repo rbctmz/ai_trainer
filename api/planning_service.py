@@ -2647,7 +2647,7 @@ def week_by_week_plan(db: Database) -> Dict[str, Any]:
     if goal_plan.get("swim_calendar"):
         from services.swim_calendar import read_calendar
         try:
-            assignments = read_calendar(db, checkpoint_id=checkpoint["id"])["assignments"]
+            assignments = read_calendar(db, checkpoint_id=checkpoint["id"], include_current_protection=True)["assignments"]
             authored_calendar = {"authored_swim": {"state": "available", "assignments": assignments}}
         except PlanningBuildPreviewError:
             authored_calendar = {"authored_swim": {"state": "unavailable", "assignments": []}}

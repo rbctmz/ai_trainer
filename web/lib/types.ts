@@ -1890,6 +1890,7 @@ export interface SwimCalendarRow {
   distance_compatibility: "compatible" | "incompatible" | "not_applicable";
   duration_minutes: null;
   tss: null;
+  date_review_reason?: string | null;
 }
 
 export interface SwimCalendarRead {

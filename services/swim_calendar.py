@@ -1,7 +1,7 @@
 """Preview and publish authored swimming changes under selected-cycle CAS."""
 
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import json
 import sqlite3
 from uuid import uuid4
@@ -84,10 +84,13 @@ def _project(conn, row: SwimCalendarAssignment) -> dict:
     }
 
 
-def read_calendar(db: Database, *, checkpoint_id: int | None = None) -> dict:
+def read_calendar(
+    db: Database, *, checkpoint_id: int | None = None, include_current_protection: bool = False,
+) -> dict:
     """Read current or explicitly requested cycle-owned checkpoint."""
     with _transaction(db) as conn:
         store = PlanningCycleStore(conn)
+        assess_current = checkpoint_id is None or include_current_protection
         if checkpoint_id is None:
             checkpoint = db._get_current_planning_checkpoint(conn)
             if checkpoint is None:
@@ -101,10 +104,20 @@ def read_calendar(db: Database, *, checkpoint_id: int | None = None) -> dict:
         snapshot = checkpoint.get("goal_plan_snapshot")
         if not isinstance(snapshot, dict):
             raise _error("swim_calendar_corrupt", "Версия цикла повреждена.", 503)
+        assigned = calendar_assignments(snapshot)
+        projected = [_project(conn, row) for row in assigned]
+        if assigned and assess_current:
+            context = read_write_context(conn, allow_inactive=True)
+            if context["checkpoint_id"] == checkpoint_id and context["state"] in {"scheduled", "in_progress"}:
+                upcoming = {row.date for row in assigned if row.date.isoformat() >= context["athlete_day"]}
+                conflicts = _placement_conflicts(conn, owner, snapshot, upcoming)
+                for row, projection in zip(assigned, projected):
+                    if row.date in conflicts:
+                        projection["date_review_reason"] = str(conflicts[row.date])
         return {
             "cycle_id": owner,
             "checkpoint_id": checkpoint_id,
-            "assignments": [_project(conn, row) for row in calendar_assignments(snapshot)],
+            "assignments": projected,
         }
 
 
@@ -146,7 +159,11 @@ def _prepare_assignments(conn, current, before, operation):
     return [replacement if row == entry else row for row in before]
 
 
-def _date_warnings(conn, current, snapshot, changes, after):
+def _placement_conflicts(
+    conn: sqlite3.Connection, cycle_id: str, snapshot: dict, dates: set[date],
+) -> dict[date, PlanningBuildPreviewError]:
+    if not dates:
+        return {}
     known_cycles = {row[0] for row in conn.execute("SELECT id FROM planning_cycles")}
     available = (snapshot.get("constraint_summary") or {}).get("available_day_indices")
     sport_rules = snapshot.get("allowed_sports_by_day") or {}
@@ -155,34 +172,49 @@ def _date_warnings(conn, current, snapshot, changes, after):
         stored_day(event["date"]) for event in normalized_events(snapshot.get("events"))
         if event.get("confirmed") is True
     )
-    generated_days = {stored_day(day["date"]): day for day in snapshot["daily_plan"]}
-    warnings = []
-    for old, new in changes:
-        if any(row and row.date.isoformat() < current["athlete_day"] for row in (old, new)):
-            raise _error("swim_calendar_past_date", "Прошедшие назначения сохранены в истории.")
-        if new is None:
-            continue
-        day = new.date
+    conflicts = {}
+    for day in dates:
         if available is not None and day.weekday() not in available:
-            raise _error("swim_calendar_unavailable_day", "Этот день отсутствует в доступности плана.")
+            conflicts[day] = _error("swim_calendar_unavailable_day", "Этот день отсутствует в доступности плана.")
+            continue
         sports = sports_allowed_on_day(sport_rules, day)
         if sports is not None and "swim" not in sports:
-            raise _error("swim_calendar_sport_unavailable", "На эту дату плавание исключено настройками плана.")
+            conflicts[day] = _error("swim_calendar_sport_unavailable", "На эту дату плавание исключено настройками плана.")
+            continue
         if day in protected:
-            raise _error("swim_calendar_protected_day", "Дата защищена в текущем цикле.")
+            conflicts[day] = _error("swim_calendar_protected_day", "Дата защищена в текущем цикле.")
+            continue
         constraints = [
             dict(row) for row in conn.execute(
                 "SELECT * FROM coach_constraints WHERE date=? AND status='active'", (day.isoformat(),),
             )
             if row["kind"] in PROTECTIVE_CONSTRAINT_KINDS
         ]
-        scoped = scoped_constraints(constraints, current["cycle_id"], known_cycles)
+        try:
+            scoped = scoped_constraints(constraints, cycle_id, known_cycles)
+        except PlanningBuildPreviewError as exc:
+            conflicts[day] = exc
+            continue
         if any(normalize_constraint_sport(row.get("sport")) in {None, "swim"} for row in scoped):
-            raise _error("swim_calendar_protected_day", "На эту дату действует ограничение на плавание.")
+            conflicts[day] = _error("swim_calendar_protected_day", "На эту дату действует ограничение на плавание.")
+    return conflicts
+
+
+def _date_warnings(conn, current, snapshot, changes, after):
+    affected = {new.date for _old, new in changes if new}
+    conflicts = _placement_conflicts(conn, current["cycle_id"], snapshot, affected)
+    for old, new in changes:
+        if any(row and row.date.isoformat() < current["athlete_day"] for row in (old, new)):
+            raise _error("swim_calendar_past_date", "Прошедшие назначения сохранены в истории.")
+        if new and new.date in conflicts:
+            raise conflicts[new.date]
+    generated_days = {stored_day(day["date"]): day for day in snapshot["daily_plan"]}
+    warnings = []
+    for day in sorted(affected):
         warnings.append({"date": day.isoformat(), "code": "load_uncertain"})
         if generated_days[day]["total_tss"] > 0 or sum(row.date == day for row in after) > 1:
             warnings.append({"date": day.isoformat(), "code": "other_sessions_on_day"})
-    return [dict(pair) for pair in dict.fromkeys(tuple(item.items()) for item in warnings)]
+    return warnings
 
 
 def _retained(conn, preview_id):

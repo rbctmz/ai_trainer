@@ -53,6 +53,9 @@ today under a fresh low-readiness signal, Today suggests reviewing the date.
 The athlete can prepare a move from that assignment in the calendar. The
 suggestion has no inferred intensity, automatic date, or treatment advice.
 It is scoped to the evaluated checkpoint and never a generic rescale proposal.
+When a later constraint conflicts with an existing date, the current calendar
+and Plan weeks show its reason beside the retained assignment. Historical reads
+keep the original assignment and avoid applying current constraints to old dates.
 
 Reuse the weekday/date semantics from #668 if its contract is available on the
 branch. Review baseline found no implementation on main 1fd9d67. Bring in the

@@ -88,3 +88,7 @@ def test_trainer_workout_confirmation_and_move_appear_in_plan(web_stack, width, 
     review.get_by_role("button", name="Подтвердить изменения календаря", exact=True).click()
     expect(page.get_by_role("status").filter(has_text="Календарь обновлён")).to_be_visible()
     assert page.request.get(f"{base}/api/planning/swim-calendar?demo=1").json()["assignments"] == rows
+    db.save_coach_constraint(date=today.isoformat(), kind="forced_rest", cycle_scope="athlete")
+    page.goto(f"{web_stack.web_base}/planning")
+    page.get_by_role("button", name="Недели", exact=True).click()
+    expect(page.get_by_text("На эту дату действует ограничение на плавание.", exact=False)).to_be_visible()

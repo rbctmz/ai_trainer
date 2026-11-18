@@ -18,6 +18,9 @@ export function AuthoredSwimRow({ row, showDate = false }: { row: SwimCalendarRo
     </p>
     {row.source_week_label ? <p className="text-ink-soft">Неделя тренера «{row.source_week_label}»</p> : null}
     <p className="text-ink-soft">Длительность и TSS неизвестны</p>
+    {row.date_review_reason ? <p className="border-l-2 border-tone-warning pl-2 text-ink">
+      {row.date_review_reason} Проверьте дату в календаре.
+    </p> : null}
     {row.distance_compatibility === "incompatible" ? <p className="text-tone-warning">Проверьте длину отрезков для этого бассейна.</p> : null}
   </div>;
 }

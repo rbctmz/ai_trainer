@@ -1,6 +1,6 @@
 {
   "fixture": "anonymous example_program",
-  "capture": "11 case isolated browser run on 18.11.2026",
+  "capture": "2 current-head calendar browser cases on 18.11.2026",
   "files": [
     {
       "path": "web/app/planning/swim/page.tsx",
@@ -16,7 +16,7 @@
     },
     {
       "path": "web/components/planning/AuthoredSwimRow.tsx",
-      "sha256": "33b6545cdd391bb35c984b90b11f4ad97ee55428651480e67b1d29b2a6c89156"
+      "sha256": "1c077dd28a34c4b207d477ae2014169f836346650526fc2903b390adaf1382d4"
     },
     {
       "path": "web/components/planning/SwimCalendarWorkspace.tsx",
@@ -32,7 +32,7 @@
     },
     {
       "path": "tests/e2e/test_swim_calendar_ui.py",
-      "sha256": "8d71324022cea4528238256ac1eb46975597f9b0885219b15d0a02b80d42b464"
+      "sha256": "235f0938814ffc77b864d655beb104b67f83b0c73c414d6cf76ee542644c27bc"
     },
     {
       "path": "docs/design/evidence/issue-763/calendar-preview-dark-390.png",
@@ -44,11 +44,11 @@
     },
     {
       "path": "docs/design/evidence/issue-763/calendar-week-dark-390.png",
-      "sha256": "97478e80c829b58590615d3e3ee1c16e8b5d47d51291c26851105436e77cc5ae"
+      "sha256": "447d3e0f0242fe6220b6e95d4039b60c2335cda4a19d09f6e8e086e47e5b6298"
     },
     {
       "path": "docs/design/evidence/issue-763/calendar-week-light-1280.png",
-      "sha256": "6b940b221500e676814b9dcd0c2574459786ad40742bc5776d85358984963b6e"
+      "sha256": "31001531e3949a9c9529c46ea8f746eae2ec16825af74ac6c7b3ba88416925fe"
     }
   ]
 }
