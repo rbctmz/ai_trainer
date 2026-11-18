@@ -146,6 +146,25 @@ def test_legacy_confirmed_event_date_still_blocks_placement(calendar):
     assert refused.json()["code"] == "swim_calendar_protected_day"
 
 
+def test_added_rest_constraint_flags_current_assignment_but_keeps_history(calendar):
+    from models.swim_calendar import SwimCalendarRequest
+    from services.swim_calendar import confirm_calendar, preview_calendar, read_calendar
+
+    db, saved = calendar
+    shown = preview_calendar(db, SwimCalendarRequest.model_validate(place_request(db, saved, 1)))
+    receipt = confirm_calendar(db, shown["preview_id"])
+    expected = read_calendar(db)["assignments"][0]
+    db.save_coach_constraint(
+        date=expected["date"], kind="forced_rest", cycle_scope="athlete",
+    )
+    current = read_calendar(db)
+    assert current["checkpoint_id"] == receipt["checkpoint_id"]
+    assert current["assignments"] == [{
+        **expected, "date_review_reason": "На эту дату действует ограничение на плавание.",
+    }]
+    assert read_calendar(db, checkpoint_id=receipt["checkpoint_id"])["assignments"] == [expected]
+
+
 def test_new_library_version_requires_explicit_substitution_then_can_remove(calendar):
     from models.swim_calendar import SwimCalendarRequest
     from services.swim_calendar import confirm_calendar, preview_calendar, read_calendar
