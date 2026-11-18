@@ -37,7 +37,10 @@ a real FR255 must agree on the selected control workout and its rest behavior.
   04668a2 defines the missing interaction. Eleven service scenarios cover
   selection, immutable source, replay, concurrent claims, stale constraints,
   unknown preflight, demo refusal, provider mismatch, backup and full reset.
-- [ ] Expose the preview, confirm and readback through typed API contracts.
+- [x] Expose typed preview, confirm and receipt read through the calendar
+  API. RED 6accce1 found no route. The real HTTP flow proves the retained
+  preview and strict Boolean confirmation, plus receipt reload without a second
+  write. Update the generated contract with the new response shapes.
 - [ ] Wire the confirmed calendar action, verify the isolated browser flow,
   and run CI and independent review. Human acceptance precedes merge.
 - [ ] Obtain scope-bound approval and verify receipt and behavior on FR255.

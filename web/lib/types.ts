@@ -1922,6 +1922,58 @@ export interface SwimCalendarReceipt {
   backup: BackupStatus;
 }
 
+export interface SwimDeliveryStep {
+  node_id: string;
+  rounds: { group_id: string; name: string; number: number; total: number }[];
+  cue: string;
+  clock: "distance" | "time" | "lap";
+  distance_meters: number | null;
+  duration_seconds: number | null;
+  source_rest_seconds: number[] | null;
+  source_rest_breaths: number[] | null;
+}
+
+export interface SwimDeliveryPreview {
+  preview_id: string;
+  checkpoint_id: number;
+  cycle_id: string;
+  assignment: {
+    assignment_id: string;
+    date: string;
+    program_id: string;
+    program_revision: number;
+    program_fingerprint: string;
+    workout_id: string;
+  };
+  target_date: string;
+  title: string;
+  pool_length_meters: number;
+  distance_meters: number;
+  expires_at: string;
+  unspecified_last_rest_group_ids: string[];
+  steps: SwimDeliveryStep[];
+}
+
+export interface SwimDeliveryReceipt {
+  preview_id: string;
+  assignment_id: string;
+  target_date: string;
+  status: "provider_verified" | "provider_unverified";
+  provider_event_id: number | null;
+  device_verified: false;
+  reason: string | null;
+  step_number: number | null;
+  observed_at: string;
+}
+
+export interface SwimDeliveryConfirmed extends SwimDeliveryReceipt {
+  backup: BackupStatus;
+}
+
+export interface SwimDeliveryRead {
+  receipt: SwimDeliveryReceipt | null;
+}
+
 export interface IntervalsDeliveryResult {
   status: "success" | "calendar_only" | "partial" | "failed" | "not_configured" | "no_plan" | "skipped";
   source: string;
