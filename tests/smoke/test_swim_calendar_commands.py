@@ -136,6 +136,16 @@ def test_date_specific_sport_rule_overrides_default_weekday(tmp_path, monkeypatc
         assert admitted.status_code == 200, admitted.text
 
 
+def test_legacy_confirmed_event_date_still_blocks_placement(calendar):
+    db, saved = calendar
+    checkpoint = db.get_current_planning_checkpoint()["goal_plan_snapshot"]
+    assert checkpoint["events"][0]["confirmed"] and not checkpoint["protected_dates"]
+    with client_for(db) as client:
+        refused = client.post("/api/planning/swim-calendar/preview", json=place_request(db, saved, 6))
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["code"] == "swim_calendar_protected_day"
+
+
 def test_new_library_version_requires_explicit_substitution_then_can_remove(calendar):
     from models.swim_calendar import SwimCalendarRequest
     from services.swim_calendar import confirm_calendar, preview_calendar, read_calendar
