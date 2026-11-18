@@ -2,7 +2,6 @@
 
 from copy import deepcopy
 
-import pytest
 
 from models.swim_delivery import project_swim_delivery
 from models.swim_program_documents import validate_program_document
@@ -127,3 +126,21 @@ def test_intervals_readback_rejects_missing_rest_changed_total_and_pool():
     ]:
         assert verify_intervals_swim(encoded, {**original, **delta}).code == code
     assert verify_intervals_swim(encoded, None).code == "missing_workout_doc"
+
+
+def test_three_control_descriptions_keep_exact_meters_and_nested_group_effort():
+    import re
+
+    from models.intervals_swim_delivery import encode_intervals_swim
+
+    document = validate_program_document(example_program())
+    encoded = [encode_intervals_swim(project_swim_delivery(document, row.id)) for row in document.workouts]
+    assert [
+        sum(int(metres) for metres in re.findall(r" (\d+)mtr intensity=active$", row.description, re.M))
+        for row in encoded
+    ] == [2200, 2000, 1900]
+    assert encoded[0].description.count("50s intensity=rest") == 4
+    assert encoded[0].description.count("60s intensity=rest") == 4
+    assert encoded[1].description.count("120s intensity=rest") == 3
+    assert encoded[2].description.count("Выдохи три") == 12
+    assert encoded[2].description.count("процентов по ходу серии") == 12

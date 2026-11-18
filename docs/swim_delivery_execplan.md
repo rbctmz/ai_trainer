@@ -19,7 +19,12 @@ a real FR255 must agree on the selected control workout and its rest behavior.
 - [x] Provider-neutral projection passes 16 cases for both schemas. RED
   9489593 fails because the projection does not exist yet. GREEN preserves
   all three totals, exact pauses, nested round identity and authored content.
-- [ ] Verify native text plus structured readback against independent cases.
+- [x] Native Intervals text and strict readback checks pass offline. RED
+  7db257d defines a seven-step 250 m control and mismatched provider
+  responses. The reader checks each step as well as pool length and total.
+  It rejects missing rests, distance from rest, dropped cues and lost Lap.
+  The three complete controls also retain 2200/2000/1900 m in native text.
+  The live provider's handling of the zero-duration Lap token is pending.
 - [ ] Bind preview and confirmation to the current assignment, with repeat,
   conflict and uncertain-write handling. Verify data lifecycle and API.
 - [ ] Wire the confirmed calendar action, verify the isolated browser flow,
