@@ -436,14 +436,26 @@ class IntervalsICUClient:
             rows.append(dict(row))
         return rows
 
-    def list_workout_events(self, oldest: date, newest: date) -> List[Dict[str, Any]]:
-        """Read bounded WORKOUT event identity evidence without writing the calendar."""
+    def list_workout_events(
+        self, oldest: date, newest: date, *, strict: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Read bounded WORKOUT identity evidence, with fail-closed preflight when requested."""
         self._validate_reconciliation_window(oldest, newest)
         payload = self._request_json(
             "GET",
             f"/api/v1/athlete/{self.athlete_id}/events",
             params={"oldest": oldest.isoformat(), "newest": newest.isoformat()},
         )
+        if strict and (
+            not isinstance(payload, list)
+            or any(
+                not isinstance(row, Mapping)
+                or not isinstance(row.get("category"), str)
+                or not row["category"].strip()
+                for row in payload
+            )
+        ):
+            raise IntervalsICUError("Не удалось подтвердить состояние календаря Intervals.icu.")
         fields = (
             "id",
             "external_id",
@@ -460,6 +472,22 @@ class IntervalsICUClient:
             for row in (payload if isinstance(payload, list) else [])
             if isinstance(row, Mapping) and str(row.get("category") or "").upper() == "WORKOUT"
         ]
+
+    def get_workout_event(self, event_id: int) -> Dict[str, Any]:
+        """Read one exact WORKOUT event independently of the current calendar window."""
+        if type(event_id) is not int or event_id <= 0:
+            raise IntervalsICUError("Некорректный идентификатор тренировки Intervals.icu.")
+        row = self._request_json(
+            "GET", f"/api/v1/athlete/{self.athlete_id}/events/{event_id}",
+        )
+        if (
+            not isinstance(row, Mapping)
+            or type(row.get("id")) is not int
+            or row["id"] != event_id
+            or row.get("category") != "WORKOUT"
+        ):
+            raise IntervalsICUError("Intervals.icu не вернул запрошенную тренировку.")
+        return dict(row)
 
     def test_connection(self) -> Dict[str, Any]:
         calendars = self.list_calendars()

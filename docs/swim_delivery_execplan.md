@@ -29,6 +29,10 @@ a real FR255 must agree on the selected control workout and its rest behavior.
   provider I/O. RED 27673d3 defines version pinning, stale date and late
   forced rest. All three pass. The separate ai_trainer_swim namespace
   stays outside generic plan cleanup.
+- [x] Extend the existing Intervals client with strict date-window preflight
+  and exact event-ID readback. RED 66bc756 shows the legacy empty fallback.
+  Synthetic HTTP responses verify that malformed lists cannot grant write
+  permission and that a different event ID cannot stand in for the target.
 - [ ] Retain the preview and complete confirmation, with repeat, conflict
   and uncertain-write handling. Verify data lifecycle and API.
 - [ ] Wire the confirmed calendar action, verify the isolated browser flow,
