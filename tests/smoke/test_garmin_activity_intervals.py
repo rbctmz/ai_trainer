@@ -129,6 +129,7 @@ def test_normalize_garmin_splits_maps_laps_to_shared_card_contract() -> None:
         "zone": None,
         "training_load": None,
         "average_speed": 3.3,
+        "distance_meters": 1000.2,
         "distance_km": 1.0,
         "intensity_type": "warmup",
     }

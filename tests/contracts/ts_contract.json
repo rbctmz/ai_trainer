@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "0661c74426f4f249a9f628493a07efccad4eab5f76c9eb0403b579946538c108",
+    "source_sha256": "6a8a96c6bd8290e0b4ac916fd9f23ddbe7973c88ce022d836f32e7e84a2830ee",
     "registry": "tests/contracts/registry.json",
     "registry_sha256": "51d87f3b7d0ed47e64b4f160097cd21e9a8348bd08fd16421bbe8adef8a670e2"
   },
@@ -1154,6 +1154,24 @@
           }
         },
         "distance_km": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "distance_meters": {
           "optional": true,
           "spec": {
             "kinds": [
