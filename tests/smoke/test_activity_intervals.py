@@ -150,6 +150,35 @@ def test_normalize_intervals_payload_distance_is_metres_converted_to_km():
     assert compact["intervals"][0]["moving_time"] is None
 
 
+@pytest.mark.parametrize(
+    ("raw", "metres"),
+    [
+        (25, 25),
+        (75, 75),
+        (0, 0),
+        ("1.25", 1.25),
+        (None, None),
+        ("unknown", None),
+        (True, None),
+        (-1, None),
+        (float("nan"), None),
+        (float("inf"), None),
+        (10**400, None),
+    ],
+    ids=["25m", "75m", "zero", "fraction", "missing", "text", "bool",
+         "negative", "nan", "infinity", "overflow"],
+)
+def test_normalize_intervals_preserves_source_metres_in_intervals_and_groups(raw, metres):
+    compact = normalize_intervals_payload(
+        {"icu_intervals": [{"distance": raw}], "icu_groups": [{"distance": raw}]}
+    )
+
+    for row in (compact["intervals"][0], compact["groups"][0]):
+        assert row["distance_meters"] == metres
+        if metres is None:
+            assert row["distance_km"] is None
+
+
 def test_normalize_intervals_payload_empty_payload():
     assert normalize_intervals_payload({}) == {
         "source": "intervals",
@@ -336,19 +365,26 @@ def test_fetch_activity_intervals_none_without_intervals_link(tmp_path, monkeypa
 # --- API: карточка ----------------------------------------------------------
 
 
-def test_activity_card_includes_intervals(tmp_path, monkeypatch):
+@pytest.mark.parametrize("legacy", [False, True])
+def test_activity_card_includes_intervals(tmp_path, legacy):
     from api.routers import activities as activities_router
 
     db = Database(str(tmp_path / "api.db"))
     _seed_activity(db)
-    compact = normalize_intervals_payload(_sample_intervals_payload())
-    monkeypatch.setattr(
-        activities_router, "fetch_activity_intervals", lambda db, aid: compact
-    )
+    if legacy:
+        compact = {"source": "intervals", "intervals": [{"distance_km": 0.03}], "groups": []}
+    else:
+        compact = normalize_intervals_payload({"icu_intervals": [{"distance": 25}]})
+    db.save_activity_intervals("act-1", compact)
 
     card = activities_router.get_activity_card("act-1", db=db)
 
-    assert card["activity"]["intervals"]["intervals"][0]["start_index"] == 0
+    actual = card["activity"]["intervals"]["intervals"][0]
+    assert actual["distance_km"] == 0.03
+    if legacy:
+        assert "distance_meters" not in actual
+    else:
+        assert actual["distance_meters"] == 25
 
 
 def test_activity_card_intervals_null_when_unavailable(tmp_path, monkeypatch):
