@@ -290,6 +290,60 @@ def test_explicit_plan_build_prefers_running_pace_then_lthr_then_rpe(
     )
 
 
+def test_explicit_plan_build_uses_swim_css_from_profile(tmp_path):
+    from api import planning_service as ps
+
+    prescriptions = {}
+    for css in (None, 110.0, 130.0):
+        db = Database(str(tmp_path / f"swim-target-{css}.db"))
+        db.save_athlete_profile(
+            {"ftp": 200.0, "lthr": 165.0, "source": "test",
+             "swim_threshold_pace_seconds_per_100m": css}
+        )
+        fixture_build_plan(
+            db,
+            goal_type="triathlon",
+            distance="olympic",
+            event_date=None,
+            planning_mode="training_goal",
+            intent="develop",
+            horizon_weeks=8,
+            events=[],
+            available_hours=12,
+            persist=True,
+        )
+        active = ps.get_active_plan(db)
+        swim = [
+            row for row in active["session_templates"]
+            if row.get("sport") == "swim" and row.get("materialized_steps")
+        ]
+        assert swim
+        prescriptions[css] = swim
+
+    assert all(
+        row["target_provenance"]["kind"] == "relative_rpe"
+        for row in prescriptions[None]
+    )
+    for css in (110.0, 130.0):
+        for row in prescriptions[css]:
+            assert row["target_provenance"]["kind"] == "css"
+            assert row["target_provenance"]["value"] == css
+            assert all(
+                (step["target"]["type"], step["target"]["unit"])
+                == ("pace", "seconds_per_100m")
+                for step in row["materialized_steps"]
+            )
+    fast_plan, slow_plan = prescriptions[110.0], prescriptions[130.0]
+    assert [row["template_key"] for row in fast_plan] == [
+        row["template_key"] for row in slow_plan
+    ]
+    assert all(
+        fast["materialized_steps"][0]["target"]["fast"]
+        < slow["materialized_steps"][0]["target"]["fast"]
+        for fast, slow in zip(fast_plan, slow_plan)
+    )
+
+
 def test_b_overlay_persists_protected_days_and_resumes(tmp_path):
     from api import planning_service as ps
 

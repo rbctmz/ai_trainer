@@ -138,6 +138,7 @@ def test_real_edit_current_rebuild_carries_exact_references(tmp_path, monkeypatc
     base = build_planning_checkpoint(plan(TODAY - timedelta(days=4), days=14))
     base["goal_plan_snapshot"]["swim_calendar"] = authored_calendar()
     db = legacy_db(tmp_path, monkeypatch, payloads=[base])
+    db.save_athlete_profile({"swim_threshold_pace_seconds_per_100m": 130, "source": "test"})
     old = db.get_current_planning_checkpoint()
     shown = prepare(db, action="edit_current", available_hours=6)
     confirm(db, shown)
