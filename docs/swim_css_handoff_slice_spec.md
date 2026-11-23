@@ -25,7 +25,7 @@ CSS в каталог. Сравнение назначений с разным C
 
 **Verified by**. Синтетический тест через tests/planning_fixtures.py
 запустил preview/confirm и прочитал принятый план. Для обеих величин
-сохранился identical target_kind relative_rpe.
+сохранилась цель relative_rpe.
 
 ## Acceptance and Public Contracts
 
@@ -62,4 +62,7 @@ OpenAPI, TypeScript, SQLite и кэш интервалов остаются пр
 
 ## Review and Verdict
 
-Блокирующие замечания и решение владельца ожидаются после CI.
+Тест на fc7138b упал при ожидании CSS, проверка авторских ссылок прошла.
+После передачи сохранённого CSS прошли 159 тестов сборки, календаря,
+каталога, готовности и sTSS. Ruff и git diff --check прошли.
+CI, независимое ревью и решение владельца ожидаются.
