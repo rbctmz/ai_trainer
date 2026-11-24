@@ -210,6 +210,36 @@ def read_swim_delivery(db: Database, assignment_id: UUID) -> dict:
         return {"receipt": json.loads(row["receipt_json"])}
 
 
+
+def read_verified_swim_assignment(
+    db: Database, provider_event_id: int,
+) -> SwimCalendarAssignment | None:
+    """Resolve a unique Intervals pairing through the retained delivery binding."""
+    with _transaction(db) as conn:
+        candidates = conn.execute(
+            """SELECT preview_id FROM swim_delivery_previews WHERE attempted=1
+            AND CASE WHEN json_valid(receipt_json)
+                THEN json_extract(receipt_json, '$.provider_event_id') END = ?
+            LIMIT 2""",
+            (provider_event_id,),
+        ).fetchall()
+        if len(candidates) != 1:
+            return None
+        preview_id = candidates[0]["preview_id"]
+        row, stored = _retained(conn, UUID(preview_id))
+        receipt = json.loads(row["receipt_json"])
+        assignment = SwimCalendarAssignment.model_validate(stored["public"]["assignment"])
+        if (
+            receipt.get("status") == "provider_verified"
+            and type(receipt.get("provider_event_id")) is int
+            and receipt.get("preview_id") == preview_id
+            and receipt.get("assignment_id") == row["assignment_id"] == str(assignment.assignment_id)
+            and receipt.get("target_date") == assignment.date.isoformat()
+        ):
+            return assignment
+    return None
+
+
 def _assert_sendable(conn: sqlite3.Connection, row: sqlite3.Row, stored: dict) -> None:
     if utc_text(datetime.now(timezone.utc)) >= row["expires_at"]:
         raise PlanningBuildPreviewError(

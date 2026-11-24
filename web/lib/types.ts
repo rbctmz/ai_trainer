@@ -247,6 +247,7 @@ export interface Activity {
   power_curve?: ActivityPowerCurve | null;
   planned_intervals?: PlanVsFactStep[] | null;
   plan_vs_fact?: PlanVsFact | null;
+  swim_series_fact?: SwimSeriesFact | null;
   group_kind?: "multisport";
   group_label?: string;
   segments?: Activity[];
@@ -276,6 +277,8 @@ export interface ActivityInterval {
   training_load?: number | null;
   average_speed?: number | null;
   intensity_type?: string | null;
+  recorded_moving_time?: number | null;
+  recorded_elapsed_time?: number | null;
   source_interval_count?: number;
   source_interval_durations?: number[];
 }
@@ -288,6 +291,56 @@ export interface ActivityIntervals {
   garmin_laps?: ActivityInterval[];
   paired_event_id?: number | string | null;
   compliance?: number | null;
+}
+
+export interface SwimSeriesFactEffort {
+  kind: "subjective";
+  start_percent: number;
+  end_percent: number;
+  scope?: "within_node" | "across_repetitions";
+}
+
+export interface SwimSeriesFactRound {
+  group_id: string;
+  number: number;
+  total: number;
+  name: string;
+  instructions: string;
+  effort: SwimSeriesFactEffort | null;
+}
+
+export interface SwimSeriesFactStep {
+  node_id: string;
+  name: string | null;
+  instructions: string;
+  equipment: string[];
+  planned_distance_meters: number;
+  planned_rest_mode: "fixed" | "approximate" | "open" | null;
+  planned_rest_seconds: number[] | null;
+  planned_rest_breaths: number[] | null;
+  effort: SwimSeriesFactEffort | null;
+  rounds: SwimSeriesFactRound[];
+  observation_indices: number[];
+  active_seconds: number | null;
+  rest_seconds: number | null;
+  elapsed_seconds: number | null;
+  pace_seconds_per_100m: number | null;
+}
+
+export interface SwimSeriesFact {
+  assignment_id: string;
+  program_revision: number;
+  workout_id: string;
+  title: string;
+  target_date: string;
+  planned_pool_length_meters: number;
+  source: "garmin" | "intervals" | null;
+  used_fallback: boolean;
+  planned_swims: number;
+  matched_swims: number;
+  unassigned_observations: number;
+  steps: SwimSeriesFactStep[];
+  rounds: { rounds: SwimSeriesFactRound[]; pace_spread_seconds_per_100m: number | null }[];
 }
 
 export interface ActivityPowerPeak {

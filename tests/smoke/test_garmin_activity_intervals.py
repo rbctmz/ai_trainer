@@ -121,6 +121,8 @@ def test_normalize_garmin_splits_maps_laps_to_shared_card_contract() -> None:
         "start_index": 0,
         "moving_time": 298.7,
         "elapsed_time": 305.2,
+        "recorded_moving_time": 298.7,
+        "recorded_elapsed_time": 305.2,
         "average_watts": 210,
         "average_heartrate": 142,
         "min_heartrate": None,

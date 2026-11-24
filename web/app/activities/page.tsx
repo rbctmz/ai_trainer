@@ -17,6 +17,7 @@ import {
 import { DrillDownHeader } from "@/components/ui/DrillDownHeader";
 import { StripBar, StripSegment } from "@/components/WorkoutStrip";
 import { SessionProjectionSummary } from "@/components/session/SessionProjectionSummary";
+import { SwimSeriesComparison } from "@/components/swim/SwimSeriesComparison";
 
 const TSS_SOURCE_LABELS: Record<string, string> = {
   power: "по мощности",
@@ -609,6 +610,7 @@ function ActivityCardModal({
     activity.plan_vs_fact,
   );
   const fallbackPlanVsFact = useRef(activity.plan_vs_fact);
+  const [swimSeriesFact, setSwimSeriesFact] = useState<Activity["swim_series_fact"]>(null);
   const [sessionId, setSessionId] = useState<string | null | undefined>(activity.session_id);
   const [sessionProjection, setSessionProjection] = useState(activity.session_projection);
   const [plannedIntervals, setPlannedIntervals] = useState<
@@ -651,6 +653,7 @@ function ActivityCardModal({
           setIntervals(res.activity.intervals ?? null);
           setPowerCurve(res.activity.power_curve ?? null);
           setPlanVsFact(res.activity.plan_vs_fact ?? null);
+          setSwimSeriesFact(res.activity.swim_series_fact ?? null);
           setPlannedIntervals(res.activity.planned_intervals ?? null);
           setSessionId(res.activity.session_id);
           setSessionProjection(res.activity.session_projection ?? null);
@@ -661,6 +664,7 @@ function ActivityCardModal({
           setIntervals(fallbackIntervals.current ?? null);
           setPowerCurve(fallbackPowerCurve.current ?? null);
           setPlanVsFact(fallbackPlanVsFact.current ?? null);
+          setSwimSeriesFact(null);
           setPlannedIntervals(fallbackPlannedIntervals.current ?? null);
           setSessionId(activity.session_id);
           setSessionProjection(activity.session_projection ?? null);
@@ -799,6 +803,8 @@ function ActivityCardModal({
           sessionId={sessionId}
           projection={sessionProjection}
         />
+
+        {swimSeriesFact ? <SwimSeriesComparison fact={swimSeriesFact} /> : null}
 
         <div className="mt-4 rounded-md border border-surface-border bg-surface p-3">
           <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
