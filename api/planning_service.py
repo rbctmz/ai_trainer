@@ -1750,6 +1750,7 @@ def _calculate_plan_build(snapshot: BuildInputSnapshot) -> PreparedPlanBuild:
         # catalog's established input key is shorter but means the same
         # seconds-per-kilometre value.
         "threshold_pace": athlete_profile.get("threshold_pace_seconds_per_km"),
+        "css": athlete_profile.get("swim_threshold_pace_seconds_per_100m"),
     }
 
     daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
