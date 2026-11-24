@@ -38,8 +38,8 @@ _REAL_ABSENCE = re.compile(r"(?:сесси\w*|трениров\w*).{0,30}(?:пр
 _EFFORT = re.compile(r"(?:сесси\w*|трениров\w*|бег).{0,24}(?:был\w*|прошл\w*).{0,20}"
                      r"(?:ровн\w*|равномерн\w*|л[её]гк\w*)", re.I)
 _STEP_CLAIM = re.compile(
-    r"(?:этап|шаг|заминк|разминк)\w*.{0,55}?"
-    r"(?P<predicate>выполн|пропущ|превыс|выше\s+цел|ниже\s+цел|в\s+целев)",
+    r"\b(?:(?P<all_steps>все)\s+)?(?:этап|шаг|заминк|разминк)\w*.{0,55}?"
+    r"(?P<predicate>выполн|пропущ|превыс|выше\s+цел|ниже\s+цел|в\s+целев)\w*",
     re.I,
 )
 
@@ -216,15 +216,18 @@ def _activity_scope(text: str, records: list[Mapping[str, Any]],
             and (not explicit_ids or row["activity_id"] in explicit_ids)], True
 
 
-def _step_claim_unsupported(clause: str, scope: list[Mapping[str, Any]]) -> bool:
-    claim = _STEP_CLAIM.search(clause)
-    if claim is None:
-        return False
+def _step_claim_unsupported(
+    clause: str, claim: re.Match[str], scope: list[Mapping[str, Any]]
+) -> bool:
     predicate_prefix = clause[:claim.start("predicate")]
     if (
         _qualified(predicate_prefix)
         or _conditional_premise(predicate_prefix)
-        or re.search(r"(?:^|[,:])\s*(?:по\s+плану|в\s+плане)\b", clause[:claim.start()], re.I)
+        or re.search(
+            r"(?:^|[,:])\s*(?:по\s+плану|в\s+плане)\b[^,;:—]*$",
+            clause[:claim.start()],
+            re.I,
+        )
     ):
         return False
     predicate = claim["predicate"].lower()
@@ -232,12 +235,12 @@ def _step_claim_unsupported(clause: str, scope: list[Mapping[str, Any]]) -> bool
         return True
 
     named = re.search(r"заминк|разминк", claim.group(), re.I)
-    all_steps = re.search(r"все\s+(?:шаг|этап)", clause, re.I)
+    statement = clause[claim.start():]
 
     def supported(row: Mapping[str, Any]) -> bool:
         comparison = row.get("plan_vs_fact") or {}
         steps = comparison.get("steps", [])
-        if all_steps:
+        if claim["all_steps"]:
             return bool(steps) and len(steps) == comparison.get("planned_step_count") and all(
                 step.get("matched") is True for step in steps
             )
@@ -253,9 +256,9 @@ def _step_claim_unsupported(clause: str, scope: list[Mapping[str, Any]]) -> bool
             }
         ]
         required_status = (
-            "above" if re.search(r"выше\s+цел|превыс", clause, re.I)
-            else "below" if re.search(r"ниже\s+цел", clause, re.I)
-            else "within" if re.search(r"в\s+целев", clause, re.I)
+            "above" if re.search(r"выше\s+цел|превыс", statement, re.I)
+            else "below" if re.search(r"ниже\s+цел", statement, re.I)
+            else "within" if re.search(r"в\s+целев", statement, re.I)
             else None
         )
         return bool(selected) and all(
@@ -265,6 +268,17 @@ def _step_claim_unsupported(clause: str, scope: list[Mapping[str, Any]]) -> bool
         )
 
     return not scope or not all(supported(row) for row in scope)
+
+
+def _step_claims_unsupported(clause: str, scope: list[Mapping[str, Any]]) -> bool:
+    claims = list(_STEP_CLAIM.finditer(clause))
+    for index, claim in enumerate(claims):
+        # Keep the left context for shared conditions, but don't borrow an
+        # intensity assessment from the following step.
+        end = claims[index + 1].start() if index + 1 < len(claims) else len(clause)
+        if _step_claim_unsupported(clause[:end], claim, scope):
+            return True
+    return False
 
 
 def activity_claim_unsupported(text: str, records: list[Mapping[str, Any]], *, attempted: bool = False) -> bool:
@@ -282,7 +296,7 @@ def activity_claim_unsupported(text: str, records: list[Mapping[str, Any]], *, a
         if re.search(r"(?:нажал\w*|нажима\w*|нажат\w*).{0,30}\b(?:lap|лап)\b|\b(?:lap|лап)\b.{0,30}(?:нажал\w*|нажима\w*|нажат\w*)", clause, re.I):
             if not (_qualified(clause) or _conditional_premise(clause) or re.search(r"не\s+(?:доказывает|подтверждает|означает)", clause, re.I)):
                 return True
-        if any(_step_claim_unsupported(part, scope) for part in _CONTRAST.split(clause)):
+        if any(_step_claims_unsupported(part, scope) for part in _CONTRAST.split(clause)):
             return True
         local_activity = bool(_ACTIVITY.search(clause))
         if local_activity:

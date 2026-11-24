@@ -496,3 +496,39 @@ def test_all_steps_claim_requires_evidence_for_the_tail_of_a_long_plan():
     result = validate_coach_narrative("Все этапы выполнены.", _evidence(tools))
     assert result.outcome == "replaced"
     assert REASON in result.reason_codes
+
+
+@pytest.mark.parametrize(("text", "outcome", "cooldown_matched"), [
+    ("Разминка выполнена, заминка пропущена.", "replaced", False),
+    ("Разминка выполнена и заминка пропущена.", "replaced", False),
+    ("Нельзя утверждать, что разминка пропущена, заминка пропущена.", "replaced", False),
+    ("Разминка выполнена, нельзя утверждать, что заминка пропущена.", "pass", False),
+    ("Если разминка выполнена и заминка пропущена, добавьте её в следующий раз.", "pass", False),
+    ("Разминка выполнена в целевой зоне и заминка выполнена выше цели.", "pass", True),
+])
+def test_multiple_step_claims_are_checked_with_their_own_evidence(text, outcome, cooldown_matched):
+    tools = _saved(state="structured")["tool_results"]
+    tools[0]["raw_result"]["activities"][0]["plan_vs_fact"] = {
+        "source": "garmin",
+        "steps": [
+            {
+                "planned": {"segment_kind": "warmup", "duration_seconds": 180},
+                "actual": {"moving_time": 180},
+                "matched": True,
+                "intensity": {"status": "within"},
+            },
+            {
+                "planned": {"segment_kind": "cooldown", "duration_seconds": 120},
+                "actual": {"moving_time": 120} if cooldown_matched else None,
+                "matched": cooldown_matched,
+                "intensity": {"status": "above"} if cooldown_matched else None,
+            },
+        ],
+    }
+
+    result = validate_coach_narrative(text, _evidence(tools))
+    assert result.outcome == outcome
+    if outcome == "replaced":
+        assert REASON in result.reason_codes
+    else:
+        assert result.delivered_text == text
