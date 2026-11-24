@@ -2791,6 +2791,7 @@ class AITools:
                 # Keep the provider structure and status when corrupted laps
                 # produce no usable rows. Never compare these invalid laps.
                 selected_source = source
+        planned = None
         comparison = None
         match = self.db.get_plan_actual_match_for_activity(activity_id)
         if match is not None:
@@ -2823,8 +2824,18 @@ class AITools:
         if source:
             payload["source"] = source
         payload.update(meta)
-        if comparison is not None:
-            steps = comparison.get("step_matches") or comparison.get("matches") or []
+        if comparison is not None and planned is not None:
+            steps = comparison["step_matches"]
+            if not steps:
+                # Without a continuous timeline the matcher only assesses work.
+                # Keep the other steps in order as unassessed.
+                work_matches = iter(comparison["matches"])
+                steps = [
+                    next(work_matches, {"planned": step})
+                    if step.get("type") == "work"
+                    else {"planned": step}
+                    for step in planned
+                ]
             compact_steps = []
             for step in steps:
                 planned_step = step.get("planned") or {}

@@ -1587,3 +1587,47 @@ def test_coach_legacy_provider_aggregate_does_not_prove_multistep_plan(tmp_path,
     activity = AITools(db).get_activity_structure(activity_id="act-1")["activities"][0]
     assert activity["source"] == "intervals"
     assert activity["plan_vs_fact"] is None
+
+
+def test_coach_work_only_matches_keep_unassessed_plan_steps(tmp_path, monkeypatch):
+    from data.database import Database
+    from models.ai_tools import AITools
+    from models.coach_narrative_evidence import (
+        build_coach_narrative_evidence,
+        validate_coach_narrative,
+    )
+    from models.coach_tool_presenter import format_tool_result
+
+    db = Database(str(tmp_path / "work-only.db"))
+    _seed_activity(db)
+    _seed_plan_match(db, intervals=[
+        {**_planned_rest(300), "segment_kind": "warmup", "name": "Warmup"},
+        _planned_work(180),
+        {**_planned_rest(100), "name": "Recovery"},
+        _planned_work(180),
+        {**_planned_rest(300), "segment_kind": "cooldown", "name": "Cooldown"},
+    ])
+    cache = {"source": "intervals", "intervals": [_actual(180), _actual(180)]}
+    monkeypatch.setattr(db, "get_activity_intervals", lambda _: cache)
+
+    result = AITools(db).get_activity_structure(activity_id="act-1")
+    evidence = build_coach_narrative_evidence(
+        readiness_snapshot={},
+        tool_results=[{
+            "tool_name": "get_activity_structure",
+            "success": True,
+            "raw_result": result,
+        }],
+        athlete_timezone="Europe/Moscow",
+    )
+    verdict = validate_coach_narrative("Все этапы выполнены.", evidence)
+    assert verdict.outcome == "replaced"
+    assert "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED" in verdict.reason_codes
+
+    steps = result["activities"][0]["plan_vs_fact"]["steps"]
+    assert [step["matched"] for step in steps] == [False, True, False, True, False]
+    assert [step["actual"] for step in steps[::2]] == [{}, {}, {}]
+    formatted = format_tool_result("get_activity_structure", result)
+    for name in ("Warmup", "Recovery", "Cooldown"):
+        line = next(line for line in formatted.splitlines() if line.startswith(f"- {name}:"))
+        assert "не оценён" in line

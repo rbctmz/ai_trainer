@@ -447,7 +447,7 @@ def test_named_and_all_step_claims_need_corresponding_evidence():
     ]
     records = [{"activity_id": "synthetic", "date": "2026-09-24", "structure_status": "structured",
                 "interval_count": 1, "intervals": [{"duration_seconds": 300}],
-                "plan_vs_fact": {"source": "garmin", "steps": steps}}]
+                "plan_vs_fact": {"source": "garmin", "planned_step_count": len(steps), "steps": steps}}]
     assert activity_claim_unsupported("Заминка выполнена выше цели.", records)
     assert activity_claim_unsupported("Заминка выполнена по плану.", records)
     assert activity_claim_unsupported("Все этапы выполнены.", records)
@@ -462,3 +462,37 @@ def test_named_and_all_step_claims_need_corresponding_evidence():
     steps[1]["intensity"] = {"status": "above"}
     assert not activity_claim_unsupported("Заминка выполнена выше цели.", records)
     assert not activity_claim_unsupported("Все этапы выполнены.", records)
+
+
+@pytest.mark.parametrize(("text", "outcome"), [
+    ("Нельзя утверждать, что заминка пропущена.", "pass"),
+    ("Если заминка пропущена, добавьте её в следующий раз.", "pass"),
+    ("Заминка пропущена.", "replaced"),
+    ("Нельзя утверждать, что разминка пропущена, но заминка пропущена.", "replaced"),
+])
+def test_skipped_step_gate_keeps_qualified_statements(text, outcome):
+    evidence = _evidence(_saved(state="structured")["tool_results"])
+    result = validate_coach_narrative(text, evidence)
+    assert result.outcome == outcome
+    if outcome == "replaced":
+        assert REASON in result.reason_codes
+    else:
+        assert result.delivered_text == text
+
+
+def test_all_steps_claim_requires_evidence_for_the_tail_of_a_long_plan():
+    tools = _saved(state="structured")["tool_results"]
+    activity = tools[0]["raw_result"]["activities"][0]
+    assessed = {
+        "planned": {"type": "work", "duration_seconds": 180},
+        "actual": {"moving_time": 180},
+        "matched": True,
+    }
+    activity["plan_vs_fact"] = {
+        "source": "intervals",
+        "steps": [assessed] * 50 + [{"planned": {"type": "rest"}, "matched": False}],
+    }
+
+    result = validate_coach_narrative("Все этапы выполнены.", _evidence(tools))
+    assert result.outcome == "replaced"
+    assert REASON in result.reason_codes

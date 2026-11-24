@@ -37,6 +37,11 @@ _REAL_ABSENCE = re.compile(r"(?:сесси\w*|трениров\w*).{0,30}(?:пр
                            r"\s+без\s+(?:интервал\w*|отрезк\w*)", re.I)
 _EFFORT = re.compile(r"(?:сесси\w*|трениров\w*|бег).{0,24}(?:был\w*|прошл\w*).{0,20}"
                      r"(?:ровн\w*|равномерн\w*|л[её]гк\w*)", re.I)
+_STEP_CLAIM = re.compile(
+    r"(?:этап|шаг|заминк|разминк)\w*.{0,55}?"
+    r"(?P<predicate>выполн|пропущ|превыс|выше\s+цел|ниже\s+цел|в\s+целев)",
+    re.I,
+)
 
 
 def _numeric_fields(row: Mapping[str, Any], names: Iterable[str]) -> dict[str, int | float]:
@@ -133,7 +138,11 @@ def activity_structure_evidence(tools: Iterable[Mapping[str, Any]]) -> list[dict
                                 if isinstance(intensity.get(field), str):
                                     safe["intensity"][field] = intensity[field][:30]
                         safe_steps.append(safe)
-                    row["plan_vs_fact"] = {"source": comparison["source"], "steps": safe_steps}
+                    row["plan_vs_fact"] = {
+                        "source": comparison["source"],
+                        "planned_step_count": len(steps),
+                        "steps": safe_steps,
+                    }
             key = (activity_id, day)
             if key in records and records[key] != row:
                 records[key] = {"activity_id": activity_id, "date": day, "structure_status": "unavailable", "reason": "conflicting_evidence"}
@@ -207,6 +216,57 @@ def _activity_scope(text: str, records: list[Mapping[str, Any]],
             and (not explicit_ids or row["activity_id"] in explicit_ids)], True
 
 
+def _step_claim_unsupported(clause: str, scope: list[Mapping[str, Any]]) -> bool:
+    claim = _STEP_CLAIM.search(clause)
+    if claim is None:
+        return False
+    predicate_prefix = clause[:claim.start("predicate")]
+    if (
+        _qualified(predicate_prefix)
+        or _conditional_premise(predicate_prefix)
+        or re.search(r"(?:^|[,:])\s*(?:по\s+плану|в\s+плане)\b", clause[:claim.start()], re.I)
+    ):
+        return False
+    predicate = claim["predicate"].lower()
+    if predicate == "пропущ" and not re.search(r"\bне\s+(?:был[аио]?\s+)?$", predicate_prefix, re.I):
+        return True
+
+    named = re.search(r"заминк|разминк", claim.group(), re.I)
+    all_steps = re.search(r"все\s+(?:шаг|этап)", clause, re.I)
+
+    def supported(row: Mapping[str, Any]) -> bool:
+        comparison = row.get("plan_vs_fact") or {}
+        steps = comparison.get("steps", [])
+        if all_steps:
+            return bool(steps) and len(steps) == comparison.get("planned_step_count") and all(
+                step.get("matched") is True for step in steps
+            )
+        if not named:
+            return any(step.get("matched") is True for step in steps)
+
+        kind = "cooldown" if named.group().lower().startswith("замин") else "warmup"
+        selected = [
+            step for step in steps
+            if kind in {
+                str((step.get("planned") or {}).get(field) or "").lower()
+                for field in ("type", "segment_kind", "name")
+            }
+        ]
+        required_status = (
+            "above" if re.search(r"выше\s+цел|превыс", clause, re.I)
+            else "below" if re.search(r"ниже\s+цел", clause, re.I)
+            else "within" if re.search(r"в\s+целев", clause, re.I)
+            else None
+        )
+        return bool(selected) and all(
+            step.get("matched") is True
+            and (required_status is None or (step.get("intensity") or {}).get("status") == required_status)
+            for step in selected
+        )
+
+    return not scope or not all(supported(row) for row in scope)
+
+
 def activity_claim_unsupported(text: str, records: list[Mapping[str, Any]], *, attempted: bool = False) -> bool:
     """Recognize saved assurance/absence forms with activity/date scoped proof."""
     if not records and not attempted:
@@ -222,34 +282,8 @@ def activity_claim_unsupported(text: str, records: list[Mapping[str, Any]], *, a
         if re.search(r"(?:нажал\w*|нажима\w*|нажат\w*).{0,30}\b(?:lap|лап)\b|\b(?:lap|лап)\b.{0,30}(?:нажал\w*|нажима\w*|нажат\w*)", clause, re.I):
             if not (_qualified(clause) or _conditional_premise(clause) or re.search(r"не\s+(?:доказывает|подтверждает|означает)", clause, re.I)):
                 return True
-        step_claim = re.search(r"(?:этап|шаг|заминк|разминк)\w*.{0,55}(?:выполн|пропущ|превыс|выше\s+цел|ниже\s+цел|в\s+целев)", clause, re.I)
-        if step_claim and re.search(r"пропущ", step_claim.group(), re.I):
+        if any(_step_claim_unsupported(part, scope) for part in _CONTRAST.split(clause)):
             return True
-        if (step_claim and not (_qualified(clause[:step_claim.start()])
-                or _conditional_premise(clause[:step_claim.start()])
-                or re.search(r"(?:^|[,:])\s*(?:по\s+плану|в\s+плане)\b", clause[:step_claim.start()], re.I))):
-            named = re.search(r"заминк|разминк", step_claim.group(), re.I)
-            all_steps = re.search(r"все\s+(?:шаг|этап)", clause, re.I)
-            def supported(row: Mapping[str, Any]) -> bool:
-                steps = (row.get("plan_vs_fact") or {}).get("steps", [])
-                if named:
-                    kind = "cooldown" if named.group().lower().startswith("замин") else "warmup"
-                    selected = [step for step in steps if kind in {
-                        str((step.get("planned") or {}).get(field) or "").lower()
-                        for field in ("type", "segment_kind", "name")
-                    }]
-                    required_status = ("above" if re.search(r"выше\s+цел|превыс", clause, re.I)
-                                       else "below" if re.search(r"ниже\s+цел", clause, re.I)
-                                       else "within" if re.search(r"в\s+целев", clause, re.I) else None)
-                    return bool(selected) and all(
-                        step.get("matched") is True and (required_status is None
-                            or (step.get("intensity") or {}).get("status") == required_status)
-                        for step in selected
-                    )
-                return bool(steps) and (all(step.get("matched") is True for step in steps)
-                                        if all_steps else any(step.get("matched") is True for step in steps))
-            if not scope or not all(supported(row) for row in scope):
-                return True
         local_activity = bool(_ACTIVITY.search(clause))
         if local_activity:
             activity_context = True
