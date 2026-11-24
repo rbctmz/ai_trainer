@@ -37,6 +37,11 @@ _REAL_ABSENCE = re.compile(r"(?:сесси\w*|трениров\w*).{0,30}(?:пр
                            r"\s+без\s+(?:интервал\w*|отрезк\w*)", re.I)
 _EFFORT = re.compile(r"(?:сесси\w*|трениров\w*|бег).{0,24}(?:был\w*|прошл\w*).{0,20}"
                      r"(?:ровн\w*|равномерн\w*|л[её]гк\w*)", re.I)
+_STEP_CLAIM = re.compile(
+    r"\b(?:(?P<all_steps>все)\s+)?(?:этап|шаг|заминк|разминк)\w*.{0,55}?"
+    r"(?P<predicate>выполн|пропущ|превыс|выше\s+цел|ниже\s+цел|в\s+целев)\w*",
+    re.I,
+)
 
 
 def _numeric_fields(row: Mapping[str, Any], names: Iterable[str]) -> dict[str, int | float]:
@@ -103,6 +108,41 @@ def activity_structure_evidence(tools: Iterable[Mapping[str, Any]]) -> list[dict
                 row["interval_count"] = 0
             elif status != "unavailable":
                 row = {"activity_id": activity_id, "date": day, "structure_status": "unavailable", "reason": "invalid_evidence"}
+            comparison = activity.get("plan_vs_fact")
+            if isinstance(comparison, Mapping) and comparison.get("source") in {"garmin", "intervals"}:
+                steps = comparison.get("steps")
+                if isinstance(steps, list):
+                    safe_steps = []
+                    for step in steps[:50]:
+                        if not isinstance(step, Mapping) or not isinstance(step.get("planned"), Mapping):
+                            continue
+                        planned = step["planned"]
+                        actual = step.get("actual") if step.get("matched") is True else None
+                        intensity = step.get("intensity")
+                        safe = {"matched": step.get("matched") is True,
+                                "planned": _numeric_fields(planned, ("duration_seconds",))}
+                        for field in ("name", "type", "segment_kind"):
+                            if isinstance(planned.get(field), str):
+                                safe["planned"][field] = planned[field][:100]
+                        target = planned.get("target_zone")
+                        if isinstance(target, Mapping):
+                            safe_target = _numeric_fields(target, ("low", "high", "relative_low", "relative_high"))
+                            if isinstance(target.get("type"), str):
+                                safe_target["type"] = target["type"][:30]
+                            safe["planned"]["target_zone"] = safe_target
+                        if isinstance(actual, Mapping):
+                            safe["actual"] = _numeric_fields(actual, ("moving_time", "elapsed_time", "average_watts", "average_heartrate", "distance_km"))
+                        if isinstance(intensity, Mapping):
+                            safe["intensity"] = _numeric_fields(intensity, ("actual_value", "actual_relative", "target_low", "target_high"))
+                            for field in ("metric", "unit", "status"):
+                                if isinstance(intensity.get(field), str):
+                                    safe["intensity"][field] = intensity[field][:30]
+                        safe_steps.append(safe)
+                    row["plan_vs_fact"] = {
+                        "source": comparison["source"],
+                        "planned_step_count": len(steps),
+                        "steps": safe_steps,
+                    }
             key = (activity_id, day)
             if key in records and records[key] != row:
                 records[key] = {"activity_id": activity_id, "date": day, "structure_status": "unavailable", "reason": "conflicting_evidence"}
@@ -176,6 +216,71 @@ def _activity_scope(text: str, records: list[Mapping[str, Any]],
             and (not explicit_ids or row["activity_id"] in explicit_ids)], True
 
 
+def _step_claim_unsupported(
+    clause: str, claim: re.Match[str], scope: list[Mapping[str, Any]]
+) -> bool:
+    predicate_prefix = clause[:claim.start("predicate")]
+    if (
+        _qualified(predicate_prefix)
+        or _conditional_premise(predicate_prefix)
+        or re.search(
+            r"(?:^|[,:])\s*(?:по\s+плану|в\s+плане)\b[^,;:—]*$",
+            clause[:claim.start()],
+            re.I,
+        )
+    ):
+        return False
+    predicate = claim["predicate"].lower()
+    if predicate == "пропущ" and not re.search(r"\bне\s+(?:был[аио]?\s+)?$", predicate_prefix, re.I):
+        return True
+
+    named = re.search(r"заминк|разминк", claim.group(), re.I)
+    statement = clause[claim.start():]
+
+    def supported(row: Mapping[str, Any]) -> bool:
+        comparison = row.get("plan_vs_fact") or {}
+        steps = comparison.get("steps", [])
+        if claim["all_steps"]:
+            return bool(steps) and len(steps) == comparison.get("planned_step_count") and all(
+                step.get("matched") is True for step in steps
+            )
+        if not named:
+            return any(step.get("matched") is True for step in steps)
+
+        kind = "cooldown" if named.group().lower().startswith("замин") else "warmup"
+        selected = [
+            step for step in steps
+            if kind in {
+                str((step.get("planned") or {}).get(field) or "").lower()
+                for field in ("type", "segment_kind", "name")
+            }
+        ]
+        required_status = (
+            "above" if re.search(r"выше\s+цел|превыс", statement, re.I)
+            else "below" if re.search(r"ниже\s+цел", statement, re.I)
+            else "within" if re.search(r"в\s+целев", statement, re.I)
+            else None
+        )
+        return bool(selected) and all(
+            step.get("matched") is True
+            and (required_status is None or (step.get("intensity") or {}).get("status") == required_status)
+            for step in selected
+        )
+
+    return not scope or not all(supported(row) for row in scope)
+
+
+def _step_claims_unsupported(clause: str, scope: list[Mapping[str, Any]]) -> bool:
+    claims = list(_STEP_CLAIM.finditer(clause))
+    for index, claim in enumerate(claims):
+        # Keep the left context for shared conditions, but don't borrow an
+        # intensity assessment from the following step.
+        end = claims[index + 1].start() if index + 1 < len(claims) else len(clause)
+        if _step_claim_unsupported(clause[:end], claim, scope):
+            return True
+    return False
+
+
 def activity_claim_unsupported(text: str, records: list[Mapping[str, Any]], *, attempted: bool = False) -> bool:
     """Recognize saved assurance/absence forms with activity/date scoped proof."""
     if not records and not attempted:
@@ -186,6 +291,13 @@ def activity_claim_unsupported(text: str, records: list[Mapping[str, Any]], *, a
         scope, explicit_scope = _activity_scope(clause, records, scope)
         if explicit_scope:
             activity_context = True
+        # Provider interval counts cannot establish button presses. Likewise,
+        # a session aggregate is not evidence of individual step execution.
+        if re.search(r"(?:нажал\w*|нажима\w*|нажат\w*).{0,30}\b(?:lap|лап)\b|\b(?:lap|лап)\b.{0,30}(?:нажал\w*|нажима\w*|нажат\w*)", clause, re.I):
+            if not (_qualified(clause) or _conditional_premise(clause) or re.search(r"не\s+(?:доказывает|подтверждает|означает)", clause, re.I)):
+                return True
+        if any(_step_claims_unsupported(part, scope) for part in _CONTRAST.split(clause)):
+            return True
         local_activity = bool(_ACTIVITY.search(clause))
         if local_activity:
             activity_context = True
@@ -264,6 +376,22 @@ def activity_factual_bullets(records: list[Mapping[str, Any]]) -> list[str]:
             lines.append(label + ": анализ сохранённых данных не выявил отрезков.")
         else:
             lines.append(label + f": в кэше сохранено отрезков: {row['interval_count']}.")
+            comparison = row.get("plan_vs_fact") or {}
+            for step in comparison.get("steps", []):
+                planned = step.get("planned") or {}
+                name = planned.get("name") or planned.get("segment_kind") or planned.get("type") or "Этап"
+                if not step.get("matched"):
+                    lines.append(f"  {name}: не оценён; отсутствие сопоставления не означает пропуск.")
+                    continue
+                actual = step.get("actual") or {}
+                intensity = step.get("intensity") or {}
+                facts = [f"{actual[key]:g} {unit}" for key, unit in (("moving_time", "с"), ("average_watts", "Вт"), ("average_heartrate", "уд/мин")) if key in actual]
+                planned_duration = planned.get("duration_seconds")
+                plan_label = f"план {planned_duration:g} с; " if planned_duration is not None else ""
+                target = planned.get("target_zone") or {}
+                if target.get("relative_low") is not None and target.get("relative_high") is not None:
+                    plan_label += f"цель {target['relative_low'] * 100:g}–{target['relative_high'] * 100:g}% порога; "
+                lines.append(f"  {name}: " + plan_label + ", ".join(facts) + f"; сравнение: {intensity.get('status', 'unavailable')}; источник: {comparison.get('source')}.")
             for index, interval in enumerate(row["intervals"][:12], start=1):
                 facts = [f"{interval[key]:g} {unit}" for key, unit in
                          (("duration_seconds", "с"), ("avg_watts", "Вт"), ("distance_km", "км")) if key in interval]

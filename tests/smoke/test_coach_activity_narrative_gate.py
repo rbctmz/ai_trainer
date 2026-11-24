@@ -426,3 +426,109 @@ def test_api_streams_and_persists_only_validated_activity_text(tmp_path, monkeyp
     assert done["evidence_gate"]["reason_codes"] == [REASON]
     assert done["evidence_gate"]["rule_version"] == "coach_narrative_gate_v6"
     assert ChatManager().get_chat_messages(done["chat_id"])[-1]["content"] == delivered
+
+
+def test_step_and_lap_claims_require_step_evidence():
+    from models.coach_activity_structure_evidence import activity_claim_unsupported
+
+    records = [{"activity_id": "synthetic", "date": "2026-09-24", "structure_status": "structured"}]
+    assert activity_claim_unsupported("Заминка выполнена выше цели.", records)
+    assert activity_claim_unsupported("Вы нажали Lap.", records)
+    assert not activity_claim_unsupported("Число интервалов не подтверждает нажатие Lap.", records)
+
+
+def test_named_and_all_step_claims_need_corresponding_evidence():
+    from models.coach_activity_structure_evidence import activity_claim_unsupported, activity_factual_bullets
+
+    steps = [
+        {"planned": {"segment_kind": "warmup", "name": "Warmup"}, "matched": True,
+         "actual": {"moving_time": 300, "average_watts": 120}, "intensity": {"status": "within"}},
+        {"planned": {"segment_kind": "cooldown", "name": "Cooldown"}, "matched": False},
+    ]
+    records = [{"activity_id": "synthetic", "date": "2026-09-24", "structure_status": "structured",
+                "interval_count": 1, "intervals": [{"duration_seconds": 300}],
+                "plan_vs_fact": {"source": "garmin", "planned_step_count": len(steps), "steps": steps}}]
+    assert activity_claim_unsupported("Заминка выполнена выше цели.", records)
+    assert activity_claim_unsupported("Заминка выполнена по плану.", records)
+    assert activity_claim_unsupported("Все этапы выполнены.", records)
+    assert not activity_claim_unsupported("Разминка выполнена в целевой зоне.", records)
+    assert not activity_claim_unsupported("Заминку оценить нельзя.", records)
+    assert not activity_claim_unsupported("По плану заминка выполняется легко.", records)
+    assert "Warmup: 300 с, 120 Вт" in "\n".join(activity_factual_bullets(records))
+    steps[1]["matched"] = True
+    assert activity_claim_unsupported("Заминка пропущена.", records)
+    steps[1]["intensity"] = {"status": "within"}
+    assert activity_claim_unsupported("Заминка выполнена выше цели.", records)
+    steps[1]["intensity"] = {"status": "above"}
+    assert not activity_claim_unsupported("Заминка выполнена выше цели.", records)
+    assert not activity_claim_unsupported("Все этапы выполнены.", records)
+
+
+@pytest.mark.parametrize(("text", "outcome"), [
+    ("Нельзя утверждать, что заминка пропущена.", "pass"),
+    ("Если заминка пропущена, добавьте её в следующий раз.", "pass"),
+    ("Заминка пропущена.", "replaced"),
+    ("Нельзя утверждать, что разминка пропущена, но заминка пропущена.", "replaced"),
+])
+def test_skipped_step_gate_keeps_qualified_statements(text, outcome):
+    evidence = _evidence(_saved(state="structured")["tool_results"])
+    result = validate_coach_narrative(text, evidence)
+    assert result.outcome == outcome
+    if outcome == "replaced":
+        assert REASON in result.reason_codes
+    else:
+        assert result.delivered_text == text
+
+
+def test_all_steps_claim_requires_evidence_for_the_tail_of_a_long_plan():
+    tools = _saved(state="structured")["tool_results"]
+    activity = tools[0]["raw_result"]["activities"][0]
+    assessed = {
+        "planned": {"type": "work", "duration_seconds": 180},
+        "actual": {"moving_time": 180},
+        "matched": True,
+    }
+    activity["plan_vs_fact"] = {
+        "source": "intervals",
+        "steps": [assessed] * 50 + [{"planned": {"type": "rest"}, "matched": False}],
+    }
+
+    result = validate_coach_narrative("Все этапы выполнены.", _evidence(tools))
+    assert result.outcome == "replaced"
+    assert REASON in result.reason_codes
+
+
+@pytest.mark.parametrize(("text", "outcome", "cooldown_matched"), [
+    ("Разминка выполнена, заминка пропущена.", "replaced", False),
+    ("Разминка выполнена и заминка пропущена.", "replaced", False),
+    ("Нельзя утверждать, что разминка пропущена, заминка пропущена.", "replaced", False),
+    ("Разминка выполнена, нельзя утверждать, что заминка пропущена.", "pass", False),
+    ("Если разминка выполнена и заминка пропущена, добавьте её в следующий раз.", "pass", False),
+    ("Разминка выполнена в целевой зоне и заминка выполнена выше цели.", "pass", True),
+])
+def test_multiple_step_claims_are_checked_with_their_own_evidence(text, outcome, cooldown_matched):
+    tools = _saved(state="structured")["tool_results"]
+    tools[0]["raw_result"]["activities"][0]["plan_vs_fact"] = {
+        "source": "garmin",
+        "steps": [
+            {
+                "planned": {"segment_kind": "warmup", "duration_seconds": 180},
+                "actual": {"moving_time": 180},
+                "matched": True,
+                "intensity": {"status": "within"},
+            },
+            {
+                "planned": {"segment_kind": "cooldown", "duration_seconds": 120},
+                "actual": {"moving_time": 120} if cooldown_matched else None,
+                "matched": cooldown_matched,
+                "intensity": {"status": "above"} if cooldown_matched else None,
+            },
+        ],
+    }
+
+    result = validate_coach_narrative(text, _evidence(tools))
+    assert result.outcome == outcome
+    if outcome == "replaced":
+        assert REASON in result.reason_codes
+    else:
+        assert result.delivered_text == text

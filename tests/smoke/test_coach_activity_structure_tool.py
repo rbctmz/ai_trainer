@@ -149,6 +149,9 @@ class _StubDB:
             if str(start_date) <= str(row.get("date")) <= str(end_date)
         ]
 
+    def get_plan_actual_match_for_activity(self, activity_id: str) -> Any:
+        return None
+
     def get_activity_intervals(self, activity_id: str) -> Any:
         return self._intervals.get(str(activity_id))
 

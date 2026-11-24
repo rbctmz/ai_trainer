@@ -928,7 +928,8 @@ def test_activity_card_passes_sport_and_profile_to_intensity_matcher(
         captured.update(context)
         return {"matches": [], "step_matches": [], "summary": {}}
 
-    monkeypatch.setattr(activities_router, "match_plan_vs_fact", fake_match)
+    from services import activity_plan_comparison
+    monkeypatch.setattr(activity_plan_comparison, "match_plan_vs_fact", fake_match)
 
     activities_router.get_activity_card("act-1", db=db)
 
@@ -1458,3 +1459,175 @@ def test_activity_card_compliance_ui_contract() -> None:
 
     assert "compliance?: number | null" in types
     assert "Intervals.icu: соответствие" in page
+
+
+def test_coach_and_card_share_cached_step_comparison(tmp_path, monkeypatch):
+    """A synthetic provider aggregate must not hide the device's eight laps."""
+    from api.routers import activities as activities_router
+    from data.database import Database
+    from models.ai_tools import AITools
+    from models.coach_tool_presenter import format_tool_result
+
+    db = Database(str(tmp_path / "synthetic-782.db"))
+    _seed_activity(db)
+    db.save_athlete_profile({"ftp": 200, "source": "test"})
+    _seed_plan_match(db, intervals=[
+        {"type": "warmup", "duration_seconds": 300, "name": "Warmup"},
+        {"type": "work", "duration_seconds": 1200, "name": "Work"},
+        {"type": "cooldown", "duration_seconds": 300, "name": "Cooldown",
+         "target_zone": {"type": "power", "relative_low": 0.4, "relative_high": 0.6}},
+    ])
+    laps = [{"start_index": i * 225, "moving_time": 225, "elapsed_time": 225,
+             "average_watts": 180 if i < 7 else 220, "average_heartrate": 135} for i in range(8)]
+    cache = {"source": "intervals", "intervals": [{"start_index": 0,
+             "moving_time": 1800, "elapsed_time": 1800}], "garmin_laps": laps}
+    monkeypatch.setattr(db, "get_activity_intervals", lambda aid: cache)
+    monkeypatch.setattr(activities_router, "fetch_activity_intervals", lambda db, aid: cache)
+    monkeypatch.setattr(activities_router, "fetch_stream_structure", lambda *args: pytest.fail("network"))
+    card = activities_router.get_activity_card("act-1", db=db)["activity"]
+    import requests
+    monkeypatch.setattr(requests.sessions.Session, "request", lambda *args, **kwargs: pytest.fail("network"))
+    cache["compliance"] = 91.9
+    result = AITools(db).get_activity_structure(activity_id="act-1")
+    activity = result["activities"][0]
+    assert activity["source"] == "garmin"
+    for actual, expected in zip(activity["plan_vs_fact"]["steps"], card["plan_vs_fact"]["step_matches"]):
+        assert actual["matched"] == expected["matched"]
+        assert all(expected["planned"].get(key) == value for key, value in actual["planned"].items())
+        assert all(expected["actual"].get(key) == value for key, value in actual["actual"].items())
+        assert all(expected["intensity"].get(key) == value for key, value in actual["intensity"].items())
+    assert card["plan_vs_fact"]["summary"]["matched_steps"] == 3
+    formatted = format_tool_result("get_activity_structure", result)
+    assert activity["plan_vs_fact"]["steps"][-1]["intensity"]["status"] == "above"
+    assert "Cooldown" in formatted
+    assert "40–60% FTP" in formatted
+    assert "выше цели" in formatted
+    assert "180 Вт, 135 уд/мин; сравнение недоступно" in formatted
+    assert "Вт" in formatted
+    assert "соответствие плану 92% (вся сессия)" in formatted
+    assert "None" not in formatted and "{'" not in formatted
+    assert "Garmin" in formatted
+
+
+def test_coach_does_not_attribute_single_session_aggregate_to_a_multistep_plan(tmp_path, monkeypatch):
+    from data.database import Database
+    from models.ai_tools import AITools
+    from models.coach_tool_presenter import format_tool_result
+
+    db = Database(str(tmp_path / "synthetic-aggregate.db"))
+    _seed_activity(db)
+    _seed_plan_match(db, intervals=[_planned_rest(360), _planned_work(2700), _planned_rest(360)])
+    monkeypatch.setattr(db, "get_activity_intervals", lambda aid: {
+        "source": "intervals", "intervals": [{"moving_time": 3420}],
+    })
+    result = AITools(db).get_activity_structure(activity_id="act-1")
+    assert result["activities"][0]["plan_vs_fact"] is None
+    assert "этапы оценить нельзя" in format_tool_result("get_activity_structure", result)
+
+
+def test_coach_without_confirmed_match_keeps_facts(tmp_path, monkeypatch):
+    from data.database import Database
+    from models.ai_tools import AITools
+    from models.coach_tool_presenter import format_tool_result
+
+    db = Database(str(tmp_path / "synthetic-no-match.db"))
+    _seed_activity(db)
+    monkeypatch.setattr(db, "get_activity_intervals", lambda aid: {
+        "source": "garmin", "intervals": [{"moving_time": 300, "average_watts": 120}],
+    })
+    result = AITools(db).get_activity_structure(activity_id="act-1")
+    activity = result["activities"][0]
+    assert activity["plan_vs_fact"] is None
+    assert activity["intervals"][0]["avg_watts"] == 120
+    assert "этапы оценить нельзя" in format_tool_result("get_activity_structure", result)
+
+
+def test_coach_single_step_can_use_one_provider_interval(tmp_path, monkeypatch):
+    from data.database import Database
+    from models.ai_tools import AITools
+
+    db = Database(str(tmp_path / "synthetic-single-step.db"))
+    _seed_activity(db)
+    _seed_plan_match(db, intervals=[_planned_work(600)])
+    monkeypatch.setattr(db, "get_activity_intervals", lambda aid: {
+        "source": "intervals", "intervals": [{"moving_time": 600}],
+    })
+    activity = AITools(db).get_activity_structure(activity_id="act-1")["activities"][0]
+    assert activity["plan_vs_fact"]["steps"][0]["matched"] is True
+
+
+def test_coach_malformed_cache_never_compares_partial_rows(tmp_path, monkeypatch):
+    from data.database import Database
+    from models.ai_tools import AITools
+
+    db = Database(str(tmp_path / "synthetic-malformed.db"))
+    _seed_activity(db)
+    _seed_plan_match(db, intervals=[_planned_work(600)])
+    cache = {"source": "intervals", "intervals": [None, {"moving_time": 600}]}
+    monkeypatch.setattr(db, "get_activity_intervals", lambda aid: cache)
+    activity = AITools(db).get_activity_structure(activity_id="act-1")["activities"][0]
+    assert activity["plan_vs_fact"] is None
+    assert activity["intervals"][0]["duration_seconds"] == 600
+    cache.update(intervals=[{"moving_time": 600}], garmin_laps=[None])
+    activity = AITools(db).get_activity_structure(activity_id="act-1")["activities"][0]
+    assert activity["plan_vs_fact"] is None
+    assert activity["source"] == "intervals"
+    assert activity["intervals"][0]["duration_seconds"] == 600
+
+
+def test_coach_legacy_provider_aggregate_does_not_prove_multistep_plan(tmp_path, monkeypatch):
+    from data.database import Database
+    from models.ai_tools import AITools
+
+    db = Database(str(tmp_path / "synthetic-legacy.db"))
+    _seed_activity(db)
+    _seed_plan_match(db, intervals=[_planned_rest(360), _planned_work(2700), _planned_rest(360)])
+    monkeypatch.setattr(db, "get_intervals_provider_activity_id", lambda aid: "synthetic-provider")
+    monkeypatch.setattr(db, "get_activity_intervals", lambda aid: {"analyzed": "2026-09-24T12:00:00Z", "intervals": [{"moving_time": 3420}]})
+    activity = AITools(db).get_activity_structure(activity_id="act-1")["activities"][0]
+    assert activity["source"] == "intervals"
+    assert activity["plan_vs_fact"] is None
+
+
+def test_coach_work_only_matches_keep_unassessed_plan_steps(tmp_path, monkeypatch):
+    from data.database import Database
+    from models.ai_tools import AITools
+    from models.coach_narrative_evidence import (
+        build_coach_narrative_evidence,
+        validate_coach_narrative,
+    )
+    from models.coach_tool_presenter import format_tool_result
+
+    db = Database(str(tmp_path / "work-only.db"))
+    _seed_activity(db)
+    _seed_plan_match(db, intervals=[
+        {**_planned_rest(300), "segment_kind": "warmup", "name": "Warmup"},
+        _planned_work(180),
+        {**_planned_rest(100), "name": "Recovery"},
+        _planned_work(180),
+        {**_planned_rest(300), "segment_kind": "cooldown", "name": "Cooldown"},
+    ])
+    cache = {"source": "intervals", "intervals": [_actual(180), _actual(180)]}
+    monkeypatch.setattr(db, "get_activity_intervals", lambda _: cache)
+
+    result = AITools(db).get_activity_structure(activity_id="act-1")
+    evidence = build_coach_narrative_evidence(
+        readiness_snapshot={},
+        tool_results=[{
+            "tool_name": "get_activity_structure",
+            "success": True,
+            "raw_result": result,
+        }],
+        athlete_timezone="Europe/Moscow",
+    )
+    verdict = validate_coach_narrative("Все этапы выполнены.", evidence)
+    assert verdict.outcome == "replaced"
+    assert "ACTIVITY_STRUCTURE_CLAIM_UNSUPPORTED" in verdict.reason_codes
+
+    steps = result["activities"][0]["plan_vs_fact"]["steps"]
+    assert [step["matched"] for step in steps] == [False, True, False, True, False]
+    assert [step["actual"] for step in steps[::2]] == [{}, {}, {}]
+    formatted = format_tool_result("get_activity_structure", result)
+    for name in ("Warmup", "Recovery", "Cooldown"):
+        line = next(line for line in formatted.splitlines() if line.startswith(f"- {name}:"))
+        assert "не оценён" in line

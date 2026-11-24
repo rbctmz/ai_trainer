@@ -229,6 +229,34 @@ def _activity_structure_block(activity: Any) -> str:
         facts.append(f"TSS {activity['tss']}")
     lines = [f"## 📊 Структура выполненной активности — {date_label}", "", ", ".join(facts)]
 
+    comparison = activity.get("plan_vs_fact")
+    lines += ["", "Общая оценка Intervals.icu относится ко всей сессии; она и средние сессии не подтверждают отдельные этапы. Число интервалов не доказывает нажатие Lap."]
+    if isinstance(comparison, dict):
+        steps = comparison.get("steps") or []
+        comparison_source = {"garmin": "круги Garmin", "intervals": "Intervals.icu"}.get(comparison.get("source"), "неизвестен")
+        lines += ["", f"Сопоставление этапов, источник: {comparison_source} (не оценён не означает пропущен):"]
+        status_labels = {"above": "выше цели", "below": "ниже цели", "within": "в цели", "unavailable": "сравнение недоступно"}
+        for step in steps:
+            planned = step.get("planned") or {}
+            name = planned.get("name") or _step_kind_label(planned)
+            label = (f"- {name}: план {_step_duration_label(planned.get('duration_seconds'))}, "
+                     f"цель {_step_target_label(planned.get('target_zone'))}")
+            if not step.get("matched"):
+                lines.append(label + "; не оценён: нет надёжного сопоставления.")
+                continue
+            actual = step.get("actual") or {}
+            intensity = step.get("intensity") or {}
+            facts = [f"{actual[key]} {unit}" for key, unit in (("average_watts", "Вт"), ("average_heartrate", "уд/мин")) if actual.get(key) is not None]
+            actual_value = intensity.get("actual_value")
+            unit = intensity.get("unit")
+            if actual_value is not None and unit in _PACE_UNIT_SUFFIX:
+                facts.append(_pace_label(actual_value) + _PACE_UNIT_SUFFIX[unit])
+            facts_text = ", ".join(facts) if facts else "фактическая интенсивность недоступна"
+            duration = actual.get("moving_time") or actual.get("elapsed_time")
+            lines.append(label + f"; факт {_step_duration_label(duration)}, {facts_text}; "
+                         f"{status_labels.get(intensity.get('status'), 'сравнение недоступно')}.")
+    else:
+        lines += ["", "Нет подтверждённой однозначной связи с планом или надёжного сопоставления; этапы оценить нельзя."]
     intervals = list(activity.get("intervals") or [])
     if not intervals:
         note = activity.get("message") or "Структура этой активности недоступна."
@@ -251,7 +279,7 @@ def _activity_structure_block(activity: Any) -> str:
     if compliance is not None:
         try:
             if float(compliance) > 0:
-                meta.append(f"соответствие плану {round(float(compliance))}%")
+                meta.append(f"соответствие плану {round(float(compliance))}% (вся сессия)")
         except (TypeError, ValueError):
             pass
     lines += ["", " · ".join(meta)]
