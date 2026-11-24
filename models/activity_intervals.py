@@ -113,16 +113,19 @@ def _garmin_interval(raw: Any, start_index: int | float) -> dict[str, Any]:
     if not isinstance(raw, Mapping):
         raise ValueError("Garmin lap entries must be objects")
 
-    moving_time = _first_number(raw, "movingDuration", "duration")
-    elapsed_time = _first_number(raw, "elapsedDuration", "duration")
+    recorded_moving_time = _first_number(raw, "movingDuration")
+    recorded_elapsed_time = _first_number(raw, "elapsedDuration")
+    duration = _first_number(raw, "duration")
     intensity = raw.get("intensityType")
     intensity_type = (
         str(intensity).strip().lower() if intensity not in (None, "") else None
     )
     return {
         "start_index": _compact_number(start_index),
-        "moving_time": moving_time,
-        "elapsed_time": elapsed_time,
+        "moving_time": recorded_moving_time if recorded_moving_time is not None else duration,
+        "elapsed_time": recorded_elapsed_time if recorded_elapsed_time is not None else duration,
+        "recorded_moving_time": recorded_moving_time,
+        "recorded_elapsed_time": recorded_elapsed_time,
         "average_watts": _first_number(raw, "averagePower"),
         "average_heartrate": _first_number(raw, "averageHR"),
         "min_heartrate": _first_number(raw, "minHR"),
