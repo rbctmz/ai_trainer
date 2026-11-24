@@ -1094,3 +1094,25 @@ returned an unverified receipt. A separately approved change to a one
 second parser field with the Lap flag recovered all nine steps in live
 readback of event 157655413. The physical watch check and review of the
 code correction are tracked in #764.
+
+## Class B Post-Merge Record — PR #783 / issue #782 (2026-11-24)
+
+[PR #783](https://github.com/rbctmz/ai_trainer/pull/783) merged as `6b520c3`
+at 20:02:11 UTC. Issue lead time to merge was 1h43m53s. PR cycle time was
+1h21m49s. Both are calendar time. Active work and wait time are `not captured`.
+[Issue #782](https://github.com/rbctmz/ai_trainer/issues/782)
+
+The two native rounds on `377cd08` and `2bc2372` found three blocking P2s.
+`2bc2372` preserved unassessed steps and qualified statements. `cdbcab9`
+checked each step claim independently within a sentence. All three threads
+were resolved. Zero P0/P1 findings were observed. The merge owner accepted
+the final head through the documented post-budget exception.
+[Owner decision](https://github.com/rbctmz/ai_trainer/pull/783#issuecomment-7142915279)
+
+The final local run passed 441 focused checks and Ruff. CI passed 4,805
+contributor-safe tests with 47 skipped and 181 deselected. The first E2E run
+had one failure after the test-only SQLite guard reported
+`scratch_identity_unknown`. One failed-job rerun on the same head passed all
+157 E2E tests. Web contract and secret scan passed. Zero linked post-merge
+defects were observed at recording time.
+[CI and rerun](https://github.com/rbctmz/ai_trainer/actions/runs/45470137892)
