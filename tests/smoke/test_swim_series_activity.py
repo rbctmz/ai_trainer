@@ -1,6 +1,8 @@
 """A read-only comparison through the card and the retained delivery binding."""
 
 from contextlib import closing
+import json
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI
@@ -12,6 +14,7 @@ from data.swim_program_store import confirm_preview, create_preview
 from models.activity_intervals import normalize_garmin_splits_payload, normalize_intervals_payload
 from models.swim_series_fact import swim_observations
 from services.swim_delivery import confirm_swim_delivery
+from tests.contracts.conformance import validate
 from tests.smoke._swim_program_fixtures import changed_program
 from tests.smoke.test_swim_delivery_calendar import _preview_delivery
 from tests.smoke.test_swim_delivery_calendar import assignment as assignment
@@ -60,6 +63,9 @@ def test_card_uses_exact_delivered_version_and_reports_fallback(assignment):
 
     card = _card(db)
     fact = card["swim_series_fact"]
+    contract_file = Path(__file__).resolve().parents[1] / "contracts" / "ts_contract.json"
+    types = json.loads(contract_file.read_text())["types"]
+    assert validate(fact, types["SwimSeriesFact"], types) == []
     assert (fact["assignment_id"], fact["program_revision"]) == (assigned["assignment_id"], 1)
     assert fact["source"] == "intervals" and fact["used_fallback"] is True
     assert fact["matched_swims"] == 1 < fact["planned_swims"]
