@@ -129,11 +129,34 @@ def test_normalize_garmin_splits_maps_laps_to_shared_card_contract() -> None:
         "zone": None,
         "training_load": None,
         "average_speed": 3.3,
+        "distance_meters": 1000.2,
         "distance_km": 1.0,
         "intensity_type": "warmup",
     }
     assert compact["intervals"][1]["start_index"] == 305.2
     assert compact["intervals"][1]["intensity_type"] == "active"
+
+
+def test_swim_metres_survive_garmin_cache_and_intervals_enrichment(tmp_path) -> None:
+    db = Database(str(tmp_path / "swim-metres.db"))
+    garmin = normalize_garmin_splits_payload(
+        {"lapDTOs": [{"distance": 25}, {"distance": 0}, {"distance": float("nan")}]}
+    )
+    activity_id = "swim-with-two-sources"
+    db.save_activity_intervals(activity_id, garmin)
+    _seed_intervals_link(db, activity_id)
+
+    result = fetch_activity_intervals(
+        db,
+        activity_id,
+        client=_IntervalsClient({"icu_intervals": [{"distance": 75}]}),
+    )
+
+    assert result["source"] == "intervals"
+    assert result["intervals"][0]["distance_meters"] == 75
+    assert [lap["distance_meters"] for lap in result["garmin_laps"]] == [25, 0, None]
+    assert result["garmin_laps"][-1]["distance_km"] is None
+    assert db.get_activity_intervals(activity_id) == result
 
 
 def test_normalize_garmin_splits_fails_closed_on_bad_laps() -> None:

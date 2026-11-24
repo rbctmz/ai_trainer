@@ -9,6 +9,7 @@ Fail-closed: неожиданная форма ответа поднимает `
 """
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any, Mapping
 
 
@@ -40,24 +41,25 @@ def _compact_number(value: Any) -> int | float | None:
     return round(number, 1)
 
 
-def _distance_to_km(value: Any) -> float | None:
-    """Intervals.icu interval ``distance`` is in metres -> compact ``distance_km``."""
-    if value is None or isinstance(value, bool):
-        return None
+def _compact_distance(value: Any) -> dict[str, float | None]:
+    """Сохранить метры из ответа провайдера и прежнее округление для карточки."""
     try:
-        metres = float(value)
-    except (TypeError, ValueError):
-        return None
-    if metres < 0:
-        return None
-    return round(metres / 1000.0, 2)
+        metres = float(value) if not isinstance(value, bool) else None
+    except (TypeError, ValueError, OverflowError):
+        metres = None
+    if metres is not None and (not isfinite(metres) or metres < 0):
+        metres = None
+    return {
+        "distance_meters": metres,
+        "distance_km": round(metres / 1000, 2) if metres is not None else None,
+    }
 
 
 def _compact_interval(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, Mapping):
         raise ValueError("Intervals.icu interval entries must be objects")
     compact = {field: _compact_number(raw.get(field)) for field in _INTERVAL_FIELDS}
-    compact["distance_km"] = _distance_to_km(raw.get("distance"))
+    compact.update(_compact_distance(raw.get("distance")))
     return compact
 
 
@@ -131,7 +133,7 @@ def _garmin_interval(raw: Any, start_index: int | float) -> dict[str, Any]:
         "zone": _first_number(raw, "zone"),
         "training_load": _first_number(raw, "trainingLoad"),
         "average_speed": _first_number(raw, "averageSpeed", "averageMovingSpeed"),
-        "distance_km": _distance_to_km(raw.get("distance")),
+        **_compact_distance(raw.get("distance")),
         "intensity_type": intensity_type,
     }
 
