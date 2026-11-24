@@ -2762,10 +2762,50 @@ class AITools:
     def _activity_structure_payload(self, row: Mapping[str, Any]) -> Dict[str, Any]:
         """Одна активность со отрезками факта и честным статусом."""
         activity_id = str(row.get("activity_id") or "")
+        cached = self.db.get_activity_intervals(activity_id)
         status, reason, source, intervals, meta = resolve_cached_activity_structure(
-            self.db.get_activity_intervals(activity_id),
-            self.db.get_intervals_provider_activity_id(activity_id),
+            cached, self.db.get_intervals_provider_activity_id(activity_id),
         )
+        from models.plan_vs_fact import select_actual_structure
+        from services.activity_plan_comparison import (
+            compare_local_structure, local_planned_intervals,
+        )
+
+        # Use the card's canonical selection; legacy caches may omit the source
+        # marker, so keep the resolver's provider-link based source in that case.
+        actual, selected_source = select_actual_structure(cached)
+        selected_source = selected_source or source
+        actual_payloads = [_activity_interval_payload(index, raw)
+                           for index, raw in enumerate(actual, 1)]
+        usable = bool(actual_payloads) and all(
+            item is not None and item.get("duration_seconds") is not None
+            for item in actual_payloads
+        )
+        if selected_source == "garmin" and actual:
+            valid = [item for item in actual_payloads
+                     if item is not None and item.get("duration_seconds") is not None]
+            if valid:
+                intervals = valid
+                status, reason, source = "structured", None, selected_source
+            else:
+                # Keep the provider structure and status when corrupted laps
+                # produce no usable rows. Never compare these invalid laps.
+                selected_source = source
+        comparison = None
+        match = self.db.get_plan_actual_match_for_activity(activity_id)
+        if match is not None:
+            checkpoint_id = match.get("base_checkpoint_id")
+            checkpoint = self.db.get_checkpoint_data(checkpoint_id) if checkpoint_id is not None else None
+            lineage = dict(match.get("actual_snapshot") or {})
+            if isinstance(cached, Mapping):
+                lineage.update(cached)
+            planned = local_planned_intervals(match, checkpoint, row.get("sport"), lineage)
+            # A provider aggregate covering the session cannot prove one of
+            # several individual planned steps, even if duration tolerance fits.
+            if status == "structured" and usable and not (selected_source == "intervals" and len(actual) == 1
+                    and isinstance(planned, list) and len(planned) > 1):
+                comparison = compare_local_structure(self.db, planned, actual, selected_source, row.get("sport"))
+
         payload: Dict[str, Any] = {
             "activity_id": activity_id,
             "date": str(row.get("date") or "")[:10],
@@ -2783,6 +2823,23 @@ class AITools:
         if source:
             payload["source"] = source
         payload.update(meta)
+        if comparison is not None:
+            steps = comparison.get("step_matches") or comparison.get("matches") or []
+            compact_steps = []
+            for step in steps:
+                planned_step = step.get("planned") or {}
+                matched = step.get("matched") is True
+                actual_step = (step.get("actual") or {}) if matched else {}
+                intensity = (step.get("intensity") or {}) if matched else {}
+                compact_steps.append({
+                    "planned": {key: planned_step[key] for key in ("name", "type", "segment_kind", "duration_seconds", "target_zone") if key in planned_step},
+                    "matched": matched,
+                    "actual": {key: actual_step[key] for key in ("moving_time", "elapsed_time", "average_watts", "average_heartrate", "distance_km") if key in actual_step},
+                    "intensity": {key: intensity[key] for key in ("metric", "unit", "actual_value", "actual_relative", "target_low", "target_high", "status") if key in intensity},
+                })
+            payload["plan_vs_fact"] = {"source": selected_source, "steps": compact_steps}
+        else:
+            payload["plan_vs_fact"] = None
         if status == "structured":
             payload["interval_count"] = len(intervals)
             payload["intervals"] = intervals

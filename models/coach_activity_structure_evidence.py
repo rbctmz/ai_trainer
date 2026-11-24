@@ -103,6 +103,37 @@ def activity_structure_evidence(tools: Iterable[Mapping[str, Any]]) -> list[dict
                 row["interval_count"] = 0
             elif status != "unavailable":
                 row = {"activity_id": activity_id, "date": day, "structure_status": "unavailable", "reason": "invalid_evidence"}
+            comparison = activity.get("plan_vs_fact")
+            if isinstance(comparison, Mapping) and comparison.get("source") in {"garmin", "intervals"}:
+                steps = comparison.get("steps")
+                if isinstance(steps, list):
+                    safe_steps = []
+                    for step in steps[:50]:
+                        if not isinstance(step, Mapping) or not isinstance(step.get("planned"), Mapping):
+                            continue
+                        planned = step["planned"]
+                        actual = step.get("actual") if step.get("matched") is True else None
+                        intensity = step.get("intensity")
+                        safe = {"matched": step.get("matched") is True,
+                                "planned": _numeric_fields(planned, ("duration_seconds",))}
+                        for field in ("name", "type", "segment_kind"):
+                            if isinstance(planned.get(field), str):
+                                safe["planned"][field] = planned[field][:100]
+                        target = planned.get("target_zone")
+                        if isinstance(target, Mapping):
+                            safe_target = _numeric_fields(target, ("low", "high", "relative_low", "relative_high"))
+                            if isinstance(target.get("type"), str):
+                                safe_target["type"] = target["type"][:30]
+                            safe["planned"]["target_zone"] = safe_target
+                        if isinstance(actual, Mapping):
+                            safe["actual"] = _numeric_fields(actual, ("moving_time", "elapsed_time", "average_watts", "average_heartrate", "distance_km"))
+                        if isinstance(intensity, Mapping):
+                            safe["intensity"] = _numeric_fields(intensity, ("actual_value", "actual_relative", "target_low", "target_high"))
+                            for field in ("metric", "unit", "status"):
+                                if isinstance(intensity.get(field), str):
+                                    safe["intensity"][field] = intensity[field][:30]
+                        safe_steps.append(safe)
+                    row["plan_vs_fact"] = {"source": comparison["source"], "steps": safe_steps}
             key = (activity_id, day)
             if key in records and records[key] != row:
                 records[key] = {"activity_id": activity_id, "date": day, "structure_status": "unavailable", "reason": "conflicting_evidence"}
@@ -186,6 +217,39 @@ def activity_claim_unsupported(text: str, records: list[Mapping[str, Any]], *, a
         scope, explicit_scope = _activity_scope(clause, records, scope)
         if explicit_scope:
             activity_context = True
+        # Provider interval counts cannot establish button presses. Likewise,
+        # a session aggregate is not evidence of individual step execution.
+        if re.search(r"(?:нажал\w*|нажима\w*|нажат\w*).{0,30}\b(?:lap|лап)\b|\b(?:lap|лап)\b.{0,30}(?:нажал\w*|нажима\w*|нажат\w*)", clause, re.I):
+            if not (_qualified(clause) or _conditional_premise(clause) or re.search(r"не\s+(?:доказывает|подтверждает|означает)", clause, re.I)):
+                return True
+        step_claim = re.search(r"(?:этап|шаг|заминк|разминк)\w*.{0,55}(?:выполн|пропущ|превыс|выше\s+цел|ниже\s+цел|в\s+целев)", clause, re.I)
+        if step_claim and re.search(r"пропущ", step_claim.group(), re.I):
+            return True
+        if (step_claim and not (_qualified(clause[:step_claim.start()])
+                or _conditional_premise(clause[:step_claim.start()])
+                or re.search(r"(?:^|[,:])\s*(?:по\s+плану|в\s+плане)\b", clause[:step_claim.start()], re.I))):
+            named = re.search(r"заминк|разминк", step_claim.group(), re.I)
+            all_steps = re.search(r"все\s+(?:шаг|этап)", clause, re.I)
+            def supported(row: Mapping[str, Any]) -> bool:
+                steps = (row.get("plan_vs_fact") or {}).get("steps", [])
+                if named:
+                    kind = "cooldown" if named.group().lower().startswith("замин") else "warmup"
+                    selected = [step for step in steps if kind in {
+                        str((step.get("planned") or {}).get(field) or "").lower()
+                        for field in ("type", "segment_kind", "name")
+                    }]
+                    required_status = ("above" if re.search(r"выше\s+цел|превыс", clause, re.I)
+                                       else "below" if re.search(r"ниже\s+цел", clause, re.I)
+                                       else "within" if re.search(r"в\s+целев", clause, re.I) else None)
+                    return bool(selected) and all(
+                        step.get("matched") is True and (required_status is None
+                            or (step.get("intensity") or {}).get("status") == required_status)
+                        for step in selected
+                    )
+                return bool(steps) and (all(step.get("matched") is True for step in steps)
+                                        if all_steps else any(step.get("matched") is True for step in steps))
+            if not scope or not all(supported(row) for row in scope):
+                return True
         local_activity = bool(_ACTIVITY.search(clause))
         if local_activity:
             activity_context = True
@@ -264,6 +328,22 @@ def activity_factual_bullets(records: list[Mapping[str, Any]]) -> list[str]:
             lines.append(label + ": анализ сохранённых данных не выявил отрезков.")
         else:
             lines.append(label + f": в кэше сохранено отрезков: {row['interval_count']}.")
+            comparison = row.get("plan_vs_fact") or {}
+            for step in comparison.get("steps", []):
+                planned = step.get("planned") or {}
+                name = planned.get("name") or planned.get("segment_kind") or planned.get("type") or "Этап"
+                if not step.get("matched"):
+                    lines.append(f"  {name}: не оценён; отсутствие сопоставления не означает пропуск.")
+                    continue
+                actual = step.get("actual") or {}
+                intensity = step.get("intensity") or {}
+                facts = [f"{actual[key]:g} {unit}" for key, unit in (("moving_time", "с"), ("average_watts", "Вт"), ("average_heartrate", "уд/мин")) if key in actual]
+                planned_duration = planned.get("duration_seconds")
+                plan_label = f"план {planned_duration:g} с; " if planned_duration is not None else ""
+                target = planned.get("target_zone") or {}
+                if target.get("relative_low") is not None and target.get("relative_high") is not None:
+                    plan_label += f"цель {target['relative_low'] * 100:g}–{target['relative_high'] * 100:g}% порога; "
+                lines.append(f"  {name}: " + plan_label + ", ".join(facts) + f"; сравнение: {intensity.get('status', 'unavailable')}; источник: {comparison.get('source')}.")
             for index, interval in enumerate(row["intervals"][:12], start=1):
                 facts = [f"{interval[key]:g} {unit}" for key, unit in
                          (("duration_seconds", "с"), ("avg_watts", "Вт"), ("distance_km", "км")) if key in interval]

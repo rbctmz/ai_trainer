@@ -426,3 +426,39 @@ def test_api_streams_and_persists_only_validated_activity_text(tmp_path, monkeyp
     assert done["evidence_gate"]["reason_codes"] == [REASON]
     assert done["evidence_gate"]["rule_version"] == "coach_narrative_gate_v6"
     assert ChatManager().get_chat_messages(done["chat_id"])[-1]["content"] == delivered
+
+
+def test_step_and_lap_claims_require_step_evidence():
+    from models.coach_activity_structure_evidence import activity_claim_unsupported
+
+    records = [{"activity_id": "synthetic", "date": "2026-09-24", "structure_status": "structured"}]
+    assert activity_claim_unsupported("Заминка выполнена выше цели.", records)
+    assert activity_claim_unsupported("Вы нажали Lap.", records)
+    assert not activity_claim_unsupported("Число интервалов не подтверждает нажатие Lap.", records)
+
+
+def test_named_and_all_step_claims_need_corresponding_evidence():
+    from models.coach_activity_structure_evidence import activity_claim_unsupported, activity_factual_bullets
+
+    steps = [
+        {"planned": {"segment_kind": "warmup", "name": "Warmup"}, "matched": True,
+         "actual": {"moving_time": 300, "average_watts": 120}, "intensity": {"status": "within"}},
+        {"planned": {"segment_kind": "cooldown", "name": "Cooldown"}, "matched": False},
+    ]
+    records = [{"activity_id": "synthetic", "date": "2026-09-24", "structure_status": "structured",
+                "interval_count": 1, "intervals": [{"duration_seconds": 300}],
+                "plan_vs_fact": {"source": "garmin", "steps": steps}}]
+    assert activity_claim_unsupported("Заминка выполнена выше цели.", records)
+    assert activity_claim_unsupported("Заминка выполнена по плану.", records)
+    assert activity_claim_unsupported("Все этапы выполнены.", records)
+    assert not activity_claim_unsupported("Разминка выполнена в целевой зоне.", records)
+    assert not activity_claim_unsupported("Заминку оценить нельзя.", records)
+    assert not activity_claim_unsupported("По плану заминка выполняется легко.", records)
+    assert "Warmup: 300 с, 120 Вт" in "\n".join(activity_factual_bullets(records))
+    steps[1]["matched"] = True
+    assert activity_claim_unsupported("Заминка пропущена.", records)
+    steps[1]["intensity"] = {"status": "within"}
+    assert activity_claim_unsupported("Заминка выполнена выше цели.", records)
+    steps[1]["intensity"] = {"status": "above"}
+    assert not activity_claim_unsupported("Заминка выполнена выше цели.", records)
+    assert not activity_claim_unsupported("Все этапы выполнены.", records)

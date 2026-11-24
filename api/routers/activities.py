@@ -20,11 +20,9 @@ from models.activity_card import (
     foster_load_au,
 )
 from models.plan_intervals import (
-    planned_intervals_for_match,
     planned_leg_summary_for_match,
 )
 from models.plan_vs_fact import (
-    match_plan_vs_fact,
     plan_replanned_after_delivery,
     select_actual_structure,
 )
@@ -32,6 +30,9 @@ from models.session_projection import SessionProjectionNotFoundError
 from services import reconciliation as reconciliation_service
 from services import session_projection as session_projection_service
 from services.activity_intervals import fetch_activity_intervals, fetch_stream_structure
+from services.activity_plan_comparison import (
+    compare_local_structure, local_planned_intervals,
+)
 from services.best_efforts import fetch_activity_power_curve
 from services.swim_series_fact import read_swim_series_fact
 from utils.product_semantics import format_date_label, normalize_sport_key, sport_label
@@ -325,12 +326,7 @@ def get_activity_card(
         actual_payload = item.get("intervals")
         if isinstance(actual_payload, dict):
             lineage.update(actual_payload)
-        planned_intervals = planned_intervals_for_match(
-            planned_match,
-            checkpoint_data,
-            activity_sport=item.get("sport"),
-            activity_lineage=lineage,
-        )
+        planned_intervals = local_planned_intervals(planned_match, checkpoint_data, item.get("sport"), lineage)
         planned_leg = planned_leg_summary_for_match(
             planned_match,
             checkpoint_data,
@@ -355,12 +351,8 @@ def get_activity_card(
             if stream_structure:
                 actual_intervals = stream_structure
                 actual_source = "streams"
-        plan_vs_fact = match_plan_vs_fact(
-            planned_intervals,
-            actual_intervals,
-            sport=item.get("sport"),
-            athlete_profile=db.get_athlete_profile(),
-            actual_source=actual_source,
+        plan_vs_fact = compare_local_structure(
+            db, planned_intervals, actual_intervals, actual_source, item.get("sport"),
         )
         plan_vs_fact["summary"].update(
             _plan_vs_fact_totals(planned_intervals, item, planned_leg)
