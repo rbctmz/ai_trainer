@@ -1116,6 +1116,8 @@ def format_tool_result(tool_name: str, data: Any) -> str:
         "retract_plan_constraint",
         "repair_plan_day",
     }:
+        if isinstance(data, dict) and data.get("status") == "noop":
+            return str(data["message"])
         preview = data.get("preview", {}) if isinstance(data, dict) else {}
         params = data.get("params", {}) if isinstance(data, dict) else {}
         labels = {
