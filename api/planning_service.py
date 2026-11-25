@@ -113,6 +113,7 @@ from models.training_planner import (
     derive_weekly_sport_buckets_from_sessions,
     expand_weekly_to_daily_triathlon,
     flatten_daily_total,
+    iter_leaf_sessions,
     project_daily_plan_from_session_templates,
     SESSION_ROLE_LABELS_RU,
     synchronize_microcycle_changes,
@@ -146,6 +147,7 @@ from services.planning_contracts import (
 )
 from services.planning_events import discover_intervals_events as discover_intervals_events
 from utils.athlete_time import athlete_local_date
+from utils.product_semantics import sport_label
 
 PLANNING_DEMAND_SETTING_KEY = "planning_demand_level"
 
@@ -3825,6 +3827,23 @@ def _template_executable_legs(template: Optional[Dict[str, Any]]) -> List[Dict[s
     ]
 
 
+def scoped_manual_delete_has_no_target(
+    goal_plan: Dict[str, Any] | None, constraint: Mapping[str, Any],
+) -> bool:
+    """Check whether a one-off sport cancellation can remove a current session."""
+    sport = constraint.get("sport")
+    if not goal_plan or constraint.get("kind") != "manual_delete" or not sport:
+        return False
+
+    index = _goal_plan_day_index(goal_plan, str(constraint.get("date") or "")[:10])
+    templates = goal_plan.get("session_templates") or []
+    if index is None or index >= len(templates):
+        return True
+
+    template = templates[index]
+    return not any(session["sport"] == sport for session in iter_leaf_sessions(template))
+
+
 @backup_boundary("planning_mutation")
 def recover_day_after_constraint_retraction(
     db: Database,
@@ -4010,6 +4029,7 @@ _COACH_MUTATION_ACTIONS = {
     "retract_plan_constraint",
     "repair_plan_day",
 }
+NO_MATCHING_PLANNED_WORKOUT = "no_matching_planned_workout"
 
 
 def _coach_mutation_fingerprint(
@@ -4111,6 +4131,12 @@ def preview_coach_constraint_mutation(
         }:
             raise ValueError("unknown constraint kind")
         goal_plan = restore_goal_plan_from_checkpoint(latest) if latest_id else None
+        if scoped_manual_delete_has_no_target(goal_plan, constraint):
+            raise PlanningBuildPreviewError(
+                NO_MATCHING_PLANNED_WORKOUT,
+                f"На {constraint['date']} в текущем плане нет тренировки «{sport_label(constraint['sport'])}». "
+                "Подтверждение не требуется.",
+            )
         application = {"applied_count": 0, "protected_dates": [], "constraints": []}
         if goal_plan and goal_plan.get("daily_plan"):
             updated, application = apply_constraints_to_goal_plan(goal_plan, [constraint])

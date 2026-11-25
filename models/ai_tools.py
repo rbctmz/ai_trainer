@@ -1079,6 +1079,7 @@ class AITools:
             return {"success": False, "error": f"Не удалось прочитать предложения: {exc}"}
 
         proposals = []
+        manual_delete_plan = None
         today_context = getattr(self, "today_decision_context", None)
         context_date = (
             today_context.get("date")
@@ -1092,9 +1093,9 @@ class AITools:
         )
         for row in rows:
             item = dict(row) if isinstance(row, dict) else {}
+            params = item.get("params")
+            params = params if isinstance(params, dict) else {}
             if isinstance(today_context, dict):
-                params = item.get("params")
-                params = params if isinstance(params, dict) else {}
                 is_recovery = (
                     item.get("action") == "recovery_replan"
                     or item.get("source") == "recovery_replan"
@@ -1112,6 +1113,16 @@ class AITools:
                         active_checkpoint_id = None
                     if base_checkpoint_id != active_checkpoint_id:
                         continue
+            if (
+                item.get("action") == "create_plan_constraint"
+                and params.get("kind") == "manual_delete"
+                and params.get("sport")
+            ):
+                if manual_delete_plan is None:
+                    _, checkpoint = current_plan_snapshot(self.db)
+                    manual_delete_plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
+                if planning_service.scoped_manual_delete_has_no_target(manual_delete_plan, params):
+                    continue
             proposals.append(
                 {
                     "id": item.get("id"),
@@ -1747,6 +1758,19 @@ class AITools:
                 },
             )
         except Exception as exc:
+            if (
+                isinstance(exc, planning_service.PlanningBuildPreviewError)
+                and exc.code == planning_service.NO_MATCHING_PLANNED_WORKOUT
+            ):
+                return {
+                    "is_proposal": False,
+                    "action": "create_plan_constraint",
+                    "status": "noop",
+                    "reason_code": exc.code,
+                    "date": resolved_date,
+                    "sport": resolved_sport,
+                    "message": str(exc),
+                }
             return {"success": False, "error": str(exc)}
         proposal.pop("_checkpoint_data", None)
         proposal.pop("_session_id_handoffs", None)

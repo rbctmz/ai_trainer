@@ -15,16 +15,20 @@ import pytest
 from fastapi import HTTPException
 
 from api import planning_service
+from api.routers import coach as coach_router
 from api.routers import decisions as decisions_router
 from api.routers import planning as planning_router
+from config.settings import Settings
 from data.database import Database
 from models.ai_tools import AITools
 from models.ai_coach_runtime import resolve_turn_tool_results
+from models.mock_ai_provider import MockAIProvider
 from models.planning_checkpoints import (
     build_planning_checkpoint,
     restore_goal_plan_from_checkpoint,
     with_checkpoint_provenance,
 )
+from tests.smoke.test_api_phase1 import _events
 from tests.smoke.test_constraint_retraction import TARGET, _collapsed_plan, _goal_plan
 
 
@@ -103,6 +107,80 @@ def test_create_constraint_tool_returns_proposal_without_writes(tmp_path) -> Non
     assert proposal.get("action") == "create_plan_constraint"
     assert _checkpoint_ids(db) == before_checkpoints
     assert _all_constraints(db) == before_constraints
+
+
+@pytest.mark.parametrize(("target_date", "sport", "remaining_sports"), [
+    ("2026-08-19", "run", []),
+    (TARGET, "swim", ["bike"]),
+])
+def test_repeated_scoped_manual_delete_has_no_proposal(
+    tmp_path, target_date, sport, remaining_sports,
+) -> None:
+    db = _db(tmp_path)
+    seed_checkpoint(db, build_planning_checkpoint(_goal_plan()))
+    tools = AITools(db)
+    args = {"date": target_date, "kind": "manual_delete", "sport": sport}
+
+    first_result = tools.execute_tool("create_plan_constraint", **args)["result"]
+    assert first_result["is_proposal"] is True
+    first = _save_tool_proposal(db, first_result)
+    assert [p["id"] for p in tools.get_pending_proposals()["pending_proposals"]] == [first["id"]]
+    approved = decisions_router.approve_proposal(first["id"], db=db)
+    assert approved["proposal"]["status"] == "approved"
+    current = db.get_current_planning_checkpoint()
+    plan = restore_goal_plan_from_checkpoint(current)
+    template = next(t for t in plan["session_templates"] if t["date"] == target_date)
+    assert [s["sport"] for s in template["sessions"]] == remaining_sports
+    before_checkpoints = _checkpoint_ids(db)
+    before_constraints = _all_constraints(db)
+
+    duplicate = db.save_coach_proposal(
+        action="create_plan_constraint",
+        params={**args, "base_checkpoint_id": current["id"]},
+        preview={"applied_count": 1},
+    )
+    repeated = tools.execute_tool("create_plan_constraint", **args)
+    assert repeated["success"] is True
+    assert repeated["result"]["is_proposal"] is False
+    assert repeated["result"]["status"] == "noop"
+    assert repeated["result"]["reason_code"] == "no_matching_planned_workout"
+    assert tools.get_pending_proposals()["pending_proposals"] == []
+
+    with pytest.raises(HTTPException) as rejected:
+        decisions_router.approve_proposal(duplicate["id"], db=db)
+    assert rejected.value.status_code == 409
+    assert target_date in rejected.value.detail
+    assert _checkpoint_ids(db) == before_checkpoints
+    assert _all_constraints(db) == before_constraints
+
+
+def test_coach_chat_does_not_emit_proposal_for_absent_workout(tmp_path, monkeypatch) -> None:
+    db = _db(tmp_path)
+    seed_checkpoint(db, build_planning_checkpoint(_collapsed_plan()))
+    monkeypatch.setattr(Settings, "CHATS_DIR", str(tmp_path / "chats"))
+
+    class CancellationProvider(MockAIProvider):
+        def generate_response(self, prompt: str, context: str = "") -> str:
+            if "РЕЗУЛЬТАТЫ ИНСТРУМЕНТОВ:" in prompt:
+                assert "Подтверждение не требуется." in prompt, prompt[-2400:]
+                assert "Подтверди карточку" not in prompt
+                return "Бег уже отсутствует в плане. Подтверждение не требуется."
+            return f"[TOOL: create_plan_constraint, date={TARGET}, kind=manual_delete, sport=run]"
+
+    provider = CancellationProvider(delay=0)
+    monkeypatch.setattr(coach_router, "resolve_provider", lambda _kind: provider)
+    monkeypatch.setattr(coach_router, "supports_streaming", lambda _provider: False)
+
+    request = coach_router.ChatRequest(message="Бег уже удалён, проверь план.", provider="mock")
+    events = _events(coach_router.coach_chat(request, db))
+
+    assert not any(e["type"] == "proposal" for e in events)
+    assert any(e.get("tool_name") == "create_plan_constraint" for e in events)
+    assert events[-1]["type"] == "done", events[-1].get("message")
+    answer = "".join(e["content"] for e in events if e["type"] == "token")
+    assert "Подтверждение не требуется." in answer
+    assert db.get_coach_proposals() == []
+    assert _all_constraints(db) == []
 
 
 def test_retract_constraint_tool_returns_proposal_without_writes(tmp_path) -> None:
