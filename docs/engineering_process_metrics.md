@@ -1116,3 +1116,20 @@ had one failure after the test-only SQLite guard reported
 157 E2E tests. Web contract and secret scan passed. Zero linked post-merge
 defects were observed at recording time.
 [CI and rerun](https://github.com/rbctmz/ai_trainer/actions/runs/45470137892)
+
+## Class B Post-Merge Record — PR #786 / issue #785 (2026-11-25)
+
+[PR #786](https://github.com/rbctmz/ai_trainer/pull/786) merged as `c049fbb`
+at 17:37:54 UTC. Issue lead time to merge was 21m 49s. PR cycle time was
+20m 57s. Both are calendar time. Active work and agent wait time are
+`not captured`. [Issue #785](https://github.com/rbctmz/ai_trainer/issues/785)
+
+One native round reviewed `2f2c2c0` and returned no findings. There were zero
+open review threads, zero observed pre-merge P0/P1 or blocking P2 findings,
+and no review follow-up P2s. Review acceptance and the readiness gate passed
+for the same head. [Native review](https://github.com/rbctmz/ai_trainer/pull/786#issuecomment-7169727322)
+
+The final local cancellation suite passed 20 tests and Ruff passed. GitHub
+contributor-safe pytest, web contract, Playwright E2E, and secret scan passed
+with no CI reruns. No linked escaped defects were observed at recording time.
+[CI](https://github.com/rbctmz/ai_trainer/actions/runs/45663091647)
