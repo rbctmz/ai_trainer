@@ -237,6 +237,7 @@ def web_stack(request):
             "CHATS_DIR": str(tmp_dir / "chats"),
             "GARMIN_EMAIL": "",
             "GARMIN_PASSWORD": "",
+            "GARMIN_SWIM_MCP_SCRIPT": "",
             "INTERVALS_ICU_API_KEY": "",
             "PYTHONUNBUFFERED": "1",
             "AI_TRAINER_E2E_SCOPE": "1",

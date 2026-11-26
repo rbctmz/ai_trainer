@@ -124,6 +124,7 @@ class Settings:
     # Garmin Connect
     GARMIN_EMAIL = os.getenv("GARMIN_EMAIL")
     GARMIN_PASSWORD = os.getenv("GARMIN_PASSWORD")
+    GARMIN_SWIM_MCP_SCRIPT = os.getenv("GARMIN_SWIM_MCP_SCRIPT", "")
 
     # Intervals.icu (опционально) — персональный API key для sync planned workouts
     INTERVALS_ICU_API_KEY = os.getenv("INTERVALS_ICU_API_KEY")

@@ -1987,18 +1987,20 @@ export interface SwimDeliveryStep {
   source_rest_breaths: number[] | null;
 }
 
+export interface SwimCalendarAssignment {
+  assignment_id: string;
+  date: string;
+  program_id: string;
+  program_revision: number;
+  program_fingerprint: string;
+  workout_id: string;
+}
+
 export interface SwimDeliveryPreview {
   preview_id: string;
   checkpoint_id: number;
   cycle_id: string;
-  assignment: {
-    assignment_id: string;
-    date: string;
-    program_id: string;
-    program_revision: number;
-    program_fingerprint: string;
-    workout_id: string;
-  };
+  assignment: SwimCalendarAssignment;
   target_date: string;
   title: string;
   pool_length_meters: number;
@@ -3316,3 +3318,55 @@ export type SwimCoachEvent =
   | { type: "swim_import"; import_id: string; revision: number; status: "draft" | "unparsed" | "error"; code: string | null; library_saved: false; readback_status: "current" | "unavailable" }
   | { type: "token"; content: string }
   | { type: "done"; chat_id: string; import_id: string; revision: number; readback_status: "current" | "unavailable" };
+
+export interface GarminSwimLeaf {
+  type: "main" | "rest";
+  description: string;
+  distance_meters: number | null;
+  duration_seconds: number | null;
+  stroke: string | null;
+  drill: string | null;
+  equipment: string | null;
+}
+
+export interface GarminSwimGroup {
+  type: "repeat";
+  repetitions: number;
+  skip_last_rest: boolean;
+  steps: GarminSwimLeaf[];
+}
+
+export interface GarminSwimPreview {
+  preview_id: string;
+  checkpoint_id: number;
+  assignment: SwimCalendarAssignment;
+  expires_at: string;
+  name: string;
+  pool_length_meters: number;
+  schedule_date: string;
+  steps: (GarminSwimLeaf | GarminSwimGroup)[];
+  distance_meters: number;
+  fixed_rest_count: number;
+  fixed_rest_seconds: number;
+}
+
+export interface GarminSwimReceipt {
+  preview_id: string;
+  assignment_id: string;
+  target_date: string;
+  status: "scheduled" | "workout_verified" | "uploaded_unverified" | "uncertain";
+  workout_id: number | null;
+  workout_url: string | null;
+  workout_verified: boolean;
+  calendar_verified: boolean;
+  device_verified: false;
+}
+
+export interface GarminSwimConfirmed extends GarminSwimReceipt {
+  backup: BackupStatus;
+}
+
+export interface GarminSwimRead {
+  enabled: boolean;
+  receipt: GarminSwimReceipt | null;
+}

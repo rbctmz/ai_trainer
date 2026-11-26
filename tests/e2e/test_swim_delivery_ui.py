@@ -65,7 +65,7 @@ def test_calendar_preview_confirm_and_receipt_reload(web_stack, width, theme):
         open_delivery = page.get_by_role("button", name="Доставка на Garmin: Example one", exact=True)
         open_delivery.click()
         panel = page.get_by_role("region", name="Доставка на Garmin", exact=True)
-        expect(panel.get_by_role("heading", name="Garmin FR255 через Intervals.icu")).to_be_focused()
+        expect(panel.get_by_role("heading", name="Доставка на Garmin", exact=True)).to_be_focused()
         panel.get_by_role("button", name="Проверить отправку", exact=True).click()
         expect(panel.get_by_role("heading", name="Предпросмотр отправки", exact=True)).to_be_focused()
         expect(panel).to_contain_text(f"{today} · бассейн 25 м · 2200 м")
@@ -98,5 +98,64 @@ def test_calendar_preview_confirm_and_receipt_reload(web_stack, width, theme):
         assert page.request.get(f"{api}/_e2e/swim-delivery-state").json()["creates"] == starting_count + 1
         receipt = page.request.get(f"{root}/delivery", params={"assignment_id": assignment_id}).json()["receipt"]
         assert receipt["device_verified"] is False
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("web_stack", ["swim_native"], indirect=True)
+def test_garmin_direct_shows_groups_and_retains_calendar_receipt(web_stack):
+    from data.swim_program_store import create_preview
+    from tests.swim_delivery_fixtures import garmin_repeat_program
+
+    api = web_stack.api_base
+    context = web_stack.page.context.browser.new_context(viewport={"width": 390, "height": 900})
+    page = context.new_page()
+    try:
+        db = Database(str(web_stack.tmp_dir / "e2e.db"))
+        db.clear_all_data()
+        today = page.request.get(f"{api}/api/planning/cycles/current").json()["athlete_day"]
+        seed_checkpoint(db, build_planning_checkpoint(plan(date.fromisoformat(today))))
+        draft = create_preview(db, garmin_repeat_program(), base_revision=0)
+        program = confirm_preview(db, draft["preview_id"])
+        root = f"{api}/api/planning/swim-calendar"
+        response = page.request.post(f"{root}/preview", data={
+            "request_id": str(uuid4()), "expected_checkpoint_id": db.get_current_planning_checkpoint()["id"],
+            "operation": {"kind": "place", "program_id": program["program_id"],
+                          "program_revision": program["revision"], "dates": {"one": today}},
+        })
+        assert response.ok, response.text()
+        reviewed = response.json()
+        response = page.request.post(f"{root}/confirm", data={"preview_id": reviewed["preview_id"], "confirm": True})
+        assert response.ok, response.text()
+        state = f"{api}/_e2e/garmin-swim-delivery-state"
+        start = page.request.get(state).json()["creates"]
+        page.goto(f"{web_stack.web_base}/planning/swim")
+        panel = page.get_by_role("region", name="Прямая отправка в Garmin", exact=True)
+        open_delivery = page.get_by_role("button", name="Доставка на Garmin: Example one", exact=True)
+        open_delivery.click()
+        panel.get_by_role("button", name="Предпросмотр прямой отправки").click()
+        expect(panel.get_by_role("heading", name="Предпросмотр Garmin")).to_be_focused()
+        expect(panel).to_contain_text(f"{today} · бассейн 25 м · 75 м · версия 1")
+        expect(panel.get_by_role("list", name="Группы и шаги Garmin")).to_contain_text("2 × · последний отдых пропущен")
+        expect(panel).to_contain_text("25 м · упражнение · ласты")
+        expect(panel).to_contain_text("Отдых 30 с")
+        assert page.request.get(state).json()["creates"] == start
+        evidence = os.environ.get("AI_TRAINER_SWIM_DELIVERY_EVIDENCE")
+        if evidence:
+            evidence_dir = Path(evidence)
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=evidence_dir / "garmin-direct-preview.png", full_page=True)
+        panel.get_by_role("button", name="Подтвердить отправку в Garmin").click()
+        expect(panel).to_contain_text("Назначение в календаре Garmin не подтверждено")
+        panel.get_by_role("button", name="Сверить результат Garmin").click()
+        expect(panel).to_contain_text(f"Назначение в календаре Garmin сверено на {today}")
+        expect(panel).to_contain_text("Синхронизация с часами проверяется отдельно")
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        page.reload()
+        open_delivery.click()
+        expect(panel.get_by_role("link", name="Открыть тренировку в Garmin")).to_have_attribute(
+            "href", "https://connect.garmin.com/app/workout/123?workoutType=swimming",
+        )
+        assert page.request.get(state).json()["creates"] == start + 1
     finally:
         context.close()

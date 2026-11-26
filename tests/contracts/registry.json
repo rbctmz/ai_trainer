@@ -400,6 +400,26 @@
         {"state":"empty", "expect":200, "prepare_swim_delivery":"confirm"}
       ]
     },
+    "/api/planning/swim-calendar/garmin-delivery": {
+      "interface": "GarminSwimRead",
+      "scenarios": [
+        {"state":"empty", "expect":200, "query_params":{"assignment_id":"55555555-5555-4555-8555-555555555555"}}
+      ]
+    },
+    "/api/planning/swim-calendar/garmin-delivery/preview": {
+      "interface": "GarminSwimPreview",
+      "method": "POST",
+      "scenarios": [
+        {"state":"empty", "expect":200, "prepare_swim_delivery":"garmin_preview"}
+      ]
+    },
+    "/api/planning/swim-calendar/garmin-delivery/confirm": {
+      "interface": "GarminSwimConfirmed",
+      "method": "POST",
+      "scenarios": [
+        {"state":"empty", "expect":200, "prepare_swim_delivery":"garmin_confirm"}
+      ]
+    },
     "/api/swim-programs": {
       "interface": "SwimProgramListResponse",
       "scenarios": [{"state":"empty","expect":200},{"state":"demo","expect":200}]

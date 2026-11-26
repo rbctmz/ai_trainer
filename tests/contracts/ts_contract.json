@@ -1,9 +1,9 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "4bb9714dd050ef3f3ee5f15d86c74cb5495dc6debfac0104b8ef72724c347238",
+    "source_sha256": "6731ee5b596896faddd9caaa42b6da0a31b2e5ad7c9b6a51def74714fb13ae17",
     "registry": "tests/contracts/registry.json",
-    "registry_sha256": "51d87f3b7d0ed47e64b4f160097cd21e9a8348bd08fd16421bbe8adef8a670e2"
+    "registry_sha256": "81ecf6eb48e654f3cfe7e266743e32776bd7b0df1082a6f0e2700522ed5dd2f4"
   },
   "roots": [
     "ActivitiesResponse",
@@ -22,6 +22,9 @@
     "DashboardWidgets",
     "DataCoverageResponse",
     "DemandPreview",
+    "GarminSwimConfirmed",
+    "GarminSwimPreview",
+    "GarminSwimRead",
     "HrvSummary",
     "PlanExport",
     "PlanningConstraintsResponse",
@@ -13979,6 +13982,911 @@
           "spec": {
             "kinds": [
               "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "GarminSwimConfirmed": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "assignment_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "backup": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "BackupStatus",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "calendar_verified": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "device_verified": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
+            ],
+            "literals": [
+              false
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "preview_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "status": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "scheduled",
+              "uncertain",
+              "uploaded_unverified",
+              "workout_verified"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "target_date": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "workout_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "workout_url": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "workout_verified": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "GarminSwimGroup": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "repetitions": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "skip_last_rest": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "steps": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": "GarminSwimLeaf",
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "type": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "repeat"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "GarminSwimLeaf": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "description": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "distance_meters": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "drill": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "duration_seconds": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "equipment": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "stroke": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "type": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "main",
+              "rest"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "GarminSwimPreview": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "assignment": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "SwimCalendarAssignment",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "checkpoint_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "distance_meters": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "expires_at": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "fixed_rest_count": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "fixed_rest_seconds": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "name": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "pool_length_meters": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "preview_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "schedule_date": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "steps": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "object"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": null,
+              "wildcard": false,
+              "variants": [
+                {
+                  "kinds": [
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": "GarminSwimLeaf",
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                },
+                {
+                  "kinds": [
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": "GarminSwimGroup",
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              ],
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "GarminSwimRead": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "enabled": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "receipt": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "GarminSwimReceipt",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "GarminSwimReceipt": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "assignment_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "calendar_verified": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "device_verified": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
+            ],
+            "literals": [
+              false
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "preview_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "status": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "scheduled",
+              "uncertain",
+              "uploaded_unverified",
+              "workout_verified"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "target_date": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "workout_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "workout_url": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "workout_verified": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean"
             ],
             "literals": [],
             "widened": false,
@@ -33526,6 +34434,123 @@
       "record_values": null,
       "array_length": null
     },
+    "SwimCalendarAssignment": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "assignment_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "date": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "program_fingerprint": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "program_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "program_revision": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "workout_id": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
     "SwimCalendarRead": {
       "kinds": [
         "object"
@@ -34134,111 +35159,8 @@
             "literals": [],
             "widened": false,
             "items": null,
-            "fields": {
-              "assignment_id": {
-                "optional": false,
-                "spec": {
-                  "kinds": [
-                    "string"
-                  ],
-                  "literals": [],
-                  "widened": false,
-                  "items": null,
-                  "fields": null,
-                  "ref": null,
-                  "wildcard": false,
-                  "variants": null,
-                  "record_values": null,
-                  "array_length": null
-                }
-              },
-              "date": {
-                "optional": false,
-                "spec": {
-                  "kinds": [
-                    "string"
-                  ],
-                  "literals": [],
-                  "widened": false,
-                  "items": null,
-                  "fields": null,
-                  "ref": null,
-                  "wildcard": false,
-                  "variants": null,
-                  "record_values": null,
-                  "array_length": null
-                }
-              },
-              "program_fingerprint": {
-                "optional": false,
-                "spec": {
-                  "kinds": [
-                    "string"
-                  ],
-                  "literals": [],
-                  "widened": false,
-                  "items": null,
-                  "fields": null,
-                  "ref": null,
-                  "wildcard": false,
-                  "variants": null,
-                  "record_values": null,
-                  "array_length": null
-                }
-              },
-              "program_id": {
-                "optional": false,
-                "spec": {
-                  "kinds": [
-                    "string"
-                  ],
-                  "literals": [],
-                  "widened": false,
-                  "items": null,
-                  "fields": null,
-                  "ref": null,
-                  "wildcard": false,
-                  "variants": null,
-                  "record_values": null,
-                  "array_length": null
-                }
-              },
-              "program_revision": {
-                "optional": false,
-                "spec": {
-                  "kinds": [
-                    "number"
-                  ],
-                  "literals": [],
-                  "widened": false,
-                  "items": null,
-                  "fields": null,
-                  "ref": null,
-                  "wildcard": false,
-                  "variants": null,
-                  "record_values": null,
-                  "array_length": null
-                }
-              },
-              "workout_id": {
-                "optional": false,
-                "spec": {
-                  "kinds": [
-                    "string"
-                  ],
-                  "literals": [],
-                  "widened": false,
-                  "items": null,
-                  "fields": null,
-                  "ref": null,
-                  "wildcard": false,
-                  "variants": null,
-                  "record_values": null,
-                  "array_length": null
-                }
-              }
-            },
-            "ref": null,
+            "fields": null,
+            "ref": "SwimCalendarAssignment",
             "wildcard": false,
             "variants": null,
             "record_values": null,
