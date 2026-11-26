@@ -21,8 +21,8 @@ from fastapi import Depends  # noqa: E402
 from data.database import Database  # noqa: E402
 from uuid import UUID  # noqa: E402
 from tests.smoke._swim_import_fixtures import exact_program_v2  # noqa: E402
-from services import swim_delivery  # noqa: E402
-from tests.swim_delivery_fixtures import IntervalsSandbox  # noqa: E402
+from services import garmin_swim_mcp, swim_delivery  # noqa: E402
+from tests.swim_delivery_fixtures import GarminSandbox, IntervalsSandbox  # noqa: E402
 
 
 class SyntheticNativeProvider:
@@ -81,3 +81,15 @@ swim_delivery.get_client = lambda: delivery_transport
 @app.get("/_e2e/swim-delivery-state")
 def swim_delivery_state():
     return {"creates": delivery_transport.creates}
+
+
+garmin_transport = GarminSandbox()
+garmin_transport.defer_calendar = True
+garmin_swim_mcp.configured_script = lambda: "synthetic"
+garmin_swim_mcp.call = garmin_transport.call
+garmin_swim_mcp.scheduled_on = garmin_transport.scheduled_on
+
+
+@app.get("/_e2e/garmin-swim-delivery-state")
+def garmin_swim_delivery_state():
+    return {"creates": garmin_transport.calls.count("send_swim_workout")}

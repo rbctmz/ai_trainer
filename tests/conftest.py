@@ -47,10 +47,11 @@ DEBUG_FILES = {
 
 
 @pytest.fixture(autouse=True)
-def disable_live_intervals_credentials(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest):
+def disable_live_workout_delivery(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest):
     """Contributor-safe tests never inherit a developer's live write credential."""
     if request.node.get_closest_marker("live") is None:
         monkeypatch.setattr(Settings, "INTERVALS_ICU_API_KEY", None)
+        monkeypatch.setattr(Settings, "GARMIN_SWIM_MCP_SCRIPT", "")
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

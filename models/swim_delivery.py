@@ -90,15 +90,17 @@ def _repeat_count(group: SwimGroup | SwimGroupV2) -> int:
     return count.minimum
 
 
-def project_swim_delivery(document: ProgramDocument, workout_id: str) -> SwimDeliveryWorkout:
-    """Resolve one workout for the 25 m profile without altering its saved version."""
+def project_swim_delivery(
+    document: ProgramDocument, workout_id: str, *, pool_lengths: tuple[int, ...] = (FR255_POOL_METERS,),
+) -> SwimDeliveryWorkout:
+    """Resolve one workout for the selected pool profile without changing its saved version."""
     workout = next((item for item in document.workouts if item.id == workout_id), None)
     if workout is None:
         raise SwimDeliveryUnsupported("workout_not_found", workout_id)
     if workout.environment != "pool":
         raise SwimDeliveryUnsupported("unsupported_environment", workout_id)
     pool = workout.pool_length_meters
-    if pool != FR255_POOL_METERS:
+    if pool is None or pool not in pool_lengths:
         raise SwimDeliveryUnsupported("unsupported_pool_length", workout_id)
 
     exercises = {

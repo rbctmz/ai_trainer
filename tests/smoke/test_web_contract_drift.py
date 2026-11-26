@@ -207,18 +207,21 @@ def _resolve_param(db: Database, client: TestClient, source: str) -> str:
 def _prepare_swim_delivery_body(db, client, action, monkeypatch):
     from data.swim_program_store import confirm_preview, create_preview
     from models.planning_checkpoints import build_planning_checkpoint
-    from services import swim_delivery
+    from config.settings import Settings
+    from services import garmin_swim_mcp, swim_delivery
     from tests.planning_fixtures import seed_checkpoint
     from tests.smoke._planning_cycle_regressions import plan
     from tests.smoke._swim_program_fixtures import example_program
-    from tests.swim_delivery_fixtures import IntervalsSandbox
+    from tests.swim_delivery_fixtures import GarminSandbox, IntervalsSandbox, garmin_repeat_program
 
     root = "/api/planning/swim-calendar"
     observed = client.get("/api/planning/cycles/current").json()["athlete_day"]
     start = datetime.fromisoformat(observed).date()
     seed_checkpoint(db, build_planning_checkpoint(plan(start)))
     checkpoint = db.get_current_planning_checkpoint()["id"]
-    version = confirm_preview(db, create_preview(db, example_program(), base_revision=0)["preview_id"])
+    direct = action.startswith("garmin_")
+    program = garmin_repeat_program() if direct else example_program()
+    version = confirm_preview(db, create_preview(db, program, base_revision=0)["preview_id"])
     result = client.post(f"{root}/preview", json={
         "request_id": str(uuid4()),
         "expected_checkpoint_id": checkpoint,
@@ -234,9 +237,15 @@ def _prepare_swim_delivery_body(db, client, action, monkeypatch):
         "assignment_id": ready["changes"][0]["after"]["assignment_id"],
         "expected_checkpoint_id": committed.json()["checkpoint_id"],
     }
-    if action == "preview":
+    if direct:
+        garmin = GarminSandbox()
+        monkeypatch.setattr(Settings, "ACCEPTANCE_MODE", False)
+        monkeypatch.setattr(garmin_swim_mcp, "configured_script", lambda: Path("fake"))
+        monkeypatch.setattr(garmin_swim_mcp, "call", garmin.call)
+    if action.endswith("preview"):
         return body
-    shown = client.post(f"{root}/delivery/preview", json=body)
+    route = "garmin-delivery" if direct else "delivery"
+    shown = client.post(f"{root}/{route}/preview", json=body)
     assert shown.status_code == 200, shown.text
     monkeypatch.setattr(swim_delivery, "get_client", lambda: IntervalsSandbox())
     return {"preview_id": shown.json()["preview_id"], "confirm": True}

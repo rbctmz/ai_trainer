@@ -247,6 +247,11 @@ def _assert_sendable(conn: sqlite3.Connection, row: sqlite3.Row, stored: dict) -
         )
     if _already_attempted(conn, row["assignment_id"]):
         raise _existing_attempt()
+    if conn.execute("SELECT 1 FROM garmin_swim_delivery_previews WHERE assignment_id=? AND attempted=1",
+                    (row["assignment_id"],)).fetchone() is not None:
+        raise PlanningBuildPreviewError(
+            "swim_delivery_garmin_attempt", "Для назначения уже была прямая отправка в Garmin.",
+        )
     token = stored["write_token"]
     current = _prepare(conn, UUID(row["assignment_id"]), token["checkpoint_id"])
     if current.write_token != token:

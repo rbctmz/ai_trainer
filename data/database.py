@@ -5804,6 +5804,7 @@ class Database:
         cursor.execute('DELETE FROM planning_build_previews')
         cursor.execute('DELETE FROM swim_calendar_previews')
         cursor.execute('DELETE FROM swim_delivery_previews')
+        cursor.execute('DELETE FROM garmin_swim_delivery_previews')
         cursor.execute('DELETE FROM swim_import_previews')
         cursor.execute('DELETE FROM swim_import_revisions')
         cursor.execute('DELETE FROM swim_import_sources')

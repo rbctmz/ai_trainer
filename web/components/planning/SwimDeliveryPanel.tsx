@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { button, primary } from "@/components/swim/styles";
 import { ApiError, fetcher, isDemo, postJSON } from "@/lib/api";
+import { GarminSwimDeliveryPanel } from "./GarminSwimDeliveryPanel";
 import type {
   SwimCalendarRow, SwimDeliveryConfirmed, SwimDeliveryPreview, SwimDeliveryRead, SwimDeliveryReceipt,
   SwimDeliveryStep,
@@ -116,9 +117,11 @@ export function SwimDeliveryPanel({ row, checkpointId, editable, onClose }: {
 
   return <section aria-label="Доставка на Garmin" className="mt-3 min-w-0 space-y-3 rounded-lg border border-surface-border bg-surface-muted p-3">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <h3 ref={heading} tabIndex={-1} className="font-medium text-ink">Garmin FR255 через Intervals.icu</h3>
+      <h3 ref={heading} tabIndex={-1} className="font-medium text-ink">Доставка на Garmin</h3>
       <button className={button} type="button" disabled={busy} onClick={onClose}>Закрыть доставку</button>
     </div>
+    <GarminSwimDeliveryPanel row={row} checkpointId={checkpointId} editable={editable && !receipt && !busy && !preview} />
+    <h4 className="border-t border-surface-border pt-3 font-medium text-ink">Garmin FR255 через Intervals.icu</h4>
     {problem ? <p role="alert" className="border-l-2 border-tone-warning pl-2 text-sm text-ink">{problem}</p> : null}
     {backupWarning ? <p role="status" className="text-sm text-ink">Квитанция сохранена, резервная копия не обновилась.</p> : null}
     {receipt ? <>
