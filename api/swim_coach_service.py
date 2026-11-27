@@ -4,7 +4,7 @@ from typing import Any, Callable, Iterator
 
 from api.swim_coach_contract import SWIM_COACH_EVENT, SwimCoachTurnRequest
 from data import swim_import_store as drafts
-from models.ai_coach_runtime import run_native_tool_loop
+from models.ai_coach_runtime import NativeToolProviderError, run_native_tool_loop
 from models.swim_coach_tools import (
     SwimCoachTools,
     TOOL_SPECS,
@@ -22,6 +22,11 @@ LABELS = {
     "patch_swim_import": "Правка черновика",
     "ask_swim_import_question": "Уточнение задания",
     "unsupported": "Недоступное действие",
+}
+
+PROVIDER_ERRORS = {
+    "swim_coach_provider_payment_required": "На балансе провайдера ИИ недостаточно средств.",
+    "swim_coach_provider_failed": "Провайдер ИИ не смог обработать запрос.",
 }
 
 
@@ -116,6 +121,7 @@ def _stream_turn(
             lambda _name, data: canonical_json(data),
             max_rounds=2,
             system_prompt_override=tools.system_prompt(),
+            raise_provider_errors=True,
         )
         if any(not result["success"] for result in results):
             code = (
@@ -126,6 +132,13 @@ def _stream_turn(
                 )
                 else "swim_coach_tool_failed"
             )
+    except NativeToolProviderError as exc:
+        results = exc.tool_results
+        code = (
+            "swim_coach_provider_payment_required"
+            if exc.code == "payment_required"
+            else "swim_coach_provider_failed"
+        )
     except Exception:
         # A previous successful write may already be committed: always read back.
         code = "swim_coach_provider_failed"
@@ -159,7 +172,14 @@ def _stream_turn(
         questions, status, code = [], "error", exc.code
     if code is not None:
         status = "error"
-        text = "Не удалось завершить ответ Коуча. Откройте актуальный черновик и проверьте результат."
+        if text := PROVIDER_ERRORS.get(code):
+            text += (
+                " Черновик уже обновился. Проверьте изменения перед повтором."
+                if tools.mutated
+                else " Исходник сохранён."
+            )
+        else:
+            text = "Не удалось завершить ответ Коуча. Откройте актуальный черновик и проверьте результат."
     elif tools.mutated:
         text = "Черновик обновлён. Проверьте программу и подтвердите сохранение."
     elif questions:
@@ -167,7 +187,9 @@ def _stream_turn(
     else:
         code = "swim_coach_no_change"
         text = (
-            "Исходник и черновик доступны для проверки. Разбор или правка не выполнены."
+            "Коуч ответил, но не запустил разбор. Исходник сохранён."
+            if status == "unparsed"
+            else "Коуч ответил. Черновик остался без изменений."
         )
     if questions:
         text += "\n\n" + "\n".join(f"• {question}" for question in questions)

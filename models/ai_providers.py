@@ -52,6 +52,14 @@ def probe_success_message(response_text: str) -> str:
     )
 
 
+def _native_tool_failure(provider_label: str, exc: Exception) -> Dict[str, Any]:
+    return {
+        "text": f"Ошибка {provider_label}: {exc}",
+        "tool_calls": [],
+        "provider_error": "payment_required" if getattr(exc, "status_code", None) == 402 else "failed",
+    }
+
+
 class AIProvider(ABC):
     """Базовый класс для всех AI провайдеров"""
     
@@ -108,7 +116,8 @@ class AIProvider(ABC):
         ``tools`` — схемы из ``AITools.get_tool_schemas``. Нормализованный
         ответ: ``{"text": str, "tool_calls": [{"id", "name", "arguments"}]}``,
         где ``arguments`` — уже распарсенный dict, никогда SDK-объект или
-        JSON-строка.
+        JSON-строка. При ошибке SDK ответ может содержать безопасный код
+        ``provider_error`` отдельно от текста ошибки.
         """
         raise NotImplementedError(
             f"{type(self).__name__} не поддерживает нативный function calling"
@@ -242,7 +251,7 @@ class OpenAICompatibleToolsMixin:
         try:
             response = self.client.chat.completions.create(**request)
         except Exception as exc:
-            return {"text": f"Ошибка {type(self).__name__}: {exc}", "tool_calls": []}
+            return _native_tool_failure(type(self).__name__, exc)
 
         choice = response.choices[0]
         message = choice.message
@@ -478,7 +487,7 @@ class AnthropicProvider(AIProvider):
         try:
             response = self.client.messages.create(**request)
         except Exception as exc:
-            return {"text": f"Ошибка Anthropic: {exc}", "tool_calls": []}
+            return _native_tool_failure("Anthropic", exc)
 
         text_parts: List[str] = []
         tool_calls: List[Dict[str, Any]] = []
@@ -726,7 +735,7 @@ class DeepSeekResponsesToolsMixin:
         try:
             response = self.client.responses.create(**request)
         except Exception as exc:
-            return {"text": f"Ошибка {type(self).__name__}: {exc}", "tool_calls": []}
+            return _native_tool_failure(type(self).__name__, exc)
 
         result = responses_output_to_result(getattr(response, "output", None))
         # Spike #441: на финальном шаге output_text может быть None — но когда

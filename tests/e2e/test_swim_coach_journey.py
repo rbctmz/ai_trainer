@@ -18,6 +18,23 @@ def api_get(stack, path):
         return json.loads(response.read())
 
 
+def test_coach_shows_payment_failure_and_retains_source(web_stack):
+    page = web_stack.page
+    raw = api_post(web_stack, "/api/swim-imports", {
+        "source_text": "E2E: 100 м свободно", "request_id": "52762dc5-358e-4d82-a7a2-8fd1c60d3656",
+    })
+    page.goto(web_stack.web_base + f"/coach/swim?draft={raw['import_id']}")
+    page.get_by_role("button", name="Разобрать с Коучем", exact=True).click()
+    dialogue = page.get_by_role("region", name="Диалог о программе")
+    expect(dialogue.get_by_role("alert")).to_have_text(
+        "На балансе провайдера ИИ недостаточно средств. Исходник сохранён."
+    )
+    expect(dialogue).not_to_contain_text("UNTRUSTED_PROVIDER_CANARY")
+    expect(page.get_by_role("button", name="Подготовить предпросмотр", exact=True)).to_be_disabled()
+    draft = api_get(web_stack, f"/api/swim-imports/{raw['import_id']}")
+    assert draft["revision"] == 0 and draft["source_text"] == raw["source_text"]
+
+
 def test_coach_whole_program_clarify_preview_confirm_and_no_ai_reopen(web_stack):
     page = web_stack.page
     document = exact_program_v2()

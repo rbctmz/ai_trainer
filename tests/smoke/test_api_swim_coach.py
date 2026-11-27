@@ -3,10 +3,13 @@
 from copy import deepcopy
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import httpx
+from openai import APIStatusError
 import pytest
 
 from api.deps import get_database
@@ -14,6 +17,7 @@ from api.routers import coach
 from data.database import Database
 from data import swim_import_store as drafts
 from data import swim_program_store as library
+from models.ai_providers import DeepSeekProvider, DeepSeekResponsesProvider
 from tests.smoke.test_swim_import_store import capture, content, parse
 from api.swim_coach_contract import SwimCoachTurnRequest
 
@@ -83,6 +87,79 @@ def events(response):
         for line in response.text.splitlines()
         if line.startswith("data:")
     ]
+
+
+@pytest.mark.parametrize("provider_class", [DeepSeekProvider, DeepSeekResponsesProvider])
+@pytest.mark.parametrize(
+    "http_status, code, message",
+    [
+        (402, "swim_coach_provider_payment_required", "недостаточно средств"),
+        (503, "swim_coach_provider_failed", "Провайдер ИИ не смог обработать запрос"),
+    ],
+)
+def test_provider_http_failure_has_safe_reason(setup, monkeypatch, provider_class, http_status, code, message):
+    client, db, _ = setup
+    empty = capture(db)
+    response = httpx.Response(http_status, request=httpx.Request("POST", "https://provider.invalid"))
+
+    def rejected(**kwargs):
+        raise APIStatusError("PRIVATE_CANARY", response=response, body=None)
+
+    settings = SimpleNamespace(
+        DEEPSEEK_API_KEY=None,
+        DEEPSEEK_MODEL="offline",
+        DEEPSEEK_BASE_URL="https://provider.invalid",
+        AI_RESPONSE_MAX_TOKENS=256,
+        AI_TOOLS_TEMPERATURE=0,
+    )
+    provider = provider_class(settings=settings)
+    provider.api_key = "offline-only"
+    endpoint = SimpleNamespace(create=rejected)
+    provider.client = SimpleNamespace(chat=SimpleNamespace(completions=endpoint), responses=endpoint)
+    monkeypatch.setattr(coach, "resolve_provider", lambda _: provider)
+
+    reply = client.post("/api/coach/swim-import", json=request(empty))
+    out = events(reply)
+    update = next(event for event in out if event["type"] == "swim_import")
+    assert (update["status"], update["code"], update["revision"]) == ("error", code, 0)
+    assert any(message in event["content"] for event in out if event["type"] == "token")
+    assert "PRIVATE_CANARY" not in reply.text
+    assert drafts.get_draft(db, empty["import_id"])["revision"] == 0
+
+
+def test_text_only_reply_explains_that_no_parse_started(setup, monkeypatch):
+    client, db, _ = setup
+    empty = capture(db)
+    # Text resembling an SDK failure must not be interpreted as provider metadata.
+    provider = Provider([{"text": "Ошибка HTTP 402 PRIVATE_CANARY", "tool_calls": []}])
+    monkeypatch.setattr(coach, "resolve_provider", lambda _: provider)
+
+    reply = client.post("/api/coach/swim-import", json=request(empty))
+    out = events(reply)
+    update = next(event for event in out if event["type"] == "swim_import")
+    assert (update["status"], update["code"], update["revision"]) == ("unparsed", "swim_coach_no_change", 0)
+    assert any("не запустил разбор" in event["content"] for event in out if event["type"] == "token")
+    assert "PRIVATE_CANARY" not in reply.text
+
+
+def test_provider_failure_after_parse_reports_committed_draft(setup, monkeypatch):
+    client, db, _ = setup
+    empty = capture(db)
+    provider = Provider([
+        call("parse_swim_import", {"content": content()}),
+        {"text": "PRIVATE_CANARY", "tool_calls": [], "provider_error": "payment_required"},
+    ])
+    monkeypatch.setattr(coach, "resolve_provider", lambda _: provider)
+
+    reply = client.post("/api/coach/swim-import", json=request(empty))
+    out = events(reply)
+    update = next(event for event in out if event["type"] == "swim_import")
+    assert update["code"] == "swim_coach_provider_payment_required"
+    assert update["revision"] == 1 and update["readback_status"] == "current"
+    assert any(event["type"] == "tool_call" and event["status"] == "done" for event in out)
+    assert any("Черновик уже обновился" in event["content"] for event in out if event["type"] == "token")
+    assert "PRIVATE_CANARY" not in reply.text
+    assert drafts.get_draft(db, empty["import_id"])["revision"] == 1
 
 
 def test_http_parse_emits_one_whole_draft_and_no_false_saved_status(setup, monkeypatch):
