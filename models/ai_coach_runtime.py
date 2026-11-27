@@ -427,6 +427,13 @@ def build_grounding_tool_results(
     ]
 
 
+class NativeToolProviderError(RuntimeError):
+    def __init__(self, code: str, tool_results: list[Dict[str, Any]]):
+        super().__init__(code)
+        self.code = code
+        self.tool_results = tool_results
+
+
 def run_native_tool_loop(
     provider: Any,
     ai_tools: Any,
@@ -436,6 +443,7 @@ def run_native_tool_loop(
     *,
     max_rounds: int = 2,
     system_prompt_override: str | None = None,
+    raise_provider_errors: bool = False,
 ) -> tuple[str, list[Dict[str, Any]]]:
     """Нативный цикл инструментов (Issue #190).
 
@@ -446,6 +454,8 @@ def run_native_tool_loop(
     что и у маркерного ``collect_tool_results``: synthesis, SSE-события,
     proposals и grounding-fallback (#189) остаются общим кодом. Ноль вызовов —
     пустой список: grounding срабатывает на существующих call sites.
+    При ``raise_provider_errors`` ошибка SDK передаётся безопасным кодом
+    вместе с результатами уже выполненных инструментов.
     """
     system_prompt = system_prompt_override if system_prompt_override is not None else create_native_chat_system_prompt(ai_tools)
     schemas = (
@@ -466,6 +476,8 @@ def run_native_tool_loop(
     tool_results: list[Dict[str, Any]] = []
     for _round in range(max(1, int(max_rounds))):
         outcome = provider.generate_with_tools(messages, schemas, system_prompt=system_prompt) or {}
+        if raise_provider_errors and outcome.get("provider_error"):
+            raise NativeToolProviderError(outcome["provider_error"], tool_results)
         final_text = str(outcome.get("text") or "")
         calls = [call for call in list(outcome.get("tool_calls") or []) if call]
         if not calls:

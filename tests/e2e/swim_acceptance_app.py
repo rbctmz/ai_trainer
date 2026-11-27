@@ -33,6 +33,8 @@ class SyntheticNativeProvider:
 
     def generate_with_tools(self, messages, tools, system_prompt=""):
         draft = json.loads(system_prompt.split("\nSOURCE_DATA_JSON\n", 1)[1])
+        if draft["source_text"] == "E2E: 100 м свободно" and draft["document"] is None:
+            return {"text": "UNTRUSTED_PROVIDER_CANARY", "tool_calls": [], "provider_error": "payment_required"}
         document = exact_program_v2()
         if draft["source_text"] != document["source_text"]:
             raise RuntimeError("unsupported synthetic source")

@@ -6,7 +6,7 @@ import { streamSwimCoach, swimError } from "@/lib/swim-api";
 import type { SwimCoachEvent, SwimImportDraftResponse } from "@/lib/types";
 import { button, input, panel, primary } from "./styles";
 
-type Line = { role: "user" | "assistant"; text: string };
+type Line = { role: "user" | "assistant"; text: string; error?: boolean };
 
 export function SwimDialogue({ draft, busy, onStart, onFinish }: {
   draft: SwimImportDraftResponse; busy: boolean; onStart: () => void;
@@ -61,8 +61,8 @@ export function SwimDialogue({ draft, busy, onStart, onFinish }: {
           unavailable = event.readback_status === "unavailable";
         }
       }, abort.signal);
-      if (answer) setLines(previous => [...previous, { role: "assistant", text: answer }]);
-      if (failure) setError(swimError(new ApiError(422, "swim turn", failure)));
+      if (answer) setLines(previous => [...previous, { role: "assistant", text: answer, error: !!failure }]);
+      if (failure && !answer) setError(swimError(new ApiError(422, "swim turn", failure)));
       if (unavailable) setError("В ответе Коуча нет актуального чтения результата. Продолжайте после обновления черновика с сервера.");
       // No automatic resend on ambiguous transport outcome; read the real draft.
       setMessage("");
@@ -81,7 +81,7 @@ export function SwimDialogue({ draft, busy, onStart, onFinish }: {
     <h2 className="text-lg font-semibold text-ink">Разобрать с Коучем</h2>
     <p className="mt-1 text-sm text-ink-soft">Коуч уточняет и меняет черновик. Сохранение программы подтверждаете вы после предпросмотра.</p>
     {!draft.document ? <button type="button" disabled={!ready || busy} className={`${primary} mt-3`} onClick={() => void send("Разбери весь сохранённый исходник тренера. Неясные места оставь вопросами; сохрани все тренировки и серии.")}>Разобрать с Коучем</button> : null}
-    {lines.length ? <div className="mt-4 space-y-3" aria-label="История разбора">{lines.map((line, index) => <div key={index} className="min-w-0 rounded-lg bg-surface-muted p-3"><p className="text-sm font-medium text-ink">{line.role === "user" ? "Вы" : "Коуч"}</p><p className="mt-1 whitespace-pre-wrap break-words text-sm text-ink-soft">{line.text}</p></div>)}</div> : null}
+    {lines.length ? <div className="mt-4 space-y-3" aria-label="История разбора">{lines.map((line, index) => <div key={index} className="min-w-0 rounded-lg bg-surface-muted p-3"><p className="text-sm font-medium text-ink">{line.role === "user" ? "Вы" : "Коуч"}</p><p role={line.error ? "alert" : undefined} className="mt-1 whitespace-pre-wrap break-words text-sm text-ink-soft">{line.text}</p></div>)}</div> : null}
     {progress ? <p role="status" className="mt-3 text-sm text-ink-soft">{progress}</p> : null}
     {error ? <p role="alert" className="mt-3 text-sm border-l-2 border-tone-warning pl-3 text-ink">{error}</p> : null}
     <form className="mt-4 space-y-2" onSubmit={event => { event.preventDefault(); void send(message); }}>
